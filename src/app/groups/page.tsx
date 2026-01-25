@@ -56,14 +56,11 @@ export default function GroupsPage() {
   })
 
   // Fetch all participants for person search (prefetch on page load)
-  const { data: participantsData, isLoading: isLoadingParticipants } = useQuery<{
-    participants: ParticipantWithGroup[]
-    isConnected: boolean
-  }>({
+  const { data: participantsData, isLoading: isLoadingParticipants } = useQuery({
     queryKey: ['all-participants'],
-    queryFn: async () => {
+    queryFn: async (): Promise<{ participants: ParticipantWithGroup[]; isConnected: boolean }> => {
       const res = await fetch('/api/groups/participants')
-      return res.json()
+      return res.json() as Promise<{ participants: ParticipantWithGroup[]; isConnected: boolean }>
     },
     staleTime: 5 * 60 * 1000, // Cache for 5 minutes
   })
@@ -258,7 +255,7 @@ export default function GroupsPage() {
             {isLoadingParticipants && (
               <div className="py-3 px-4 text-center text-sm text-muted-foreground border-b">
                 <Loader2 className="h-4 w-4 animate-spin inline mr-2" />
-                Loading people ({participantsData?.participants?.length || 0} loaded)...
+                Loading people...
               </div>
             )}
             {!isLoadingParticipants && participantsData?.participants && (
