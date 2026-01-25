@@ -235,7 +235,7 @@ export function AttendanceSheet({
                   className="text-destructive hover:text-destructive"
                   onClick={() => onRemoveMember(record.contactId, record.id)}
                   disabled={!isConnected}
-                  title={!isConnected ? 'Connect WhatsApp to remove members' : 'Remove from group'}
+                  title={!isConnected ? 'Connect first to remove members' : 'Remove from group'}
                 >
                   <Trash2 className="h-4 w-4" />
                 </Button>

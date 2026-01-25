@@ -137,7 +137,7 @@ export function ContactSearchModal({
         <DialogHeader>
           <DialogTitle>Add Person to Group</DialogTitle>
           <DialogDescription>
-            Enter a phone number to add someone to the WhatsApp group
+            Enter a phone number to add someone to the group
           </DialogDescription>
         </DialogHeader>
 
@@ -154,7 +154,7 @@ export function ContactSearchModal({
 
           {!isConnected && (
             <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-3 text-sm text-yellow-800">
-              WhatsApp is not connected. Connect WhatsApp first to add members.
+              Not connected. Go to Connect page first to add members.
             </div>
           )}
 

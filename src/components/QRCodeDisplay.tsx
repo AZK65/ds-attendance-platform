@@ -51,10 +51,10 @@ export function QRCodeDisplay() {
         <CardHeader>
           <CardTitle className="flex items-center gap-2 text-green-600">
             <Check className="h-5 w-5" />
-            Connected to WhatsApp
+            Connected
           </CardTitle>
           <CardDescription>
-            Your WhatsApp is connected. You can now manage your groups.
+            You are connected. You can now manage your groups.
           </CardDescription>
         </CardHeader>
         <CardContent>
@@ -69,9 +69,9 @@ export function QRCodeDisplay() {
   return (
     <Card className="w-full max-w-md mx-auto">
       <CardHeader>
-        <CardTitle>Connect to WhatsApp</CardTitle>
+        <CardTitle>Connect</CardTitle>
         <CardDescription>
-          Scan the QR code with your WhatsApp to connect
+          Scan the QR code to connect
         </CardDescription>
       </CardHeader>
       <CardContent className="flex flex-col items-center gap-4">

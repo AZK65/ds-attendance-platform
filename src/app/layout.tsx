@@ -14,8 +14,8 @@ const geistMono = Geist_Mono({
 })
 
 export const metadata: Metadata = {
-  title: 'WhatsApp Attendance Platform',
-  description: 'Manage attendance through WhatsApp groups'
+  title: 'Qazi Groups',
+  description: 'Qazi Driving School - Group Management'
 }
 
 export default function RootLayout({

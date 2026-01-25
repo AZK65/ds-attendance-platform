@@ -539,10 +539,10 @@ export default function GroupDetailPage() {
             <AlertTriangle className="h-5 w-5 text-yellow-600" />
             <div>
               <p className="font-medium text-yellow-800">
-                WhatsApp not connected
+                Not connected
               </p>
               <p className="text-sm text-yellow-700">
-                Connect WhatsApp to add or remove members.
+                Connect first to add or remove members.
               </p>
             </div>
             <Link href="/connect" className="ml-auto">
@@ -616,7 +616,7 @@ export default function GroupDetailPage() {
                           participant.isSuperAdmin
                             ? "Can't remove group owner"
                             : !isConnected
-                            ? 'Connect WhatsApp to remove members'
+                            ? 'Connect first to remove members'
                             : 'Remove from group'
                         }
                       >
@@ -646,7 +646,7 @@ export default function GroupDetailPage() {
           <DialogHeader>
             <DialogTitle>Remove Member</DialogTitle>
             <DialogDescription>
-              This will remove the person from the WhatsApp group. This action cannot be undone.
+              This will remove the person from the group. This action cannot be undone.
             </DialogDescription>
           </DialogHeader>
           <DialogFooter>

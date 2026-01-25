@@ -17,7 +17,7 @@ export default function ConnectPage() {
                 <ArrowLeft className="h-4 w-4" />
               </Button>
             </Link>
-            <h1 className="text-xl font-semibold">Connect WhatsApp</h1>
+            <h1 className="text-xl font-semibold">Connect</h1>
           </div>
           <ConnectionStatus />
         </div>

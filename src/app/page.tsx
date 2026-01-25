@@ -33,7 +33,7 @@ export default function Home() {
     <div className="min-h-screen bg-background">
       <header className="border-b">
         <div className="container mx-auto px-4 py-4 flex items-center justify-between">
-          <h1 className="text-xl font-semibold">WhatsApp Attendance Platform</h1>
+          <h1 className="text-xl font-semibold">Qazi Groups</h1>
           <ConnectionStatus />
         </div>
       </header>
@@ -42,12 +42,11 @@ export default function Home() {
         <div className="max-w-4xl mx-auto">
           <div className="text-center mb-12">
             <h2 className="text-3xl font-bold mb-4">
-              Manage Attendance Through WhatsApp
+              Qazi Groups
             </h2>
             <p className="text-lg text-muted-foreground max-w-2xl mx-auto">
-              Connect your WhatsApp Business account, view your groups, and
-              manage attendance sheets with real-time sync to WhatsApp group
-              membership.
+              Manage your groups, track attendance, and sync members
+              all in one place.
             </p>
           </div>
 
@@ -59,7 +58,7 @@ export default function Home() {
                   Connect
                 </CardTitle>
                 <CardDescription>
-                  Link your WhatsApp account by scanning a QR code
+                  Link your account by scanning a QR code
                 </CardDescription>
               </CardHeader>
               <CardContent>
@@ -83,7 +82,7 @@ export default function Home() {
                   Groups
                 </CardTitle>
                 <CardDescription>
-                  View and select WhatsApp groups to manage
+                  View and select groups to manage
                 </CardDescription>
               </CardHeader>
               <CardContent>
@@ -131,10 +130,10 @@ export default function Home() {
                   1
                 </div>
                 <div>
-                  <h4 className="font-medium">Connect WhatsApp</h4>
+                  <h4 className="font-medium">Connect</h4>
                   <p className="text-sm text-muted-foreground">
                     Go to the Connect page and scan the QR code with your
-                    WhatsApp app
+                    phone
                   </p>
                 </div>
               </div>
@@ -145,7 +144,7 @@ export default function Home() {
                 <div>
                   <h4 className="font-medium">Select a Group</h4>
                   <p className="text-sm text-muted-foreground">
-                    Choose a WhatsApp group from your list to create an
+                    Choose a group from your list to create an
                     attendance sheet
                   </p>
                 </div>

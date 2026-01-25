@@ -434,17 +434,17 @@ export default function GroupsPage() {
         ) : (
           <div className="text-center py-12">
             <p className="text-muted-foreground mb-4">
-              No groups found. Make sure WhatsApp is connected.
+              No groups found. Make sure you are connected.
             </p>
             <Link href="/connect">
-              <Button>Connect WhatsApp</Button>
+              <Button>Connect</Button>
             </Link>
           </div>
         )}
 
         {data?.fromCache && (
           <p className="text-sm text-muted-foreground mt-4 text-center">
-            Showing cached data. Connect to WhatsApp to sync latest groups.
+            Showing cached data. Connect to sync latest groups.
           </p>
         )}
       </main>

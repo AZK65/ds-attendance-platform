@@ -49,7 +49,7 @@ export default function LoginPage() {
             height={80}
             className="mb-4"
           />
-          <h1 className="text-xl font-semibold">DS Attendance Platform</h1>
+          <h1 className="text-xl font-semibold">Qazi Groups</h1>
           <p className="text-sm text-muted-foreground mt-1">Enter password to continue</p>
         </div>
 
