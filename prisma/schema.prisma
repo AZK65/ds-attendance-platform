@@ -1,0 +1,97 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+model WhatsAppSession {
+  id        String   @id @default(cuid())
+  key       String   @unique
+  data      String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model Group {
+  id               String           @id
+  name             String
+  participantCount Int              @default(0)
+  lastSynced       DateTime         @default(now())
+  attendanceSheet  AttendanceSheet?
+  createdAt        DateTime         @default(now())
+  updatedAt        DateTime         @updatedAt
+}
+
+model Contact {
+  id         String             @id
+  phone      String
+  name       String?
+  pushName   String?
+  lastSynced DateTime           @default(now())
+  records    AttendanceRecord[]
+  createdAt  DateTime           @default(now())
+  updatedAt  DateTime           @updatedAt
+}
+
+model AttendanceSheet {
+  id        String             @id @default(cuid())
+  groupId   String             @unique
+  group     Group              @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  name      String
+  records   AttendanceRecord[]
+  createdAt DateTime           @default(now())
+  updatedAt DateTime           @updatedAt
+}
+
+model AttendanceRecord {
+  id                String          @id @default(cuid())
+  attendanceSheetId String
+  attendanceSheet   AttendanceSheet @relation(fields: [attendanceSheetId], references: [id], onDelete: Cascade)
+  contactId         String
+  contact           Contact         @relation(fields: [contactId], references: [id], onDelete: Cascade)
+  status            String          @default("absent")
+  notes             String?
+  date              DateTime        @default(now())
+  createdAt         DateTime        @default(now())
+  updatedAt         DateTime        @updatedAt
+
+  @@unique([attendanceSheetId, contactId, date])
+}
+
+// Stores Zoom attendance matching results for a specific meeting
+model ZoomAttendance {
+  id              String   @id @default(cuid())
+  groupId         String
+  meetingUUID     String
+  meetingDate     DateTime
+  moduleNumber    Int?
+  // JSON array of matched records
+  matchedRecords  String   // JSON: [{whatsappName, whatsappPhone, zoomName, duration}]
+  // JSON array of absent members
+  absentRecords   String   // JSON: [{name, phone}]
+  // JSON array of unmatched Zoom participants
+  unmatchedZoom   String   // JSON: [{name, duration}]
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@unique([groupId, meetingUUID])
+}
+
+// Stores learned Zoom name → WhatsApp phone matches from manual matching
+// So next class, the system auto-matches "iPhone de Ahmed" → "Ahmed Khan"
+model ZoomNameMatch {
+  id             String   @id @default(cuid())
+  zoomName       String   // The Zoom display name (e.g., "iPhone de Ahmed")
+  whatsappPhone  String   // The WhatsApp phone number
+  whatsappName   String   // The WhatsApp display name (for reference)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  @@unique([zoomName, whatsappPhone])
+}

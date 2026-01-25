@@ -1,0 +1,23 @@
+services:
+  app:
+    build: .
+    ports:
+      - "3000:3000"
+    volumes:
+      # Persist SQLite database
+      - app-data:/app/data
+      # Persist WhatsApp session (so you don't re-scan QR every restart)
+      - whatsapp-auth:/app/.wwebjs-auth
+      - whatsapp-cache:/app/.wwebjs_cache
+    environment:
+      - DATABASE_URL=file:/app/data/prod.db
+      - ZOOM_ACCOUNT_ID=${ZOOM_ACCOUNT_ID}
+      - ZOOM_CLIENT_ID=${ZOOM_CLIENT_ID}
+      - ZOOM_CLIENT_SECRET=${ZOOM_CLIENT_SECRET}
+      - NODE_ENV=production
+    restart: unless-stopped
+
+volumes:
+  app-data:
+  whatsapp-auth:
+  whatsapp-cache:
