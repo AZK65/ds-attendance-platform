@@ -58,6 +58,23 @@ export function getWhatsAppState() {
   }
 }
 
+export function resetWhatsAppState(): void {
+  if (state.client) {
+    try {
+      const client = state.client as { destroy: () => Promise<void> }
+      client.destroy().catch(() => {})
+    } catch {
+      // ignore
+    }
+  }
+  state.client = null
+  state.qr = null
+  state.isConnected = false
+  state.isConnecting = false
+  state.groupsCache = []
+  state.lastGroupSync = 0
+}
+
 export async function connectWhatsApp(): Promise<void> {
   if (state.isConnecting || state.isConnected) {
     return

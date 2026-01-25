@@ -29,8 +29,12 @@ export function QRCodeDisplay() {
   })
 
   const connectMutation = useMutation({
-    mutationFn: async () => {
-      const res = await fetch('/api/whatsapp/connect', { method: 'POST' })
+    mutationFn: async (force?: boolean) => {
+      const res = await fetch('/api/whatsapp/connect', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ force: force || false })
+      })
       return res.json()
     },
     onSuccess: () => {
@@ -69,9 +73,9 @@ export function QRCodeDisplay() {
         </CardDescription>
       </CardHeader>
       <CardContent className="flex flex-col items-center gap-4">
-        {!status?.isConnecting && !qrData?.qrImage && (
+        {!qrData?.qrImage && !status?.isConnecting && (
           <Button
-            onClick={() => connectMutation.mutate()}
+            onClick={() => connectMutation.mutate(false)}
             disabled={connectMutation.isPending}
           >
             {connectMutation.isPending ? (
@@ -85,12 +89,22 @@ export function QRCodeDisplay() {
           </Button>
         )}
 
-        {(status?.isConnecting || qrLoading) && !qrData?.qrImage && (
+        {status?.isConnecting && !qrData?.qrImage && (
           <div className="flex flex-col items-center gap-2 py-8">
             <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
             <p className="text-sm text-muted-foreground">
               Generating QR code...
             </p>
+            <Button
+              variant="ghost"
+              size="sm"
+              className="mt-2"
+              onClick={() => connectMutation.mutate(true)}
+              disabled={connectMutation.isPending}
+            >
+              <RefreshCw className="mr-2 h-4 w-4" />
+              Force Reconnect
+            </Button>
           </div>
         )}
 

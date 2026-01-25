@@ -1,8 +1,16 @@
-import { NextResponse } from 'next/server'
-import { connectWhatsApp, getWhatsAppState } from '@/lib/whatsapp/client'
+import { NextRequest, NextResponse } from 'next/server'
+import { connectWhatsApp, getWhatsAppState, resetWhatsAppState } from '@/lib/whatsapp/client'
 
-export async function POST() {
+export async function POST(request: NextRequest) {
   try {
+    const body = await request.json().catch(() => ({}))
+
+    // Force reset if requested
+    if (body?.force) {
+      console.log('[WhatsApp] Force reset requested')
+      resetWhatsAppState()
+    }
+
     await connectWhatsApp()
     const state = getWhatsAppState()
     return NextResponse.json({ success: true, ...state })
