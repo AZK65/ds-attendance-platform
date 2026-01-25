@@ -23,15 +23,17 @@ fi
 # Create .env if it doesn't exist
 if [ ! -f .env ]; then
     echo "Creating .env file..."
-    echo "Please enter your Zoom credentials:"
+    echo "Please enter your credentials:"
     read -p "ZOOM_ACCOUNT_ID: " ZOOM_ACCOUNT_ID
     read -p "ZOOM_CLIENT_ID: " ZOOM_CLIENT_ID
     read -p "ZOOM_CLIENT_SECRET: " ZOOM_CLIENT_SECRET
+    read -p "AUTH_PASSWORD (login password for the app): " AUTH_PASSWORD
 
     cat > .env << EOF
 ZOOM_ACCOUNT_ID=$ZOOM_ACCOUNT_ID
 ZOOM_CLIENT_ID=$ZOOM_CLIENT_ID
 ZOOM_CLIENT_SECRET=$ZOOM_CLIENT_SECRET
+AUTH_PASSWORD=$AUTH_PASSWORD
 DATABASE_URL=file:/app/data/prod.db
 EOF
     echo ".env file created."
