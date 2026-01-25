@@ -1,6 +1,6 @@
 FROM node:20-slim
 
-# Install Chromium dependencies for whatsapp-web.js
+# Install Chromium and dependencies for whatsapp-web.js
 RUN apt-get update && apt-get install -y \
     chromium \
     fonts-ipafont-gothic \
@@ -11,7 +11,8 @@ RUN apt-get update && apt-get install -y \
     --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
-# Set Chromium path for Puppeteer (used by whatsapp-web.js)
+# Find and set the actual Chromium binary path
+RUN which chromium || which chromium-browser || echo "Chromium not found!"
 ENV PUPPETEER_EXECUTABLE_PATH=/usr/bin/chromium
 ENV PUPPETEER_SKIP_CHROMIUM_DOWNLOAD=true
 

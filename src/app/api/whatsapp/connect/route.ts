@@ -16,8 +16,9 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ success: true, ...state })
   } catch (error) {
     console.error('Connect error:', error)
+    const message = error instanceof Error ? error.message : 'Failed to connect to WhatsApp'
     return NextResponse.json(
-      { error: 'Failed to connect to WhatsApp' },
+      { error: message },
       { status: 500 }
     )
   }
