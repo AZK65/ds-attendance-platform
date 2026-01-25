@@ -56,7 +56,10 @@ export default function GroupsPage() {
   })
 
   // Fetch all participants for person search (prefetch on page load)
-  const { data: participantsData, isLoading: isLoadingParticipants } = useQuery({
+  const { data: participantsData, isLoading: isLoadingParticipants } = useQuery<{
+    participants: ParticipantWithGroup[]
+    isConnected: boolean
+  }>({
     queryKey: ['all-participants'],
     queryFn: async () => {
       const res = await fetch('/api/groups/participants')
