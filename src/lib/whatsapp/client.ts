@@ -83,6 +83,29 @@ export async function connectWhatsApp(): Promise<void> {
   state.isConnecting = true
   state.qr = null
 
+  // Clean up stale Chromium lock files that prevent restart
+  try {
+    const fs = await import('fs')
+    const lockFiles = [
+      path.join(AUTH_FOLDER, 'session', 'Default', 'SingletonLock'),
+      path.join(AUTH_FOLDER, 'session', 'Default', 'SingletonCookie'),
+      path.join(AUTH_FOLDER, 'session', 'Default', 'SingletonSocket'),
+      path.join(AUTH_FOLDER, 'session', 'SingletonLock'),
+      path.join(AUTH_FOLDER, 'session', 'SingletonCookie'),
+      path.join(AUTH_FOLDER, 'session', 'SingletonSocket'),
+    ]
+    for (const lockFile of lockFiles) {
+      try {
+        fs.unlinkSync(lockFile)
+        console.log(`[WhatsApp] Removed stale lock: ${lockFile}`)
+      } catch {
+        // File doesn't exist, that's fine
+      }
+    }
+  } catch {
+    // Ignore cleanup errors
+  }
+
   try {
     // Dynamic import of whatsapp-web.js
     const { Client, LocalAuth } = await import('whatsapp-web.js')
@@ -101,6 +124,7 @@ export async function connectWhatsApp(): Promise<void> {
           '--disable-accelerated-2d-canvas',
           '--no-first-run',
           '--no-zygote',
+          '--single-process',
           '--disable-gpu'
         ]
       }
