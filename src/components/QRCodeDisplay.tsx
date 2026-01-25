@@ -35,7 +35,9 @@ export function QRCodeDisplay() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ force: force || false })
       })
-      return res.json()
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.error || 'Connection failed')
+      return data
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['whatsapp-status'] })
@@ -73,6 +75,12 @@ export function QRCodeDisplay() {
         </CardDescription>
       </CardHeader>
       <CardContent className="flex flex-col items-center gap-4">
+        {connectMutation.isError && (
+          <div className="w-full p-3 rounded bg-red-50 border border-red-200 text-sm text-red-700 text-center">
+            {connectMutation.error?.message || 'Connection failed'}
+          </div>
+        )}
+
         {!qrData?.qrImage && !status?.isConnecting && (
           <Button
             onClick={() => connectMutation.mutate(false)}
@@ -84,7 +92,7 @@ export function QRCodeDisplay() {
                 Connecting...
               </>
             ) : (
-              'Start Connection'
+              connectMutation.isError ? 'Retry Connection' : 'Start Connection'
             )}
           </Button>
         )}
