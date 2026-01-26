@@ -325,6 +325,12 @@ function normalizeNamePart(part: string): string {
   return NAME_VARIATIONS[part] || part
 }
 
+// Device/generic words to strip from names during normalization
+const DEVICE_WORDS = new Set([
+  'iphone', 'ipad', 'android', 'samsung', 'pixel', 'galaxy',
+  'phone', 'tablet', 'device', 'mobile', 'macbook', 'laptop'
+])
+
 // Normalize name for matching
 function normalizeName(name: string): string {
   const normalized = name
@@ -333,8 +339,14 @@ function normalizeName(name: string): string {
     .replace(/\s*\[[^\]]*\]/g, '')     // Remove [anything] in brackets
     .replace(/\s*#\d+/g, '')           // Remove #123 patterns
     .replace(/\s*[\(\[]?\d+[\)\]]?\s*$/, '')  // Remove trailing numbers
-    .replace(/[^a-z\s]/g, '')          // Remove non-letters
+    .replace(/['']s\b/g, '')            // Remove possessive 's before stripping non-letters
+    .replace(/[^a-z\s]/g, '')          // Remove non-letters (apostrophes, etc.)
     .replace(/\s+/g, ' ')              // Normalize spaces
+    .trim()
+    .split(' ')
+    .filter(word => !DEVICE_WORDS.has(word))  // Remove device words like "iphone", "android"
+    .join(' ')
+    .replace(/\s+/g, ' ')
     .trim()
 
   // Apply name variations to each part
@@ -526,9 +538,15 @@ export function matchZoomToWhatsApp(
   console.log('[Zoom Match] Learned matches available:', learnedMatches.length)
 
   // Build lookup from learned matches: zoomName (lowercase) -> whatsappPhone
+  // Store both the raw lowercase name and the normalized name for matching
   const learnedByZoomName = new Map<string, string>()
   for (const lm of learnedMatches) {
     learnedByZoomName.set(lm.zoomName.toLowerCase(), lm.whatsappPhone)
+    // Also store by normalized name so "Ahmed (iPhone)" matches learned "Ahmed"
+    const normalizedLearned = normalizeName(lm.zoomName)
+    if (normalizedLearned && !learnedByZoomName.has(normalizedLearned)) {
+      learnedByZoomName.set(normalizedLearned, lm.whatsappPhone)
+    }
   }
 
   // Build lookup from whatsappPhone -> member info
@@ -542,7 +560,8 @@ export function matchZoomToWhatsApp(
 
   // Phase 1: Apply learned matches first
   for (const [normalizedZoom, zp] of aggregatedZoom) {
-    const learnedPhone = learnedByZoomName.get(zp.name.toLowerCase())
+    // Try raw name first, then normalized name (handles "Ahmed (iPhone)" matching learned "Ahmed")
+    const learnedPhone = learnedByZoomName.get(zp.name.toLowerCase()) || learnedByZoomName.get(normalizedZoom)
     if (!learnedPhone) continue
 
     const member = memberByPhone.get(learnedPhone)

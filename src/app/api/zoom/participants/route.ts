@@ -58,16 +58,25 @@ export async function POST(request: NextRequest) {
 
     console.log(`[Zoom] Found ${zoomParticipants.length} Zoom participants`)
 
+    // Filter out the Zoom host/licensed account (has user_email set)
+    // The host (e.g., "Qazi Driving School") is a licensed Zoom user, not a student
+    const hostParticipants = zoomParticipants.filter(p => p.user_email)
+    const studentZoomParticipants = zoomParticipants.filter(p => !p.user_email)
+    if (hostParticipants.length > 0) {
+      console.log(`[Zoom] Filtered out ${hostParticipants.length} host/licensed user(s): ${hostParticipants.map(p => p.name).join(', ')}`)
+    }
+    console.log(`[Zoom] ${studentZoomParticipants.length} student participants after filtering`)
+
     // If groupId provided, match with WhatsApp members
     if (groupId) {
       const state = getWhatsAppState()
       if (!state.isConnected) {
         // Return just Zoom data without matching
         return NextResponse.json({
-          zoomParticipants,
+          zoomParticipants: studentZoomParticipants,
           matched: [],
           absent: [],
-          unmatchedZoom: zoomParticipants.map(p => ({
+          unmatchedZoom: studentZoomParticipants.map(p => ({
             name: p.name,
             duration: p.duration
           })),
@@ -87,7 +96,7 @@ export async function POST(request: NextRequest) {
       const learnedMatches = await prisma.zoomNameMatch.findMany()
       console.log(`[Zoom] Loaded ${learnedMatches.length} learned matches from database`)
 
-      const result = matchZoomToWhatsApp(zoomParticipants, students, learnedMatches)
+      const result = matchZoomToWhatsApp(studentZoomParticipants, students, learnedMatches)
       console.log(`[Zoom] Match results - matched: ${result.matched.length}, absent: ${result.absent.length}, unmatched: ${result.unmatchedZoom.length}`)
 
       return NextResponse.json(result)
@@ -95,10 +104,10 @@ export async function POST(request: NextRequest) {
 
     // Return just Zoom participants if no groupId
     return NextResponse.json({
-      zoomParticipants,
+      zoomParticipants: studentZoomParticipants,
       matched: [],
       absent: [],
-      unmatchedZoom: zoomParticipants.map(p => ({
+      unmatchedZoom: studentZoomParticipants.map(p => ({
         name: p.name,
         duration: p.duration
       }))

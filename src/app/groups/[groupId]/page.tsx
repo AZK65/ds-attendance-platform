@@ -42,7 +42,10 @@ import {
   Clock,
   Save,
   X,
-  Undo2
+  Undo2,
+  Bell,
+  Check,
+  XCircle
 } from 'lucide-react'
 import { Input } from '@/components/ui/input'
 import Link from 'next/link'
@@ -90,6 +93,16 @@ export default function GroupDetailPage() {
   const [saveSuccess, setSaveSuccess] = useState(false)
   const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false)
   const [loadedFromSave, setLoadedFromSave] = useState(false)
+
+  // Send Reminder state
+  const [showSendReminder, setShowSendReminder] = useState(false)
+  const [reminderModule, setReminderModule] = useState<number>(0)
+  const [reminderTime, setReminderTime] = useState('5 pm to 7 pm')
+  const [selectedMembers, setSelectedMembers] = useState<Set<string>>(new Set())
+  const [reminderSending, setReminderSending] = useState(false)
+  const [reminderLog, setReminderLog] = useState<Array<{ phone: string; name: string; status: 'sent' | 'failed' | 'pending'; error?: string }>>([])
+  const [reminderDone, setReminderDone] = useState(false)
+  const [reminderSummary, setReminderSummary] = useState<{ sent: number; failed: number; total: number } | null>(null)
 
   const { data: statusData } = useQuery({
     queryKey: ['whatsapp-status'],
@@ -435,16 +448,25 @@ export default function GroupDetailPage() {
   // Helper to identify generic/device names that need manual matching
   const isGenericZoomName = (name: string): boolean => {
     const lowerName = name.toLowerCase().trim()
+    // Strip parenthesized content to get the "real" name portion
+    const nameWithoutParens = lowerName.replace(/\s*\([^)]*\)/g, '').trim()
     const genericPatterns = [
       'iphone', 'ipad', 'android', 'samsung', 'pixel', 'galaxy',
       'zoom user', 'mobile user', 'phone', 'tablet', 'device',
       'user', 'guest', 'unknown', 'participant'
     ]
-    // Check if name matches common device/generic patterns
-    return genericPatterns.some(pattern => lowerName.includes(pattern)) ||
-           // Also flag very short names (1-2 chars) or pure numbers
-           lowerName.length <= 2 ||
-           /^\d+$/.test(lowerName)
+    // Only flag as generic if the name WITHOUT parenthesized content is itself
+    // a device/generic name, empty, very short, or pure numbers.
+    // "Ahmed (iPhone)" -> nameWithoutParens = "ahmed" -> NOT generic
+    // "iPhone" -> nameWithoutParens = "iphone" -> generic
+    // "Ahmed's iPhone" -> nameWithoutParens = "ahmed's iphone" -> check if entire name is generic
+    if (!nameWithoutParens || nameWithoutParens.length <= 2 || /^\d+$/.test(nameWithoutParens)) {
+      return true
+    }
+    // Check if the stripped name itself is entirely a device/generic term
+    return genericPatterns.some(pattern => nameWithoutParens === pattern) ||
+           // Also check possessive device names like "ahmed's iphone"
+           genericPatterns.some(pattern => /^[\w']+ /.test(nameWithoutParens) && nameWithoutParens.endsWith(pattern))
   }
 
   // Helper to check if two dates are on the same day
@@ -523,6 +545,23 @@ export default function GroupDetailPage() {
             >
               <Send className="mr-2 h-4 w-4" />
               Send Class Message
+            </Button>
+            <Button
+              onClick={() => {
+                setReminderModule(currentModuleNumber + 1)
+                setReminderTime('5 pm to 7 pm')
+                setSelectedMembers(new Set(participants.filter(p => !p.isSuperAdmin).map(p => p.phone)))
+                setReminderLog([])
+                setReminderDone(false)
+                setReminderSummary(null)
+                setReminderSending(false)
+                setShowSendReminder(true)
+              }}
+              disabled={!isConnected || participants.length === 0}
+              variant="outline"
+            >
+              <Bell className="mr-2 h-4 w-4" />
+              Send Reminder
             </Button>
             <Button
               onClick={() => setShowZoomAttendance(true)}
@@ -1356,6 +1395,317 @@ export default function GroupDetailPage() {
               </>
             )}
           </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Send Reminder Dialog */}
+      <Dialog
+        open={showSendReminder}
+        onOpenChange={(open) => {
+          if (!open && !reminderSending) {
+            setShowSendReminder(false)
+          }
+        }}
+      >
+        <DialogContent className="max-w-2xl max-h-[85vh] overflow-y-auto">
+          {!reminderSending && !reminderDone ? (
+            <>
+              <DialogHeader>
+                <DialogTitle className="flex items-center gap-2">
+                  <Bell className="h-5 w-5" />
+                  Send Private Reminder
+                </DialogTitle>
+                <DialogDescription>
+                  Send individual private messages to selected members about an upcoming class.
+                </DialogDescription>
+              </DialogHeader>
+
+              <div className="space-y-4">
+                {/* Module & Time */}
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <label className="text-sm font-medium">Module Number</label>
+                    <Input
+                      type="number"
+                      value={reminderModule}
+                      onChange={(e) => setReminderModule(parseInt(e.target.value) || 0)}
+                      min={1}
+                    />
+                  </div>
+                  <div>
+                    <label className="text-sm font-medium">Class Time</label>
+                    <Input
+                      type="text"
+                      value={reminderTime}
+                      onChange={(e) => setReminderTime(e.target.value)}
+                      placeholder="e.g., 5 pm to 7 pm"
+                    />
+                  </div>
+                </div>
+
+                {/* Message Preview */}
+                <div>
+                  <label className="text-sm font-medium">Message Preview</label>
+                  <div className="bg-muted p-3 rounded-lg text-sm mt-1 whitespace-pre-wrap">
+                    {`Reminder: Module ${reminderModule} class will be from ${reminderTime}. Please make sure to put your full name when joining the Zoom class. Invite Link: https://us02web.zoom.us/j/4171672829?pwd=ZTlHSEdmTGRYV1QraU5MaThqaC9Rdz09 — Password: qazi`}
+                  </div>
+                </div>
+
+                {/* Member Selection */}
+                <div>
+                  <div className="flex items-center justify-between mb-2">
+                    <label className="text-sm font-medium">
+                      Select Members ({selectedMembers.size} of {participants.filter(p => !p.isSuperAdmin).length})
+                    </label>
+                    <div className="flex gap-2">
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => setSelectedMembers(new Set(participants.filter(p => !p.isSuperAdmin).map(p => p.phone)))}
+                      >
+                        Select All
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => setSelectedMembers(new Set())}
+                      >
+                        Deselect All
+                      </Button>
+                    </div>
+                  </div>
+                  <div className="border rounded-lg max-h-60 overflow-y-auto divide-y">
+                    {participants.filter(p => !p.isSuperAdmin).map((p) => {
+                      const displayName = getDisplayName(p)
+                      const isSelected = selectedMembers.has(p.phone)
+                      return (
+                        <div
+                          key={p.id}
+                          className={`flex items-center gap-3 p-2 cursor-pointer transition-colors ${
+                            isSelected ? 'bg-primary/5' : 'hover:bg-muted/50'
+                          }`}
+                          onClick={() => {
+                            const next = new Set(selectedMembers)
+                            if (isSelected) {
+                              next.delete(p.phone)
+                            } else {
+                              next.add(p.phone)
+                            }
+                            setSelectedMembers(next)
+                          }}
+                        >
+                          <div className={`w-5 h-5 rounded border flex items-center justify-center flex-shrink-0 ${
+                            isSelected ? 'bg-primary border-primary' : 'border-gray-300'
+                          }`}>
+                            {isSelected && <Check className="h-3 w-3 text-white" />}
+                          </div>
+                          <div className="min-w-0 flex-1">
+                            {displayName ? (
+                              <>
+                                <p className="text-sm font-medium truncate">{displayName}</p>
+                                <p className="text-xs text-muted-foreground">+{p.phone}</p>
+                              </>
+                            ) : (
+                              <p className="text-sm font-medium">+{p.phone}</p>
+                            )}
+                          </div>
+                          {p.isAdmin && (
+                            <Badge variant="secondary" className="text-xs flex-shrink-0">
+                              <Shield className="h-3 w-3 mr-1" />
+                              Admin
+                            </Badge>
+                          )}
+                        </div>
+                      )
+                    })}
+                  </div>
+                </div>
+              </div>
+
+              <DialogFooter>
+                <Button variant="outline" onClick={() => setShowSendReminder(false)}>
+                  Cancel
+                </Button>
+                <Button
+                  onClick={async () => {
+                    if (selectedMembers.size === 0) return
+                    setReminderSending(true)
+                    setReminderLog(
+                      Array.from(selectedMembers).map(phone => {
+                        const p = participants.find(pt => pt.phone === phone)
+                        return {
+                          phone,
+                          name: p ? (getDisplayName(p) || phone) : phone,
+                          status: 'pending' as const
+                        }
+                      })
+                    )
+
+                    try {
+                      const res = await fetch(`/api/groups/${encodeURIComponent(groupId)}/notify`, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
+                          module: reminderModule,
+                          time: reminderTime,
+                          memberPhones: Array.from(selectedMembers)
+                        })
+                      })
+
+                      if (!res.ok) {
+                        const err = await res.json().catch(() => ({}))
+                        throw new Error(err.error || 'Failed to send reminders')
+                      }
+
+                      const reader = res.body?.getReader()
+                      if (!reader) throw new Error('No response stream')
+
+                      const decoder = new TextDecoder()
+                      let buffer = ''
+
+                      while (true) {
+                        const { done, value } = await reader.read()
+                        if (done) break
+
+                        buffer += decoder.decode(value, { stream: true })
+                        const lines = buffer.split('\n')
+                        buffer = lines.pop() || ''
+
+                        for (const line of lines) {
+                          if (!line.trim()) continue
+                          try {
+                            const event = JSON.parse(line)
+                            if (event.type === 'summary') {
+                              setReminderSummary(event)
+                            } else {
+                              setReminderLog(prev =>
+                                prev.map(entry =>
+                                  entry.phone === event.phone
+                                    ? { ...entry, status: event.status, error: event.error }
+                                    : entry
+                                )
+                              )
+                            }
+                          } catch {
+                            // Skip malformed lines
+                          }
+                        }
+                      }
+                    } catch (error) {
+                      console.error('Reminder send error:', error)
+                      // Mark all pending as failed
+                      setReminderLog(prev =>
+                        prev.map(entry =>
+                          entry.status === 'pending'
+                            ? { ...entry, status: 'failed', error: error instanceof Error ? error.message : 'Unknown error' }
+                            : entry
+                        )
+                      )
+                      setReminderSummary({
+                        sent: 0,
+                        failed: selectedMembers.size,
+                        total: selectedMembers.size
+                      })
+                    } finally {
+                      setReminderSending(false)
+                      setReminderDone(true)
+                    }
+                  }}
+                  disabled={selectedMembers.size === 0}
+                >
+                  <Send className="mr-2 h-4 w-4" />
+                  Send to {selectedMembers.size} {selectedMembers.size === 1 ? 'member' : 'members'}
+                </Button>
+              </DialogFooter>
+            </>
+          ) : (
+            <>
+              <DialogHeader>
+                <DialogTitle className="flex items-center gap-2">
+                  <Bell className="h-5 w-5" />
+                  {reminderDone ? 'Reminders Sent' : 'Sending Reminders...'}
+                </DialogTitle>
+                <DialogDescription>
+                  {reminderDone
+                    ? `Finished sending Module ${reminderModule} reminders.`
+                    : `Sending Module ${reminderModule} reminder to ${selectedMembers.size} members...`
+                  }
+                </DialogDescription>
+              </DialogHeader>
+
+              {/* Summary */}
+              {reminderSummary && (
+                <div className="grid grid-cols-3 gap-3">
+                  <div className="bg-blue-50 border border-blue-200 rounded-lg p-3 text-center">
+                    <span className="text-2xl font-bold text-blue-700">{reminderSummary.total}</span>
+                    <p className="text-sm text-blue-600">Total</p>
+                  </div>
+                  <div className="bg-green-50 border border-green-200 rounded-lg p-3 text-center">
+                    <span className="text-2xl font-bold text-green-700">{reminderSummary.sent}</span>
+                    <p className="text-sm text-green-600">Sent</p>
+                  </div>
+                  <div className="bg-red-50 border border-red-200 rounded-lg p-3 text-center">
+                    <span className="text-2xl font-bold text-red-700">{reminderSummary.failed}</span>
+                    <p className="text-sm text-red-600">Failed</p>
+                  </div>
+                </div>
+              )}
+
+              {/* Send Log */}
+              <div className="border rounded-lg max-h-72 overflow-y-auto divide-y">
+                {reminderLog.map((entry, i) => (
+                  <div key={i} className="flex items-center gap-3 p-2">
+                    <div className="flex-shrink-0">
+                      {entry.status === 'pending' && (
+                        <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
+                      )}
+                      {entry.status === 'sent' && (
+                        <CheckCircle className="h-4 w-4 text-green-600" />
+                      )}
+                      {entry.status === 'failed' && (
+                        <XCircle className="h-4 w-4 text-red-600" />
+                      )}
+                    </div>
+                    <div className="min-w-0 flex-1">
+                      <p className="text-sm font-medium truncate">{entry.name}</p>
+                      <p className="text-xs text-muted-foreground">+{entry.phone}</p>
+                    </div>
+                    <div className="flex-shrink-0">
+                      {entry.status === 'sent' && (
+                        <span className="text-xs text-green-600">Sent</span>
+                      )}
+                      {entry.status === 'failed' && (
+                        <span className="text-xs text-red-600" title={entry.error}>
+                          Failed
+                        </span>
+                      )}
+                      {entry.status === 'pending' && (
+                        <span className="text-xs text-muted-foreground">Waiting...</span>
+                      )}
+                    </div>
+                  </div>
+                ))}
+              </div>
+
+              {!reminderSending && (
+                <p className="text-xs text-muted-foreground text-center">
+                  {reminderSummary
+                    ? `${reminderSummary.sent} sent, ${reminderSummary.failed} failed out of ${reminderSummary.total}`
+                    : 'Processing...'}
+                </p>
+              )}
+
+              <DialogFooter>
+                <Button
+                  variant="outline"
+                  onClick={() => setShowSendReminder(false)}
+                  disabled={reminderSending}
+                >
+                  {reminderDone ? 'Close' : 'Cancel'}
+                </Button>
+              </DialogFooter>
+            </>
+          )}
         </DialogContent>
       </Dialog>
     </div>

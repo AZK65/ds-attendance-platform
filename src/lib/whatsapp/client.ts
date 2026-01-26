@@ -945,6 +945,65 @@ export async function searchContacts(searchTerm: string): Promise<ParticipantInf
   }
 }
 
+export async function sendPrivateMessage(phone: string, message: string): Promise<void> {
+  if (!state.client || !state.isConnected) {
+    throw new Error('WhatsApp not connected')
+  }
+
+  const chatId = phoneToJid(phone)
+
+  try {
+    const client = state.client as {
+      sendMessage: (chatId: string, content: string) => Promise<unknown>
+      pupPage?: {
+        evaluate: <T>(fn: string) => Promise<T>
+      }
+    }
+
+    console.log(`Sending private message to ${chatId}`)
+
+    // Try using pupPage to send directly via WhatsApp's internal API
+    if (client.pupPage) {
+      const result = await client.pupPage.evaluate(`
+        (async () => {
+          try {
+            const chatId = '${chatId}';
+            const message = ${JSON.stringify(message)};
+
+            // Get or create the chat
+            const chat = await window.Store.Chat.find(chatId);
+            if (!chat) {
+              return { error: 'Chat not found' };
+            }
+
+            // Send message using WWebJS internal method
+            await window.WWebJS.sendMessage(chat, message, {});
+
+            return { success: true };
+          } catch (e) {
+            return { error: String(e) };
+          }
+        })()
+      `) as { success?: boolean; error?: string }
+
+      if (result.error) {
+        console.error('pupPage send error:', result.error)
+        throw new Error(result.error)
+      }
+
+      console.log(`Private message sent to ${chatId} via pupPage`)
+      return
+    }
+
+    // Fallback to client.sendMessage
+    await client.sendMessage(chatId, message)
+    console.log(`Private message sent to ${chatId}`)
+  } catch (error) {
+    console.error(`Send private message error to ${chatId}:`, error)
+    throw error
+  }
+}
+
 export function phoneToJid(phone: string): string {
   const cleaned = phone.replace(/[^0-9]/g, '')
   return `${cleaned}@c.us`
