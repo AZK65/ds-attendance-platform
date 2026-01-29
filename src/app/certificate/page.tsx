@@ -109,21 +109,24 @@ const initialFormData: CertificateFormData = {
 }
 
 type Step = 'upload' | 'review' | 'download'
+type UploadMode = 'separate' | 'combined'
 
 export default function CertificatePage() {
   const [step, setStep] = useState<Step>('upload')
+  const [uploadMode, setUploadMode] = useState<UploadMode>('combined')
   const [licenceImage, setLicenceImage] = useState<string | null>(null)
   const [attendanceImage, setAttendanceImage] = useState<string | null>(null)
+  const [combinedImage, setCombinedImage] = useState<string | null>(null)
   const [formData, setFormData] = useState<CertificateFormData>(initialFormData)
   const [isProcessing, setIsProcessing] = useState(false)
 
-  // OCR mutation for processing both images
+  // OCR mutation for processing images
   const ocrMutation = useMutation({
-    mutationFn: async ({ licenceImage, attendanceImage }: { licenceImage: string | null, attendanceImage: string | null }) => {
+    mutationFn: async ({ licenceImage, attendanceImage, combinedImage }: { licenceImage: string | null, attendanceImage: string | null, combinedImage: string | null }) => {
       const res = await fetch('/api/ocr', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ licenceImage, attendanceImage })
+        body: JSON.stringify({ licenceImage, attendanceImage, combinedImage })
       })
       if (!res.ok) throw new Error('OCR failed')
       return res.json() as Promise<ExtractedData>
@@ -160,7 +163,7 @@ export default function CertificatePage() {
     }
   })
 
-  const handleImageUpload = (type: 'licence' | 'attendance') => (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleImageUpload = (type: 'licence' | 'attendance' | 'combined') => (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]
     if (!file) return
 
@@ -169,20 +172,32 @@ export default function CertificatePage() {
       const base64 = event.target?.result as string
       if (type === 'licence') {
         setLicenceImage(base64)
-      } else {
+      } else if (type === 'attendance') {
         setAttendanceImage(base64)
+      } else {
+        setCombinedImage(base64)
       }
     }
     reader.readAsDataURL(file)
   }
 
   const handleProcessImages = async () => {
-    if (!licenceImage && !attendanceImage) return
-    setIsProcessing(true)
-    try {
-      await ocrMutation.mutateAsync({ licenceImage, attendanceImage })
-    } finally {
-      setIsProcessing(false)
+    if (uploadMode === 'combined') {
+      if (!combinedImage) return
+      setIsProcessing(true)
+      try {
+        await ocrMutation.mutateAsync({ licenceImage: null, attendanceImage: null, combinedImage })
+      } finally {
+        setIsProcessing(false)
+      }
+    } else {
+      if (!licenceImage && !attendanceImage) return
+      setIsProcessing(true)
+      try {
+        await ocrMutation.mutateAsync({ licenceImage, attendanceImage, combinedImage: null })
+      } finally {
+        setIsProcessing(false)
+      }
     }
   }
 
@@ -195,7 +210,7 @@ export default function CertificatePage() {
     setStep('download')
   }
 
-  const canProceedToReview = licenceImage || attendanceImage
+  const canProceedToReview = uploadMode === 'combined' ? combinedImage : (licenceImage || attendanceImage)
 
   return (
     <div className="min-h-screen bg-background">
@@ -245,34 +260,52 @@ export default function CertificatePage() {
                 <p className="text-muted-foreground">Upload the driver&apos;s licence and attendance sheet to auto-fill the certificate</p>
               </div>
 
-              <div className="grid gap-6 md:grid-cols-2">
-                {/* Licence Upload */}
+              {/* Upload Mode Toggle */}
+              <div className="flex justify-center gap-2 mb-4">
+                <Button
+                  variant={uploadMode === 'combined' ? 'default' : 'outline'}
+                  onClick={() => setUploadMode('combined')}
+                  size="sm"
+                >
+                  Single Photo (Both Documents)
+                </Button>
+                <Button
+                  variant={uploadMode === 'separate' ? 'default' : 'outline'}
+                  onClick={() => setUploadMode('separate')}
+                  size="sm"
+                >
+                  Separate Photos
+                </Button>
+              </div>
+
+              {uploadMode === 'combined' ? (
+                /* Combined Upload - Single image with both documents */
                 <Card>
                   <CardHeader>
                     <CardTitle className="flex items-center gap-2">
                       <Camera className="h-5 w-5" />
-                      Driver&apos;s Licence
+                      Combined Photo
                     </CardTitle>
                     <CardDescription>
-                      Upload photo or scan of the licence
+                      Upload a single photo containing both the driver&apos;s licence and attendance sheet
                     </CardDescription>
                   </CardHeader>
                   <CardContent>
-                    <div className="border-2 border-dashed rounded-lg p-6 text-center hover:border-primary transition-colors">
+                    <div className="border-2 border-dashed rounded-lg p-8 text-center hover:border-primary transition-colors">
                       <input
                         type="file"
                         accept="image/*,.pdf"
-                        onChange={handleImageUpload('licence')}
+                        onChange={handleImageUpload('combined')}
                         className="hidden"
-                        id="licence-upload"
+                        id="combined-upload"
                       />
-                      <label htmlFor="licence-upload" className="cursor-pointer">
-                        {licenceImage ? (
+                      <label htmlFor="combined-upload" className="cursor-pointer">
+                        {combinedImage ? (
                           <div className="space-y-2">
                             <img
-                              src={licenceImage}
-                              alt="Uploaded licence"
-                              className="max-h-40 mx-auto rounded-lg"
+                              src={combinedImage}
+                              alt="Uploaded documents"
+                              className="max-h-60 mx-auto rounded-lg"
                             />
                             <div className="flex items-center justify-center gap-1 text-green-600">
                               <CheckCircle2 className="h-4 w-4" />
@@ -283,59 +316,107 @@ export default function CertificatePage() {
                           <div className="space-y-2">
                             <Upload className="h-10 w-10 mx-auto text-muted-foreground" />
                             <p className="font-medium">Click to upload</p>
-                            <p className="text-sm text-muted-foreground">PNG, JPG, PDF</p>
+                            <p className="text-sm text-muted-foreground">Photo with licence + attendance sheet</p>
                           </div>
                         )}
                       </label>
                     </div>
                   </CardContent>
                 </Card>
+              ) : (
+                /* Separate Uploads */
+                <div className="grid gap-6 md:grid-cols-2">
+                  {/* Licence Upload */}
+                  <Card>
+                    <CardHeader>
+                      <CardTitle className="flex items-center gap-2">
+                        <Camera className="h-5 w-5" />
+                        Driver&apos;s Licence
+                      </CardTitle>
+                      <CardDescription>
+                        Upload photo or scan of the licence
+                      </CardDescription>
+                    </CardHeader>
+                    <CardContent>
+                      <div className="border-2 border-dashed rounded-lg p-6 text-center hover:border-primary transition-colors">
+                        <input
+                          type="file"
+                          accept="image/*,.pdf"
+                          onChange={handleImageUpload('licence')}
+                          className="hidden"
+                          id="licence-upload"
+                        />
+                        <label htmlFor="licence-upload" className="cursor-pointer">
+                          {licenceImage ? (
+                            <div className="space-y-2">
+                              <img
+                                src={licenceImage}
+                                alt="Uploaded licence"
+                                className="max-h-40 mx-auto rounded-lg"
+                              />
+                              <div className="flex items-center justify-center gap-1 text-green-600">
+                                <CheckCircle2 className="h-4 w-4" />
+                                <span className="text-sm">Uploaded</span>
+                              </div>
+                            </div>
+                          ) : (
+                            <div className="space-y-2">
+                              <Upload className="h-10 w-10 mx-auto text-muted-foreground" />
+                              <p className="font-medium">Click to upload</p>
+                              <p className="text-sm text-muted-foreground">PNG, JPG, PDF</p>
+                            </div>
+                          )}
+                        </label>
+                      </div>
+                    </CardContent>
+                  </Card>
 
-                {/* Attendance Sheet Upload */}
-                <Card>
-                  <CardHeader>
-                    <CardTitle className="flex items-center gap-2">
-                      <FileText className="h-5 w-5" />
-                      Attendance Sheet
-                    </CardTitle>
-                    <CardDescription>
-                      Upload the Qazi attendance sheet with all dates
-                    </CardDescription>
-                  </CardHeader>
-                  <CardContent>
-                    <div className="border-2 border-dashed rounded-lg p-6 text-center hover:border-primary transition-colors">
-                      <input
-                        type="file"
-                        accept="image/*,.pdf"
-                        onChange={handleImageUpload('attendance')}
-                        className="hidden"
-                        id="attendance-upload"
-                      />
-                      <label htmlFor="attendance-upload" className="cursor-pointer">
-                        {attendanceImage ? (
-                          <div className="space-y-2">
-                            <img
-                              src={attendanceImage}
-                              alt="Uploaded attendance"
-                              className="max-h-40 mx-auto rounded-lg"
-                            />
-                            <div className="flex items-center justify-center gap-1 text-green-600">
-                              <CheckCircle2 className="h-4 w-4" />
-                              <span className="text-sm">Uploaded</span>
+                  {/* Attendance Sheet Upload */}
+                  <Card>
+                    <CardHeader>
+                      <CardTitle className="flex items-center gap-2">
+                        <FileText className="h-5 w-5" />
+                        Attendance Sheet
+                      </CardTitle>
+                      <CardDescription>
+                        Upload the Qazi attendance sheet with all dates
+                      </CardDescription>
+                    </CardHeader>
+                    <CardContent>
+                      <div className="border-2 border-dashed rounded-lg p-6 text-center hover:border-primary transition-colors">
+                        <input
+                          type="file"
+                          accept="image/*,.pdf"
+                          onChange={handleImageUpload('attendance')}
+                          className="hidden"
+                          id="attendance-upload"
+                        />
+                        <label htmlFor="attendance-upload" className="cursor-pointer">
+                          {attendanceImage ? (
+                            <div className="space-y-2">
+                              <img
+                                src={attendanceImage}
+                                alt="Uploaded attendance"
+                                className="max-h-40 mx-auto rounded-lg"
+                              />
+                              <div className="flex items-center justify-center gap-1 text-green-600">
+                                <CheckCircle2 className="h-4 w-4" />
+                                <span className="text-sm">Uploaded</span>
+                              </div>
                             </div>
-                          </div>
-                        ) : (
-                          <div className="space-y-2">
-                            <Upload className="h-10 w-10 mx-auto text-muted-foreground" />
-                            <p className="font-medium">Click to upload</p>
-                            <p className="text-sm text-muted-foreground">PNG, JPG, PDF</p>
-                          </div>
-                        )}
-                      </label>
-                    </div>
-                  </CardContent>
-                </Card>
-              </div>
+                          ) : (
+                            <div className="space-y-2">
+                              <Upload className="h-10 w-10 mx-auto text-muted-foreground" />
+                              <p className="font-medium">Click to upload</p>
+                              <p className="text-sm text-muted-foreground">PNG, JPG, PDF</p>
+                            </div>
+                          )}
+                        </label>
+                      </div>
+                    </CardContent>
+                  </Card>
+                </div>
+              )}
 
               <div className="flex justify-center">
                 <Button
@@ -679,6 +760,7 @@ export default function CertificatePage() {
                     setStep('upload')
                     setLicenceImage(null)
                     setAttendanceImage(null)
+                    setCombinedImage(null)
                     setFormData(initialFormData)
                   }}>
                     Create Another

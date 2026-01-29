@@ -277,14 +277,129 @@ IMPORTANT: Convert ALL dates to YYYY-MM-DD format. If a date shows "02/01/2025",
   }
 }
 
+async function processCombinedImage(combinedImage: string): Promise<Partial<ExtractedData>> {
+  console.log('Processing combined image, API key exists:', !!OPENROUTER_API_KEY)
+  console.log('Image data length:', combinedImage?.length || 0)
+
+  const response = await fetch('https://openrouter.ai/api/v1/chat/completions', {
+    method: 'POST',
+    headers: {
+      'Authorization': `Bearer ${OPENROUTER_API_KEY}`,
+      'Content-Type': 'application/json',
+      'HTTP-Referer': process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000',
+      'X-Title': 'DS Attendance Platform - Certificate Maker'
+    },
+    body: JSON.stringify({
+      model: 'moonshotai/kimi-k2.5',
+      messages: [
+        {
+          role: 'user',
+          content: [
+            {
+              type: 'image_url',
+              image_url: { url: combinedImage }
+            },
+            {
+              type: 'text',
+              text: `You are an OCR assistant specialized in reading Quebec driver's licenses AND driving school attendance sheets.
+
+This image contains BOTH a Quebec driver's licence AND a student attendance sheet from a driving school (Qazi Driving School format).
+
+Extract ALL the following information:
+
+FROM THE DRIVER'S LICENCE:
+- Licence Number (Numéro de permis) - Format like "A2536-090400-01"
+- Full Name - Last name, First name
+- Address
+
+FROM THE ATTENDANCE SHEET:
+- Contract Number
+- Phone Number
+- Registration Date, Expiry Date
+- ALL module and in-car session dates:
+  - PHASE 1: M1-M5 (theory modules)
+  - PHASE 2: M6, Sessions 1-4, M7
+  - PHASE 3: M8, Sessions 5-6, M9, Sessions 7-8, M10, Sessions 9-10
+  - PHASE 4: M11, Sessions 11-13, M12, Sessions 14-15
+
+Return ONLY valid JSON (no markdown, no code blocks):
+{
+  "licenceNumber": "the licence number exactly as shown",
+  "name": "LastName, FirstName",
+  "address": "full address",
+  "contractNumber": "contract number",
+  "phone": "phone number",
+  "registrationDate": "YYYY-MM-DD",
+  "expiryDate": "YYYY-MM-DD",
+  "module1Date": "YYYY-MM-DD",
+  "module2Date": "YYYY-MM-DD",
+  "module3Date": "YYYY-MM-DD",
+  "module4Date": "YYYY-MM-DD",
+  "module5Date": "YYYY-MM-DD",
+  "module6Date": "YYYY-MM-DD",
+  "sortie1Date": "YYYY-MM-DD",
+  "sortie2Date": "YYYY-MM-DD",
+  "module7Date": "YYYY-MM-DD",
+  "sortie3Date": "YYYY-MM-DD",
+  "sortie4Date": "YYYY-MM-DD",
+  "module8Date": "YYYY-MM-DD",
+  "sortie5Date": "YYYY-MM-DD",
+  "sortie6Date": "YYYY-MM-DD",
+  "module9Date": "YYYY-MM-DD",
+  "sortie7Date": "YYYY-MM-DD",
+  "sortie8Date": "YYYY-MM-DD",
+  "module10Date": "YYYY-MM-DD",
+  "sortie9Date": "YYYY-MM-DD",
+  "sortie10Date": "YYYY-MM-DD",
+  "module11Date": "YYYY-MM-DD",
+  "sortie11Date": "YYYY-MM-DD",
+  "sortie12Date": "YYYY-MM-DD",
+  "sortie13Date": "YYYY-MM-DD",
+  "module12Date": "YYYY-MM-DD",
+  "sortie14Date": "YYYY-MM-DD",
+  "sortie15Date": "YYYY-MM-DD"
+}
+
+IMPORTANT: Convert ALL dates to YYYY-MM-DD format. If a date shows "02/01/2025", convert to "2025-01-02". Use empty string for fields you cannot read clearly.`
+            }
+          ]
+        }
+      ],
+      max_tokens: 2500,
+      temperature: 0.1
+    })
+  })
+
+  if (!response.ok) {
+    const errorText = await response.text()
+    console.error('Combined OCR failed:', response.status, errorText)
+    return {}
+  }
+
+  const data = await response.json()
+  console.log('Combined OCR response:', JSON.stringify(data).substring(0, 500))
+  const content = data.choices?.[0]?.message?.content
+  if (!content) {
+    console.error('No content in combined OCR response')
+    return {}
+  }
+
+  try {
+    return JSON.parse(cleanJsonResponse(content))
+  } catch {
+    console.error('Failed to parse combined OCR:', content)
+    return {}
+  }
+}
+
 export async function POST(request: NextRequest) {
   try {
     console.log('OCR API called')
     const body = await request.json()
-    const { licenceImage, attendanceImage } = body
-    console.log('Received images - licence:', !!licenceImage, 'attendance:', !!attendanceImage)
+    const { licenceImage, attendanceImage, combinedImage } = body
+    console.log('Received images - licence:', !!licenceImage, 'attendance:', !!attendanceImage, 'combined:', !!combinedImage)
 
-    if (!licenceImage && !attendanceImage) {
+    if (!licenceImage && !attendanceImage && !combinedImage) {
       console.error('No images provided in request')
       return NextResponse.json(
         { error: 'No images provided' },
@@ -301,25 +416,37 @@ export async function POST(request: NextRequest) {
     }
     console.log('API key configured, length:', OPENROUTER_API_KEY.length)
 
-    // Process both images in parallel if both provided
-    const [licenceData, attendanceData] = await Promise.all([
-      licenceImage ? processLicenceImage(licenceImage) : Promise.resolve({} as Partial<ExtractedData>),
-      attendanceImage ? processAttendanceImage(attendanceImage) : Promise.resolve({} as Partial<ExtractedData>)
-    ])
+    let extractedData: ExtractedData
 
-    // Merge results, with attendance data taking precedence for shared fields
-    const extractedData: ExtractedData = {
-      ...emptyData,
-      ...licenceData, // Licence data
-      ...attendanceData, // Attendance data (overwrites if same field)
-    }
+    // If combined image provided, process it with a single OCR call
+    if (combinedImage) {
+      console.log('Processing combined image...')
+      const combinedData = await processCombinedImage(combinedImage)
+      extractedData = {
+        ...emptyData,
+        ...combinedData
+      }
+    } else {
+      // Process separate images in parallel
+      const [licenceData, attendanceData] = await Promise.all([
+        licenceImage ? processLicenceImage(licenceImage) : Promise.resolve({} as Partial<ExtractedData>),
+        attendanceImage ? processAttendanceImage(attendanceImage) : Promise.resolve({} as Partial<ExtractedData>)
+      ])
 
-    // If licence has better name/licenceNumber, prefer it
-    if (licenceData.licenceNumber && !attendanceData.licenceNumber) {
-      extractedData.licenceNumber = licenceData.licenceNumber
-    }
-    if (licenceData.name && !attendanceData.name) {
-      extractedData.name = licenceData.name
+      // Merge results, with attendance data taking precedence for shared fields
+      extractedData = {
+        ...emptyData,
+        ...licenceData, // Licence data
+        ...attendanceData, // Attendance data (overwrites if same field)
+      }
+
+      // If licence has better name/licenceNumber, prefer it
+      if (licenceData.licenceNumber && !attendanceData.licenceNumber) {
+        extractedData.licenceNumber = licenceData.licenceNumber
+      }
+      if (licenceData.name && !attendanceData.name) {
+        extractedData.name = licenceData.name
+      }
     }
 
     console.log('OCR completed successfully, returning data')
