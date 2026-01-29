@@ -135,6 +135,11 @@ export default function CertificatePage() {
       return res.json() as Promise<ExtractedData>
     },
     onSuccess: (data) => {
+      // Check if any meaningful data was extracted
+      const hasData = data.name || data.licenceNumber || data.module1Date
+      if (!hasData) {
+        console.warn('OCR completed but no data extracted')
+      }
       setFormData(prev => ({
         ...prev,
         ...data,
@@ -208,8 +213,8 @@ export default function CertificatePage() {
     if (!file) return
 
     try {
-      // Compress image to reduce size (max 2000px width, 80% quality)
-      const compressedBase64 = await compressImage(file, 2000, 0.8)
+      // Compress image to reduce size (max 2500px width, 85% quality for better OCR)
+      const compressedBase64 = await compressImage(file, 2500, 0.85)
 
       if (type === 'licence') {
         setLicenceImage(compressedBase64)

@@ -449,7 +449,12 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    console.log('OCR completed successfully, returning data')
+    // Check if any data was extracted
+    const hasData = extractedData.name || extractedData.licenceNumber || extractedData.module1Date
+    if (!hasData) {
+      console.warn('OCR completed but no meaningful data extracted. The AI may not have been able to read the image.')
+    }
+    console.log('OCR completed, extracted fields:', Object.entries(extractedData).filter(([, v]) => v).map(([k]) => k).join(', ') || 'none')
     return NextResponse.json(extractedData)
   } catch (error) {
     console.error('OCR error:', error instanceof Error ? error.message : error)
