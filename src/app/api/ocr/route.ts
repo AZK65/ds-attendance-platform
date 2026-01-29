@@ -280,24 +280,24 @@ export async function POST(request: NextRequest) {
     }
 
     // Process both images in parallel if both provided
-    const results = await Promise.all([
-      licenceImage ? processLicenceImage(licenceImage) : Promise.resolve({}),
-      attendanceImage ? processAttendanceImage(attendanceImage) : Promise.resolve({})
+    const [licenceData, attendanceData] = await Promise.all([
+      licenceImage ? processLicenceImage(licenceImage) : Promise.resolve({} as Partial<ExtractedData>),
+      attendanceImage ? processAttendanceImage(attendanceImage) : Promise.resolve({} as Partial<ExtractedData>)
     ])
 
     // Merge results, with attendance data taking precedence for shared fields
     const extractedData: ExtractedData = {
       ...emptyData,
-      ...results[0], // Licence data
-      ...results[1], // Attendance data (overwrites if same field)
+      ...licenceData, // Licence data
+      ...attendanceData, // Attendance data (overwrites if same field)
     }
 
     // If licence has better name/licenceNumber, prefer it
-    if (results[0].licenceNumber && !results[1].licenceNumber) {
-      extractedData.licenceNumber = results[0].licenceNumber
+    if (licenceData.licenceNumber && !attendanceData.licenceNumber) {
+      extractedData.licenceNumber = licenceData.licenceNumber
     }
-    if (results[0].name && !results[1].name) {
-      extractedData.name = results[0].name
+    if (licenceData.name && !attendanceData.name) {
+      extractedData.name = licenceData.name
     }
 
     return NextResponse.json(extractedData)
