@@ -128,7 +128,10 @@ export default function CertificatePage() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ licenceImage, attendanceImage, combinedImage })
       })
-      if (!res.ok) throw new Error('OCR failed')
+      if (!res.ok) {
+        const errorData = await res.json().catch(() => ({ error: 'Unknown error' }))
+        throw new Error(errorData.error || errorData.details || 'OCR failed')
+      }
       return res.json() as Promise<ExtractedData>
     },
     onSuccess: (data) => {
@@ -440,7 +443,7 @@ export default function CertificatePage() {
 
               {ocrMutation.isError && (
                 <p className="text-destructive text-sm text-center">
-                  Failed to process images. Please try again.
+                  {ocrMutation.error instanceof Error ? ocrMutation.error.message : 'Failed to process images. Please try again.'}
                 </p>
               )}
             </div>
