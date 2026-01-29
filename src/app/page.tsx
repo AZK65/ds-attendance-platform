@@ -5,7 +5,7 @@ import { ConnectionStatus } from '@/components/ConnectionStatus'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
-import { Link as LinkIcon, Users, ClipboardList, ArrowRight } from 'lucide-react'
+import { Link as LinkIcon, Users, ClipboardList, ArrowRight, Award } from 'lucide-react'
 import Link from 'next/link'
 
 export default function Home() {
@@ -50,7 +50,7 @@ export default function Home() {
             </p>
           </div>
 
-          <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3 mb-12">
+          <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-4 mb-12">
             <Card>
               <CardHeader>
                 <CardTitle className="flex items-center gap-2">
@@ -111,6 +111,28 @@ export default function Home() {
                 <div className="flex items-center justify-between">
                   <Badge variant="outline">PDF Export</Badge>
                   <Link href="/groups">
+                    <Button variant="ghost" size="sm">
+                      <ArrowRight className="h-4 w-4" />
+                    </Button>
+                  </Link>
+                </div>
+              </CardContent>
+            </Card>
+
+            <Card>
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2">
+                  <Award className="h-5 w-5" />
+                  Certificates
+                </CardTitle>
+                <CardDescription>
+                  Generate driving course certificates with OCR
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                <div className="flex items-center justify-between">
+                  <Badge variant="outline">OCR Scan</Badge>
+                  <Link href="/certificate">
                     <Button variant="ghost" size="sm">
                       <ArrowRight className="h-4 w-4" />
                     </Button>
