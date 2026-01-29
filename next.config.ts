@@ -6,8 +6,6 @@ const nextConfig: NextConfig = {
   images: {
     unoptimized: true,
   },
-  // Allow larger request bodies for image uploads (OCR)
-  serverBodyParsingMaxSize: '50mb',
 };
 
 export default nextConfig;

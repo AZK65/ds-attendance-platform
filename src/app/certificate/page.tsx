@@ -166,22 +166,74 @@ export default function CertificatePage() {
     }
   })
 
-  const handleImageUpload = (type: 'licence' | 'attendance' | 'combined') => (e: React.ChangeEvent<HTMLInputElement>) => {
+  // Compress image to reduce file size for upload
+  const compressImage = (file: File, maxWidth: number = 2000, quality: number = 0.8): Promise<string> => {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader()
+      reader.onload = (event) => {
+        const img = new Image()
+        img.onload = () => {
+          const canvas = document.createElement('canvas')
+          let { width, height } = img
+
+          // Scale down if needed
+          if (width > maxWidth) {
+            height = (height * maxWidth) / width
+            width = maxWidth
+          }
+
+          canvas.width = width
+          canvas.height = height
+          const ctx = canvas.getContext('2d')
+          if (!ctx) {
+            reject(new Error('Failed to get canvas context'))
+            return
+          }
+          ctx.drawImage(img, 0, 0, width, height)
+
+          // Convert to JPEG with compression
+          const compressedBase64 = canvas.toDataURL('image/jpeg', quality)
+          resolve(compressedBase64)
+        }
+        img.onerror = () => reject(new Error('Failed to load image'))
+        img.src = event.target?.result as string
+      }
+      reader.onerror = () => reject(new Error('Failed to read file'))
+      reader.readAsDataURL(file)
+    })
+  }
+
+  const handleImageUpload = (type: 'licence' | 'attendance' | 'combined') => async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]
     if (!file) return
 
-    const reader = new FileReader()
-    reader.onload = (event) => {
-      const base64 = event.target?.result as string
+    try {
+      // Compress image to reduce size (max 2000px width, 80% quality)
+      const compressedBase64 = await compressImage(file, 2000, 0.8)
+
       if (type === 'licence') {
-        setLicenceImage(base64)
+        setLicenceImage(compressedBase64)
       } else if (type === 'attendance') {
-        setAttendanceImage(base64)
+        setAttendanceImage(compressedBase64)
       } else {
-        setCombinedImage(base64)
+        setCombinedImage(compressedBase64)
       }
+    } catch (error) {
+      console.error('Image compression failed:', error)
+      // Fallback to original file if compression fails
+      const reader = new FileReader()
+      reader.onload = (event) => {
+        const base64 = event.target?.result as string
+        if (type === 'licence') {
+          setLicenceImage(base64)
+        } else if (type === 'attendance') {
+          setAttendanceImage(base64)
+        } else {
+          setCombinedImage(base64)
+        }
+      }
+      reader.readAsDataURL(file)
     }
-    reader.readAsDataURL(file)
   }
 
   const handleProcessImages = async () => {
