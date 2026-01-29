@@ -377,17 +377,23 @@ IMPORTANT: Convert ALL dates to YYYY-MM-DD format. If a date shows "02/01/2025",
   }
 
   const data = await response.json()
-  console.log('Combined OCR response:', JSON.stringify(data).substring(0, 500))
+  console.log('Combined OCR response:', JSON.stringify(data).substring(0, 1000))
   const content = data.choices?.[0]?.message?.content
   if (!content) {
-    console.error('No content in combined OCR response')
+    console.error('No content in combined OCR response. Full response:', JSON.stringify(data))
     return {}
   }
 
+  console.log('AI content (first 500 chars):', content.substring(0, 500))
+  console.log('AI content (last 500 chars):', content.substring(content.length - 500))
+
   try {
-    return JSON.parse(cleanJsonResponse(content))
-  } catch {
-    console.error('Failed to parse combined OCR:', content)
+    const cleaned = cleanJsonResponse(content)
+    console.log('Cleaned JSON (first 300 chars):', cleaned.substring(0, 300))
+    return JSON.parse(cleaned)
+  } catch (e) {
+    console.error('Failed to parse combined OCR. Error:', e instanceof Error ? e.message : e)
+    console.error('Raw content:', content)
     return {}
   }
 }
