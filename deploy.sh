@@ -28,17 +28,26 @@ if [ ! -f .env ]; then
     read -p "ZOOM_CLIENT_ID: " ZOOM_CLIENT_ID
     read -p "ZOOM_CLIENT_SECRET: " ZOOM_CLIENT_SECRET
     read -p "AUTH_PASSWORD (login password for the app): " AUTH_PASSWORD
+    read -p "OPENROUTER_API_KEY (for OCR/AI features): " OPENROUTER_API_KEY
 
     cat > .env << EOF
 ZOOM_ACCOUNT_ID=$ZOOM_ACCOUNT_ID
 ZOOM_CLIENT_ID=$ZOOM_CLIENT_ID
 ZOOM_CLIENT_SECRET=$ZOOM_CLIENT_SECRET
 AUTH_PASSWORD=$AUTH_PASSWORD
+OPENROUTER_API_KEY=$OPENROUTER_API_KEY
 DATABASE_URL=file:/app/data/prod.db
 EOF
     echo ".env file created."
 else
     echo ".env file already exists, skipping..."
+    # Check if OPENROUTER_API_KEY is missing from existing .env
+    if ! grep -q "OPENROUTER_API_KEY" .env; then
+        echo "OPENROUTER_API_KEY not found in .env file."
+        read -p "OPENROUTER_API_KEY (for OCR/AI features): " OPENROUTER_API_KEY
+        echo "OPENROUTER_API_KEY=$OPENROUTER_API_KEY" >> .env
+        echo "Added OPENROUTER_API_KEY to .env"
+    fi
 fi
 
 echo ""
