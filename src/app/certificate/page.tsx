@@ -108,12 +108,14 @@ const initialFormData: CertificateFormData = {
   certificateType: 'full'
 }
 
-type Step = 'upload' | 'review' | 'download'
+type Step = 'upload-pdf' | 'upload-docs' | 'review' | 'download'
 type UploadMode = 'separate' | 'combined'
 
 export default function CertificatePage() {
-  const [step, setStep] = useState<Step>('upload')
+  const [step, setStep] = useState<Step>('upload-pdf')
   const [uploadMode, setUploadMode] = useState<UploadMode>('combined')
+  const [templatePdf, setTemplatePdf] = useState<string | null>(null)
+  const [templatePdfName, setTemplatePdfName] = useState<string>('')
   const [licenceImage, setLicenceImage] = useState<string | null>(null)
   const [attendanceImage, setAttendanceImage] = useState<string | null>(null)
   const [combinedImage, setCombinedImage] = useState<string | null>(null)
@@ -150,7 +152,7 @@ export default function CertificatePage() {
 
   // PDF generation mutation
   const pdfMutation = useMutation({
-    mutationFn: async (data: CertificateFormData) => {
+    mutationFn: async (data: CertificateFormData & { templatePdf: string }) => {
       const res = await fetch('/api/certificate/generate', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -170,6 +172,20 @@ export default function CertificatePage() {
       URL.revokeObjectURL(url)
     }
   })
+
+  // Handle PDF template upload
+  const handlePdfUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    if (!file) return
+
+    const reader = new FileReader()
+    reader.onload = (event) => {
+      const base64 = event.target?.result as string
+      setTemplatePdf(base64)
+      setTemplatePdfName(file.name)
+    }
+    reader.readAsDataURL(file)
+  }
 
   // Compress image to reduce file size for upload
   const compressImage = (file: File, maxWidth: number = 2000, quality: number = 0.8): Promise<string> => {
@@ -266,10 +282,12 @@ export default function CertificatePage() {
   }
 
   const handleGeneratePDF = () => {
-    pdfMutation.mutate(formData)
+    if (!templatePdf) return
+    pdfMutation.mutate({ ...formData, templatePdf })
     setStep('download')
   }
 
+  const canProceedToOcr = templatePdf
   const canProceedToReview = uploadMode === 'combined' ? combinedImage : (licenceImage || attendanceImage)
 
   return (
@@ -291,33 +309,102 @@ export default function CertificatePage() {
           {/* Progress Steps */}
           <div className="flex items-center justify-center mb-8">
             <div className="flex items-center gap-2">
-              <div className={`flex items-center justify-center w-10 h-10 rounded-full font-bold ${step === 'upload' ? 'bg-primary text-primary-foreground' : 'bg-muted text-muted-foreground'}`}>
+              <div className={`flex items-center justify-center w-10 h-10 rounded-full font-bold ${step === 'upload-pdf' ? 'bg-primary text-primary-foreground' : 'bg-muted text-muted-foreground'}`}>
                 1
               </div>
-              <span className={step === 'upload' ? 'font-medium' : 'text-muted-foreground'}>Upload</span>
+              <span className={step === 'upload-pdf' ? 'font-medium' : 'text-muted-foreground'}>Template</span>
             </div>
-            <div className="w-16 h-0.5 bg-muted mx-2" />
+            <div className="w-12 h-0.5 bg-muted mx-2" />
             <div className="flex items-center gap-2">
-              <div className={`flex items-center justify-center w-10 h-10 rounded-full font-bold ${step === 'review' ? 'bg-primary text-primary-foreground' : 'bg-muted text-muted-foreground'}`}>
+              <div className={`flex items-center justify-center w-10 h-10 rounded-full font-bold ${step === 'upload-docs' ? 'bg-primary text-primary-foreground' : 'bg-muted text-muted-foreground'}`}>
                 2
               </div>
-              <span className={step === 'review' ? 'font-medium' : 'text-muted-foreground'}>Review & Edit</span>
+              <span className={step === 'upload-docs' ? 'font-medium' : 'text-muted-foreground'}>Scan</span>
             </div>
-            <div className="w-16 h-0.5 bg-muted mx-2" />
+            <div className="w-12 h-0.5 bg-muted mx-2" />
             <div className="flex items-center gap-2">
-              <div className={`flex items-center justify-center w-10 h-10 rounded-full font-bold ${step === 'download' ? 'bg-primary text-primary-foreground' : 'bg-muted text-muted-foreground'}`}>
+              <div className={`flex items-center justify-center w-10 h-10 rounded-full font-bold ${step === 'review' ? 'bg-primary text-primary-foreground' : 'bg-muted text-muted-foreground'}`}>
                 3
               </div>
-              <span className={step === 'download' ? 'font-medium' : 'text-muted-foreground'}>Download</span>
+              <span className={step === 'review' ? 'font-medium' : 'text-muted-foreground'}>Review</span>
+            </div>
+            <div className="w-12 h-0.5 bg-muted mx-2" />
+            <div className="flex items-center gap-2">
+              <div className={`flex items-center justify-center w-10 h-10 rounded-full font-bold ${step === 'download' ? 'bg-primary text-primary-foreground' : 'bg-muted text-muted-foreground'}`}>
+                4
+              </div>
+              <span className={step === 'download' ? 'font-medium' : 'text-muted-foreground'}>Done</span>
             </div>
           </div>
 
-          {/* Step 1: Upload */}
-          {step === 'upload' && (
+          {/* Step 1: Upload PDF Template */}
+          {step === 'upload-pdf' && (
             <div className="space-y-6">
               <div className="text-center mb-6">
-                <h2 className="text-2xl font-bold mb-2">Upload Documents</h2>
-                <p className="text-muted-foreground">Upload the driver&apos;s licence and attendance sheet to auto-fill the certificate</p>
+                <h2 className="text-2xl font-bold mb-2">Upload Certificate Template</h2>
+                <p className="text-muted-foreground">Upload the blank PDF certificate with the student&apos;s unique barcode</p>
+              </div>
+
+              <Card>
+                <CardHeader>
+                  <CardTitle className="flex items-center gap-2">
+                    <FileText className="h-5 w-5" />
+                    Certificate PDF
+                  </CardTitle>
+                  <CardDescription>
+                    Upload the blank certificate PDF from SAAQ. Each student has a unique barcode.
+                  </CardDescription>
+                </CardHeader>
+                <CardContent>
+                  <div className="border-2 border-dashed rounded-lg p-8 text-center hover:border-primary transition-colors">
+                    <input
+                      type="file"
+                      accept=".pdf"
+                      onChange={handlePdfUpload}
+                      className="hidden"
+                      id="pdf-upload"
+                    />
+                    <label htmlFor="pdf-upload" className="cursor-pointer">
+                      {templatePdf ? (
+                        <div className="space-y-2">
+                          <FileText className="h-12 w-12 mx-auto text-primary" />
+                          <div className="flex items-center justify-center gap-1 text-green-600">
+                            <CheckCircle2 className="h-4 w-4" />
+                            <span className="text-sm font-medium">{templatePdfName}</span>
+                          </div>
+                          <p className="text-xs text-muted-foreground">Click to replace</p>
+                        </div>
+                      ) : (
+                        <div className="space-y-2">
+                          <Upload className="h-10 w-10 mx-auto text-muted-foreground" />
+                          <p className="font-medium">Click to upload PDF</p>
+                          <p className="text-sm text-muted-foreground">Certificate template with unique barcode</p>
+                        </div>
+                      )}
+                    </label>
+                  </div>
+                </CardContent>
+              </Card>
+
+              <div className="flex justify-center">
+                <Button
+                  size="lg"
+                  onClick={() => setStep('upload-docs')}
+                  disabled={!canProceedToOcr}
+                >
+                  Continue
+                  <ArrowRight className="h-4 w-4 ml-2" />
+                </Button>
+              </div>
+            </div>
+          )}
+
+          {/* Step 2: Upload Documents for OCR */}
+          {step === 'upload-docs' && (
+            <div className="space-y-6">
+              <div className="text-center mb-6">
+                <h2 className="text-2xl font-bold mb-2">Scan Documents</h2>
+                <p className="text-muted-foreground">Upload the driver&apos;s licence and attendance sheet to auto-fill</p>
               </div>
 
               {/* Upload Mode Toggle */}
@@ -354,7 +441,7 @@ export default function CertificatePage() {
                     <div className="border-2 border-dashed rounded-lg p-8 text-center hover:border-primary transition-colors">
                       <input
                         type="file"
-                        accept="image/*,.pdf"
+                        accept="image/*"
                         onChange={handleImageUpload('combined')}
                         className="hidden"
                         id="combined-upload"
@@ -401,7 +488,7 @@ export default function CertificatePage() {
                       <div className="border-2 border-dashed rounded-lg p-6 text-center hover:border-primary transition-colors">
                         <input
                           type="file"
-                          accept="image/*,.pdf"
+                          accept="image/*"
                           onChange={handleImageUpload('licence')}
                           className="hidden"
                           id="licence-upload"
@@ -423,7 +510,7 @@ export default function CertificatePage() {
                             <div className="space-y-2">
                               <Upload className="h-10 w-10 mx-auto text-muted-foreground" />
                               <p className="font-medium">Click to upload</p>
-                              <p className="text-sm text-muted-foreground">PNG, JPG, PDF</p>
+                              <p className="text-sm text-muted-foreground">PNG, JPG</p>
                             </div>
                           )}
                         </label>
@@ -446,7 +533,7 @@ export default function CertificatePage() {
                       <div className="border-2 border-dashed rounded-lg p-6 text-center hover:border-primary transition-colors">
                         <input
                           type="file"
-                          accept="image/*,.pdf"
+                          accept="image/*"
                           onChange={handleImageUpload('attendance')}
                           className="hidden"
                           id="attendance-upload"
@@ -468,7 +555,7 @@ export default function CertificatePage() {
                             <div className="space-y-2">
                               <Upload className="h-10 w-10 mx-auto text-muted-foreground" />
                               <p className="font-medium">Click to upload</p>
-                              <p className="text-sm text-muted-foreground">PNG, JPG, PDF</p>
+                              <p className="text-sm text-muted-foreground">PNG, JPG</p>
                             </div>
                           )}
                         </label>
@@ -478,7 +565,11 @@ export default function CertificatePage() {
                 </div>
               )}
 
-              <div className="flex justify-center">
+              <div className="flex justify-between">
+                <Button variant="outline" onClick={() => setStep('upload-pdf')}>
+                  <ArrowLeft className="h-4 w-4 mr-2" />
+                  Back
+                </Button>
                 <Button
                   size="lg"
                   onClick={handleProcessImages}
@@ -506,7 +597,7 @@ export default function CertificatePage() {
             </div>
           )}
 
-          {/* Step 2: Review & Edit */}
+          {/* Step 3: Review & Edit */}
           {step === 'review' && (
             <div className="space-y-6">
               <div className="text-center mb-6">
@@ -776,9 +867,9 @@ export default function CertificatePage() {
               )}
 
               <div className="flex justify-between">
-                <Button variant="outline" onClick={() => setStep('upload')}>
+                <Button variant="outline" onClick={() => setStep('upload-docs')}>
                   <ArrowLeft className="h-4 w-4 mr-2" />
-                  Back to Upload
+                  Back
                 </Button>
                 <Button
                   size="lg"
@@ -801,7 +892,7 @@ export default function CertificatePage() {
             </div>
           )}
 
-          {/* Step 3: Download */}
+          {/* Step 4: Download */}
           {step === 'download' && (
             <div className="space-y-6">
               <div className="text-center">
@@ -812,12 +903,14 @@ export default function CertificatePage() {
                 <p className="text-muted-foreground mb-6">Your certificate has been downloaded automatically.</p>
 
                 <div className="flex justify-center gap-4">
-                  <Button variant="outline" onClick={() => pdfMutation.mutate(formData)}>
+                  <Button variant="outline" onClick={() => templatePdf && pdfMutation.mutate({ ...formData, templatePdf })}>
                     <Download className="h-4 w-4 mr-2" />
                     Download Again
                   </Button>
                   <Button onClick={() => {
-                    setStep('upload')
+                    setStep('upload-pdf')
+                    setTemplatePdf(null)
+                    setTemplatePdfName('')
                     setLicenceImage(null)
                     setAttendanceImage(null)
                     setCombinedImage(null)

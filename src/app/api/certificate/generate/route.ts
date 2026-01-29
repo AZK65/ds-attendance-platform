@@ -1,7 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { PDFDocument, rgb, StandardFonts } from 'pdf-lib'
-import fs from 'fs'
-import path from 'path'
+import { PDFDocument } from 'pdf-lib'
 
 interface CertificateFormData {
   name: string
@@ -41,237 +39,246 @@ interface CertificateFormData {
   sortie14Date: string
   sortie15Date: string
   certificateType: 'phase1' | 'full'
-}
-
-// Helper to format date from YYYY-MM-DD to display format
-function formatDate(dateStr: string): string {
-  if (!dateStr) return ''
-  return dateStr // Keep YYYY-MM-DD format for the certificate
+  templatePdf: string  // Base64 encoded PDF from user
 }
 
 export async function POST(request: NextRequest) {
   try {
     const formData: CertificateFormData = await request.json()
 
-    // Load the template PDF
-    const templatePath = path.join(process.cwd(), 'driving-certificate-6890-filled.pdf')
-
-    let pdfDoc: PDFDocument
-
-    if (fs.existsSync(templatePath)) {
-      // Load existing template
-      const templateBytes = fs.readFileSync(templatePath)
-      pdfDoc = await PDFDocument.load(templateBytes)
-    } else {
-      // Create new PDF if template not found
-      pdfDoc = await PDFDocument.create()
+    if (!formData.templatePdf) {
+      return NextResponse.json(
+        { error: 'No template PDF provided' },
+        { status: 400 }
+      )
     }
 
-    // Get the font
-    const font = await pdfDoc.embedFont(StandardFonts.Helvetica)
-    const boldFont = await pdfDoc.embedFont(StandardFonts.HelveticaBold)
+    // Load the user-uploaded PDF template
+    const base64Data = formData.templatePdf.replace(/^data:application\/pdf;base64,/, '')
+    const templateBytes = Buffer.from(base64Data, 'base64')
+    const pdfDoc = await PDFDocument.load(templateBytes)
 
-    // Choose which page to work with based on certificate type
-    const pageIndex = formData.certificateType === 'phase1' ? 0 : 1
+    // Get the form from the PDF
+    const form = pdfDoc.getForm()
 
-    // Make sure we have the page, or create it
-    while (pdfDoc.getPageCount() <= pageIndex) {
-      pdfDoc.addPage()
-    }
+    // Log all field names for debugging
+    const fields = form.getFields()
+    console.log('PDF form fields found:', fields.map(f => `${f.getName()} (${f.constructor.name})`).join(', '))
 
-    const page = pdfDoc.getPage(pageIndex)
-    const { height } = page.getSize()
-
-    // Define text color
-    const textColor = rgb(0, 0.25, 0.53) // Blue color matching the template
-
-    // Clear areas and add new text
-    // Student Information Section (positions based on template layout)
-    // Note: PDF coordinates start from bottom-left, so we need to flip Y
-
-    // Name field - approximately at y=680 from bottom on the template
-    const nameY = height - 145
-    page.drawText(formData.name, {
-      x: 42,
-      y: nameY,
-      size: 11,
-      font: font,
-      color: textColor,
-    })
-
-    // Address field
-    const addressY = height - 173
-    page.drawText(formData.address, {
-      x: 42,
-      y: addressY,
-      size: 11,
-      font: font,
-      color: textColor,
-    })
-
-    // Municipality
-    const cityY = height - 203
-    page.drawText(formData.municipality, {
-      x: 42,
-      y: cityY,
-      size: 11,
-      font: font,
-      color: textColor,
-    })
-
-    // Province
-    page.drawText(formData.province, {
-      x: 280,
-      y: cityY,
-      size: 11,
-      font: font,
-      color: textColor,
-    })
-
-    // Postal Code
-    page.drawText(formData.postalCode, {
-      x: 395,
-      y: cityY,
-      size: 11,
-      font: font,
-      color: textColor,
-    })
-
-    // Contract Number (split into boxes)
-    const contractY = height - 232
-    const contractNum = formData.contractNumber.padStart(3, ' ')
-    for (let i = 0; i < Math.min(contractNum.length, 8); i++) {
-      page.drawText(contractNum[i] || '', {
-        x: 55 + (i * 15),
-        y: contractY,
-        size: 11,
-        font: font,
-        color: textColor,
-      })
-    }
-
-    // Phone
-    page.drawText(formData.phone, {
-      x: 178,
-      y: contractY,
-      size: 11,
-      font: font,
-      color: textColor,
-    })
-
-    // License Number (for full certificate - page 2)
-    if (formData.certificateType === 'full' && formData.licenceNumber) {
-      const licenceY = height - 87
-      // Split licence number for individual boxes
-      const licNum = formData.licenceNumber.replace(/\s/g, '')
-      for (let i = 0; i < Math.min(licNum.length, 13); i++) {
-        page.drawText(licNum[i] || '', {
-          x: 190 + (i * 15.5),
-          y: licenceY,
-          size: 11,
-          font: boldFont,
-          color: textColor,
-        })
+    // Helper function to safely set text field
+    const setTextField = (fieldName: string, value: string) => {
+      if (!value) return
+      try {
+        const field = form.getTextField(fieldName)
+        field.setText(value)
+      } catch (e) {
+        console.log(`Field "${fieldName}" not found or not a text field`)
       }
     }
 
-    // Phase 1 module dates
-    const phase1StartY = formData.certificateType === 'phase1' ? height - 520 : height - 467
-    const phase1Dates = [
-      formData.module1Date,
-      formData.module2Date,
-      formData.module3Date,
-      formData.module4Date,
-      formData.module5Date,
-    ]
-
-    phase1Dates.forEach((date, index) => {
-      if (date) {
-        page.drawText(formatDate(date), {
-          x: formData.certificateType === 'phase1' ? 90 : 72,
-          y: phase1StartY - (index * 16),
-          size: 9,
-          font: font,
-          color: textColor,
-        })
+    // Helper function to check a checkbox
+    const setCheckbox = (fieldName: string, checked: boolean) => {
+      if (!checked) return
+      try {
+        const field = form.getCheckBox(fieldName)
+        if (checked) {
+          field.check()
+        } else {
+          field.uncheck()
+        }
+      } catch (e) {
+        console.log(`Checkbox "${fieldName}" not found`)
       }
-    })
+    }
 
-    // For full certificate, add all other phases
+    // Try to fill common field patterns
+    // Student Information
+    setTextField('Nom', formData.name)
+    setTextField('nom', formData.name)
+    setTextField('Name', formData.name)
+    setTextField('name', formData.name)
+    setTextField('NOM_ELEVE', formData.name)
+    setTextField('Nom_eleve', formData.name)
+
+    setTextField('Adresse', formData.address)
+    setTextField('adresse', formData.address)
+    setTextField('Address', formData.address)
+    setTextField('address', formData.address)
+    setTextField('ADRESSE_ELEVE', formData.address)
+
+    setTextField('Municipalite', formData.municipality)
+    setTextField('municipalite', formData.municipality)
+    setTextField('Municipality', formData.municipality)
+    setTextField('Ville', formData.municipality)
+    setTextField('ville', formData.municipality)
+
+    setTextField('Province', formData.province)
+    setTextField('province', formData.province)
+
+    setTextField('CodePostal', formData.postalCode)
+    setTextField('codePostal', formData.postalCode)
+    setTextField('Code_postal', formData.postalCode)
+    setTextField('PostalCode', formData.postalCode)
+
+    setTextField('Contrat', formData.contractNumber)
+    setTextField('contrat', formData.contractNumber)
+    setTextField('NumeroContrat', formData.contractNumber)
+    setTextField('Contract', formData.contractNumber)
+    setTextField('NO_CONTRAT', formData.contractNumber)
+
+    setTextField('Telephone', formData.phone)
+    setTextField('telephone', formData.phone)
+    setTextField('Phone', formData.phone)
+    setTextField('Tel', formData.phone)
+
+    setTextField('Permis', formData.licenceNumber)
+    setTextField('permis', formData.licenceNumber)
+    setTextField('NumeroPermis', formData.licenceNumber)
+    setTextField('Licence', formData.licenceNumber)
+    setTextField('NO_PERMIS', formData.licenceNumber)
+
+    // Phase 1 dates
+    setTextField('M1', formData.module1Date)
+    setTextField('Module1', formData.module1Date)
+    setTextField('module1', formData.module1Date)
+    setTextField('DATE_M1', formData.module1Date)
+
+    setTextField('M2', formData.module2Date)
+    setTextField('Module2', formData.module2Date)
+    setTextField('module2', formData.module2Date)
+    setTextField('DATE_M2', formData.module2Date)
+
+    setTextField('M3', formData.module3Date)
+    setTextField('Module3', formData.module3Date)
+    setTextField('module3', formData.module3Date)
+    setTextField('DATE_M3', formData.module3Date)
+
+    setTextField('M4', formData.module4Date)
+    setTextField('Module4', formData.module4Date)
+    setTextField('module4', formData.module4Date)
+    setTextField('DATE_M4', formData.module4Date)
+
+    setTextField('M5', formData.module5Date)
+    setTextField('Module5', formData.module5Date)
+    setTextField('module5', formData.module5Date)
+    setTextField('DATE_M5', formData.module5Date)
+
+    // Phase 2 dates
+    setTextField('M6', formData.module6Date)
+    setTextField('Module6', formData.module6Date)
+    setTextField('DATE_M6', formData.module6Date)
+
+    setTextField('S1', formData.sortie1Date)
+    setTextField('Sortie1', formData.sortie1Date)
+    setTextField('Session1', formData.sortie1Date)
+    setTextField('DATE_S1', formData.sortie1Date)
+
+    setTextField('S2', formData.sortie2Date)
+    setTextField('Sortie2', formData.sortie2Date)
+    setTextField('Session2', formData.sortie2Date)
+    setTextField('DATE_S2', formData.sortie2Date)
+
+    setTextField('M7', formData.module7Date)
+    setTextField('Module7', formData.module7Date)
+    setTextField('DATE_M7', formData.module7Date)
+
+    setTextField('S3', formData.sortie3Date)
+    setTextField('Sortie3', formData.sortie3Date)
+    setTextField('Session3', formData.sortie3Date)
+    setTextField('DATE_S3', formData.sortie3Date)
+
+    setTextField('S4', formData.sortie4Date)
+    setTextField('Sortie4', formData.sortie4Date)
+    setTextField('Session4', formData.sortie4Date)
+    setTextField('DATE_S4', formData.sortie4Date)
+
+    // Phase 3 dates
+    setTextField('M8', formData.module8Date)
+    setTextField('Module8', formData.module8Date)
+    setTextField('DATE_M8', formData.module8Date)
+
+    setTextField('S5', formData.sortie5Date)
+    setTextField('Sortie5', formData.sortie5Date)
+    setTextField('Session5', formData.sortie5Date)
+    setTextField('DATE_S5', formData.sortie5Date)
+
+    setTextField('S6', formData.sortie6Date)
+    setTextField('Sortie6', formData.sortie6Date)
+    setTextField('Session6', formData.sortie6Date)
+    setTextField('DATE_S6', formData.sortie6Date)
+
+    setTextField('M9', formData.module9Date)
+    setTextField('Module9', formData.module9Date)
+    setTextField('DATE_M9', formData.module9Date)
+
+    setTextField('S7', formData.sortie7Date)
+    setTextField('Sortie7', formData.sortie7Date)
+    setTextField('Session7', formData.sortie7Date)
+    setTextField('DATE_S7', formData.sortie7Date)
+
+    setTextField('S8', formData.sortie8Date)
+    setTextField('Sortie8', formData.sortie8Date)
+    setTextField('Session8', formData.sortie8Date)
+    setTextField('DATE_S8', formData.sortie8Date)
+
+    setTextField('M10', formData.module10Date)
+    setTextField('Module10', formData.module10Date)
+    setTextField('DATE_M10', formData.module10Date)
+
+    setTextField('S9', formData.sortie9Date)
+    setTextField('Sortie9', formData.sortie9Date)
+    setTextField('Session9', formData.sortie9Date)
+    setTextField('DATE_S9', formData.sortie9Date)
+
+    setTextField('S10', formData.sortie10Date)
+    setTextField('Sortie10', formData.sortie10Date)
+    setTextField('Session10', formData.sortie10Date)
+    setTextField('DATE_S10', formData.sortie10Date)
+
+    // Phase 4 dates
+    setTextField('M11', formData.module11Date)
+    setTextField('Module11', formData.module11Date)
+    setTextField('DATE_M11', formData.module11Date)
+
+    setTextField('S11', formData.sortie11Date)
+    setTextField('Sortie11', formData.sortie11Date)
+    setTextField('Session11', formData.sortie11Date)
+    setTextField('DATE_S11', formData.sortie11Date)
+
+    setTextField('S12', formData.sortie12Date)
+    setTextField('Sortie12', formData.sortie12Date)
+    setTextField('Session12', formData.sortie12Date)
+    setTextField('DATE_S12', formData.sortie12Date)
+
+    setTextField('S13', formData.sortie13Date)
+    setTextField('Sortie13', formData.sortie13Date)
+    setTextField('Session13', formData.sortie13Date)
+    setTextField('DATE_S13', formData.sortie13Date)
+
+    setTextField('M12', formData.module12Date)
+    setTextField('Module12', formData.module12Date)
+    setTextField('DATE_M12', formData.module12Date)
+
+    setTextField('S14', formData.sortie14Date)
+    setTextField('Sortie14', formData.sortie14Date)
+    setTextField('Session14', formData.sortie14Date)
+    setTextField('DATE_S14', formData.sortie14Date)
+
+    setTextField('S15', formData.sortie15Date)
+    setTextField('Sortie15', formData.sortie15Date)
+    setTextField('Session15', formData.sortie15Date)
+    setTextField('DATE_S15', formData.sortie15Date)
+
+    // Check the "Réussi" checkbox for full course
     if (formData.certificateType === 'full') {
-      // Phase 2 dates
-      const phase2Data = [
-        { date: formData.module6Date, label: 'Module 6' },
-        { date: formData.sortie1Date, label: 'Sortie 1' },
-        { date: formData.sortie2Date, label: 'Sortie 2' },
-        { date: formData.module7Date, label: 'Module 7' },
-        { date: formData.sortie3Date, label: 'Sortie 3' },
-        { date: formData.sortie4Date, label: 'Sortie 4' },
-      ]
-
-      const phase2StartY = height - 546
-      phase2Data.forEach((item, index) => {
-        if (item.date) {
-          page.drawText(formatDate(item.date), {
-            x: 72,
-            y: phase2StartY - (index * 14),
-            size: 9,
-            font: font,
-            color: textColor,
-          })
-        }
-      })
-
-      // Phase 3 dates
-      const phase3Data = [
-        formData.module8Date,
-        formData.sortie5Date,
-        formData.sortie6Date,
-        formData.module9Date,
-        formData.sortie7Date,
-        formData.sortie8Date,
-        formData.module10Date,
-        formData.sortie9Date,
-        formData.sortie10Date,
-      ]
-
-      const phase3StartY = height - 546
-      phase3Data.forEach((date, index) => {
-        if (date) {
-          page.drawText(formatDate(date), {
-            x: 240,
-            y: phase3StartY - (index * 14),
-            size: 9,
-            font: font,
-            color: textColor,
-          })
-        }
-      })
-
-      // Phase 4 dates
-      const phase4Data = [
-        formData.module11Date,
-        formData.sortie11Date,
-        formData.sortie12Date,
-        formData.sortie13Date,
-        formData.module12Date,
-        formData.sortie14Date,
-        formData.sortie15Date,
-      ]
-
-      const phase4StartY = height - 546
-      phase4Data.forEach((date, index) => {
-        if (date) {
-          page.drawText(formatDate(date), {
-            x: 408,
-            y: phase4StartY - (index * 14),
-            size: 9,
-            font: font,
-            color: textColor,
-          })
-        }
-      })
+      setCheckbox('Reussi', true)
+      setCheckbox('reussi', true)
+      setCheckbox('REUSSI', true)
+      setCheckbox('Réussi', true)
     }
+
+    // Flatten the form to make it non-editable (optional)
+    // form.flatten()
 
     // Serialize the PDF
     const pdfBytes = await pdfDoc.save()
@@ -287,7 +294,7 @@ export async function POST(request: NextRequest) {
   } catch (error) {
     console.error('PDF generation error:', error)
     return NextResponse.json(
-      { error: 'Failed to generate PDF' },
+      { error: 'Failed to generate PDF', details: error instanceof Error ? error.message : 'Unknown error' },
       { status: 500 }
     )
   }
