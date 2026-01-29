@@ -365,7 +365,7 @@ IMPORTANT: Convert ALL dates to YYYY-MM-DD format. If a date shows "02/01/2025",
           ]
         }
       ],
-      max_tokens: 2500,
+      max_tokens: 8000,
       temperature: 0.1
     })
   })
@@ -377,15 +377,83 @@ IMPORTANT: Convert ALL dates to YYYY-MM-DD format. If a date shows "02/01/2025",
   }
 
   const data = await response.json()
-  console.log('Combined OCR response:', JSON.stringify(data).substring(0, 1000))
-  const content = data.choices?.[0]?.message?.content
+  console.log('Combined OCR response (truncated):', JSON.stringify(data).substring(0, 500))
+
+  let content = data.choices?.[0]?.message?.content
+
+  // If content is empty but we have reasoning, try to extract data from reasoning
+  if (!content && data.choices?.[0]?.message?.reasoning) {
+    console.log('No content but found reasoning, attempting to extract data from reasoning...')
+    const reasoning = data.choices[0].message.reasoning
+
+    // Try to extract the JSON from reasoning or parse the data manually
+    const jsonMatch = reasoning.match(/\{[\s\S]*"licenceNumber"[\s\S]*\}/)
+    if (jsonMatch) {
+      content = jsonMatch[0]
+      console.log('Found JSON in reasoning')
+    } else {
+      // Manual extraction from reasoning text
+      console.log('Attempting manual extraction from reasoning...')
+      const extracted: Partial<ExtractedData> = {}
+
+      // Extract licence number
+      const licenceMatch = reasoning.match(/Licence Number[:\s]+([A-Z0-9-]+)/i)
+      if (licenceMatch) extracted.licenceNumber = licenceMatch[1]
+
+      // Extract name
+      const nameMatch = reasoning.match(/Name[:\s]+(?:It looks like\s+)?["']?([A-Z]+)\s+([A-Z]+)["']?/i)
+      if (nameMatch) extracted.name = `${nameMatch[1]}, ${nameMatch[2]}`
+
+      // Extract address
+      const addressMatch = reasoning.match(/Address[:\s]+([0-9]+-?[0-9]*\s+[A-Z\s]+,\s*[A-Z]+\s*\([A-Z]+\)\s*[A-Z0-9\s]+)/i)
+      if (addressMatch) extracted.address = addressMatch[1]
+
+      // Extract contract number
+      const contractMatch = reasoning.match(/Contract Number[:\s]+(\d+)/i)
+      if (contractMatch) extracted.contractNumber = contractMatch[1]
+
+      // Extract dates with format DD/MM/YYYY and convert to YYYY-MM-DD
+      const datePattern = /M(\d+)[^:]*:\s*(\d{2})\/(\d{2})\/(\d{4})/gi
+      let match
+      while ((match = datePattern.exec(reasoning)) !== null) {
+        const moduleNum = match[1]
+        const day = match[2]
+        const month = match[3]
+        const year = match[4]
+        const dateStr = `${year}-${month}-${day}`
+        const key = `module${moduleNum}Date` as keyof ExtractedData
+        if (key in emptyData) {
+          (extracted as Record<string, string>)[key] = dateStr
+        }
+      }
+
+      // Extract sortie/session dates
+      const sortiePattern = /(?:Session|Sortie)\s*(\d+)[^:]*:\s*(\d{2})\/(\d{2})\/(\d{4})/gi
+      while ((match = sortiePattern.exec(reasoning)) !== null) {
+        const sortieNum = match[1]
+        const day = match[2]
+        const month = match[3]
+        const year = match[4]
+        const dateStr = `${year}-${month}-${day}`
+        const key = `sortie${sortieNum}Date` as keyof ExtractedData
+        if (key in emptyData) {
+          (extracted as Record<string, string>)[key] = dateStr
+        }
+      }
+
+      if (Object.keys(extracted).length > 0) {
+        console.log('Extracted from reasoning:', Object.keys(extracted).join(', '))
+        return extracted
+      }
+    }
+  }
+
   if (!content) {
-    console.error('No content in combined OCR response. Full response:', JSON.stringify(data))
+    console.error('No content in combined OCR response')
     return {}
   }
 
   console.log('AI content (first 500 chars):', content.substring(0, 500))
-  console.log('AI content (last 500 chars):', content.substring(content.length - 500))
 
   try {
     const cleaned = cleanJsonResponse(content)
