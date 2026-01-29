@@ -51,3 +51,6 @@ next-env.d.ts
 # Database
 *.db
 *.db-journal
+
+# Data directory (templates, etc.)
+/data/

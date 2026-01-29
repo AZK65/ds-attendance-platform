@@ -95,3 +95,19 @@ model ZoomNameMatch {
 
   @@unique([zoomName, whatsappPhone])
 }
+
+// Certificate settings - stores configuration for auto-generating certificates
+model CertificateSettings {
+  id                    String   @id @default("default")
+  nextContractNumber    Int      @default(1)
+  nextAttestationNumber Int      @default(1)
+  attestationNumberEnd  Int      @default(9999)
+  schoolName            String   @default("École de Conduite Qazi")
+  schoolAddress         String   @default("786 rue Jean-Talon Ouest")
+  schoolCity            String   @default("Montréal")
+  schoolProvince        String   @default("QC")
+  schoolPostalCode      String   @default("H3N 1S2")
+  schoolNumber          String   @default("L526")
+  createdAt             DateTime @default(now())
+  updatedAt             DateTime @updatedAt
+}

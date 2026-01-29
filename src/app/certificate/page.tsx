@@ -1,13 +1,13 @@
 'use client'
 
-import { useState } from 'react'
-import { useMutation } from '@tanstack/react-query'
+import { useState, useEffect } from 'react'
+import { useMutation, useQuery } from '@tanstack/react-query'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Badge } from '@/components/ui/badge'
-import { Upload, FileText, Download, Loader2, Camera, ArrowLeft, ArrowRight, CheckCircle2, Edit3 } from 'lucide-react'
+import { Upload, FileText, Download, Loader2, Camera, ArrowLeft, ArrowRight, CheckCircle2, Edit3, Settings, Plus } from 'lucide-react'
 import Link from 'next/link'
 
 interface ExtractedData {
@@ -110,10 +110,12 @@ const initialFormData: CertificateFormData = {
 
 type Step = 'upload-pdf' | 'upload-docs' | 'review' | 'download'
 type UploadMode = 'separate' | 'combined'
+type TemplateMode = 'new' | 'upload'
 
 export default function CertificatePage() {
   const [step, setStep] = useState<Step>('upload-pdf')
   const [uploadMode, setUploadMode] = useState<UploadMode>('combined')
+  const [templateMode, setTemplateMode] = useState<TemplateMode>('new')
   const [templatePdf, setTemplatePdf] = useState<string | null>(null)
   const [templatePdfName, setTemplatePdfName] = useState<string>('')
   const [licenceImage, setLicenceImage] = useState<string | null>(null)
@@ -121,6 +123,29 @@ export default function CertificatePage() {
   const [combinedImage, setCombinedImage] = useState<string | null>(null)
   const [formData, setFormData] = useState<CertificateFormData>(initialFormData)
   const [isProcessing, setIsProcessing] = useState(false)
+
+  // Check if blank template exists
+  const { data: templateStatus, isLoading: isLoadingTemplate } = useQuery({
+    queryKey: ['certificate-template'],
+    queryFn: async () => {
+      const res = await fetch('/api/certificate/template')
+      if (res.status === 404) return { exists: false, template: null }
+      if (!res.ok) throw new Error('Failed to check template')
+      return res.json() as Promise<{ exists: boolean; template: string | null }>
+    }
+  })
+
+  // If blank template exists and mode is 'new', use it
+  useEffect(() => {
+    if (templateMode === 'new' && templateStatus?.exists && templateStatus?.template) {
+      setTemplatePdf(templateStatus.template)
+      setTemplatePdfName('Blank Template (from settings)')
+    } else if (templateMode === 'upload') {
+      // Clear template when switching to upload mode
+      setTemplatePdf(null)
+      setTemplatePdfName('')
+    }
+  }, [templateMode, templateStatus])
 
   // OCR mutation for processing images
   const ocrMutation = useMutation({
@@ -341,50 +366,123 @@ export default function CertificatePage() {
           {step === 'upload-pdf' && (
             <div className="space-y-6">
               <div className="text-center mb-6">
-                <h2 className="text-2xl font-bold mb-2">Upload Certificate Template</h2>
-                <p className="text-muted-foreground">Upload the blank PDF certificate with the student&apos;s unique barcode</p>
+                <div className="flex items-center justify-center gap-2 mb-2">
+                  <h2 className="text-2xl font-bold">Certificate Template</h2>
+                  <Link href="/certificate/settings">
+                    <Button variant="ghost" size="sm">
+                      <Settings className="h-4 w-4" />
+                    </Button>
+                  </Link>
+                </div>
+                <p className="text-muted-foreground">Choose to use a new certificate or upload one with a unique barcode</p>
               </div>
 
-              <Card>
-                <CardHeader>
-                  <CardTitle className="flex items-center gap-2">
-                    <FileText className="h-5 w-5" />
-                    Certificate PDF
-                  </CardTitle>
-                  <CardDescription>
-                    Upload the blank certificate PDF from SAAQ. Each student has a unique barcode.
-                  </CardDescription>
-                </CardHeader>
-                <CardContent>
-                  <div className="border-2 border-dashed rounded-lg p-8 text-center hover:border-primary transition-colors">
-                    <input
-                      type="file"
-                      accept=".pdf"
-                      onChange={handlePdfUpload}
-                      className="hidden"
-                      id="pdf-upload"
-                    />
-                    <label htmlFor="pdf-upload" className="cursor-pointer">
-                      {templatePdf ? (
-                        <div className="space-y-2">
-                          <FileText className="h-12 w-12 mx-auto text-primary" />
-                          <div className="flex items-center justify-center gap-1 text-green-600">
-                            <CheckCircle2 className="h-4 w-4" />
-                            <span className="text-sm font-medium">{templatePdfName}</span>
+              {/* Template Mode Toggle */}
+              <div className="flex justify-center gap-2 mb-4">
+                <Button
+                  variant={templateMode === 'new' ? 'default' : 'outline'}
+                  onClick={() => setTemplateMode('new')}
+                  disabled={!templateStatus?.exists}
+                  className="flex items-center gap-2"
+                >
+                  <Plus className="h-4 w-4" />
+                  New Certificate
+                  {!templateStatus?.exists && (
+                    <Badge variant="secondary" className="ml-1 text-xs">No template</Badge>
+                  )}
+                </Button>
+                <Button
+                  variant={templateMode === 'upload' ? 'default' : 'outline'}
+                  onClick={() => setTemplateMode('upload')}
+                  className="flex items-center gap-2"
+                >
+                  <Upload className="h-4 w-4" />
+                  Upload PDF
+                </Button>
+              </div>
+
+              {templateMode === 'new' ? (
+                /* New Certificate - Uses blank template from settings */
+                <Card>
+                  <CardHeader>
+                    <CardTitle className="flex items-center gap-2">
+                      <Plus className="h-5 w-5" />
+                      New Certificate
+                    </CardTitle>
+                    <CardDescription>
+                      Uses the blank template from settings. Contract and attestation numbers will auto-increment.
+                    </CardDescription>
+                  </CardHeader>
+                  <CardContent>
+                    {isLoadingTemplate ? (
+                      <div className="flex items-center justify-center p-8">
+                        <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+                      </div>
+                    ) : templateStatus?.exists ? (
+                      <div className="border-2 border-dashed rounded-lg p-8 text-center border-green-300 bg-green-50">
+                        <FileText className="h-12 w-12 mx-auto text-green-600 mb-2" />
+                        <div className="flex items-center justify-center gap-1 text-green-600">
+                          <CheckCircle2 className="h-4 w-4" />
+                          <span className="text-sm font-medium">Blank template ready</span>
+                        </div>
+                        <p className="text-xs text-muted-foreground mt-2">
+                          Numbers will auto-increment from settings
+                        </p>
+                      </div>
+                    ) : (
+                      <div className="border-2 border-dashed rounded-lg p-8 text-center border-amber-300 bg-amber-50">
+                        <FileText className="h-12 w-12 mx-auto text-amber-600 mb-2" />
+                        <p className="font-medium text-amber-800">No blank template configured</p>
+                        <p className="text-sm text-muted-foreground mt-2">
+                          Go to <Link href="/certificate/settings" className="underline">Settings</Link> to upload a blank template
+                        </p>
+                      </div>
+                    )}
+                  </CardContent>
+                </Card>
+              ) : (
+                /* Upload PDF - Manual upload */
+                <Card>
+                  <CardHeader>
+                    <CardTitle className="flex items-center gap-2">
+                      <FileText className="h-5 w-5" />
+                      Upload Certificate PDF
+                    </CardTitle>
+                    <CardDescription>
+                      Upload a certificate PDF with the student&apos;s unique barcode from SAAQ.
+                    </CardDescription>
+                  </CardHeader>
+                  <CardContent>
+                    <div className="border-2 border-dashed rounded-lg p-8 text-center hover:border-primary transition-colors">
+                      <input
+                        type="file"
+                        accept=".pdf"
+                        onChange={handlePdfUpload}
+                        className="hidden"
+                        id="pdf-upload"
+                      />
+                      <label htmlFor="pdf-upload" className="cursor-pointer">
+                        {templatePdf && templateMode === 'upload' ? (
+                          <div className="space-y-2">
+                            <FileText className="h-12 w-12 mx-auto text-primary" />
+                            <div className="flex items-center justify-center gap-1 text-green-600">
+                              <CheckCircle2 className="h-4 w-4" />
+                              <span className="text-sm font-medium">{templatePdfName}</span>
+                            </div>
+                            <p className="text-xs text-muted-foreground">Click to replace</p>
                           </div>
-                          <p className="text-xs text-muted-foreground">Click to replace</p>
-                        </div>
-                      ) : (
-                        <div className="space-y-2">
-                          <Upload className="h-10 w-10 mx-auto text-muted-foreground" />
-                          <p className="font-medium">Click to upload PDF</p>
-                          <p className="text-sm text-muted-foreground">Certificate template with unique barcode</p>
-                        </div>
-                      )}
-                    </label>
-                  </div>
-                </CardContent>
-              </Card>
+                        ) : (
+                          <div className="space-y-2">
+                            <Upload className="h-10 w-10 mx-auto text-muted-foreground" />
+                            <p className="font-medium">Click to upload PDF</p>
+                            <p className="text-sm text-muted-foreground">Certificate with unique barcode</p>
+                          </div>
+                        )}
+                      </label>
+                    </div>
+                  </CardContent>
+                </Card>
+              )}
 
               <div className="flex justify-center">
                 <Button
