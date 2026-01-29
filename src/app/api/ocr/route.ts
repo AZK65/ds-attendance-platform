@@ -102,6 +102,9 @@ function cleanJsonResponse(content: string): string {
 }
 
 async function processLicenceImage(licenceImage: string): Promise<Partial<ExtractedData>> {
+  console.log('Processing licence image, API key exists:', !!OPENROUTER_API_KEY)
+  console.log('Image data length:', licenceImage?.length || 0)
+
   const response = await fetch('https://openrouter.ai/api/v1/chat/completions', {
     method: 'POST',
     headers: {
@@ -147,13 +150,18 @@ Use empty string for fields you cannot read clearly.`
   })
 
   if (!response.ok) {
-    console.error('Licence OCR failed:', await response.text())
+    const errorText = await response.text()
+    console.error('Licence OCR failed:', response.status, errorText)
     return {}
   }
 
   const data = await response.json()
+  console.log('Licence OCR response:', JSON.stringify(data).substring(0, 500))
   const content = data.choices?.[0]?.message?.content
-  if (!content) return {}
+  if (!content) {
+    console.error('No content in licence OCR response')
+    return {}
+  }
 
   try {
     return JSON.parse(cleanJsonResponse(content))
@@ -164,6 +172,9 @@ Use empty string for fields you cannot read clearly.`
 }
 
 async function processAttendanceImage(attendanceImage: string): Promise<Partial<ExtractedData>> {
+  console.log('Processing attendance image, API key exists:', !!OPENROUTER_API_KEY)
+  console.log('Image data length:', attendanceImage?.length || 0)
+
   const response = await fetch('https://openrouter.ai/api/v1/chat/completions', {
     method: 'POST',
     headers: {
@@ -245,13 +256,18 @@ IMPORTANT: Convert ALL dates to YYYY-MM-DD format. If a date shows "02/01/2025",
   })
 
   if (!response.ok) {
-    console.error('Attendance OCR failed:', await response.text())
+    const errorText = await response.text()
+    console.error('Attendance OCR failed:', response.status, errorText)
     return {}
   }
 
   const data = await response.json()
+  console.log('Attendance OCR response:', JSON.stringify(data).substring(0, 500))
   const content = data.choices?.[0]?.message?.content
-  if (!content) return {}
+  if (!content) {
+    console.error('No content in attendance OCR response')
+    return {}
+  }
 
   try {
     return JSON.parse(cleanJsonResponse(content))
@@ -263,9 +279,13 @@ IMPORTANT: Convert ALL dates to YYYY-MM-DD format. If a date shows "02/01/2025",
 
 export async function POST(request: NextRequest) {
   try {
-    const { licenceImage, attendanceImage } = await request.json()
+    console.log('OCR API called')
+    const body = await request.json()
+    const { licenceImage, attendanceImage } = body
+    console.log('Received images - licence:', !!licenceImage, 'attendance:', !!attendanceImage)
 
     if (!licenceImage && !attendanceImage) {
+      console.error('No images provided in request')
       return NextResponse.json(
         { error: 'No images provided' },
         { status: 400 }
@@ -273,11 +293,13 @@ export async function POST(request: NextRequest) {
     }
 
     if (!OPENROUTER_API_KEY) {
+      console.error('OPENROUTER_API_KEY is not configured')
       return NextResponse.json(
         { error: 'OpenRouter API key not configured' },
         { status: 500 }
       )
     }
+    console.log('API key configured, length:', OPENROUTER_API_KEY.length)
 
     // Process both images in parallel if both provided
     const [licenceData, attendanceData] = await Promise.all([
@@ -300,11 +322,13 @@ export async function POST(request: NextRequest) {
       extractedData.name = licenceData.name
     }
 
+    console.log('OCR completed successfully, returning data')
     return NextResponse.json(extractedData)
   } catch (error) {
-    console.error('OCR error:', error)
+    console.error('OCR error:', error instanceof Error ? error.message : error)
+    console.error('OCR error stack:', error instanceof Error ? error.stack : 'No stack')
     return NextResponse.json(
-      { error: 'Internal server error' },
+      { error: 'Internal server error', details: error instanceof Error ? error.message : 'Unknown error' },
       { status: 500 }
     )
   }
