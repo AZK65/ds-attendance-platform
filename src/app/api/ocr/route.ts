@@ -114,7 +114,7 @@ async function processLicenceImage(licenceImage: string): Promise<Partial<Extrac
       'X-Title': 'DS Attendance Platform - Certificate Maker'
     },
     body: JSON.stringify({
-      model: 'qwen/qwen3-vl-8b-instruct',
+      model: 'google/gemini-2.0-flash-001',
       messages: [
         {
           role: 'user',
@@ -184,7 +184,7 @@ async function processAttendanceImage(attendanceImage: string): Promise<Partial<
       'X-Title': 'DS Attendance Platform - Certificate Maker'
     },
     body: JSON.stringify({
-      model: 'qwen/qwen3-vl-8b-instruct',
+      model: 'google/gemini-2.0-flash-001',
       messages: [
         {
           role: 'user',
@@ -290,7 +290,7 @@ async function processCombinedImage(combinedImage: string): Promise<Partial<Extr
       'X-Title': 'DS Attendance Platform - Certificate Maker'
     },
     body: JSON.stringify({
-      model: 'qwen/qwen3-vl-8b-instruct',
+      model: 'google/gemini-2.0-flash-001',
       messages: [
         {
           role: 'user',
