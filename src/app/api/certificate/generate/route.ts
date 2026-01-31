@@ -44,19 +44,19 @@ interface CertificateFormData {
 
 // Barcode position configuration
 // PDF page is Letter size: 612 x 792 points (8.5 x 11 inches at 72 points/inch)
-// Barcode is in top-right corner, BELOW the title text
+// Barcode is in top-right corner - need to capture ONLY the barcode lines, not the text
 const BARCODE_CONFIG = {
   // Position on page 1 where barcode is located (to copy from)
   page1: {
-    x: 485,     // X position from left - more to the right
-    y: 680,     // Y position from bottom - lowered
-    width: 110, // Width of barcode area only
-    height: 40  // Height of barcode area only (not including text above)
+    x: 490,     // X position from left - right side
+    y: 705,     // Y position from bottom - just the barcode lines
+    width: 100, // Width of barcode area only
+    height: 30  // Height of barcode lines only (no text)
   },
   // Position on page 2 where barcode should be copied to (same position)
   page2: {
-    x: 485,     // Same X position
-    y: 680,     // Same Y position
+    x: 490,     // Same X position
+    y: 705,     // Same Y position
   }
 }
 
@@ -166,42 +166,43 @@ export async function POST(request: NextRequest) {
     const permisFields = fields.filter(f => f.getName().toLowerCase().includes('permis'))
     console.log('Fields containing "permis":', permisFields.map(f => f.getName()))
 
-    // Exact field name from the PDF - "Numero de Permis" with capital P
+    // The licence number field appears to have individual character boxes
+    // Try to find fields like "Numéro de permis_1", "Numéro de permis_2", etc.
+    if (formData.licenceNumber) {
+      const cleanLicence = formData.licenceNumber.replace(/\s/g, '') // Remove spaces
+      console.log(`Clean licence number (${cleanLicence.length} chars): "${cleanLicence}"`)
+
+      // Try various naming patterns for individual character fields
+      for (let i = 0; i < cleanLicence.length; i++) {
+        const char = cleanLicence[i]
+        // Common patterns for individual character fields
+        setTextField(`Numéro de permis_${i + 1}`, char)
+        setTextField(`Numero de permis_${i + 1}`, char)
+        setTextField(`Numéro de Permis_${i + 1}`, char)
+        setTextField(`Numero de Permis_${i + 1}`, char)
+        setTextField(`NumeroDePermis_${i + 1}`, char)
+        setTextField(`permis_${i + 1}`, char)
+        setTextField(`Permis_${i + 1}`, char)
+        setTextField(`NP_${i + 1}`, char)
+        setTextField(`np_${i + 1}`, char)
+        // Without underscore
+        setTextField(`Numéro de permis${i + 1}`, char)
+        setTextField(`Numero de permis${i + 1}`, char)
+        setTextField(`permis${i + 1}`, char)
+        setTextField(`Permis${i + 1}`, char)
+      }
+    }
+
+    // Also try as a single field (in case it's not individual boxes)
     setTextField('Numero de Permis', formData.licenceNumber)
-    // Also try other variations just in case
     setTextField('Numéro de permis', formData.licenceNumber)
     setTextField('Numero de permis', formData.licenceNumber)
     setTextField('Numéro de Permis', formData.licenceNumber)
     setTextField('NumeroDePermis', formData.licenceNumber)
     setTextField('numero_de_permis', formData.licenceNumber)
-    setTextField('Numéro_de_permis', formData.licenceNumber)
-    setTextField('numero de permis', formData.licenceNumber)
-
-    // The licence number field might be split into individual character boxes
-    // Format: XX X X X XXXX XX (13 characters without spaces)
-    if (formData.licenceNumber) {
-      const cleanLicence = formData.licenceNumber.replace(/\s/g, '') // Remove spaces
-      console.log(`Clean licence number (${cleanLicence.length} chars): "${cleanLicence}"`)
-
-      // Try individual digit fields (permis_1, permis_2, etc. or P1, P2, etc.)
-      for (let i = 0; i < cleanLicence.length; i++) {
-        const char = cleanLicence[i]
-        setTextField(`permis_${i + 1}`, char)
-        setTextField(`Permis_${i + 1}`, char)
-        setTextField(`P${i + 1}`, char)
-        setTextField(`permis${i + 1}`, char)
-        setTextField(`Permis${i + 1}`, char)
-        setTextField(`NP${i + 1}`, char)
-        setTextField(`np${i + 1}`, char)
-      }
-    }
-
-    // Other variations
     setTextField('Permis', formData.licenceNumber)
     setTextField('permis', formData.licenceNumber)
     setTextField('NumeroPermis', formData.licenceNumber)
-    setTextField('Licence', formData.licenceNumber)
-    setTextField('licence', formData.licenceNumber)
     setTextField('NO_PERMIS', formData.licenceNumber)
     setTextField('NoPermis', formData.licenceNumber)
     setTextField('PermisConduire', formData.licenceNumber)
