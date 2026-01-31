@@ -48,15 +48,15 @@ interface CertificateFormData {
 const BARCODE_CONFIG = {
   // Position on page 1 where barcode is located (to copy from)
   page1: {
-    x: 470,     // X position from left - right side of page
-    y: 695,     // Y position from bottom - below the title, just the barcode
-    width: 120, // Width of barcode area only
-    height: 45  // Height of barcode area only (not including text above)
+    x: 485,     // X position from left - more to the right
+    y: 680,     // Y position from bottom - lowered
+    width: 110, // Width of barcode area only
+    height: 40  // Height of barcode area only (not including text above)
   },
   // Position on page 2 where barcode should be copied to (same position)
   page2: {
-    x: 470,     // Same X position
-    y: 695,     // Same Y position
+    x: 485,     // Same X position
+    y: 680,     // Same Y position
   }
 }
 
@@ -81,7 +81,11 @@ export async function POST(request: NextRequest) {
 
     // Log all field names for debugging
     const fields = form.getFields()
-    console.log('PDF form fields found:', fields.map(f => `${f.getName()} (${f.constructor.name})`).join(', '))
+    console.log('=== ALL PDF FORM FIELDS ===')
+    fields.forEach(f => {
+      console.log(`  Field: "${f.getName()}" (${f.constructor.name})`)
+    })
+    console.log(`=== Total: ${fields.length} fields ===`)
 
     // Helper function to safely set text field
     const setTextField = (fieldName: string, value: string) => {
