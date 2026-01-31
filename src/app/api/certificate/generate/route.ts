@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { PDFDocument } from 'pdf-lib'
+import { PDFDocument, rgb } from 'pdf-lib'
 
 interface CertificateFormData {
   name: string
@@ -44,19 +44,19 @@ interface CertificateFormData {
 
 // Barcode position configuration
 // PDF page is Letter size: 612 x 792 points (8.5 x 11 inches at 72 points/inch)
-// Barcode is in top-right corner of the page header
+// Barcode is in top-right corner, BELOW the title text
 const BARCODE_CONFIG = {
   // Position on page 1 where barcode is located (to copy from)
   page1: {
-    x: 430,     // X position from left (in points, 72 points = 1 inch) - right side
-    y: 710,     // Y position from bottom - near top of page
-    width: 150, // Width of barcode area
-    height: 60  // Height of barcode area
+    x: 470,     // X position from left - right side of page
+    y: 695,     // Y position from bottom - below the title, just the barcode
+    width: 120, // Width of barcode area only
+    height: 45  // Height of barcode area only (not including text above)
   },
   // Position on page 2 where barcode should be copied to (same position)
   page2: {
-    x: 430,     // Same X position
-    y: 710,     // Same Y position
+    x: 470,     // Same X position
+    y: 695,     // Same Y position
   }
 }
 
@@ -157,13 +157,40 @@ export async function POST(request: NextRequest) {
 
     // Driver's Licence Number - try ALL possible field name variations
     console.log(`Attempting to set licence number: "${formData.licenceNumber}"`)
-    // Exact field name from the PDF (with accent)
+
+    // Log all fields that contain "permis" (case insensitive) for debugging
+    const permisFields = fields.filter(f => f.getName().toLowerCase().includes('permis'))
+    console.log('Fields containing "permis":', permisFields.map(f => f.getName()))
+
+    // Exact field name from the PDF (with accent and various cases)
     setTextField('Numéro de permis', formData.licenceNumber)
     setTextField('Numero de permis', formData.licenceNumber)
     setTextField('Numéro de Permis', formData.licenceNumber)
     setTextField('Numero de Permis', formData.licenceNumber)
     setTextField('NumeroDePermis', formData.licenceNumber)
     setTextField('numero_de_permis', formData.licenceNumber)
+    setTextField('Numéro_de_permis', formData.licenceNumber)
+    setTextField('numero de permis', formData.licenceNumber)
+
+    // The licence number field might be split into individual character boxes
+    // Format: XX X X X XXXX XX (13 characters without spaces)
+    if (formData.licenceNumber) {
+      const cleanLicence = formData.licenceNumber.replace(/\s/g, '') // Remove spaces
+      console.log(`Clean licence number (${cleanLicence.length} chars): "${cleanLicence}"`)
+
+      // Try individual digit fields (permis_1, permis_2, etc. or P1, P2, etc.)
+      for (let i = 0; i < cleanLicence.length; i++) {
+        const char = cleanLicence[i]
+        setTextField(`permis_${i + 1}`, char)
+        setTextField(`Permis_${i + 1}`, char)
+        setTextField(`P${i + 1}`, char)
+        setTextField(`permis${i + 1}`, char)
+        setTextField(`Permis${i + 1}`, char)
+        setTextField(`NP${i + 1}`, char)
+        setTextField(`np${i + 1}`, char)
+      }
+    }
+
     // Other variations
     setTextField('Permis', formData.licenceNumber)
     setTextField('permis', formData.licenceNumber)
@@ -329,6 +356,7 @@ export async function POST(request: NextRequest) {
     if (page2) {
       try {
         console.log('Copying barcode from page 1 to page 2...')
+        console.log(`Barcode config: x=${BARCODE_CONFIG.page1.x}, y=${BARCODE_CONFIG.page1.y}, w=${BARCODE_CONFIG.page1.width}, h=${BARCODE_CONFIG.page1.height}`)
 
         // Save current state to create a snapshot for embedding
         const tempPdfBytes = await pdfDoc.save()
@@ -341,6 +369,15 @@ export async function POST(request: NextRequest) {
           right: BARCODE_CONFIG.page1.x + BARCODE_CONFIG.page1.width,
           top: BARCODE_CONFIG.page1.y + BARCODE_CONFIG.page1.height,
         }])
+
+        // First, draw a white rectangle to cover any existing barcode on page 2
+        page2.drawRectangle({
+          x: BARCODE_CONFIG.page2.x,
+          y: BARCODE_CONFIG.page2.y,
+          width: BARCODE_CONFIG.page1.width,
+          height: BARCODE_CONFIG.page1.height,
+          color: rgb(1, 1, 1), // White
+        })
 
         // Draw the barcode region on page 2 at the same position
         page2.drawPage(embeddedPage1, {
