@@ -4,6 +4,8 @@ FROM node:20-slim
 RUN apt-get update && apt-get install -y \
     chromium \
     git \
+    openssh-client \
+    ca-certificates \
     fonts-ipafont-gothic \
     fonts-wqy-zenhei \
     fonts-thai-tlwg \
@@ -11,6 +13,10 @@ RUN apt-get update && apt-get install -y \
     fonts-freefont-ttf \
     --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
+
+# Configure git to use HTTPS instead of SSH for GitHub
+RUN git config --global url."https://github.com/".insteadOf "ssh://git@github.com/" && \
+    git config --global url."https://github.com/".insteadOf "git@github.com:"
 
 # Find and set the actual Chromium binary path
 RUN which chromium || which chromium-browser || echo "Chromium not found!"
