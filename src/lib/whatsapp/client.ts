@@ -244,6 +244,10 @@ async function syncGroups(): Promise<void> {
 
   try {
     console.log('Syncing groups...')
+
+    // Wait a bit for WhatsApp Web to fully initialize after the Jan 28 2026 update
+    await new Promise(resolve => setTimeout(resolve, 3000))
+
     const client = state.client as {
       getChats: () => Promise<Array<{
         id: { _serialized: string }
@@ -251,10 +255,53 @@ async function syncGroups(): Promise<void> {
         isGroup: boolean
         groupMetadata?: { participants: Array<unknown> }
       }>>
+      pupPage?: { evaluate: <T>(fn: string) => Promise<T> }
     }
 
-    const chats = await client.getChats()
-    const groups = chats.filter(chat => chat.isGroup)
+    let groups: Array<{
+      id: { _serialized: string }
+      name: string
+      isGroup: boolean
+      groupMetadata?: { participants: Array<unknown> }
+    }> = []
+
+    try {
+      const chats = await client.getChats()
+      groups = chats.filter(chat => chat.isGroup)
+    } catch (getChatsError) {
+      console.log('getChats failed, trying pupPage fallback:', getChatsError)
+
+      // Fallback: Get groups directly from WhatsApp Web's internal store
+      if (client.pupPage) {
+        const rawGroups = await client.pupPage.evaluate<Array<{ id: string; name: string; participantCount: number }>>(`
+          (async () => {
+            const groups = [];
+            if (window.Store && window.Store.Chat) {
+              const chats = window.Store.Chat.getModelsArray();
+              for (const chat of chats) {
+                if (chat.isGroup) {
+                  groups.push({
+                    id: chat.id._serialized || chat.id.toString(),
+                    name: chat.name || chat.formattedTitle || 'Unknown Group',
+                    participantCount: chat.groupMetadata?.participants?.length || 0
+                  });
+                }
+              }
+            }
+            return groups;
+          })()
+        `)
+
+        groups = rawGroups.map(g => ({
+          id: { _serialized: g.id },
+          name: g.name,
+          isGroup: true,
+          groupMetadata: { participants: new Array(g.participantCount) }
+        }))
+
+        console.log(`Got ${groups.length} groups via pupPage fallback`)
+      }
+    }
 
     const groupInfos: GroupInfo[] = []
 
