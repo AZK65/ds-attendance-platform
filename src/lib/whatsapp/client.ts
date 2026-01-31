@@ -123,9 +123,28 @@ export async function connectWhatsApp(): Promise<void> {
           '--disable-dev-shm-usage',
           '--disable-accelerated-2d-canvas',
           '--no-first-run',
-          '--no-zygote',
-          '--single-process',
-          '--disable-gpu'
+          '--disable-gpu',
+          '--disable-extensions',
+          '--disable-background-networking',
+          '--disable-background-timer-throttling',
+          '--disable-backgrounding-occluded-windows',
+          '--disable-breakpad',
+          '--disable-component-extensions-with-background-pages',
+          '--disable-component-update',
+          '--disable-default-apps',
+          '--disable-features=TranslateUI',
+          '--disable-hang-monitor',
+          '--disable-ipc-flooding-protection',
+          '--disable-popup-blocking',
+          '--disable-prompt-on-repost',
+          '--disable-renderer-backgrounding',
+          '--disable-sync',
+          '--enable-features=NetworkService,NetworkServiceInProcess',
+          '--force-color-profile=srgb',
+          '--metrics-recording-only',
+          '--no-first-run',
+          '--password-store=basic',
+          '--use-mock-keychain'
         ]
       }
     })
