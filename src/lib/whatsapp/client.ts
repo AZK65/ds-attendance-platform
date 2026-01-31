@@ -144,24 +144,66 @@ export async function connectWhatsApp(): Promise<void> {
       state.isConnecting = false
       state.qr = null
 
-      // Sync groups in background with retry
-      const syncWithRetry = async (attempt = 1, maxAttempts = 3) => {
+      // Wait for Store.Chat to be populated before syncing
+      const typedClientForSync = client as { pupPage?: { evaluate: <T>(fn: string) => Promise<T> } }
+      if (typedClientForSync.pupPage) {
+        console.log('[ready] Waiting for Store.Chat to be populated...')
         try {
+          const chatCount = await typedClientForSync.pupPage.evaluate<number>(`
+            (async () => {
+              const maxWait = 60000; // Wait up to 60 seconds
+              const start = Date.now();
+
+              while (Date.now() - start < maxWait) {
+                if (window.Store && window.Store.Chat) {
+                  let chats = [];
+                  if (window.Store.Chat.getModelsArray) {
+                    chats = window.Store.Chat.getModelsArray();
+                  } else if (window.Store.Chat.models) {
+                    chats = Array.from(window.Store.Chat.models.values());
+                  } else if (window.Store.Chat._models) {
+                    chats = window.Store.Chat._models;
+                  }
+
+                  if (chats.length > 0) {
+                    console.log('[ready] Store.Chat has ' + chats.length + ' chats after ' + (Date.now() - start) + 'ms');
+                    return chats.length;
+                  }
+                }
+                await new Promise(r => setTimeout(r, 1000));
+              }
+              console.log('[ready] Timeout waiting for chats');
+              return 0;
+            })()
+          `)
+          console.log(`[ready] Store.Chat reports ${chatCount} chats`)
+        } catch (e) {
+          console.log('[ready] Failed to check Store.Chat:', e)
+        }
+      }
+
+      // Sync groups in background with retry
+      const syncWithRetry = async (attempt = 1, maxAttempts = 5) => {
+        try {
+          console.log(`[syncWithRetry] Starting attempt ${attempt}/${maxAttempts}...`)
           await syncGroups()
+          console.log(`[syncWithRetry] Attempt ${attempt} completed, found ${state.groupsCache.length} groups`)
           if (state.groupsCache.length === 0 && attempt < maxAttempts) {
-            console.log(`No groups found on attempt ${attempt}, retrying in 5 seconds...`)
-            await new Promise(resolve => setTimeout(resolve, 5000))
+            const delay = Math.min(5000 * attempt, 30000) // Exponential backoff, max 30s
+            console.log(`[syncWithRetry] No groups found on attempt ${attempt}, retrying in ${delay/1000}s...`)
+            await new Promise(resolve => setTimeout(resolve, delay))
             return syncWithRetry(attempt + 1, maxAttempts)
           }
         } catch (err) {
-          console.error(`Sync error on attempt ${attempt}:`, err)
+          console.error(`[syncWithRetry] Error on attempt ${attempt}:`, err)
           if (attempt < maxAttempts) {
-            await new Promise(resolve => setTimeout(resolve, 5000))
+            const delay = Math.min(5000 * attempt, 30000)
+            await new Promise(resolve => setTimeout(resolve, delay))
             return syncWithRetry(attempt + 1, maxAttempts)
           }
         }
       }
-      syncWithRetry().catch(err => console.error('All sync attempts failed:', err))
+      syncWithRetry().catch(err => console.error('[syncWithRetry] All attempts failed:', err))
     })
 
     // Listen for group participant changes to clear cache
@@ -339,10 +381,32 @@ async function syncGroups(): Promise<void> {
       const errorMsg = String(getChatsError)
       console.log('getChats failed:', errorMsg)
 
-      // If detached frame error, don't continue with pupPage fallback
+      // If detached frame error, destroy client and trigger reconnect
       if (errorMsg.includes('detached') || errorMsg.includes('Target closed') || errorMsg.includes('context was destroyed')) {
-        console.log('[syncGroups] Detected frame detachment, marking client as disconnected')
+        console.log('[syncGroups] Detected frame detachment, destroying client and reconnecting...')
         state.isConnected = false
+        state.isConnecting = false
+
+        // Destroy the current client
+        if (state.client) {
+          try {
+            const c = state.client as { destroy: () => Promise<void> }
+            await c.destroy()
+          } catch {
+            // Ignore destroy errors
+          }
+          state.client = null
+        }
+
+        // Trigger reconnect after a short delay
+        setTimeout(() => {
+          if (!state.isConnected && !state.isConnecting) {
+            console.log('[syncGroups] Triggering reconnect after frame detachment...')
+            connectWhatsApp().catch(err => {
+              console.error('[syncGroups] Reconnect failed:', err)
+            })
+          }
+        }, 3000)
         return
       }
     }
