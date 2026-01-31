@@ -231,6 +231,25 @@ export async function connectWhatsApp(): Promise<void> {
       state.groupsCache = []
     })
 
+    // Handle page crashes and frame detachment (Jan 2026 WhatsApp Web issues)
+    const typedClientForCrash = client as { pupPage?: { on: (event: string, handler: (error: Error) => void) => void } }
+    if (typedClientForCrash.pupPage) {
+      typedClientForCrash.pupPage.on('error', (error: Error) => {
+        console.error('[WhatsApp] Page error:', error.message)
+        if (error.message.includes('detached') || error.message.includes('Target closed')) {
+          console.log('[WhatsApp] Page detached, marking as disconnected')
+          state.isConnected = false
+        }
+      })
+
+      typedClientForCrash.pupPage.on('close', () => {
+        console.log('[WhatsApp] Page closed unexpectedly')
+        state.isConnected = false
+        state.isConnecting = false
+        state.client = null
+      })
+    }
+
     await client.initialize()
   } catch (error) {
     console.error('WhatsApp connection error:', error)
@@ -282,17 +301,48 @@ async function syncGroups(): Promise<void> {
       groupMetadata?: { participants: Array<unknown> }
     }> = []
 
+    // Helper to check if page/frame is still attached
+    const isPageAttached = async (): Promise<boolean> => {
+      if (!client.pupPage) return false
+      try {
+        await client.pupPage.evaluate<boolean>('true')
+        return true
+      } catch (e) {
+        const errorMsg = String(e)
+        if (errorMsg.includes('detached') || errorMsg.includes('Target closed') || errorMsg.includes('context was destroyed')) {
+          console.log('[syncGroups] Page/frame is detached')
+          return false
+        }
+        return true // Other errors might be transient
+      }
+    }
+
     // First try the standard getChats method
     try {
       const chats = await client.getChats()
       groups = chats.filter(chat => chat.isGroup)
       console.log(`getChats returned ${groups.length} groups`)
     } catch (getChatsError) {
-      console.log('getChats failed:', getChatsError)
+      const errorMsg = String(getChatsError)
+      console.log('getChats failed:', errorMsg)
+
+      // If detached frame error, don't continue with pupPage fallback
+      if (errorMsg.includes('detached') || errorMsg.includes('Target closed') || errorMsg.includes('context was destroyed')) {
+        console.log('[syncGroups] Detected frame detachment, marking client as disconnected')
+        state.isConnected = false
+        return
+      }
     }
 
     // If getChats failed or returned no groups, try pupPage fallback
     if (groups.length === 0 && client.pupPage) {
+      // First verify page is still attached
+      if (!await isPageAttached()) {
+        console.log('[syncGroups] Skipping pupPage fallback - page is detached')
+        state.isConnected = false
+        return
+      }
+
       console.log('Trying pupPage fallback to get groups...')
 
       try {
@@ -359,7 +409,15 @@ async function syncGroups(): Promise<void> {
           }
         }
       } catch (pupPageError) {
-        console.log('pupPage fallback error:', pupPageError)
+        const errorMsg = String(pupPageError)
+        console.log('pupPage fallback error:', errorMsg)
+
+        // Check if this is a frame detachment error
+        if (errorMsg.includes('detached') || errorMsg.includes('Target closed') || errorMsg.includes('context was destroyed')) {
+          console.log('[syncGroups] Frame detached during pupPage fallback, marking disconnected')
+          state.isConnected = false
+          return
+        }
       }
     }
 
