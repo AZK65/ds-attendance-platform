@@ -75,6 +75,47 @@ export function resetWhatsAppState(): void {
   state.lastGroupSync = 0
 }
 
+// Full reconnect - completely destroys and recreates the client
+// Used when frame detachment or other unrecoverable errors occur
+async function fullReconnect(): Promise<void> {
+  console.log('[fullReconnect] Starting full reconnect...')
+
+  // Mark as disconnected
+  state.isConnected = false
+  state.isConnecting = false
+
+  // Destroy existing client completely
+  if (state.client) {
+    try {
+      const client = state.client as { destroy: () => Promise<void> }
+      await client.destroy()
+      console.log('[fullReconnect] Client destroyed')
+    } catch (e) {
+      console.log('[fullReconnect] Error destroying client:', e)
+    }
+    state.client = null
+  }
+
+  // Clear cache
+  state.groupsCache = []
+  state.lastGroupSync = 0
+  state.qr = null
+
+  // Wait before reconnecting
+  console.log('[fullReconnect] Waiting 5s before reconnecting...')
+  await new Promise(resolve => setTimeout(resolve, 5000))
+
+  // Reconnect
+  if (!state.isConnected && !state.isConnecting) {
+    console.log('[fullReconnect] Initiating new connection...')
+    try {
+      await connectWhatsApp()
+    } catch (err) {
+      console.error('[fullReconnect] Reconnection failed:', err)
+    }
+  }
+}
+
 export async function connectWhatsApp(): Promise<void> {
   if (state.isConnecting || state.isConnected) {
     return
@@ -144,6 +185,10 @@ export async function connectWhatsApp(): Promise<void> {
       state.isConnecting = false
       state.qr = null
 
+      // Wait longer for WhatsApp Web to fully initialize after Jan 2026 update
+      console.log('[ready] Waiting 10s for WhatsApp Web to fully initialize...')
+      await new Promise(resolve => setTimeout(resolve, 10000))
+
       // Wait for Store.Chat to be populated before syncing
       const typedClientForSync = client as { pupPage?: { evaluate: <T>(fn: string) => Promise<T> } }
       if (typedClientForSync.pupPage) {
@@ -179,6 +224,13 @@ export async function connectWhatsApp(): Promise<void> {
           console.log(`[ready] Store.Chat reports ${chatCount} chats`)
         } catch (e) {
           console.log('[ready] Failed to check Store.Chat:', e)
+          // If we can't access pupPage here, the frame might already be detached
+          const errStr = String(e)
+          if (errStr.includes('detached') || errStr.includes('Target closed')) {
+            console.log('[ready] Frame already detached, triggering full reconnect...')
+            await fullReconnect()
+            return
+          }
         }
       }
 
@@ -196,6 +248,13 @@ export async function connectWhatsApp(): Promise<void> {
           }
         } catch (err) {
           console.error(`[syncWithRetry] Error on attempt ${attempt}:`, err)
+          const errStr = String(err)
+          // If frame detached, do full reconnect instead of retry
+          if (errStr.includes('detached') || errStr.includes('Target closed')) {
+            console.log('[syncWithRetry] Frame detached, triggering full reconnect...')
+            await fullReconnect()
+            return
+          }
           if (attempt < maxAttempts) {
             const delay = Math.min(5000 * attempt, 30000)
             await new Promise(resolve => setTimeout(resolve, delay))
@@ -381,32 +440,10 @@ async function syncGroups(): Promise<void> {
       const errorMsg = String(getChatsError)
       console.log('getChats failed:', errorMsg)
 
-      // If detached frame error, destroy client and trigger reconnect
+      // If detached frame error, trigger full reconnect
       if (errorMsg.includes('detached') || errorMsg.includes('Target closed') || errorMsg.includes('context was destroyed')) {
-        console.log('[syncGroups] Detected frame detachment, destroying client and reconnecting...')
-        state.isConnected = false
-        state.isConnecting = false
-
-        // Destroy the current client
-        if (state.client) {
-          try {
-            const c = state.client as { destroy: () => Promise<void> }
-            await c.destroy()
-          } catch {
-            // Ignore destroy errors
-          }
-          state.client = null
-        }
-
-        // Trigger reconnect after a short delay
-        setTimeout(() => {
-          if (!state.isConnected && !state.isConnecting) {
-            console.log('[syncGroups] Triggering reconnect after frame detachment...')
-            connectWhatsApp().catch(err => {
-              console.error('[syncGroups] Reconnect failed:', err)
-            })
-          }
-        }, 3000)
+        console.log('[syncGroups] Detected frame detachment, triggering full reconnect...')
+        await fullReconnect()
         return
       }
     }
