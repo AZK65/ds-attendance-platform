@@ -42,6 +42,23 @@ interface CertificateFormData {
   templatePdf: string  // Base64 encoded PDF from user
 }
 
+// Barcode position configuration (adjust these based on your PDF template)
+// These values need to be calibrated to match your actual PDF template
+const BARCODE_CONFIG = {
+  // Position on page 1 where barcode is located (to copy from)
+  page1: {
+    x: 30,      // X position from left (in points, 72 points = 1 inch)
+    y: 30,      // Y position from bottom
+    width: 200, // Width of barcode area
+    height: 50  // Height of barcode area
+  },
+  // Position on page 2 where barcode should be copied to (same position)
+  page2: {
+    x: 30,      // Same X position
+    y: 30,      // Same Y position
+  }
+}
+
 export async function POST(request: NextRequest) {
   try {
     const formData: CertificateFormData = await request.json()
@@ -71,8 +88,9 @@ export async function POST(request: NextRequest) {
       try {
         const field = form.getTextField(fieldName)
         field.setText(value)
+        console.log(`Set field "${fieldName}" to "${value}"`)
       } catch (e) {
-        console.log(`Field "${fieldName}" not found or not a text field`)
+        // Field not found - this is expected for fields that don't exist in the PDF
       }
     }
 
@@ -87,30 +105,32 @@ export async function POST(request: NextRequest) {
           field.uncheck()
         }
       } catch (e) {
-        console.log(`Checkbox "${fieldName}" not found`)
+        // Checkbox not found
       }
     }
 
-    // Try to fill common field patterns
-    // Student Information
+    // Student Information - try multiple field name variations
     setTextField('Nom', formData.name)
     setTextField('nom', formData.name)
     setTextField('Name', formData.name)
     setTextField('name', formData.name)
     setTextField('NOM_ELEVE', formData.name)
     setTextField('Nom_eleve', formData.name)
+    setTextField('NomEleve', formData.name)
 
     setTextField('Adresse', formData.address)
     setTextField('adresse', formData.address)
     setTextField('Address', formData.address)
     setTextField('address', formData.address)
     setTextField('ADRESSE_ELEVE', formData.address)
+    setTextField('AdresseEleve', formData.address)
 
     setTextField('Municipalite', formData.municipality)
     setTextField('municipalite', formData.municipality)
     setTextField('Municipality', formData.municipality)
     setTextField('Ville', formData.municipality)
     setTextField('ville', formData.municipality)
+    setTextField('City', formData.municipality)
 
     setTextField('Province', formData.province)
     setTextField('province', formData.province)
@@ -119,23 +139,38 @@ export async function POST(request: NextRequest) {
     setTextField('codePostal', formData.postalCode)
     setTextField('Code_postal', formData.postalCode)
     setTextField('PostalCode', formData.postalCode)
+    setTextField('CP', formData.postalCode)
 
     setTextField('Contrat', formData.contractNumber)
     setTextField('contrat', formData.contractNumber)
     setTextField('NumeroContrat', formData.contractNumber)
     setTextField('Contract', formData.contractNumber)
     setTextField('NO_CONTRAT', formData.contractNumber)
+    setTextField('NoContrat', formData.contractNumber)
 
     setTextField('Telephone', formData.phone)
     setTextField('telephone', formData.phone)
     setTextField('Phone', formData.phone)
     setTextField('Tel', formData.phone)
+    setTextField('TEL', formData.phone)
 
+    // Driver's Licence Number - try ALL possible field name variations
+    console.log(`Attempting to set licence number: "${formData.licenceNumber}"`)
     setTextField('Permis', formData.licenceNumber)
     setTextField('permis', formData.licenceNumber)
     setTextField('NumeroPermis', formData.licenceNumber)
     setTextField('Licence', formData.licenceNumber)
+    setTextField('licence', formData.licenceNumber)
     setTextField('NO_PERMIS', formData.licenceNumber)
+    setTextField('NoPermis', formData.licenceNumber)
+    setTextField('PermisConduire', formData.licenceNumber)
+    setTextField('permis_conduire', formData.licenceNumber)
+    setTextField('PERMIS', formData.licenceNumber)
+    setTextField('LicenceNumber', formData.licenceNumber)
+    setTextField('DriverLicence', formData.licenceNumber)
+    setTextField('DL', formData.licenceNumber)
+    setTextField('NPermis', formData.licenceNumber)
+    setTextField('No_permis', formData.licenceNumber)
 
     // Phase 1 dates
     setTextField('M1', formData.module1Date)
@@ -277,8 +312,41 @@ export async function POST(request: NextRequest) {
       setCheckbox('Réussi', true)
     }
 
-    // Flatten the form to make it non-editable (optional)
-    // form.flatten()
+    // Get pages for barcode copy
+    const pages = pdfDoc.getPages()
+    const page2 = pages.length > 1 ? pages[1] : null
+
+    // Copy barcode from page 1 to page 2 if page 2 exists
+    if (page2) {
+      try {
+        console.log('Copying barcode from page 1 to page 2...')
+
+        // Save current state to create a snapshot for embedding
+        const tempPdfBytes = await pdfDoc.save()
+        const tempPdfDoc = await PDFDocument.load(tempPdfBytes)
+
+        // Embed the barcode region from page 1
+        const [embeddedPage1] = await pdfDoc.embedPages([tempPdfDoc.getPages()[0]], [{
+          left: BARCODE_CONFIG.page1.x,
+          bottom: BARCODE_CONFIG.page1.y,
+          right: BARCODE_CONFIG.page1.x + BARCODE_CONFIG.page1.width,
+          top: BARCODE_CONFIG.page1.y + BARCODE_CONFIG.page1.height,
+        }])
+
+        // Draw the barcode region on page 2 at the same position
+        page2.drawPage(embeddedPage1, {
+          x: BARCODE_CONFIG.page2.x,
+          y: BARCODE_CONFIG.page2.y,
+          width: BARCODE_CONFIG.page1.width,
+          height: BARCODE_CONFIG.page1.height,
+        })
+
+        console.log('Barcode copied to page 2 successfully')
+      } catch (barcodeError) {
+        console.error('Failed to copy barcode:', barcodeError)
+        // Continue without barcode copy - don't fail the whole generation
+      }
+    }
 
     // Serialize the PDF
     const pdfBytes = await pdfDoc.save()
