@@ -166,11 +166,12 @@ export async function POST(request: NextRequest) {
     const permisFields = fields.filter(f => f.getName().toLowerCase().includes('permis'))
     console.log('Fields containing "permis":', permisFields.map(f => f.getName()))
 
-    // Exact field name from the PDF (with accent and various cases)
+    // Exact field name from the PDF - "Numero de Permis" with capital P
+    setTextField('Numero de Permis', formData.licenceNumber)
+    // Also try other variations just in case
     setTextField('Numéro de permis', formData.licenceNumber)
     setTextField('Numero de permis', formData.licenceNumber)
     setTextField('Numéro de Permis', formData.licenceNumber)
-    setTextField('Numero de Permis', formData.licenceNumber)
     setTextField('NumeroDePermis', formData.licenceNumber)
     setTextField('numero_de_permis', formData.licenceNumber)
     setTextField('Numéro_de_permis', formData.licenceNumber)
