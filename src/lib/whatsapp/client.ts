@@ -162,8 +162,43 @@ export async function connectWhatsApp(): Promise<void> {
       console.log(`[group_update] Group ${notification.chatId} was updated`)
     })
 
-    client.on('authenticated', () => {
+    client.on('authenticated', async () => {
       console.log('WhatsApp authenticated')
+
+      // Workaround for WhatsApp Web update (Jan 28, 2026) that broke ready event
+      // See: https://github.com/pedroslopez/whatsapp-web.js/issues/5758
+      const typedClient = client as { pupPage?: { evaluate: (fn: string) => Promise<unknown> } }
+      if (typedClient.pupPage) {
+        try {
+          // Check if already synced and manually trigger the event
+          await typedClient.pupPage.evaluate(`
+            (async () => {
+              const maxWait = 30000;
+              const start = Date.now();
+
+              // Wait for AuthStore to be available
+              while (!window.AuthStore?.AppState && Date.now() - start < maxWait) {
+                await new Promise(r => setTimeout(r, 500));
+              }
+
+              if (window.AuthStore?.AppState) {
+                const appState = window.AuthStore.AppState;
+
+                // If already synced, manually trigger the sync event
+                if (appState.hasSynced) {
+                  console.log('[Workaround] AppState already synced, triggering event');
+                  if (window.onAppStateHasSyncedEvent) {
+                    window.onAppStateHasSyncedEvent();
+                  }
+                }
+              }
+            })()
+          `)
+          console.log('Applied WhatsApp sync workaround')
+        } catch (e) {
+          console.log('Workaround evaluation failed:', e)
+        }
+      }
     })
 
     client.on('auth_failure', (msg: string) => {
