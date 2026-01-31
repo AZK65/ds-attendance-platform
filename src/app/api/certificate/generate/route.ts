@@ -42,20 +42,21 @@ interface CertificateFormData {
   templatePdf: string  // Base64 encoded PDF from user
 }
 
-// Barcode position configuration (adjust these based on your PDF template)
-// These values need to be calibrated to match your actual PDF template
+// Barcode position configuration
+// PDF page is Letter size: 612 x 792 points (8.5 x 11 inches at 72 points/inch)
+// Barcode is in top-right corner of the page header
 const BARCODE_CONFIG = {
   // Position on page 1 where barcode is located (to copy from)
   page1: {
-    x: 30,      // X position from left (in points, 72 points = 1 inch)
-    y: 30,      // Y position from bottom
-    width: 200, // Width of barcode area
-    height: 50  // Height of barcode area
+    x: 430,     // X position from left (in points, 72 points = 1 inch) - right side
+    y: 710,     // Y position from bottom - near top of page
+    width: 150, // Width of barcode area
+    height: 60  // Height of barcode area
   },
   // Position on page 2 where barcode should be copied to (same position)
   page2: {
-    x: 30,      // Same X position
-    y: 30,      // Same Y position
+    x: 430,     // Same X position
+    y: 710,     // Same Y position
   }
 }
 
@@ -156,6 +157,14 @@ export async function POST(request: NextRequest) {
 
     // Driver's Licence Number - try ALL possible field name variations
     console.log(`Attempting to set licence number: "${formData.licenceNumber}"`)
+    // Exact field name from the PDF (with accent)
+    setTextField('Numéro de permis', formData.licenceNumber)
+    setTextField('Numero de permis', formData.licenceNumber)
+    setTextField('Numéro de Permis', formData.licenceNumber)
+    setTextField('Numero de Permis', formData.licenceNumber)
+    setTextField('NumeroDePermis', formData.licenceNumber)
+    setTextField('numero_de_permis', formData.licenceNumber)
+    // Other variations
     setTextField('Permis', formData.licenceNumber)
     setTextField('permis', formData.licenceNumber)
     setTextField('NumeroPermis', formData.licenceNumber)
