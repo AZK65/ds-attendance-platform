@@ -229,6 +229,19 @@ export async function connectWhatsApp(): Promise<void> {
       state.isConnecting = false
       state.client = null
       state.groupsCache = []
+
+      // Auto-reconnect after a delay (unless logout was intentional)
+      if (reason !== 'LOGOUT') {
+        console.log('[WhatsApp] Will attempt to reconnect in 10 seconds...')
+        setTimeout(() => {
+          if (!state.isConnected && !state.isConnecting) {
+            console.log('[WhatsApp] Auto-reconnecting...')
+            connectWhatsApp().catch(err => {
+              console.error('[WhatsApp] Auto-reconnect failed:', err)
+            })
+          }
+        }, 10000)
+      }
     })
 
     // Handle page crashes and frame detachment (Jan 2026 WhatsApp Web issues)
@@ -1212,4 +1225,40 @@ export function phoneToJid(phone: string): string {
 
 export function jidToPhone(jid: string): string {
   return jid.replace('@c.us', '').replace('@g.us', '')
+}
+
+// Force sync groups - clears cache and fetches fresh data
+export async function forceSyncGroups(): Promise<{ success: boolean; groupCount: number; error?: string }> {
+  console.log('[forceSyncGroups] Starting force sync...')
+
+  // Clear the cache
+  state.groupsCache = []
+  state.lastGroupSync = 0
+
+  // If not connected, try to reconnect
+  if (!state.isConnected && !state.isConnecting) {
+    console.log('[forceSyncGroups] Not connected, attempting to reconnect...')
+    try {
+      await connectWhatsApp()
+      // Wait for connection to establish
+      let attempts = 0
+      while (!state.isConnected && attempts < 30) {
+        await new Promise(resolve => setTimeout(resolve, 1000))
+        attempts++
+      }
+      if (!state.isConnected) {
+        return { success: false, groupCount: 0, error: 'Failed to reconnect' }
+      }
+    } catch (err) {
+      return { success: false, groupCount: 0, error: String(err) }
+    }
+  }
+
+  // Now sync groups
+  try {
+    await syncGroups()
+    return { success: true, groupCount: state.groupsCache.length }
+  } catch (err) {
+    return { success: false, groupCount: 0, error: String(err) }
+  }
 }

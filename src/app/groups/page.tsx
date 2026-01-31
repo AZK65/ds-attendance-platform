@@ -1,6 +1,6 @@
 'use client'
 
-import { useQuery } from '@tanstack/react-query'
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { GroupCard } from '@/components/GroupCard'
 import { ConnectionStatus } from '@/components/ConnectionStatus'
 import { Button } from '@/components/ui/button'
@@ -41,6 +41,7 @@ export default function GroupsPage() {
   const [open, setOpen] = useState(false)
   const [search, setSearch] = useState('')
   const router = useRouter()
+  const queryClient = useQueryClient()
 
   const {
     data,
@@ -54,6 +55,33 @@ export default function GroupsPage() {
       return res.json()
     }
   })
+
+  // Force sync mutation - reconnects if needed and syncs fresh data
+  const syncMutation = useMutation({
+    mutationFn: async () => {
+      const res = await fetch('/api/groups/sync', { method: 'POST' })
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.error || 'Sync failed')
+      return data
+    },
+    onSuccess: () => {
+      // Invalidate and refetch groups after sync
+      queryClient.invalidateQueries({ queryKey: ['groups'] })
+      queryClient.invalidateQueries({ queryKey: ['all-participants'] })
+      queryClient.invalidateQueries({ queryKey: ['whatsapp-status'] })
+    }
+  })
+
+  const handleRefresh = () => {
+    // Use force sync if not connected, otherwise just refetch
+    if (!data?.isConnected) {
+      syncMutation.mutate()
+    } else {
+      refetch()
+    }
+  }
+
+  const isRefreshing = isFetching || syncMutation.isPending
 
   // Fetch all participants for person search (prefetch on page load)
   const { data: participantsData, isLoading: isLoadingParticipants } = useQuery({
@@ -218,13 +246,13 @@ export default function GroupsPage() {
               </Button>
               <Button
                 variant="outline"
-                onClick={() => refetch()}
-                disabled={isFetching}
+                onClick={handleRefresh}
+                disabled={isRefreshing}
               >
                 <RefreshCw
-                  className={`mr-2 h-4 w-4 ${isFetching ? 'animate-spin' : ''}`}
+                  className={`mr-2 h-4 w-4 ${isRefreshing ? 'animate-spin' : ''}`}
                 />
-                Refresh
+                {syncMutation.isPending ? 'Syncing...' : 'Refresh'}
               </Button>
             </div>
           </div>
