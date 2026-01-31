@@ -144,8 +144,24 @@ export async function connectWhatsApp(): Promise<void> {
       state.isConnecting = false
       state.qr = null
 
-      // Sync groups in background
-      syncGroups().catch(err => console.error('Sync error:', err))
+      // Sync groups in background with retry
+      const syncWithRetry = async (attempt = 1, maxAttempts = 3) => {
+        try {
+          await syncGroups()
+          if (state.groupsCache.length === 0 && attempt < maxAttempts) {
+            console.log(`No groups found on attempt ${attempt}, retrying in 5 seconds...`)
+            await new Promise(resolve => setTimeout(resolve, 5000))
+            return syncWithRetry(attempt + 1, maxAttempts)
+          }
+        } catch (err) {
+          console.error(`Sync error on attempt ${attempt}:`, err)
+          if (attempt < maxAttempts) {
+            await new Promise(resolve => setTimeout(resolve, 5000))
+            return syncWithRetry(attempt + 1, maxAttempts)
+          }
+        }
+      }
+      syncWithRetry().catch(err => console.error('All sync attempts failed:', err))
     })
 
     // Listen for group participant changes to clear cache
@@ -245,8 +261,9 @@ async function syncGroups(): Promise<void> {
   try {
     console.log('Syncing groups...')
 
-    // Wait a bit for WhatsApp Web to fully initialize after the Jan 28 2026 update
-    await new Promise(resolve => setTimeout(resolve, 3000))
+    // Wait for WhatsApp Web to fully initialize after the Jan 28 2026 update
+    // The Store object needs time to populate
+    await new Promise(resolve => setTimeout(resolve, 5000))
 
     const client = state.client as {
       getChats: () => Promise<Array<{
@@ -265,41 +282,84 @@ async function syncGroups(): Promise<void> {
       groupMetadata?: { participants: Array<unknown> }
     }> = []
 
+    // First try the standard getChats method
     try {
       const chats = await client.getChats()
       groups = chats.filter(chat => chat.isGroup)
+      console.log(`getChats returned ${groups.length} groups`)
     } catch (getChatsError) {
-      console.log('getChats failed, trying pupPage fallback:', getChatsError)
+      console.log('getChats failed:', getChatsError)
+    }
 
-      // Fallback: Get groups directly from WhatsApp Web's internal store
-      if (client.pupPage) {
-        const rawGroups = await client.pupPage.evaluate<Array<{ id: string; name: string; participantCount: number }>>(`
+    // If getChats failed or returned no groups, try pupPage fallback
+    if (groups.length === 0 && client.pupPage) {
+      console.log('Trying pupPage fallback to get groups...')
+
+      try {
+        // First wait for Store to be available
+        const storeReady = await client.pupPage.evaluate<boolean>(`
           (async () => {
-            const groups = [];
-            if (window.Store && window.Store.Chat) {
-              const chats = window.Store.Chat.getModelsArray();
-              for (const chat of chats) {
-                if (chat.isGroup) {
-                  groups.push({
-                    id: chat.id._serialized || chat.id.toString(),
-                    name: chat.name || chat.formattedTitle || 'Unknown Group',
-                    participantCount: chat.groupMetadata?.participants?.length || 0
-                  });
-                }
-              }
+            const maxWait = 15000;
+            const start = Date.now();
+            while ((!window.Store || !window.Store.Chat) && Date.now() - start < maxWait) {
+              await new Promise(r => setTimeout(r, 500));
             }
-            return groups;
+            return !!(window.Store && window.Store.Chat);
           })()
         `)
 
-        groups = rawGroups.map(g => ({
-          id: { _serialized: g.id },
-          name: g.name,
-          isGroup: true,
-          groupMetadata: { participants: new Array(g.participantCount) }
-        }))
+        if (!storeReady) {
+          console.log('Store.Chat not available after waiting')
+        } else {
+          console.log('Store.Chat is available, fetching groups...')
 
-        console.log(`Got ${groups.length} groups via pupPage fallback`)
+          const rawGroups = await client.pupPage.evaluate<Array<{ id: string; name: string; participantCount: number }>>(`
+            (async () => {
+              const groups = [];
+              try {
+                // Try getModelsArray first
+                let chats = [];
+                if (window.Store.Chat.getModelsArray) {
+                  chats = window.Store.Chat.getModelsArray();
+                } else if (window.Store.Chat.models) {
+                  chats = Array.from(window.Store.Chat.models.values());
+                } else if (window.Store.Chat._models) {
+                  chats = window.Store.Chat._models;
+                }
+
+                console.log('[pupPage] Found ' + chats.length + ' total chats');
+
+                for (const chat of chats) {
+                  if (chat.isGroup) {
+                    groups.push({
+                      id: chat.id._serialized || chat.id.toString(),
+                      name: chat.name || chat.formattedTitle || 'Unknown Group',
+                      participantCount: chat.groupMetadata?.participants?.length || 0
+                    });
+                  }
+                }
+                console.log('[pupPage] Found ' + groups.length + ' groups');
+              } catch (e) {
+                console.log('[pupPage] Error getting chats:', e);
+              }
+              return groups;
+            })()
+          `)
+
+          if (rawGroups && rawGroups.length > 0) {
+            groups = rawGroups.map(g => ({
+              id: { _serialized: g.id },
+              name: g.name,
+              isGroup: true,
+              groupMetadata: { participants: new Array(g.participantCount) }
+            }))
+            console.log(`Got ${groups.length} groups via pupPage fallback`)
+          } else {
+            console.log('pupPage fallback returned no groups')
+          }
+        }
+      } catch (pupPageError) {
+        console.log('pupPage fallback error:', pupPageError)
       }
     }
 
