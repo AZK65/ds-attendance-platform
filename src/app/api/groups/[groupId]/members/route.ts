@@ -28,13 +28,20 @@ export async function POST(
     // Use phone number directly (wwebjs expects phone number, not full JID)
     const phoneToAdd = phone || contactId?.replace('@c.us', '')
 
-    await addParticipantToGroup(decodedGroupId, phoneToAdd)
+    const result = await addParticipantToGroup(decodedGroupId, phoneToAdd)
+
+    if (!result.success) {
+      return NextResponse.json(
+        { error: result.error || 'Failed to add member' },
+        { status: 400 }
+      )
+    }
 
     return NextResponse.json({ success: true })
   } catch (error) {
     console.error('Add member error:', error)
     return NextResponse.json(
-      { error: 'Failed to add member to group' },
+      { error: error instanceof Error ? error.message : 'Failed to add member to group' },
       { status: 500 }
     )
   }

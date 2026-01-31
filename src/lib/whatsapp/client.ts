@@ -800,7 +800,7 @@ export async function getGroupInfo(groupId: string): Promise<{ name: string; par
   }
 }
 
-export async function addParticipantToGroup(groupId: string, phone: string): Promise<void> {
+export async function addParticipantToGroup(groupId: string, phone: string): Promise<{ success: boolean; error?: string }> {
   if (!state.client || !state.isConnected) {
     throw new Error('WhatsApp not connected')
   }
@@ -808,7 +808,7 @@ export async function addParticipantToGroup(groupId: string, phone: string): Pro
   try {
     const client = state.client as {
       getChatById: (id: string) => Promise<{
-        addParticipants: (participants: string[], options?: unknown) => Promise<unknown>
+        addParticipants: (participants: string[], options?: unknown) => Promise<Record<string, { code: number; message: string; isInviteV4Sent: boolean }>>
       }>
       getChats: () => Promise<unknown[]>
       pupPage?: {
@@ -823,6 +823,16 @@ export async function addParticipantToGroup(groupId: string, phone: string): Pro
     const chat = await client.getChatById(groupId)
     const result = await chat.addParticipants([participantId])
     console.log('Add participant result:', result)
+
+    // Check if there was an error for this participant
+    const participantResult = result[participantId]
+    if (participantResult && participantResult.code !== 200) {
+      // Return the error message from WhatsApp
+      return {
+        success: false,
+        error: participantResult.message || `Error code ${participantResult.code}`
+      }
+    }
 
     // Wait for WhatsApp to process the change
     await new Promise(resolve => setTimeout(resolve, 2000))
@@ -847,6 +857,8 @@ export async function addParticipantToGroup(groupId: string, phone: string): Pro
         console.log('[addParticipant] Cache refresh failed:', e)
       }
     }
+
+    return { success: true }
   } catch (error) {
     console.error('Add participant error:', error)
     throw error
