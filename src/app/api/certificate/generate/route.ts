@@ -135,40 +135,40 @@ export async function POST(request: NextRequest) {
       'LicenceNumber', 'DriverLicence', 'DL', 'NPermis', 'No_permis'
     ], formData.licenceNumber)
 
-    // Phase 1 dates (modules 1-5)
+    // Phase 1 dates (modules 1-5) - Page 1 only
     setFieldSmart(['M1', 'Module1', 'module1', 'DATE_M1', 'Module 1'], formData.module1Date)
     setFieldSmart(['M2', 'Module2', 'module2', 'DATE_M2', 'Module 2'], formData.module2Date)
     setFieldSmart(['M3', 'Module3', 'module3', 'DATE_M3', 'Module 3'], formData.module3Date)
     setFieldSmart(['M4', 'Module4', 'module4', 'DATE_M4', 'Module 4'], formData.module4Date)
     setFieldSmart(['M5', 'Module5', 'module5', 'DATE_M5', 'Module 5'], formData.module5Date)
 
-    // Phase 2 dates
-    setFieldSmart(['M6', 'Module6', 'module6', 'DATE_M6', 'Module 6'], formData.module6Date)
-    setFieldSmart(['S1', 'Sortie1', 'sortie1', 'Session1', 'DATE_S1', 'Sortie 1'], formData.sortie1Date)
-    setFieldSmart(['S2', 'Sortie2', 'sortie2', 'Session2', 'DATE_S2', 'Sortie 2'], formData.sortie2Date)
-    setFieldSmart(['M7', 'Module7', 'module7', 'DATE_M7', 'Module 7'], formData.module7Date)
-    setFieldSmart(['S3', 'Sortie3', 'sortie3', 'Session3', 'DATE_S3', 'Sortie 3'], formData.sortie3Date)
-    setFieldSmart(['S4', 'Sortie4', 'sortie4', 'Session4', 'DATE_S4', 'Sortie 4'], formData.sortie4Date)
+    // Phase 2 dates - Page 2 uses Date8_af_date.X pattern
+    setFieldSmart(['M6', 'Module6', 'module6', 'DATE_M6', 'Module 6', 'Date8_af_date.0'], formData.module6Date)
+    setFieldSmart(['S1', 'Sortie1', 'sortie1', 'Session1', 'DATE_S1', 'Sortie 1', 'Date8_af_date.1'], formData.sortie1Date)
+    setFieldSmart(['S2', 'Sortie2', 'sortie2', 'Session2', 'DATE_S2', 'Sortie 2', 'Date8_af_date.2'], formData.sortie2Date)
+    setFieldSmart(['M7', 'Module7', 'module7', 'DATE_M7', 'Module 7', 'Date8_af_date.3'], formData.module7Date)
+    setFieldSmart(['S3', 'Sortie3', 'sortie3', 'Session3', 'DATE_S3', 'Sortie 3', 'Date8_af_date.4'], formData.sortie3Date)
+    setFieldSmart(['S4', 'Sortie4', 'sortie4', 'Session4', 'DATE_S4', 'Sortie 4', 'Date8_af_date.5'], formData.sortie4Date)
 
-    // Phase 3 dates
-    setFieldSmart(['M8', 'Module8', 'module8', 'DATE_M8', 'Module 8'], formData.module8Date)
-    setFieldSmart(['S5', 'Sortie5', 'sortie5', 'Session5', 'DATE_S5', 'Sortie 5'], formData.sortie5Date)
-    setFieldSmart(['S6', 'Sortie6', 'sortie6', 'Session6', 'DATE_S6', 'Sortie 6'], formData.sortie6Date)
-    setFieldSmart(['M9', 'Module9', 'module9', 'DATE_M9', 'Module 9'], formData.module9Date)
-    setFieldSmart(['S7', 'Sortie7', 'sortie7', 'Session7', 'DATE_S7', 'Sortie 7'], formData.sortie7Date)
-    setFieldSmart(['S8', 'Sortie8', 'sortie8', 'Session8', 'DATE_S8', 'Sortie 8'], formData.sortie8Date)
-    setFieldSmart(['M10', 'Module10', 'module10', 'DATE_M10', 'Module 10'], formData.module10Date)
-    setFieldSmart(['S9', 'Sortie9', 'sortie9', 'Session9', 'DATE_S9', 'Sortie 9'], formData.sortie9Date)
-    setFieldSmart(['S10', 'Sortie10', 'sortie10', 'Session10', 'DATE_S10', 'Sortie 10'], formData.sortie10Date)
+    // Phase 3 dates - Page 2 uses Date9_af_date.X pattern
+    setFieldSmart(['M8', 'Module8', 'module8', 'DATE_M8', 'Module 8', 'Date9_af_date.0'], formData.module8Date)
+    setFieldSmart(['S5', 'Sortie5', 'sortie5', 'Session5', 'DATE_S5', 'Sortie 5', 'Date9_af_date.1'], formData.sortie5Date)
+    setFieldSmart(['S6', 'Sortie6', 'sortie6', 'Session6', 'DATE_S6', 'Sortie 6', 'Date9_af_date.2'], formData.sortie6Date)
+    setFieldSmart(['M9', 'Module9', 'module9', 'DATE_M9', 'Module 9', 'Date9_af_date.3'], formData.module9Date)
+    setFieldSmart(['S7', 'Sortie7', 'sortie7', 'Session7', 'DATE_S7', 'Sortie 7', 'Date9_af_date.4'], formData.sortie7Date)
+    setFieldSmart(['S8', 'Sortie8', 'sortie8', 'Session8', 'DATE_S8', 'Sortie 8', 'Date9_af_date.5'], formData.sortie8Date)
+    setFieldSmart(['M10', 'Module10', 'module10', 'DATE_M10', 'Module 10', 'Date9_af_date.6'], formData.module10Date)
+    setFieldSmart(['S9', 'Sortie9', 'sortie9', 'Session9', 'DATE_S9', 'Sortie 9', 'Date9_af_date.7'], formData.sortie9Date)
+    setFieldSmart(['S10', 'Sortie10', 'sortie10', 'Session10', 'DATE_S10', 'Sortie 10', 'Date9_af_date.8'], formData.sortie10Date)
 
-    // Phase 4 dates
-    setFieldSmart(['M11', 'Module11', 'module11', 'DATE_M11', 'Module 11'], formData.module11Date)
-    setFieldSmart(['S11', 'Sortie11', 'sortie11', 'Session11', 'DATE_S11', 'Sortie 11'], formData.sortie11Date)
-    setFieldSmart(['S12', 'Sortie12', 'sortie12', 'Session12', 'DATE_S12', 'Sortie 12'], formData.sortie12Date)
-    setFieldSmart(['S13', 'Sortie13', 'sortie13', 'Session13', 'DATE_S13', 'Sortie 13'], formData.sortie13Date)
-    setFieldSmart(['M12', 'Module12', 'module12', 'DATE_M12', 'Module 12'], formData.module12Date)
-    setFieldSmart(['S14', 'Sortie14', 'sortie14', 'Session14', 'DATE_S14', 'Sortie 14'], formData.sortie14Date)
-    setFieldSmart(['S15', 'Sortie15', 'sortie15', 'Session15', 'DATE_S15', 'Sortie 15'], formData.sortie15Date)
+    // Phase 4 dates - Page 2 uses Date10_af_date.X pattern
+    setFieldSmart(['M11', 'Module11', 'module11', 'DATE_M11', 'Module 11', 'Date10_af_date.0'], formData.module11Date)
+    setFieldSmart(['S11', 'Sortie11', 'sortie11', 'Session11', 'DATE_S11', 'Sortie 11', 'Date10_af_date.1'], formData.sortie11Date)
+    setFieldSmart(['S12', 'Sortie12', 'sortie12', 'Session12', 'DATE_S12', 'Sortie 12', 'Date10_af_date.2'], formData.sortie12Date)
+    setFieldSmart(['S13', 'Sortie13', 'sortie13', 'Session13', 'DATE_S13', 'Sortie 13', 'Date10_af_date.3'], formData.sortie13Date)
+    setFieldSmart(['M12', 'Module12', 'module12', 'DATE_M12', 'Module 12', 'Date10_af_date.4'], formData.module12Date)
+    setFieldSmart(['S14', 'Sortie14', 'sortie14', 'Session14', 'DATE_S14', 'Sortie 14', 'Date10_af_date.5'], formData.sortie14Date)
+    setFieldSmart(['S15', 'Sortie15', 'sortie15', 'Session15', 'DATE_S15', 'Sortie 15', 'Date10_af_date.6'], formData.sortie15Date)
 
     // Check the "Réussi" checkbox for full course
     if (formData.certificateType === 'full') {
