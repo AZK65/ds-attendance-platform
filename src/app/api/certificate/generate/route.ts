@@ -61,288 +61,123 @@ export async function POST(request: NextRequest) {
     // Get the form from the PDF
     const form = pdfDoc.getForm()
 
-    // Log all field names for debugging
+    // Get all field names for smart matching
     const fields = form.getFields()
+    const fieldNames = fields.map(f => f.getName())
     console.log('=== ALL PDF FORM FIELDS ===')
-    fields.forEach(f => {
-      console.log(`  Field: "${f.getName()}" (${f.constructor.name})`)
-    })
-    console.log(`=== Total: ${fields.length} fields ===`)
+    fieldNames.forEach(name => console.log(`  "${name}"`))
+    console.log(`=== Total: ${fieldNames.length} fields ===`)
 
     // Track which fields were successfully set
     const successfulFields: string[] = []
 
-    // Helper function to safely set text field
-    const setTextField = (fieldName: string, value: string) => {
+    // Smart field setter - tries multiple variations and page suffixes
+    const setFieldSmart = (baseNames: string[], value: string) => {
       if (!value) return
-      try {
-        const field = form.getTextField(fieldName)
-        field.setText(value)
-        successfulFields.push(fieldName)
-        console.log(`✓ Set field "${fieldName}" to "${value}"`)
-      } catch (e) {
-        // Field not found - this is expected for fields that don't exist in the PDF
-      }
-    }
 
-    // Helper function to check a checkbox
-    const setCheckbox = (fieldName: string, checked: boolean) => {
-      if (!checked) return
-      try {
-        const field = form.getCheckBox(fieldName)
-        if (checked) {
-          field.check()
-        } else {
-          field.uncheck()
+      // Suffixes to try for multi-page PDFs
+      const suffixes = ['', '_2', '2', ' 2', '_p2', '_page2']
+
+      for (const baseName of baseNames) {
+        for (const suffix of suffixes) {
+          const fieldName = baseName + suffix
+          try {
+            const field = form.getTextField(fieldName)
+            field.setText(value)
+            successfulFields.push(fieldName)
+            console.log(`✓ Set "${fieldName}" = "${value}"`)
+          } catch (e) {
+            // Field not found - continue trying
+          }
         }
-      } catch (e) {
-        // Checkbox not found
       }
     }
 
-    // Student Information - try multiple field name variations
-    setTextField('Nom', formData.name)
-    setTextField('nom', formData.name)
-    setTextField('Name', formData.name)
-    setTextField('name', formData.name)
-    setTextField('NOM_ELEVE', formData.name)
-    setTextField('Nom_eleve', formData.name)
-    setTextField('NomEleve', formData.name)
+    // Helper function to check a checkbox with variations
+    const setCheckboxSmart = (baseNames: string[], checked: boolean) => {
+      if (!checked) return
 
-    setTextField('Adresse', formData.address)
-    setTextField('adresse', formData.address)
-    setTextField('Address', formData.address)
-    setTextField('address', formData.address)
-    setTextField('ADRESSE_ELEVE', formData.address)
-    setTextField('AdresseEleve', formData.address)
+      const suffixes = ['', '_2', '2', ' 2', '_p2', '_page2']
 
-    setTextField('Municipalite', formData.municipality)
-    setTextField('municipalite', formData.municipality)
-    setTextField('Municipality', formData.municipality)
-    setTextField('Ville', formData.municipality)
-    setTextField('ville', formData.municipality)
-    setTextField('City', formData.municipality)
+      for (const baseName of baseNames) {
+        for (const suffix of suffixes) {
+          const fieldName = baseName + suffix
+          try {
+            const field = form.getCheckBox(fieldName)
+            field.check()
+            successfulFields.push(fieldName)
+            console.log(`✓ Checked "${fieldName}"`)
+          } catch (e) {
+            // Checkbox not found - continue trying
+          }
+        }
+      }
+    }
 
-    setTextField('Province', formData.province)
-    setTextField('province', formData.province)
+    // Student Information
+    setFieldSmart(['Nom', 'nom', 'Name', 'name', 'NOM_ELEVE', 'Nom_eleve', 'NomEleve', 'Nom prenom', 'Nom, prénom'], formData.name)
+    setFieldSmart(['Adresse', 'adresse', 'Address', 'address', 'ADRESSE_ELEVE', 'AdresseEleve'], formData.address)
+    setFieldSmart(['Municipalite', 'municipalite', 'Municipality', 'Ville', 'ville', 'City', 'Municipalité'], formData.municipality)
+    setFieldSmart(['Province', 'province'], formData.province)
+    setFieldSmart(['CodePostal', 'codePostal', 'Code_postal', 'PostalCode', 'CP', 'Code postal'], formData.postalCode)
+    setFieldSmart(['Contrat', 'contrat', 'NumeroContrat', 'Contract', 'NO_CONTRAT', 'NoContrat', 'Numero de contrat', 'Numéro de contrat'], formData.contractNumber)
+    setFieldSmart(['Telephone', 'telephone', 'Phone', 'Tel', 'TEL', 'Téléphone'], formData.phone)
 
-    setTextField('CodePostal', formData.postalCode)
-    setTextField('codePostal', formData.postalCode)
-    setTextField('Code_postal', formData.postalCode)
-    setTextField('PostalCode', formData.postalCode)
-    setTextField('CP', formData.postalCode)
-
-    setTextField('Contrat', formData.contractNumber)
-    setTextField('contrat', formData.contractNumber)
-    setTextField('NumeroContrat', formData.contractNumber)
-    setTextField('Contract', formData.contractNumber)
-    setTextField('NO_CONTRAT', formData.contractNumber)
-    setTextField('NoContrat', formData.contractNumber)
-
-    setTextField('Telephone', formData.phone)
-    setTextField('telephone', formData.phone)
-    setTextField('Phone', formData.phone)
-    setTextField('Tel', formData.phone)
-    setTextField('TEL', formData.phone)
-
-    // Driver's Licence Number - try ALL possible field name variations
+    // Driver's Licence Number
     console.log(`Attempting to set licence number: "${formData.licenceNumber}"`)
+    const permisFields = fieldNames.filter(name => name.toLowerCase().includes('permis'))
+    console.log('Fields containing "permis":', permisFields)
 
-    // Log all fields that contain "permis" (case insensitive) for debugging
-    const permisFields = fields.filter(f => f.getName().toLowerCase().includes('permis'))
-    console.log('Fields containing "permis":', permisFields.map(f => f.getName()))
+    setFieldSmart([
+      'Numero de Permis', 'Numéro de permis', 'Numero de permis', 'Numéro de Permis',
+      'NumeroDePermis', 'numero_de_permis', 'Permis', 'permis', 'NumeroPermis',
+      'NO_PERMIS', 'NoPermis', 'PermisConduire', 'permis_conduire', 'PERMIS',
+      'LicenceNumber', 'DriverLicence', 'DL', 'NPermis', 'No_permis'
+    ], formData.licenceNumber)
 
-    // The licence number field appears to have individual character boxes
-    // Try to find fields like "Numéro de permis_1", "Numéro de permis_2", etc.
-    if (formData.licenceNumber) {
-      const cleanLicence = formData.licenceNumber.replace(/\s/g, '') // Remove spaces
-      console.log(`Clean licence number (${cleanLicence.length} chars): "${cleanLicence}"`)
-
-      // Try various naming patterns for individual character fields
-      for (let i = 0; i < cleanLicence.length; i++) {
-        const char = cleanLicence[i]
-        // Common patterns for individual character fields
-        setTextField(`Numéro de permis_${i + 1}`, char)
-        setTextField(`Numero de permis_${i + 1}`, char)
-        setTextField(`Numéro de Permis_${i + 1}`, char)
-        setTextField(`Numero de Permis_${i + 1}`, char)
-        setTextField(`NumeroDePermis_${i + 1}`, char)
-        setTextField(`permis_${i + 1}`, char)
-        setTextField(`Permis_${i + 1}`, char)
-        setTextField(`NP_${i + 1}`, char)
-        setTextField(`np_${i + 1}`, char)
-        // Without underscore
-        setTextField(`Numéro de permis${i + 1}`, char)
-        setTextField(`Numero de permis${i + 1}`, char)
-        setTextField(`permis${i + 1}`, char)
-        setTextField(`Permis${i + 1}`, char)
-      }
-    }
-
-    // Also try as a single field (in case it's not individual boxes)
-    setTextField('Numero de Permis', formData.licenceNumber)
-    setTextField('Numéro de permis', formData.licenceNumber)
-    setTextField('Numero de permis', formData.licenceNumber)
-    setTextField('Numéro de Permis', formData.licenceNumber)
-    setTextField('NumeroDePermis', formData.licenceNumber)
-    setTextField('numero_de_permis', formData.licenceNumber)
-    setTextField('Permis', formData.licenceNumber)
-    setTextField('permis', formData.licenceNumber)
-    setTextField('NumeroPermis', formData.licenceNumber)
-    setTextField('NO_PERMIS', formData.licenceNumber)
-    setTextField('NoPermis', formData.licenceNumber)
-    setTextField('PermisConduire', formData.licenceNumber)
-    setTextField('permis_conduire', formData.licenceNumber)
-    setTextField('PERMIS', formData.licenceNumber)
-    setTextField('LicenceNumber', formData.licenceNumber)
-    setTextField('DriverLicence', formData.licenceNumber)
-    setTextField('DL', formData.licenceNumber)
-    setTextField('NPermis', formData.licenceNumber)
-    setTextField('No_permis', formData.licenceNumber)
-
-    // Phase 1 dates
-    setTextField('M1', formData.module1Date)
-    setTextField('Module1', formData.module1Date)
-    setTextField('module1', formData.module1Date)
-    setTextField('DATE_M1', formData.module1Date)
-
-    setTextField('M2', formData.module2Date)
-    setTextField('Module2', formData.module2Date)
-    setTextField('module2', formData.module2Date)
-    setTextField('DATE_M2', formData.module2Date)
-
-    setTextField('M3', formData.module3Date)
-    setTextField('Module3', formData.module3Date)
-    setTextField('module3', formData.module3Date)
-    setTextField('DATE_M3', formData.module3Date)
-
-    setTextField('M4', formData.module4Date)
-    setTextField('Module4', formData.module4Date)
-    setTextField('module4', formData.module4Date)
-    setTextField('DATE_M4', formData.module4Date)
-
-    setTextField('M5', formData.module5Date)
-    setTextField('Module5', formData.module5Date)
-    setTextField('module5', formData.module5Date)
-    setTextField('DATE_M5', formData.module5Date)
+    // Phase 1 dates (modules 1-5)
+    setFieldSmart(['M1', 'Module1', 'module1', 'DATE_M1', 'Module 1'], formData.module1Date)
+    setFieldSmart(['M2', 'Module2', 'module2', 'DATE_M2', 'Module 2'], formData.module2Date)
+    setFieldSmart(['M3', 'Module3', 'module3', 'DATE_M3', 'Module 3'], formData.module3Date)
+    setFieldSmart(['M4', 'Module4', 'module4', 'DATE_M4', 'Module 4'], formData.module4Date)
+    setFieldSmart(['M5', 'Module5', 'module5', 'DATE_M5', 'Module 5'], formData.module5Date)
 
     // Phase 2 dates
-    setTextField('M6', formData.module6Date)
-    setTextField('Module6', formData.module6Date)
-    setTextField('DATE_M6', formData.module6Date)
-
-    setTextField('S1', formData.sortie1Date)
-    setTextField('Sortie1', formData.sortie1Date)
-    setTextField('Session1', formData.sortie1Date)
-    setTextField('DATE_S1', formData.sortie1Date)
-
-    setTextField('S2', formData.sortie2Date)
-    setTextField('Sortie2', formData.sortie2Date)
-    setTextField('Session2', formData.sortie2Date)
-    setTextField('DATE_S2', formData.sortie2Date)
-
-    setTextField('M7', formData.module7Date)
-    setTextField('Module7', formData.module7Date)
-    setTextField('DATE_M7', formData.module7Date)
-
-    setTextField('S3', formData.sortie3Date)
-    setTextField('Sortie3', formData.sortie3Date)
-    setTextField('Session3', formData.sortie3Date)
-    setTextField('DATE_S3', formData.sortie3Date)
-
-    setTextField('S4', formData.sortie4Date)
-    setTextField('Sortie4', formData.sortie4Date)
-    setTextField('Session4', formData.sortie4Date)
-    setTextField('DATE_S4', formData.sortie4Date)
+    setFieldSmart(['M6', 'Module6', 'module6', 'DATE_M6', 'Module 6'], formData.module6Date)
+    setFieldSmart(['S1', 'Sortie1', 'sortie1', 'Session1', 'DATE_S1', 'Sortie 1'], formData.sortie1Date)
+    setFieldSmart(['S2', 'Sortie2', 'sortie2', 'Session2', 'DATE_S2', 'Sortie 2'], formData.sortie2Date)
+    setFieldSmart(['M7', 'Module7', 'module7', 'DATE_M7', 'Module 7'], formData.module7Date)
+    setFieldSmart(['S3', 'Sortie3', 'sortie3', 'Session3', 'DATE_S3', 'Sortie 3'], formData.sortie3Date)
+    setFieldSmart(['S4', 'Sortie4', 'sortie4', 'Session4', 'DATE_S4', 'Sortie 4'], formData.sortie4Date)
 
     // Phase 3 dates
-    setTextField('M8', formData.module8Date)
-    setTextField('Module8', formData.module8Date)
-    setTextField('DATE_M8', formData.module8Date)
-
-    setTextField('S5', formData.sortie5Date)
-    setTextField('Sortie5', formData.sortie5Date)
-    setTextField('Session5', formData.sortie5Date)
-    setTextField('DATE_S5', formData.sortie5Date)
-
-    setTextField('S6', formData.sortie6Date)
-    setTextField('Sortie6', formData.sortie6Date)
-    setTextField('Session6', formData.sortie6Date)
-    setTextField('DATE_S6', formData.sortie6Date)
-
-    setTextField('M9', formData.module9Date)
-    setTextField('Module9', formData.module9Date)
-    setTextField('DATE_M9', formData.module9Date)
-
-    setTextField('S7', formData.sortie7Date)
-    setTextField('Sortie7', formData.sortie7Date)
-    setTextField('Session7', formData.sortie7Date)
-    setTextField('DATE_S7', formData.sortie7Date)
-
-    setTextField('S8', formData.sortie8Date)
-    setTextField('Sortie8', formData.sortie8Date)
-    setTextField('Session8', formData.sortie8Date)
-    setTextField('DATE_S8', formData.sortie8Date)
-
-    setTextField('M10', formData.module10Date)
-    setTextField('Module10', formData.module10Date)
-    setTextField('DATE_M10', formData.module10Date)
-
-    setTextField('S9', formData.sortie9Date)
-    setTextField('Sortie9', formData.sortie9Date)
-    setTextField('Session9', formData.sortie9Date)
-    setTextField('DATE_S9', formData.sortie9Date)
-
-    setTextField('S10', formData.sortie10Date)
-    setTextField('Sortie10', formData.sortie10Date)
-    setTextField('Session10', formData.sortie10Date)
-    setTextField('DATE_S10', formData.sortie10Date)
+    setFieldSmart(['M8', 'Module8', 'module8', 'DATE_M8', 'Module 8'], formData.module8Date)
+    setFieldSmart(['S5', 'Sortie5', 'sortie5', 'Session5', 'DATE_S5', 'Sortie 5'], formData.sortie5Date)
+    setFieldSmart(['S6', 'Sortie6', 'sortie6', 'Session6', 'DATE_S6', 'Sortie 6'], formData.sortie6Date)
+    setFieldSmart(['M9', 'Module9', 'module9', 'DATE_M9', 'Module 9'], formData.module9Date)
+    setFieldSmart(['S7', 'Sortie7', 'sortie7', 'Session7', 'DATE_S7', 'Sortie 7'], formData.sortie7Date)
+    setFieldSmart(['S8', 'Sortie8', 'sortie8', 'Session8', 'DATE_S8', 'Sortie 8'], formData.sortie8Date)
+    setFieldSmart(['M10', 'Module10', 'module10', 'DATE_M10', 'Module 10'], formData.module10Date)
+    setFieldSmart(['S9', 'Sortie9', 'sortie9', 'Session9', 'DATE_S9', 'Sortie 9'], formData.sortie9Date)
+    setFieldSmart(['S10', 'Sortie10', 'sortie10', 'Session10', 'DATE_S10', 'Sortie 10'], formData.sortie10Date)
 
     // Phase 4 dates
-    setTextField('M11', formData.module11Date)
-    setTextField('Module11', formData.module11Date)
-    setTextField('DATE_M11', formData.module11Date)
-
-    setTextField('S11', formData.sortie11Date)
-    setTextField('Sortie11', formData.sortie11Date)
-    setTextField('Session11', formData.sortie11Date)
-    setTextField('DATE_S11', formData.sortie11Date)
-
-    setTextField('S12', formData.sortie12Date)
-    setTextField('Sortie12', formData.sortie12Date)
-    setTextField('Session12', formData.sortie12Date)
-    setTextField('DATE_S12', formData.sortie12Date)
-
-    setTextField('S13', formData.sortie13Date)
-    setTextField('Sortie13', formData.sortie13Date)
-    setTextField('Session13', formData.sortie13Date)
-    setTextField('DATE_S13', formData.sortie13Date)
-
-    setTextField('M12', formData.module12Date)
-    setTextField('Module12', formData.module12Date)
-    setTextField('DATE_M12', formData.module12Date)
-
-    setTextField('S14', formData.sortie14Date)
-    setTextField('Sortie14', formData.sortie14Date)
-    setTextField('Session14', formData.sortie14Date)
-    setTextField('DATE_S14', formData.sortie14Date)
-
-    setTextField('S15', formData.sortie15Date)
-    setTextField('Sortie15', formData.sortie15Date)
-    setTextField('Session15', formData.sortie15Date)
-    setTextField('DATE_S15', formData.sortie15Date)
+    setFieldSmart(['M11', 'Module11', 'module11', 'DATE_M11', 'Module 11'], formData.module11Date)
+    setFieldSmart(['S11', 'Sortie11', 'sortie11', 'Session11', 'DATE_S11', 'Sortie 11'], formData.sortie11Date)
+    setFieldSmart(['S12', 'Sortie12', 'sortie12', 'Session12', 'DATE_S12', 'Sortie 12'], formData.sortie12Date)
+    setFieldSmart(['S13', 'Sortie13', 'sortie13', 'Session13', 'DATE_S13', 'Sortie 13'], formData.sortie13Date)
+    setFieldSmart(['M12', 'Module12', 'module12', 'DATE_M12', 'Module 12'], formData.module12Date)
+    setFieldSmart(['S14', 'Sortie14', 'sortie14', 'Session14', 'DATE_S14', 'Sortie 14'], formData.sortie14Date)
+    setFieldSmart(['S15', 'Sortie15', 'sortie15', 'Session15', 'DATE_S15', 'Sortie 15'], formData.sortie15Date)
 
     // Check the "Réussi" checkbox for full course
     if (formData.certificateType === 'full') {
-      setCheckbox('Reussi', true)
-      setCheckbox('reussi', true)
-      setCheckbox('REUSSI', true)
-      setCheckbox('Réussi', true)
+      setCheckboxSmart(['Reussi', 'reussi', 'REUSSI', 'Réussi', 'Réussie', 'reussie'], true)
     }
 
-    // Log summary of successful fields
+    // Log summary
     console.log('=== FIELDS SUCCESSFULLY SET ===')
-    console.log(`Total fields set: ${successfulFields.length}`)
+    console.log(`Total: ${successfulFields.length}`)
     console.log('Fields:', successfulFields.join(', '))
     console.log('=== END SUMMARY ===')
 
