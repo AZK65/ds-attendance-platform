@@ -69,13 +69,17 @@ export async function POST(request: NextRequest) {
     })
     console.log(`=== Total: ${fields.length} fields ===`)
 
+    // Track which fields were successfully set
+    const successfulFields: string[] = []
+
     // Helper function to safely set text field
     const setTextField = (fieldName: string, value: string) => {
       if (!value) return
       try {
         const field = form.getTextField(fieldName)
         field.setText(value)
-        console.log(`Set field "${fieldName}" to "${value}"`)
+        successfulFields.push(fieldName)
+        console.log(`✓ Set field "${fieldName}" to "${value}"`)
       } catch (e) {
         // Field not found - this is expected for fields that don't exist in the PDF
       }
@@ -336,19 +340,11 @@ export async function POST(request: NextRequest) {
       setCheckbox('Réussi', true)
     }
 
-    // Get pages for barcode copy
-    const pages = pdfDoc.getPages()
-    const page2 = pages.length > 1 ? pages[1] : null
-
-    // NOTE: Barcode copy disabled - the embedPages approach was copying too much content
-    // and causing duplication issues on page 2. The PDF form should handle barcode
-    // synchronization through its own form fields.
-    //
-    // If barcode copy is needed in the future, consider:
-    // 1. Using a barcode generation library to create the barcode from the attestation number
-    // 2. Finding and setting the barcode form field directly if it exists
-    // 3. Using a more precise clipping approach
-    console.log('Barcode copy disabled to prevent page duplication issues')
+    // Log summary of successful fields
+    console.log('=== FIELDS SUCCESSFULLY SET ===')
+    console.log(`Total fields set: ${successfulFields.length}`)
+    console.log('Fields:', successfulFields.join(', '))
+    console.log('=== END SUMMARY ===')
 
     // Serialize the PDF
     const pdfBytes = await pdfDoc.save()
