@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { PDFDocument, rgb } from 'pdf-lib'
+import { PDFDocument } from 'pdf-lib'
 
 interface CertificateFormData {
   name: string
@@ -40,24 +40,6 @@ interface CertificateFormData {
   sortie15Date: string
   certificateType: 'phase1' | 'full'
   templatePdf: string  // Base64 encoded PDF from user
-}
-
-// Barcode position configuration
-// PDF page is Letter size: 612 x 792 points (8.5 x 11 inches at 72 points/inch)
-// Barcode is in top-right corner - need to capture ONLY the barcode lines, not the text
-const BARCODE_CONFIG = {
-  // Position on page 1 where barcode is located (to copy from)
-  page1: {
-    x: 490,     // X position from left - right side
-    y: 705,     // Y position from bottom - just the barcode lines
-    width: 100, // Width of barcode area only
-    height: 30  // Height of barcode lines only (no text)
-  },
-  // Position on page 2 where barcode should be copied to (same position)
-  page2: {
-    x: 490,     // Same X position
-    y: 705,     // Same Y position
-  }
 }
 
 export async function POST(request: NextRequest) {
@@ -358,47 +340,15 @@ export async function POST(request: NextRequest) {
     const pages = pdfDoc.getPages()
     const page2 = pages.length > 1 ? pages[1] : null
 
-    // Copy barcode from page 1 to page 2 if page 2 exists
-    if (page2) {
-      try {
-        console.log('Copying barcode from page 1 to page 2...')
-        console.log(`Barcode config: x=${BARCODE_CONFIG.page1.x}, y=${BARCODE_CONFIG.page1.y}, w=${BARCODE_CONFIG.page1.width}, h=${BARCODE_CONFIG.page1.height}`)
-
-        // Save current state to create a snapshot for embedding
-        const tempPdfBytes = await pdfDoc.save()
-        const tempPdfDoc = await PDFDocument.load(tempPdfBytes)
-
-        // Embed the barcode region from page 1
-        const [embeddedPage1] = await pdfDoc.embedPages([tempPdfDoc.getPages()[0]], [{
-          left: BARCODE_CONFIG.page1.x,
-          bottom: BARCODE_CONFIG.page1.y,
-          right: BARCODE_CONFIG.page1.x + BARCODE_CONFIG.page1.width,
-          top: BARCODE_CONFIG.page1.y + BARCODE_CONFIG.page1.height,
-        }])
-
-        // First, draw a white rectangle to cover any existing barcode on page 2
-        page2.drawRectangle({
-          x: BARCODE_CONFIG.page2.x,
-          y: BARCODE_CONFIG.page2.y,
-          width: BARCODE_CONFIG.page1.width,
-          height: BARCODE_CONFIG.page1.height,
-          color: rgb(1, 1, 1), // White
-        })
-
-        // Draw the barcode region on page 2 at the same position
-        page2.drawPage(embeddedPage1, {
-          x: BARCODE_CONFIG.page2.x,
-          y: BARCODE_CONFIG.page2.y,
-          width: BARCODE_CONFIG.page1.width,
-          height: BARCODE_CONFIG.page1.height,
-        })
-
-        console.log('Barcode copied to page 2 successfully')
-      } catch (barcodeError) {
-        console.error('Failed to copy barcode:', barcodeError)
-        // Continue without barcode copy - don't fail the whole generation
-      }
-    }
+    // NOTE: Barcode copy disabled - the embedPages approach was copying too much content
+    // and causing duplication issues on page 2. The PDF form should handle barcode
+    // synchronization through its own form fields.
+    //
+    // If barcode copy is needed in the future, consider:
+    // 1. Using a barcode generation library to create the barcode from the attestation number
+    // 2. Finding and setting the barcode form field directly if it exists
+    // 3. Using a more precise clipping approach
+    console.log('Barcode copy disabled to prevent page duplication issues')
 
     // Serialize the PDF
     const pdfBytes = await pdfDoc.save()
