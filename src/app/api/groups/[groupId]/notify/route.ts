@@ -8,7 +8,7 @@ export async function POST(
   const { groupId } = await params
   const decodedGroupId = decodeURIComponent(groupId)
 
-  let body: { module: number; time: string; memberPhones: string[]; message?: string }
+  let body: { module: number; time: string; classDate?: string; memberPhones: string[]; message?: string }
   try {
     body = await request.json()
   } catch {
@@ -18,7 +18,7 @@ export async function POST(
     })
   }
 
-  const { module: moduleNum, time, memberPhones, message: customMessage } = body
+  const { module: moduleNum, time, classDate, memberPhones, message: customMessage } = body
 
   if (!moduleNum || !time || !memberPhones || memberPhones.length === 0) {
     return new Response(JSON.stringify({ error: 'module, time, and memberPhones are required' }), {
@@ -28,7 +28,8 @@ export async function POST(
   }
 
   // Build the message
-  const message = customMessage || `Hey! Your Module ${moduleNum} class is scheduled for ${time}. You'll receive another reminder on the day of the class. Please make sure to put your full name when joining Zoom. Invite Link: https://us02web.zoom.us/j/4171672829?pwd=ZTlHSEdmTGRYV1QraU5MaThqaC9Rdz09 — Password: qazi`
+  const dateStr = classDate ? `${classDate} from ` : ''
+  const message = customMessage || `Hey! Your Module ${moduleNum} class is scheduled for ${dateStr}${time}. You'll receive another reminder on the day of the class. Please make sure to put your full name when joining Zoom. Invite Link: https://us02web.zoom.us/j/4171672829?pwd=ZTlHSEdmTGRYV1QraU5MaThqaC9Rdz09 — Password: qazi`
 
   // Get participant names for the log
   let participantMap: Map<string, string> = new Map()

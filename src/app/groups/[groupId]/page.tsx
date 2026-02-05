@@ -108,6 +108,7 @@ export default function GroupDetailPage() {
   const [scheduleDate, setScheduleDate] = useState('')
   const [scheduleTime, setScheduleTime] = useState('')
   const [scheduleSuccess, setScheduleSuccess] = useState(false)
+  const [classDate, setClassDate] = useState('')
 
   const { data: statusData } = useQuery({
     queryKey: ['whatsapp-status'],
@@ -564,6 +565,7 @@ export default function GroupDetailPage() {
                 setScheduleDate('')
                 setScheduleTime('')
                 setScheduleSuccess(false)
+                setClassDate('')
                 setShowSendReminder(true)
               }}
               disabled={!isConnected || participants.length === 0}
@@ -1451,8 +1453,8 @@ export default function GroupDetailPage() {
               </DialogHeader>
 
               <div className="space-y-4">
-                {/* Module & Time */}
-                <div className="grid grid-cols-2 gap-4">
+                {/* Module, Date & Time */}
+                <div className="grid grid-cols-3 gap-4">
                   <div>
                     <label className="text-sm font-medium">Module Number</label>
                     <Input
@@ -1460,6 +1462,15 @@ export default function GroupDetailPage() {
                       value={reminderModule}
                       onChange={(e) => setReminderModule(parseInt(e.target.value) || 0)}
                       min={1}
+                    />
+                  </div>
+                  <div>
+                    <label className="text-sm font-medium">Class Date</label>
+                    <Input
+                      type="date"
+                      value={classDate}
+                      onChange={(e) => setClassDate(e.target.value)}
+                      min={new Date().toISOString().split('T')[0]}
                     />
                   </div>
                   <div>
@@ -1537,7 +1548,7 @@ export default function GroupDetailPage() {
                 <div>
                   <label className="text-sm font-medium">Message Preview</label>
                   <div className="bg-muted p-3 rounded-lg text-sm mt-1 whitespace-pre-wrap">
-                    {`Hey! Your Module ${reminderModule} class is scheduled for ${reminderTime}. You'll receive another reminder on the day of the class. Please make sure to put your full name when joining Zoom. Invite Link: https://us02web.zoom.us/j/4171672829?pwd=ZTlHSEdmTGRYV1QraU5MaThqaC9Rdz09 — Password: qazi`}
+                    {`Hey! Your Module ${reminderModule} class is scheduled for ${classDate ? new Date(classDate + 'T00:00:00').toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' }) : '[select date]'} from ${reminderTime}. You'll receive another reminder on the day of the class. Please make sure to put your full name when joining Zoom. Invite Link: https://us02web.zoom.us/j/4171672829?pwd=ZTlHSEdmTGRYV1QraU5MaThqaC9Rdz09 — Password: qazi`}
                   </div>
                 </div>
 
@@ -1634,7 +1645,8 @@ export default function GroupDetailPage() {
                       }
 
                       try {
-                        const message = `Hey! Your Module ${reminderModule} class is scheduled for ${reminderTime}. You'll receive another reminder on the day of the class. Please make sure to put your full name when joining Zoom. Invite Link: https://us02web.zoom.us/j/4171672829?pwd=ZTlHSEdmTGRYV1QraU5MaThqaC9Rdz09 — Password: qazi`
+                        const formattedClassDate = classDate ? new Date(classDate + 'T00:00:00').toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' }) : ''
+                        const message = `Hey! Your Module ${reminderModule} class is scheduled for ${formattedClassDate} from ${reminderTime}. You'll receive another reminder on the day of the class. Please make sure to put your full name when joining Zoom. Invite Link: https://us02web.zoom.us/j/4171672829?pwd=ZTlHSEdmTGRYV1QraU5MaThqaC9Rdz09 — Password: qazi`
 
                         const res = await fetch('/api/scheduled-messages', {
                           method: 'POST',
@@ -1679,12 +1691,14 @@ export default function GroupDetailPage() {
                     )
 
                     try {
+                      const formattedClassDate = classDate ? new Date(classDate + 'T00:00:00').toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' }) : ''
                       const res = await fetch(`/api/groups/${encodeURIComponent(groupId)}/notify`, {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
                         body: JSON.stringify({
                           module: reminderModule,
                           time: reminderTime,
+                          classDate: formattedClassDate,
                           memberPhones: Array.from(selectedMembers)
                         })
                       })
