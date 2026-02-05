@@ -45,7 +45,8 @@ import {
   Undo2,
   Bell,
   Check,
-  XCircle
+  XCircle,
+  CalendarDays
 } from 'lucide-react'
 import { Input } from '@/components/ui/input'
 import Link from 'next/link'
@@ -103,6 +104,10 @@ export default function GroupDetailPage() {
   const [reminderLog, setReminderLog] = useState<Array<{ phone: string; name: string; status: 'sent' | 'failed' | 'pending'; error?: string }>>([])
   const [reminderDone, setReminderDone] = useState(false)
   const [reminderSummary, setReminderSummary] = useState<{ sent: number; failed: number; total: number } | null>(null)
+  const [scheduleMode, setScheduleMode] = useState<'now' | 'later'>('now')
+  const [scheduleDate, setScheduleDate] = useState('')
+  const [scheduleTime, setScheduleTime] = useState('')
+  const [scheduleSuccess, setScheduleSuccess] = useState(false)
 
   const { data: statusData } = useQuery({
     queryKey: ['whatsapp-status'],
@@ -555,6 +560,10 @@ export default function GroupDetailPage() {
                 setReminderDone(false)
                 setReminderSummary(null)
                 setReminderSending(false)
+                setScheduleMode('now')
+                setScheduleDate('')
+                setScheduleTime('')
+                setScheduleSuccess(false)
                 setShowSendReminder(true)
               }}
               disabled={!isConnected || participants.length === 0}
@@ -1408,7 +1417,28 @@ export default function GroupDetailPage() {
         }}
       >
         <DialogContent className="max-w-2xl max-h-[85vh] overflow-y-auto">
-          {!reminderSending && !reminderDone ? (
+          {scheduleSuccess ? (
+            <>
+              <div className="flex flex-col items-center justify-center py-8 gap-4">
+                <div className="rounded-full bg-green-100 p-3">
+                  <CalendarDays className="h-8 w-8 text-green-600" />
+                </div>
+                <div className="text-center">
+                  <h3 className="text-lg font-semibold text-green-800">Reminder Scheduled!</h3>
+                  <p className="text-sm text-muted-foreground mt-1">
+                    Module {reminderModule} reminder will be sent to {selectedMembers.size} members on{' '}
+                    {new Date(`${scheduleDate}T${scheduleTime}`).toLocaleString('en-US', {
+                      weekday: 'short',
+                      month: 'short',
+                      day: 'numeric',
+                      hour: 'numeric',
+                      minute: '2-digit'
+                    })}
+                  </p>
+                </div>
+              </div>
+            </>
+          ) : !reminderSending && !reminderDone ? (
             <>
               <DialogHeader>
                 <DialogTitle className="flex items-center gap-2">
@@ -1443,11 +1473,71 @@ export default function GroupDetailPage() {
                   </div>
                 </div>
 
+                {/* Schedule Option */}
+                <div>
+                  <label className="text-sm font-medium mb-2 block">When to Send</label>
+                  <div className="flex gap-2">
+                    <Button
+                      variant={scheduleMode === 'now' ? 'default' : 'outline'}
+                      size="sm"
+                      onClick={() => setScheduleMode('now')}
+                      className="flex-1"
+                    >
+                      <Send className="h-4 w-4 mr-2" />
+                      Send Now
+                    </Button>
+                    <Button
+                      variant={scheduleMode === 'later' ? 'default' : 'outline'}
+                      size="sm"
+                      onClick={() => setScheduleMode('later')}
+                      className="flex-1"
+                    >
+                      <CalendarDays className="h-4 w-4 mr-2" />
+                      Schedule
+                    </Button>
+                  </div>
+                </div>
+
+                {/* Schedule Date/Time */}
+                {scheduleMode === 'later' && (
+                  <div className="grid grid-cols-2 gap-4 p-3 bg-muted/50 rounded-lg border">
+                    <div>
+                      <label className="text-sm font-medium">Date</label>
+                      <Input
+                        type="date"
+                        value={scheduleDate}
+                        onChange={(e) => setScheduleDate(e.target.value)}
+                        min={new Date().toISOString().split('T')[0]}
+                      />
+                    </div>
+                    <div>
+                      <label className="text-sm font-medium">Time</label>
+                      <Input
+                        type="time"
+                        value={scheduleTime}
+                        onChange={(e) => setScheduleTime(e.target.value)}
+                      />
+                    </div>
+                    {scheduleDate && scheduleTime && (
+                      <div className="col-span-2 text-sm text-muted-foreground flex items-center gap-2">
+                        <Clock className="h-4 w-4" />
+                        Will send on {new Date(`${scheduleDate}T${scheduleTime}`).toLocaleString('en-US', {
+                          weekday: 'short',
+                          month: 'short',
+                          day: 'numeric',
+                          hour: 'numeric',
+                          minute: '2-digit'
+                        })}
+                      </div>
+                    )}
+                  </div>
+                )}
+
                 {/* Message Preview */}
                 <div>
                   <label className="text-sm font-medium">Message Preview</label>
                   <div className="bg-muted p-3 rounded-lg text-sm mt-1 whitespace-pre-wrap">
-                    {`Reminder: Module ${reminderModule} class will be from ${reminderTime}. Please make sure to put your full name when joining the Zoom class. Invite Link: https://us02web.zoom.us/j/4171672829?pwd=ZTlHSEdmTGRYV1QraU5MaThqaC9Rdz09 — Password: qazi`}
+                    {`Hey! Your Module ${reminderModule} class is scheduled for ${reminderTime}. You'll receive another reminder on the day of the class. Please make sure to put your full name when joining Zoom. Invite Link: https://us02web.zoom.us/j/4171672829?pwd=ZTlHSEdmTGRYV1QraU5MaThqaC9Rdz09 — Password: qazi`}
                   </div>
                 </div>
 
@@ -1529,6 +1619,53 @@ export default function GroupDetailPage() {
                 <Button
                   onClick={async () => {
                     if (selectedMembers.size === 0) return
+
+                    // Handle scheduling
+                    if (scheduleMode === 'later') {
+                      if (!scheduleDate || !scheduleTime) {
+                        alert('Please select a date and time for scheduling')
+                        return
+                      }
+
+                      const scheduledAt = new Date(`${scheduleDate}T${scheduleTime}`)
+                      if (scheduledAt <= new Date()) {
+                        alert('Scheduled time must be in the future')
+                        return
+                      }
+
+                      try {
+                        const message = `Hey! Your Module ${reminderModule} class is scheduled for ${reminderTime}. You'll receive another reminder on the day of the class. Please make sure to put your full name when joining Zoom. Invite Link: https://us02web.zoom.us/j/4171672829?pwd=ZTlHSEdmTGRYV1QraU5MaThqaC9Rdz09 — Password: qazi`
+
+                        const res = await fetch('/api/scheduled-messages', {
+                          method: 'POST',
+                          headers: { 'Content-Type': 'application/json' },
+                          body: JSON.stringify({
+                            groupId,
+                            message,
+                            scheduledAt: scheduledAt.toISOString(),
+                            memberPhones: Array.from(selectedMembers),
+                            moduleNumber: reminderModule
+                          })
+                        })
+
+                        if (!res.ok) {
+                          const err = await res.json().catch(() => ({}))
+                          throw new Error(err.error || 'Failed to schedule reminder')
+                        }
+
+                        setScheduleSuccess(true)
+                        setTimeout(() => {
+                          setShowSendReminder(false)
+                          setScheduleSuccess(false)
+                        }, 2000)
+                      } catch (error) {
+                        console.error('Schedule error:', error)
+                        alert(`Failed to schedule: ${error instanceof Error ? error.message : 'Unknown error'}`)
+                      }
+                      return
+                    }
+
+                    // Handle immediate sending
                     setReminderSending(true)
                     setReminderLog(
                       Array.from(selectedMembers).map(phone => {
@@ -1611,10 +1748,19 @@ export default function GroupDetailPage() {
                       setReminderDone(true)
                     }
                   }}
-                  disabled={selectedMembers.size === 0}
+                  disabled={selectedMembers.size === 0 || (scheduleMode === 'later' && (!scheduleDate || !scheduleTime))}
                 >
-                  <Send className="mr-2 h-4 w-4" />
-                  Send to {selectedMembers.size} {selectedMembers.size === 1 ? 'member' : 'members'}
+                  {scheduleMode === 'later' ? (
+                    <>
+                      <CalendarDays className="mr-2 h-4 w-4" />
+                      Schedule for {selectedMembers.size} {selectedMembers.size === 1 ? 'member' : 'members'}
+                    </>
+                  ) : (
+                    <>
+                      <Send className="mr-2 h-4 w-4" />
+                      Send to {selectedMembers.size} {selectedMembers.size === 1 ? 'member' : 'members'}
+                    </>
+                  )}
                 </Button>
               </DialogFooter>
             </>

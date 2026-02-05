@@ -111,3 +111,20 @@ model CertificateSettings {
   createdAt             DateTime @default(now())
   updatedAt             DateTime @updatedAt
 }
+
+// Scheduled messages for sending reminders at a specific time
+model ScheduledMessage {
+  id            String   @id @default(cuid())
+  groupId       String
+  message       String   // The message content
+  scheduledAt   DateTime // When to send the message
+  memberPhones  String   // JSON array of phone numbers
+  moduleNumber  Int?
+  status        String   @default("pending") // pending, sent, failed, cancelled
+  sentAt        DateTime?
+  error         String?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@index([status, scheduledAt])
+}

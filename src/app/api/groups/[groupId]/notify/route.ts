@@ -28,7 +28,7 @@ export async function POST(
   }
 
   // Build the message
-  const message = customMessage || `Reminder: Module ${moduleNum} class will be from ${time}. Please make sure to put your full name when joining the Zoom class. Invite Link: https://us02web.zoom.us/j/4171672829?pwd=ZTlHSEdmTGRYV1QraU5MaThqaC9Rdz09 — Password: qazi`
+  const message = customMessage || `Hey! Your Module ${moduleNum} class is scheduled for ${time}. You'll receive another reminder on the day of the class. Please make sure to put your full name when joining Zoom. Invite Link: https://us02web.zoom.us/j/4171672829?pwd=ZTlHSEdmTGRYV1QraU5MaThqaC9Rdz09 — Password: qazi`
 
   // Get participant names for the log
   let participantMap: Map<string, string> = new Map()
