@@ -197,6 +197,13 @@ async function processAttendanceImage(attendanceImage: string): Promise<Partial<
               type: 'text',
               text: `You are an OCR assistant specialized in reading driving school attendance sheets. Do not think, just extract the data.
 
+IMPORTANT: The dates on this sheet are HANDWRITTEN. Be extra careful with ambiguous handwritten digits:
+- 2 vs 3: A "2" has a horizontal base, a "3" has two curved bumps
+- 1 vs 7: A "7" has a horizontal top stroke, a "1" is just vertical
+- 5 vs 6: A "6" has a closed loop at bottom, a "5" is open
+- 0 vs 6: A "0" is fully closed oval, a "6" has a tail
+- 4 vs 9: Look carefully at the top - "4" is open, "9" is closed
+
 This is a "STUDENT ATTENDANCE SHEET" (Qazi Driving School format) with dates for driving course modules and in-car sessions.
 
 Extract ALL dates from this attendance sheet. The sheet has:
@@ -206,7 +213,7 @@ Extract ALL dates from this attendance sheet. The sheet has:
 - PHASE 3: M8-Speed, In-Car Sessions 5-6, M9-Sharing the Road, In-Car Sessions 7-8, M10-Alcohol and Drugs, In-Car Sessions 9-10
 - PHASE 4: M11-Fatigue and Distractions, In-Car Sessions 11-13, M12-Eco-driving, In-Car Sessions 14-15
 
-Look for the DATE column next to each module/session row. Dates are typically written as DD/MM/YYYY or YYYY-MM-DD.
+Look for the DATE column next to each module/session row. Dates are typically handwritten as DD/MM/YYYY or YYYY-MM-DD.
 
 Return ONLY valid JSON (no markdown, no explanation):
 {
@@ -245,7 +252,7 @@ Return ONLY valid JSON (no markdown, no explanation):
   "sortie15Date": "YYYY-MM-DD"
 }
 
-IMPORTANT: Convert ALL dates to YYYY-MM-DD format. If a date shows "02/01/2025", convert to "2025-01-02". Use empty string for dates not found.`
+IMPORTANT: Convert ALL dates to YYYY-MM-DD format. If a date shows "02/01/2025", convert to "2025-01-02". Use empty string for dates not found. Double-check handwritten digits carefully!`
             }
           ]
         }
@@ -303,6 +310,13 @@ async function processCombinedImage(combinedImage: string): Promise<Partial<Extr
               type: 'text',
               text: `You are an OCR assistant specialized in reading Quebec driver's licenses AND driving school attendance sheets. Do not think, just extract the data.
 
+IMPORTANT: The dates on the attendance sheet are HANDWRITTEN. Be extra careful with ambiguous handwritten digits:
+- 2 vs 3: A "2" has a horizontal base, a "3" has two curved bumps
+- 1 vs 7: A "7" has a horizontal top stroke, a "1" is just vertical
+- 5 vs 6: A "6" has a closed loop at bottom, a "5" is open
+- 0 vs 6: A "0" is fully closed oval, a "6" has a tail
+- 4 vs 9: Look carefully at the top - "4" is open, "9" is closed
+
 This image contains BOTH a Quebec driver's licence AND a student attendance sheet from a driving school (Qazi Driving School format).
 
 Extract ALL the following information:
@@ -312,7 +326,7 @@ FROM THE DRIVER'S LICENCE:
 - Full Name - Last name, First name
 - Address
 
-FROM THE ATTENDANCE SHEET:
+FROM THE ATTENDANCE SHEET (dates are handwritten):
 - Contract Number
 - Phone Number
 - Registration Date, Expiry Date
@@ -360,7 +374,7 @@ Return ONLY valid JSON (no markdown, no code blocks, no explanation):
   "sortie15Date": "YYYY-MM-DD"
 }
 
-IMPORTANT: Convert ALL dates to YYYY-MM-DD format. If a date shows "02/01/2025", convert to "2025-01-02". Use empty string for fields you cannot read clearly.`
+IMPORTANT: Convert ALL dates to YYYY-MM-DD format. If a date shows "02/01/2025", convert to "2025-01-02". Use empty string for fields you cannot read clearly. Double-check handwritten digits carefully!`
             }
           ]
         }
