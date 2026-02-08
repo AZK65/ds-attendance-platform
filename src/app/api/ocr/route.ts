@@ -197,23 +197,31 @@ async function processAttendanceImage(attendanceImage: string): Promise<Partial<
               type: 'text',
               text: `You are an OCR assistant specialized in reading driving school attendance sheets. Do not think, just extract the data.
 
-IMPORTANT: The dates on this sheet are HANDWRITTEN. Be extra careful with ambiguous handwritten digits:
-- 2 vs 3: A "2" has a horizontal base, a "3" has two curved bumps
+CRITICAL - HANDWRITTEN TEXT RULES:
+The dates on this sheet are HANDWRITTEN. Be VERY careful with these commonly confused digits:
+- 2 vs 3: A "2" ends with a horizontal line at the bottom. A "3" has TWO curved bumps stacked vertically.
+- 0 vs 3: A "0" is a closed oval. A "3" has two open curves on the right side.
+- 02 vs 03: Look carefully at the second digit - does it have a flat bottom (2) or two bumps (3)?
 - 1 vs 7: A "7" has a horizontal top stroke, a "1" is just vertical
-- 5 vs 6: A "6" has a closed loop at bottom, a "5" is open
-- 0 vs 6: A "0" is fully closed oval, a "6" has a tail
-- 4 vs 9: Look carefully at the top - "4" is open, "9" is closed
+- 5 vs 6: A "6" has a closed loop at bottom, a "5" is open at bottom
+- 8 vs 0: An "8" has a pinch in the middle, a "0" does not
+
+LOGICAL CHECK: Dates should be in roughly chronological order:
+- M1 → M2 → M3 → M4 → M5 (Phase 1, usually same month or consecutive months)
+- M6 → Session1 → Session2 → M7 → Session3 → Session4 (Phase 2, dates increase)
+- M8 → Session5 → Session6 → M9 → Session7 → Session8 → M10 → Session9 → Session10 (Phase 3)
+- If a date seems out of order, re-examine the handwriting!
 
 This is a "STUDENT ATTENDANCE SHEET" (Qazi Driving School format) with dates for driving course modules and in-car sessions.
 
 Extract ALL dates from this attendance sheet. The sheet has:
 - Student info: Name, Phone, Contract Number, Class 5 Licence Number, Registration Date, Expiry Date
-- PHASE 1: M1-The Vehicle, M2-The Driver, M3-The Environment, M4-At-Risk Behaviours, M5-Evaluation (theory modules)
+- PHASE 1: M1-The Vehicle, M2-The Driver, M3-The Environment, M4-At-Risk Behaviours, M5-Evaluation
 - PHASE 2: M6-Accompanied Driving, In-Car Sessions 1-4, M7-OELA Strategy
 - PHASE 3: M8-Speed, In-Car Sessions 5-6, M9-Sharing the Road, In-Car Sessions 7-8, M10-Alcohol and Drugs, In-Car Sessions 9-10
 - PHASE 4: M11-Fatigue and Distractions, In-Car Sessions 11-13, M12-Eco-driving, In-Car Sessions 14-15
 
-Look for the DATE column next to each module/session row. Dates are typically handwritten as DD/MM/YYYY or YYYY-MM-DD.
+Look for the DATE column next to each module/session row. Dates are typically handwritten as DD/MM/YYYY.
 
 Return ONLY valid JSON (no markdown, no explanation):
 {
@@ -252,7 +260,7 @@ Return ONLY valid JSON (no markdown, no explanation):
   "sortie15Date": "YYYY-MM-DD"
 }
 
-IMPORTANT: Convert ALL dates to YYYY-MM-DD format. If a date shows "02/01/2025", convert to "2025-01-02". Use empty string for dates not found. Double-check handwritten digits carefully!`
+IMPORTANT: Convert ALL dates to YYYY-MM-DD format. If a date shows "02/01/2025", convert to "2025-01-02". Use empty string for dates not found. DOUBLE-CHECK month digits (01-12) especially 02 vs 03!`
             }
           ]
         }
@@ -310,12 +318,19 @@ async function processCombinedImage(combinedImage: string): Promise<Partial<Extr
               type: 'text',
               text: `You are an OCR assistant specialized in reading Quebec driver's licenses AND driving school attendance sheets. Do not think, just extract the data.
 
-IMPORTANT: The dates on the attendance sheet are HANDWRITTEN. Be extra careful with ambiguous handwritten digits:
-- 2 vs 3: A "2" has a horizontal base, a "3" has two curved bumps
+CRITICAL - HANDWRITTEN TEXT RULES:
+The dates on the attendance sheet are HANDWRITTEN. Be VERY careful with these commonly confused digits:
+- 2 vs 3: A "2" ends with a horizontal line at the bottom. A "3" has TWO curved bumps stacked vertically.
+- 0 vs 3: A "0" is a closed oval. A "3" has two open curves on the right side.
+- 02 vs 03: Look carefully at the second digit - does it have a flat bottom (2) or two bumps (3)?
 - 1 vs 7: A "7" has a horizontal top stroke, a "1" is just vertical
-- 5 vs 6: A "6" has a closed loop at bottom, a "5" is open
-- 0 vs 6: A "0" is fully closed oval, a "6" has a tail
-- 4 vs 9: Look carefully at the top - "4" is open, "9" is closed
+- 5 vs 6: A "6" has a closed loop at bottom, a "5" is open at bottom
+- 8 vs 0: An "8" has a pinch in the middle, a "0" does not
+
+LOGICAL CHECK: Dates should be in roughly chronological order:
+- M1 → M2 → M3 → M4 → M5 (Phase 1)
+- M6 → Session1 → Session2 → M7 → Session3 → Session4 (Phase 2, dates increase)
+- If a date seems out of order, re-examine the handwriting!
 
 This image contains BOTH a Quebec driver's licence AND a student attendance sheet from a driving school (Qazi Driving School format).
 
@@ -374,7 +389,7 @@ Return ONLY valid JSON (no markdown, no code blocks, no explanation):
   "sortie15Date": "YYYY-MM-DD"
 }
 
-IMPORTANT: Convert ALL dates to YYYY-MM-DD format. If a date shows "02/01/2025", convert to "2025-01-02". Use empty string for fields you cannot read clearly. Double-check handwritten digits carefully!`
+IMPORTANT: Convert ALL dates to YYYY-MM-DD format. If a date shows "02/01/2025", convert to "2025-01-02". Use empty string for fields you cannot read clearly. DOUBLE-CHECK month digits (01-12) especially 02 vs 03!`
             }
           ]
         }
