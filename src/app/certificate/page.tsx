@@ -64,7 +64,6 @@ interface CertificateFormData extends ExtractedData {
   province: string
   postalCode: string
   phoneAlt: string
-  attestationNumber: string
   schoolName: string
   schoolAddress: string
   schoolCity: string
@@ -86,7 +85,6 @@ const initialFormData: CertificateFormData = {
   municipality: 'Montreal',
   province: 'QC',
   postalCode: '',
-  attestationNumber: '',
   phoneAlt: '',
   schoolName: '',
   schoolAddress: '',
