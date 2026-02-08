@@ -59,6 +59,7 @@ interface ExtractedData {
 }
 
 interface CertificateFormData extends ExtractedData {
+  attestationNumber: string
   municipality: string
   province: string
   postalCode: string
@@ -77,6 +78,7 @@ const initialFormData: CertificateFormData = {
   municipality: 'Montreal',
   province: 'QC',
   postalCode: '',
+  attestationNumber: '',
   phoneAlt: '',
   module1Date: '',
   module2Date: '',
@@ -808,6 +810,16 @@ export default function CertificatePage() {
                         value={formData.licenceNumber}
                         onChange={(e) => handleInputChange('licenceNumber', e.target.value)}
                         placeholder="N1326100391 07"
+                        className="font-mono"
+                      />
+                    </div>
+                    <div className="col-span-2">
+                      <Label htmlFor="attestationNumber">Attestation Number (for Barcode)</Label>
+                      <Input
+                        id="attestationNumber"
+                        value={formData.attestationNumber}
+                        onChange={(e) => handleInputChange('attestationNumber', e.target.value)}
+                        placeholder="M23662011870"
                         className="font-mono"
                       />
                     </div>
