@@ -114,7 +114,7 @@ async function processLicenceImage(licenceImage: string): Promise<Partial<Extrac
       'X-Title': 'DS Attendance Platform - Certificate Maker'
     },
     body: JSON.stringify({
-      model: 'qwen/qwen2.5-vl-72b-instruct',
+      model: 'google/gemini-2.0-flash-001',
       messages: [
         {
           role: 'user',
@@ -145,7 +145,7 @@ Use empty string for fields you cannot read clearly.`
         }
       ],
       max_tokens: 500,
-      temperature: 0.1
+      temperature: 0
     })
   })
 
@@ -184,7 +184,7 @@ async function processAttendanceImage(attendanceImage: string): Promise<Partial<
       'X-Title': 'DS Attendance Platform - Certificate Maker'
     },
     body: JSON.stringify({
-      model: 'qwen/qwen2.5-vl-72b-instruct',
+      model: 'google/gemini-2.0-flash-001',
       messages: [
         {
           role: 'user',
@@ -253,7 +253,7 @@ Use empty string for fields not found. Read each date carefully - the format is 
         }
       ],
       max_tokens: 2000,
-      temperature: 0.1
+      temperature: 0
     })
   })
 
@@ -292,7 +292,7 @@ async function processCombinedImage(combinedImage: string): Promise<Partial<Extr
       'X-Title': 'DS Attendance Platform - Certificate Maker'
     },
     body: JSON.stringify({
-      model: 'qwen/qwen2.5-vl-72b-instruct',
+      model: 'google/gemini-2.0-flash-001',
       messages: [
         {
           role: 'user',
@@ -359,7 +359,7 @@ Use empty string for fields not found. Remember: dates are DD/MM/YYYY - read car
         }
       ],
       max_tokens: 2000,
-      temperature: 0.1
+      temperature: 0
     })
   })
 
