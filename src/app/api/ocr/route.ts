@@ -195,40 +195,27 @@ async function processAttendanceImage(attendanceImage: string): Promise<Partial<
             },
             {
               type: 'text',
-              text: `You are an OCR assistant specialized in reading driving school attendance sheets. Do not think, just extract the data.
+              text: `You are an OCR assistant. Extract dates from this HANDWRITTEN driving school attendance sheet.
 
-CRITICAL - HANDWRITTEN TEXT RULES:
-The dates on this sheet are HANDWRITTEN. Be VERY careful with these commonly confused digits:
-- 2 vs 3: A "2" ends with a horizontal line at the bottom. A "3" has TWO curved bumps stacked vertically.
-- 0 vs 3: A "0" is a closed oval. A "3" has two open curves on the right side.
-- 02 vs 03: Look carefully at the second digit - does it have a flat bottom (2) or two bumps (3)?
-- 1 vs 7: A "7" has a horizontal top stroke, a "1" is just vertical
-- 5 vs 6: A "6" has a closed loop at bottom, a "5" is open at bottom
-- 8 vs 0: An "8" has a pinch in the middle, a "0" does not
+IMPORTANT: Dates are written as DD/MM/YYYY (day/month/year). Convert to YYYY-MM-DD format.
+Example: "16/03/2025" written on paper → output as "2025-03-16" (March 16th)
+Example: "02/02/2025" written on paper → output as "2025-02-02" (February 2nd)
 
-LOGICAL CHECK: Dates should be in roughly chronological order:
-- M1 → M2 → M3 → M4 → M5 (Phase 1, usually same month or consecutive months)
-- M6 → Session1 → Session2 → M7 → Session3 → Session4 (Phase 2, dates increase)
-- M8 → Session5 → Session6 → M9 → Session7 → Session8 → M10 → Session9 → Session10 (Phase 3)
-- If a date seems out of order, re-examine the handwriting!
+The first number is the DAY (01-31), the second number is the MONTH (01-12), the third is the YEAR.
 
-This is a "STUDENT ATTENDANCE SHEET" (Qazi Driving School format) with dates for driving course modules and in-car sessions.
-
-Extract ALL dates from this attendance sheet. The sheet has:
+This is a "STUDENT ATTENDANCE SHEET" with:
 - Student info: Name, Phone, Contract Number, Class 5 Licence Number, Registration Date, Expiry Date
-- PHASE 1: M1-The Vehicle, M2-The Driver, M3-The Environment, M4-At-Risk Behaviours, M5-Evaluation
-- PHASE 2: M6-Accompanied Driving, In-Car Sessions 1-4, M7-OELA Strategy
-- PHASE 3: M8-Speed, In-Car Sessions 5-6, M9-Sharing the Road, In-Car Sessions 7-8, M10-Alcohol and Drugs, In-Car Sessions 9-10
-- PHASE 4: M11-Fatigue and Distractions, In-Car Sessions 11-13, M12-Eco-driving, In-Car Sessions 14-15
+- PHASE 1: M1, M2, M3, M4, M5 (theory modules)
+- PHASE 2: M6, In-Car Sessions 1-4, M7
+- PHASE 3: M8, Sessions 5-6, M9, Sessions 7-8, M10, Sessions 9-10
+- PHASE 4: M11, Sessions 11-13, M12, Sessions 14-15
 
-Look for the DATE column next to each module/session row. Dates are typically handwritten as DD/MM/YYYY.
-
-Return ONLY valid JSON (no markdown, no explanation):
+Return ONLY valid JSON:
 {
-  "name": "student name if visible",
+  "name": "student name",
   "contractNumber": "contract number",
   "phone": "phone number",
-  "licenceNumber": "Class 5 Licence Number if shown",
+  "licenceNumber": "licence number",
   "registrationDate": "YYYY-MM-DD",
   "expiryDate": "YYYY-MM-DD",
   "module1Date": "YYYY-MM-DD",
@@ -260,7 +247,7 @@ Return ONLY valid JSON (no markdown, no explanation):
   "sortie15Date": "YYYY-MM-DD"
 }
 
-IMPORTANT: Convert ALL dates to YYYY-MM-DD format. If a date shows "02/01/2025", convert to "2025-01-02". Use empty string for dates not found. DOUBLE-CHECK month digits (01-12) especially 02 vs 03!`
+Use empty string for fields not found. Read each date carefully - the format is DD/MM/YYYY!`
             }
           ]
         }
@@ -316,44 +303,21 @@ async function processCombinedImage(combinedImage: string): Promise<Partial<Extr
             },
             {
               type: 'text',
-              text: `You are an OCR assistant specialized in reading Quebec driver's licenses AND driving school attendance sheets. Do not think, just extract the data.
+              text: `You are an OCR assistant. Extract data from this image containing a Quebec driver's licence AND a handwritten attendance sheet.
 
-CRITICAL - HANDWRITTEN TEXT RULES:
-The dates on the attendance sheet are HANDWRITTEN. Be VERY careful with these commonly confused digits:
-- 2 vs 3: A "2" ends with a horizontal line at the bottom. A "3" has TWO curved bumps stacked vertically.
-- 0 vs 3: A "0" is a closed oval. A "3" has two open curves on the right side.
-- 02 vs 03: Look carefully at the second digit - does it have a flat bottom (2) or two bumps (3)?
-- 1 vs 7: A "7" has a horizontal top stroke, a "1" is just vertical
-- 5 vs 6: A "6" has a closed loop at bottom, a "5" is open at bottom
-- 8 vs 0: An "8" has a pinch in the middle, a "0" does not
+IMPORTANT: Dates on the attendance sheet are written as DD/MM/YYYY (day/month/year). Convert to YYYY-MM-DD.
+Example: "16/03/2025" on paper → "2025-03-16" (March 16th)
+Example: "02/02/2025" on paper → "2025-02-02" (February 2nd)
 
-LOGICAL CHECK: Dates should be in roughly chronological order:
-- M1 → M2 → M3 → M4 → M5 (Phase 1)
-- M6 → Session1 → Session2 → M7 → Session3 → Session4 (Phase 2, dates increase)
-- If a date seems out of order, re-examine the handwriting!
+The first number is DAY (01-31), second is MONTH (01-12), third is YEAR.
 
-This image contains BOTH a Quebec driver's licence AND a student attendance sheet from a driving school (Qazi Driving School format).
+FROM THE DRIVER'S LICENCE: Licence Number, Full Name, Address
 
-Extract ALL the following information:
+FROM THE ATTENDANCE SHEET: Contract Number, Phone, Registration/Expiry Dates, and ALL module/session dates
 
-FROM THE DRIVER'S LICENCE:
-- Licence Number (Numéro de permis) - Format like "A2536-090400-01"
-- Full Name - Last name, First name
-- Address
-
-FROM THE ATTENDANCE SHEET (dates are handwritten):
-- Contract Number
-- Phone Number
-- Registration Date, Expiry Date
-- ALL module and in-car session dates:
-  - PHASE 1: M1-M5 (theory modules)
-  - PHASE 2: M6, Sessions 1-4, M7
-  - PHASE 3: M8, Sessions 5-6, M9, Sessions 7-8, M10, Sessions 9-10
-  - PHASE 4: M11, Sessions 11-13, M12, Sessions 14-15
-
-Return ONLY valid JSON (no markdown, no code blocks, no explanation):
+Return ONLY valid JSON:
 {
-  "licenceNumber": "the licence number exactly as shown",
+  "licenceNumber": "licence number exactly as shown",
   "name": "LastName, FirstName",
   "address": "full address",
   "contractNumber": "contract number",
@@ -389,7 +353,7 @@ Return ONLY valid JSON (no markdown, no code blocks, no explanation):
   "sortie15Date": "YYYY-MM-DD"
 }
 
-IMPORTANT: Convert ALL dates to YYYY-MM-DD format. If a date shows "02/01/2025", convert to "2025-01-02". Use empty string for fields you cannot read clearly. DOUBLE-CHECK month digits (01-12) especially 02 vs 03!`
+Use empty string for fields not found. Remember: dates are DD/MM/YYYY - read carefully!`
             }
           ]
         }
