@@ -64,6 +64,13 @@ interface CertificateFormData extends ExtractedData {
   province: string
   postalCode: string
   phoneAlt: string
+  attestationNumber: string
+  schoolName: string
+  schoolAddress: string
+  schoolCity: string
+  schoolProvince: string
+  schoolPostalCode: string
+  schoolNumber: string
   certificateType: 'phase1' | 'full'
 }
 
@@ -72,6 +79,7 @@ const initialFormData: CertificateFormData = {
   name: '',
   address: '',
   contractNumber: '',
+  attestationNumber: '',
   phone: '',
   registrationDate: '',
   expiryDate: '',
@@ -80,6 +88,12 @@ const initialFormData: CertificateFormData = {
   postalCode: '',
   attestationNumber: '',
   phoneAlt: '',
+  schoolName: '',
+  schoolAddress: '',
+  schoolCity: '',
+  schoolProvince: '',
+  schoolPostalCode: '',
+  schoolNumber: '',
   module1Date: '',
   module2Date: '',
   module3Date: '',
@@ -308,9 +322,45 @@ export default function CertificatePage() {
     setFormData(prev => ({ ...prev, [field]: value }))
   }
 
-  const handleGeneratePDF = () => {
+  const handleGeneratePDF = async () => {
     if (!templatePdf) return
-    pdfMutation.mutate({ ...formData, templatePdf })
+
+    let finalFormData = { ...formData }
+
+    // If using "New Certificate" mode, fetch next numbers and school info from settings
+    if (templateMode === 'new') {
+      try {
+        const res = await fetch('/api/certificate/next-number', { method: 'POST' })
+        if (!res.ok) {
+          const err = await res.json().catch(() => ({ error: 'Failed to get certificate numbers' }))
+          alert(err.error || 'Failed to get certificate numbers from settings')
+          return
+        }
+        const numbers = await res.json()
+
+        // Format attestation number with spaces (e.g., "5190414" -> "5  1  9  0  4  1  4")
+        const attestationStr = String(numbers.attestationNumber)
+        const formattedAttestation = attestationStr.split('').join('  ')
+
+        finalFormData = {
+          ...finalFormData,
+          contractNumber: finalFormData.contractNumber || String(numbers.contractNumber),
+          attestationNumber: formattedAttestation,
+          schoolName: numbers.schoolName || '',
+          schoolAddress: numbers.schoolAddress || '',
+          schoolCity: numbers.schoolCity || '',
+          schoolProvince: numbers.schoolProvince || '',
+          schoolPostalCode: numbers.schoolPostalCode || '',
+          schoolNumber: numbers.schoolNumber || '',
+        }
+      } catch (error) {
+        console.error('Error fetching next numbers:', error)
+        alert('Failed to get certificate numbers. Check settings.')
+        return
+      }
+    }
+
+    pdfMutation.mutate({ ...finalFormData, templatePdf })
     setStep('download')
   }
 
