@@ -109,6 +109,7 @@ export default function GroupDetailPage() {
   const [scheduleTime, setScheduleTime] = useState('')
   const [scheduleSuccess, setScheduleSuccess] = useState(false)
   const [classDate, setClassDate] = useState('')
+  const [scheduleGroupReminder, setScheduleGroupReminder] = useState(true) // Auto-schedule group reminder at 12pm on class day
 
   const { data: statusData } = useQuery({
     queryKey: ['whatsapp-status'],
@@ -1544,6 +1545,25 @@ export default function GroupDetailPage() {
                   </div>
                 )}
 
+                {/* Auto-schedule Group Reminder */}
+                {classDate && (
+                  <div className="flex items-center gap-3 p-3 bg-blue-50 dark:bg-blue-950/30 rounded-lg border border-blue-200 dark:border-blue-800">
+                    <input
+                      type="checkbox"
+                      id="scheduleGroupReminder"
+                      checked={scheduleGroupReminder}
+                      onChange={(e) => setScheduleGroupReminder(e.target.checked)}
+                      className="h-4 w-4 rounded border-gray-300"
+                    />
+                    <label htmlFor="scheduleGroupReminder" className="text-sm flex-1">
+                      <span className="font-medium">Auto-schedule group reminder</span>
+                      <p className="text-muted-foreground text-xs mt-0.5">
+                        Send a reminder to the group at 12:00 PM on {new Date(classDate + 'T00:00:00').toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' })}
+                      </p>
+                    </label>
+                  </div>
+                )}
+
                 {/* Message Preview */}
                 <div>
                   <label className="text-sm font-medium">Message Preview</label>
@@ -1699,7 +1719,9 @@ export default function GroupDetailPage() {
                           module: reminderModule,
                           time: reminderTime,
                           classDate: formattedClassDate,
-                          memberPhones: Array.from(selectedMembers)
+                          classDateISO: classDate, // ISO format for scheduling group reminder
+                          memberPhones: Array.from(selectedMembers),
+                          scheduleGroupReminder: scheduleGroupReminder && !!classDate
                         })
                       })
 

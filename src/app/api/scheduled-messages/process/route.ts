@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/db'
-import { sendPrivateMessage } from '@/lib/whatsapp/client'
+import { sendPrivateMessage, sendMessageToGroup } from '@/lib/whatsapp/client'
 
 // Process pending scheduled messages that are due
 // This endpoint should be called periodically (e.g., every minute via cron or setInterval)
@@ -23,29 +23,43 @@ export async function POST(request: NextRequest) {
     const results: Array<{ id: string; sent: number; failed: number }> = []
 
     for (const scheduled of pendingMessages) {
-      const memberPhones: string[] = JSON.parse(scheduled.memberPhones)
       let sent = 0
       let failed = 0
       const errors: string[] = []
 
-      for (const phone of memberPhones) {
+      // Check if this is a group message or individual messages
+      if (scheduled.isGroupMessage) {
+        // Send to the group
         try {
-          await sendPrivateMessage(phone, scheduled.message)
-          sent++
+          await sendMessageToGroup(scheduled.groupId, scheduled.message)
+          sent = 1
         } catch (error) {
-          failed++
-          errors.push(`${phone}: ${error instanceof Error ? error.message : 'Unknown error'}`)
+          failed = 1
+          errors.push(`Group: ${error instanceof Error ? error.message : 'Unknown error'}`)
         }
+      } else {
+        // Send to individual members
+        const memberPhones: string[] = JSON.parse(scheduled.memberPhones)
 
-        // Small delay between messages to avoid rate limiting
-        await new Promise(resolve => setTimeout(resolve, 1500))
+        for (const phone of memberPhones) {
+          try {
+            await sendPrivateMessage(phone, scheduled.message)
+            sent++
+          } catch (error) {
+            failed++
+            errors.push(`${phone}: ${error instanceof Error ? error.message : 'Unknown error'}`)
+          }
+
+          // Small delay between messages to avoid rate limiting
+          await new Promise(resolve => setTimeout(resolve, 1500))
+        }
       }
 
       // Update the scheduled message status
       await prisma.scheduledMessage.update({
         where: { id: scheduled.id },
         data: {
-          status: failed === memberPhones.length ? 'failed' : 'sent',
+          status: failed > 0 && sent === 0 ? 'failed' : 'sent',
           sentAt: new Date(),
           error: errors.length > 0 ? errors.join('; ') : null
         }

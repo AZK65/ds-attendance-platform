@@ -118,8 +118,9 @@ model ScheduledMessage {
   groupId       String
   message       String   // The message content
   scheduledAt   DateTime // When to send the message
-  memberPhones  String   // JSON array of phone numbers
+  memberPhones  String   // JSON array of phone numbers (empty for group messages)
   moduleNumber  Int?
+  isGroupMessage Boolean @default(false) // true = send to group, false = send to individuals
   status        String   @default("pending") // pending, sent, failed, cancelled
   sentAt        DateTime?
   error         String?
