@@ -383,32 +383,32 @@ export default function CertificatePage() {
         <div className="max-w-4xl mx-auto">
           {/* Progress Steps */}
           <div className="flex items-center justify-center mb-8">
-            <div className="flex items-center gap-2">
-              <div className={`flex items-center justify-center w-10 h-10 rounded-full font-bold ${step === 'upload-pdf' ? 'bg-primary text-primary-foreground' : 'bg-muted text-muted-foreground'}`}>
+            <div className="flex items-center gap-1 sm:gap-2">
+              <div className={`flex items-center justify-center w-8 h-8 sm:w-10 sm:h-10 rounded-full font-bold text-sm sm:text-base ${step === 'upload-pdf' ? 'bg-primary text-primary-foreground' : 'bg-muted text-muted-foreground'}`}>
                 1
               </div>
-              <span className={step === 'upload-pdf' ? 'font-medium' : 'text-muted-foreground'}>Template</span>
+              <span className={`hidden sm:inline ${step === 'upload-pdf' ? 'font-medium' : 'text-muted-foreground'}`}>Template</span>
             </div>
-            <div className="w-12 h-0.5 bg-muted mx-2" />
-            <div className="flex items-center gap-2">
-              <div className={`flex items-center justify-center w-10 h-10 rounded-full font-bold ${step === 'upload-docs' ? 'bg-primary text-primary-foreground' : 'bg-muted text-muted-foreground'}`}>
+            <div className="w-4 sm:w-12 h-0.5 bg-muted mx-1 sm:mx-2" />
+            <div className="flex items-center gap-1 sm:gap-2">
+              <div className={`flex items-center justify-center w-8 h-8 sm:w-10 sm:h-10 rounded-full font-bold text-sm sm:text-base ${step === 'upload-docs' ? 'bg-primary text-primary-foreground' : 'bg-muted text-muted-foreground'}`}>
                 2
               </div>
-              <span className={step === 'upload-docs' ? 'font-medium' : 'text-muted-foreground'}>Scan</span>
+              <span className={`hidden sm:inline ${step === 'upload-docs' ? 'font-medium' : 'text-muted-foreground'}`}>Scan</span>
             </div>
-            <div className="w-12 h-0.5 bg-muted mx-2" />
-            <div className="flex items-center gap-2">
-              <div className={`flex items-center justify-center w-10 h-10 rounded-full font-bold ${step === 'review' ? 'bg-primary text-primary-foreground' : 'bg-muted text-muted-foreground'}`}>
+            <div className="w-4 sm:w-12 h-0.5 bg-muted mx-1 sm:mx-2" />
+            <div className="flex items-center gap-1 sm:gap-2">
+              <div className={`flex items-center justify-center w-8 h-8 sm:w-10 sm:h-10 rounded-full font-bold text-sm sm:text-base ${step === 'review' ? 'bg-primary text-primary-foreground' : 'bg-muted text-muted-foreground'}`}>
                 3
               </div>
-              <span className={step === 'review' ? 'font-medium' : 'text-muted-foreground'}>Review</span>
+              <span className={`hidden sm:inline ${step === 'review' ? 'font-medium' : 'text-muted-foreground'}`}>Review</span>
             </div>
-            <div className="w-12 h-0.5 bg-muted mx-2" />
-            <div className="flex items-center gap-2">
-              <div className={`flex items-center justify-center w-10 h-10 rounded-full font-bold ${step === 'download' ? 'bg-primary text-primary-foreground' : 'bg-muted text-muted-foreground'}`}>
+            <div className="w-4 sm:w-12 h-0.5 bg-muted mx-1 sm:mx-2" />
+            <div className="flex items-center gap-1 sm:gap-2">
+              <div className={`flex items-center justify-center w-8 h-8 sm:w-10 sm:h-10 rounded-full font-bold text-sm sm:text-base ${step === 'download' ? 'bg-primary text-primary-foreground' : 'bg-muted text-muted-foreground'}`}>
                 4
               </div>
-              <span className={step === 'download' ? 'font-medium' : 'text-muted-foreground'}>Done</span>
+              <span className={`hidden sm:inline ${step === 'download' ? 'font-medium' : 'text-muted-foreground'}`}>Done</span>
             </div>
           </div>
 
@@ -882,7 +882,7 @@ export default function CertificatePage() {
                   <CardDescription>M1-M5: The Vehicle, Driver, Environment, At-Risk Behaviours, Evaluation</CardDescription>
                 </CardHeader>
                 <CardContent>
-                  <div className="grid grid-cols-5 gap-2">
+                  <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-2">
                     {(['module1Date', 'module2Date', 'module3Date', 'module4Date', 'module5Date'] as const).map((field, idx) => (
                       <div key={field}>
                         <Label className="text-xs">M{idx + 1}</Label>
@@ -907,7 +907,7 @@ export default function CertificatePage() {
                       <CardDescription>M6 (Accompanied Driving) + In-Car Sessions 1-4</CardDescription>
                     </CardHeader>
                     <CardContent>
-                      <div className="grid grid-cols-3 gap-2">
+                      <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-2">
                         <div>
                           <Label className="text-xs">M6</Label>
                           <Input type="date" value={formData.module6Date} onChange={(e) => handleInputChange('module6Date', e.target.value)} className="text-xs px-1" />
@@ -942,7 +942,7 @@ export default function CertificatePage() {
                       <CardDescription>M8 (Speed), M9 (Sharing Road), M10 (Alcohol/Drugs) + Sessions 5-10</CardDescription>
                     </CardHeader>
                     <CardContent>
-                      <div className="grid grid-cols-3 gap-2">
+                      <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-2">
                         <div>
                           <Label className="text-xs">M8</Label>
                           <Input type="date" value={formData.module8Date} onChange={(e) => handleInputChange('module8Date', e.target.value)} className="text-xs px-1" />
@@ -989,7 +989,7 @@ export default function CertificatePage() {
                       <CardDescription>M11 (Fatigue), M12 (Eco-driving) + Sessions 11-15</CardDescription>
                     </CardHeader>
                     <CardContent>
-                      <div className="grid grid-cols-3 gap-2">
+                      <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-2">
                         <div>
                           <Label className="text-xs">M11</Label>
                           <Input type="date" value={formData.module11Date} onChange={(e) => handleInputChange('module11Date', e.target.value)} className="text-xs px-1" />

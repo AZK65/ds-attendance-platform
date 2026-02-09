@@ -214,7 +214,7 @@ export default function CertificateSettingsPage() {
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
-              <div className="grid grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div>
                   <Label htmlFor="nextContractNumber">Next Contract Number</Label>
                   <Input
@@ -264,8 +264,8 @@ export default function CertificateSettingsPage() {
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
-              <div className="grid grid-cols-2 gap-4">
-                <div className="col-span-2">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div className="col-span-1 sm:col-span-2">
                   <Label htmlFor="schoolName">School Name</Label>
                   <Input
                     id="schoolName"
@@ -273,7 +273,7 @@ export default function CertificateSettingsPage() {
                     onChange={(e) => handleInputChange('schoolName', e.target.value)}
                   />
                 </div>
-                <div className="col-span-2">
+                <div className="col-span-1 sm:col-span-2">
                   <Label htmlFor="schoolAddress">Address</Label>
                   <Input
                     id="schoolAddress"
@@ -289,7 +289,7 @@ export default function CertificateSettingsPage() {
                     onChange={(e) => handleInputChange('schoolCity', e.target.value)}
                   />
                 </div>
-                <div className="grid grid-cols-2 gap-2">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                   <div>
                     <Label htmlFor="schoolProvince">Province</Label>
                     <Input

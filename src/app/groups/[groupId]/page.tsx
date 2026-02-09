@@ -613,8 +613,8 @@ export default function GroupDetailPage() {
             </p>
           </div>
         ) : (
-          <div className="border rounded-lg overflow-hidden">
-            <Table>
+          <div className="border rounded-lg overflow-x-auto">
+            <Table className="min-w-[500px]">
               <TableHeader>
                 <TableRow>
                   <TableHead className="w-[50px]">#</TableHead>
@@ -791,7 +791,7 @@ export default function GroupDetailPage() {
           }
         }}
       >
-        <DialogContent className="max-w-6xl w-[95vw] max-h-[80vh] overflow-y-auto">
+        <DialogContent className="w-[95vw] sm:max-w-6xl max-h-[80vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
               <Video className="h-5 w-5" />
@@ -845,7 +845,7 @@ export default function GroupDetailPage() {
                     {' '}- matching session auto-selected
                   </p>
                 )}
-                <div className="border rounded-lg divide-y max-h-48 overflow-y-auto">
+                <div className="border rounded-lg divide-y max-h-[50vh] sm:max-h-48 overflow-y-auto">
                   {recentMeetings.map((meeting) => {
                     const meetingDate = new Date(meeting.startTime)
                     const isMatchingDate = lastModuleMessageDate && isSameDay(meetingDate, lastModuleMessageDate)
@@ -949,7 +949,7 @@ export default function GroupDetailPage() {
                   return (
                     <>
                       {/* Summary */}
-                      <div className="grid grid-cols-4 gap-3">
+                      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
                         <div className="bg-green-50 border border-green-200 rounded-lg p-3 text-center">
                           <div className="flex items-center justify-center gap-2 text-green-700">
                             <UserCheck className="h-5 w-5" />
@@ -1064,8 +1064,8 @@ export default function GroupDetailPage() {
                           </Badge>
                         )}
                       </h4>
-                      <div className="border rounded-lg overflow-hidden">
-                        <Table>
+                      <div className="border rounded-lg overflow-x-auto">
+                        <Table className="min-w-[600px]">
                           <TableHeader>
                             <TableRow>
                               <TableHead>WhatsApp Name</TableHead>
@@ -1099,7 +1099,7 @@ export default function GroupDetailPage() {
                                   <Button
                                     variant="ghost"
                                     size="icon"
-                                    className="h-6 w-6 text-gray-400 hover:text-red-500"
+                                    className="h-8 w-8 sm:h-6 sm:w-6 text-gray-400 hover:text-red-500"
                                     onClick={() => handleRemoveMatch(m, false)}
                                     title="Remove this match"
                                   >
@@ -1138,7 +1138,7 @@ export default function GroupDetailPage() {
                                   <Button
                                     variant="ghost"
                                     size="icon"
-                                    className="h-6 w-6 text-gray-400 hover:text-red-500"
+                                    className="h-8 w-8 sm:h-6 sm:w-6 text-gray-400 hover:text-red-500"
                                     onClick={() => handleRemoveMatch(m, true)}
                                     title="Remove this match"
                                   >
@@ -1187,14 +1187,14 @@ export default function GroupDetailPage() {
                         </p>
                       </div>
 
-                      <div className="grid grid-cols-2 gap-4">
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                         {/* Absent (WhatsApp members not matched) */}
                         <div>
                           <p className="text-sm font-medium text-red-700 mb-2 flex items-center gap-2">
                             <UserX className="h-4 w-4" />
                             Unmatched WhatsApp ({remainingAbsent.length})
                           </p>
-                          <div className="border border-red-200 rounded-lg max-h-64 overflow-y-auto">
+                          <div className="border border-red-200 rounded-lg max-h-[40vh] sm:max-h-64 overflow-y-auto">
                             {remainingAbsent.map((a, i) => (
                               <div
                                 key={i}
@@ -1224,7 +1224,7 @@ export default function GroupDetailPage() {
                             <Video className="h-4 w-4" />
                             Unmatched Zoom ({remainingUnmatched.length})
                           </p>
-                          <div className="border border-yellow-200 rounded-lg max-h-64 overflow-y-auto">
+                          <div className="border border-yellow-200 rounded-lg max-h-[40vh] sm:max-h-64 overflow-y-auto">
                             {remainingUnmatched.map((u, i) => {
                               const isGeneric = isGenericZoomName(u.name)
                               const selectedPerson = selectedAbsent !== null ? remainingAbsent[selectedAbsent] : null
@@ -1419,7 +1419,7 @@ export default function GroupDetailPage() {
           }
         }}
       >
-        <DialogContent className="max-w-2xl max-h-[85vh] overflow-y-auto">
+        <DialogContent className="w-[95vw] sm:max-w-2xl max-h-[85vh] overflow-y-auto">
           {scheduleSuccess ? (
             <>
               <div className="flex flex-col items-center justify-center py-8 gap-4">
@@ -1455,7 +1455,7 @@ export default function GroupDetailPage() {
 
               <div className="space-y-4">
                 {/* Module, Date & Time */}
-                <div className="grid grid-cols-3 gap-4">
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
                   <div>
                     <label className="text-sm font-medium">Module Number</label>
                     <Input
@@ -1512,7 +1512,7 @@ export default function GroupDetailPage() {
 
                 {/* Schedule Date/Time */}
                 {scheduleMode === 'later' && (
-                  <div className="grid grid-cols-2 gap-4 p-3 bg-muted/50 rounded-lg border">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 p-3 bg-muted/50 rounded-lg border">
                     <div>
                       <label className="text-sm font-medium">Date</label>
                       <Input
@@ -1531,7 +1531,7 @@ export default function GroupDetailPage() {
                       />
                     </div>
                     {scheduleDate && scheduleTime && (
-                      <div className="col-span-2 text-sm text-muted-foreground flex items-center gap-2">
+                      <div className="col-span-1 sm:col-span-2 text-sm text-muted-foreground flex items-center gap-2">
                         <Clock className="h-4 w-4" />
                         Will send on {new Date(`${scheduleDate}T${scheduleTime}`).toLocaleString('en-US', {
                           weekday: 'short',
@@ -1595,7 +1595,7 @@ export default function GroupDetailPage() {
                       </Button>
                     </div>
                   </div>
-                  <div className="border rounded-lg max-h-60 overflow-y-auto divide-y">
+                  <div className="border rounded-lg max-h-[40vh] sm:max-h-60 overflow-y-auto divide-y">
                     {participants.filter(p => !p.isSuperAdmin).map((p) => {
                       const displayName = getDisplayName(p)
                       const isSelected = selectedMembers.has(p.phone)
@@ -1817,7 +1817,7 @@ export default function GroupDetailPage() {
 
               {/* Summary */}
               {reminderSummary && (
-                <div className="grid grid-cols-3 gap-3">
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                   <div className="bg-blue-50 border border-blue-200 rounded-lg p-3 text-center">
                     <span className="text-2xl font-bold text-blue-700">{reminderSummary.total}</span>
                     <p className="text-sm text-blue-600">Total</p>
@@ -1834,7 +1834,7 @@ export default function GroupDetailPage() {
               )}
 
               {/* Send Log */}
-              <div className="border rounded-lg max-h-72 overflow-y-auto divide-y">
+              <div className="border rounded-lg max-h-[50vh] sm:max-h-72 overflow-y-auto divide-y">
                 {reminderLog.map((entry, i) => (
                   <div key={i} className="flex items-center gap-3 p-2">
                     <div className="flex-shrink-0">
