@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useMemo } from 'react'
+import { useState, useMemo, useEffect } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
@@ -22,12 +22,10 @@ import {
   SelectValue,
 } from '@/components/ui/select'
 import {
-  ArrowLeft,
   ChevronLeft,
   ChevronRight,
   Plus,
   Loader2,
-  CalendarDays,
   Trash2,
   Phone,
   User,
@@ -41,9 +39,12 @@ import {
   BookOpen,
   DollarSign,
   Clock4,
+  Eye,
 } from 'lucide-react'
 import Link from 'next/link'
 import { ContactSearchAutocomplete, type StudentGroupInfo } from '@/components/ContactSearchAutocomplete'
+
+type ViewMode = 'day' | 'week' | 'month'
 
 interface SubCalendar {
   id: number
@@ -146,15 +147,19 @@ function formatDate(date: Date): string {
   return date.toISOString().split('T')[0]
 }
 
-function formatDateShort(date: Date): string {
-  return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
-}
-
 function formatWeekRange(monday: Date): string {
   const sunday = new Date(monday)
   sunday.setDate(sunday.getDate() + 6)
   const opts: Intl.DateTimeFormatOptions = { month: 'short', day: 'numeric' }
   return `${monday.toLocaleDateString('en-US', opts)} – ${sunday.toLocaleDateString('en-US', opts)}, ${monday.getFullYear()}`
+}
+
+function formatDayFull(date: Date): string {
+  return date.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' })
+}
+
+function formatMonthYear(date: Date): string {
+  return date.toLocaleDateString('en-US', { month: 'long', year: 'numeric' })
 }
 
 const DAY_NAMES = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']
@@ -164,7 +169,8 @@ const HOUR_HEIGHT = 60 // px per hour
 
 export default function SchedulingPage() {
   const queryClient = useQueryClient()
-  const [weekStart, setWeekStart] = useState(() => getMonday(new Date()))
+  const [viewMode, setViewMode] = useState<ViewMode>('week')
+  const [currentDate, setCurrentDate] = useState(() => new Date())
   const [selectedTeacher, setSelectedTeacher] = useState<number | null>(null)
   const [showCreateDialog, setShowCreateDialog] = useState(false)
   const [showEditDialog, setShowEditDialog] = useState(false)
@@ -174,12 +180,50 @@ export default function SchedulingPage() {
   const [formData, setFormData] = useState<EventFormData>(initialFormData)
   const [notifyStatus, setNotifyStatus] = useState<null | 'sending' | 'sent' | 'failed'>(null)
   const [duplicateError, setDuplicateError] = useState<string | null>(null)
+  const [theoryGroupId, setTheoryGroupId] = useState<string | null>(null)
 
-  const weekEnd = useMemo(() => {
-    const d = new Date(weekStart)
-    d.setDate(d.getDate() + 6)
-    return d
-  }, [weekStart])
+  // Compute date range based on view mode
+  const { startDate, endDate } = useMemo(() => {
+    if (viewMode === 'day') {
+      return { startDate: new Date(currentDate), endDate: new Date(currentDate) }
+    } else if (viewMode === 'week') {
+      const monday = getMonday(currentDate)
+      const sunday = new Date(monday)
+      sunday.setDate(sunday.getDate() + 6)
+      return { startDate: monday, endDate: sunday }
+    } else {
+      // Month: first day to last day of month
+      const first = new Date(currentDate.getFullYear(), currentDate.getMonth(), 1)
+      const last = new Date(currentDate.getFullYear(), currentDate.getMonth() + 1, 0)
+      return { startDate: first, endDate: last }
+    }
+  }, [viewMode, currentDate])
+
+  // Navigation functions
+  const goToPrev = () => {
+    const d = new Date(currentDate)
+    if (viewMode === 'day') d.setDate(d.getDate() - 1)
+    else if (viewMode === 'week') d.setDate(d.getDate() - 7)
+    else d.setMonth(d.getMonth() - 1)
+    setCurrentDate(d)
+  }
+
+  const goToNext = () => {
+    const d = new Date(currentDate)
+    if (viewMode === 'day') d.setDate(d.getDate() + 1)
+    else if (viewMode === 'week') d.setDate(d.getDate() + 7)
+    else d.setMonth(d.getMonth() + 1)
+    setCurrentDate(d)
+  }
+
+  const goToToday = () => setCurrentDate(new Date())
+
+  // Date label for navigation
+  const dateLabel = useMemo(() => {
+    if (viewMode === 'day') return formatDayFull(currentDate)
+    if (viewMode === 'week') return formatWeekRange(getMonday(currentDate))
+    return formatMonthYear(currentDate)
+  }, [viewMode, currentDate])
 
   // Fetch sub-calendars (teachers)
   const { data: subcalendars = [], isLoading: loadingTeachers, isError: teachersError } = useQuery<SubCalendar[]>({
@@ -194,11 +238,11 @@ export default function SchedulingPage() {
 
   const activeTeachers = subcalendars.filter(s => s.active)
 
-  // Fetch events for current week
+  // Fetch events for current date range
   const { data: events = [], isLoading: loadingEvents } = useQuery<TeamupEvent[]>({
-    queryKey: ['scheduling-events', formatDate(weekStart), formatDate(weekEnd), selectedTeacher],
+    queryKey: ['scheduling-events', formatDate(startDate), formatDate(endDate), selectedTeacher],
     queryFn: async () => {
-      let url = `/api/scheduling/events?startDate=${formatDate(weekStart)}&endDate=${formatDate(weekEnd)}`
+      let url = `/api/scheduling/events?startDate=${formatDate(startDate)}&endDate=${formatDate(endDate)}`
       if (selectedTeacher) {
         url += `&subcalendarId=${selectedTeacher}`
       }
@@ -235,13 +279,18 @@ export default function SchedulingPage() {
   // Get module display label
   const getModuleLabel = (moduleVal: string) => {
     if (!moduleVal) return ''
+    // Check in-car session options
     const opt = MODULE_OPTIONS.find(o => o.value === moduleVal)
-    return opt?.label || moduleVal
+    if (opt) return opt.label
+    // Theory module label
+    if (!moduleVal.startsWith('S')) {
+      const num = parseInt(moduleVal)
+      if (!isNaN(num)) return `Module ${num}`
+    }
+    return moduleVal
   }
 
   // Derive phase from module value
-  // Phase 1: Modules 1-5, Phase 2: Modules 6-7, Phase 3: Modules 8-10, Phase 4: Modules 11-12
-  // In-car sessions (S1-S15) are separate
   const getPhaseInfo = (moduleVal: string): { phase: number | null; label: string; color: string } | null => {
     if (!moduleVal) return null
     if (moduleVal.startsWith('S')) {
@@ -286,7 +335,6 @@ export default function SchedulingPage() {
     } catch {
       setNotifyStatus('failed')
     }
-    // Clear status after 4 seconds
     setTimeout(() => setNotifyStatus(null), 4000)
   }
 
@@ -311,10 +359,7 @@ export default function SchedulingPage() {
     onSuccess: (_, data) => {
       queryClient.invalidateQueries({ queryKey: ['scheduling-events'] })
       setShowCreateDialog(false)
-      // Send WhatsApp notification if phone is available
-      if (data.studentPhone) {
-        sendNotification(data)
-      }
+      if (data.studentPhone) sendNotification(data)
       setFormData(initialFormData)
     },
   })
@@ -348,9 +393,7 @@ export default function SchedulingPage() {
   // Delete event mutation
   const deleteMutation = useMutation({
     mutationFn: async (eventId: string) => {
-      const res = await fetch(`/api/scheduling/events/${eventId}`, {
-        method: 'DELETE',
-      })
+      const res = await fetch(`/api/scheduling/events/${eventId}`, { method: 'DELETE' })
       if (!res.ok) throw new Error('Failed to delete event')
       return res.json()
     },
@@ -361,27 +404,8 @@ export default function SchedulingPage() {
     },
   })
 
-  // Navigation
-  const goToPrevWeek = () => {
-    const d = new Date(weekStart)
-    d.setDate(d.getDate() - 7)
-    setWeekStart(d)
-  }
-
-  const goToNextWeek = () => {
-    const d = new Date(weekStart)
-    d.setDate(d.getDate() + 7)
-    setWeekStart(d)
-  }
-
-  const goToToday = () => {
-    setWeekStart(getMonday(new Date()))
-  }
-
   // Open create dialog pre-filled with day/time
-  const handleSlotClick = (dayIndex: number, hour: number) => {
-    const date = new Date(weekStart)
-    date.setDate(date.getDate() + dayIndex)
+  const handleSlotClick = (date: Date, hour: number) => {
     setFormData({
       ...initialFormData,
       date: formatDate(date),
@@ -393,7 +417,7 @@ export default function SchedulingPage() {
     setShowCreateDialog(true)
   }
 
-  // Parse module from title like "M3 - ..." or "Session 5 - ..."
+  // Parse module from title like "M3 - ..." or "Session 5 - ..." or "Module 8 - ..."
   const parseModuleFromTitle = (fullTitle: string) => {
     const parts = fullTitle.split(' - ')
     const first = parts[0]?.trim() || ''
@@ -402,11 +426,15 @@ export default function SchedulingPage() {
 
     const mMatch = first.match(/^M(\d+)$/)
     const sMatch = first.match(/^Session (\d+)$/)
+    const moduleMatch = first.match(/^Module (\d+)$/)
     if (mMatch) {
       module = mMatch[1]
       restParts = parts.slice(1)
     } else if (sMatch) {
       module = `S${sMatch[1]}`
+      restParts = parts.slice(1)
+    } else if (moduleMatch) {
+      module = moduleMatch[1]
       restParts = parts.slice(1)
     }
 
@@ -418,16 +446,11 @@ export default function SchedulingPage() {
     }
   }
 
-  // Teamup returns notes as HTML (e.g. <p>Student: X<br>Phone: Y</p>)
-  // Strip HTML tags and convert <br> to newlines for parsing
+  // Strip HTML tags from Teamup notes
   const stripHtml = (html: string) => {
-    return html
-      .replace(/<br\s*\/?>/gi, '\n')
-      .replace(/<\/?[^>]+(>|$)/g, '')
-      .trim()
+    return html.replace(/<br\s*\/?>/gi, '\n').replace(/<\/?[^>]+(>|$)/g, '').trim()
   }
 
-  // Parse phone from event notes
   const parsePhoneFromNotes = (notes?: string) => {
     if (!notes) return ''
     const clean = stripHtml(notes)
@@ -435,7 +458,6 @@ export default function SchedulingPage() {
     return phoneMatch?.[1] || ''
   }
 
-  // Parse student name from notes (more reliable than title parsing)
   const parseStudentFromNotes = (notes?: string) => {
     if (!notes) return ''
     const clean = stripHtml(notes)
@@ -443,7 +465,6 @@ export default function SchedulingPage() {
     return match?.[1]?.trim() || ''
   }
 
-  // Parse group from notes
   const parseGroupFromNotes = (notes?: string) => {
     if (!notes) return ''
     const clean = stripHtml(notes)
@@ -451,27 +472,37 @@ export default function SchedulingPage() {
     return match?.[1]?.trim() || ''
   }
 
-  // Parse extra hours flag from notes
   const parseExtraHoursFromNotes = (notes?: string) => {
     if (!notes) return false
-    const clean = stripHtml(notes)
-    return /ExtraHours:\s*yes/i.test(clean)
+    return /ExtraHours:\s*yes/i.test(stripHtml(notes))
   }
 
-  // Parse paid status from notes
   const parsePaidFromNotes = (notes?: string) => {
     if (!notes) return false
-    const clean = stripHtml(notes)
-    return /Paid:\s*yes/i.test(clean)
+    return /Paid:\s*yes/i.test(stripHtml(notes))
   }
 
-  // Parse last theory class from notes e.g. "LastTheory: 5 (Feb 10, 2026)"
   const parseLastTheoryFromNotes = (notes?: string): { module: number | null; date: string | null } => {
     if (!notes) return { module: null, date: null }
-    const clean = stripHtml(notes)
-    const match = clean.match(/LastTheory:\s*(\d+)(?:\s*\((.+?)\))?/)
+    const match = stripHtml(notes).match(/LastTheory:\s*(\d+)(?:\s*\((.+?)\))?/)
     if (!match) return { module: null, date: null }
     return { module: parseInt(match[1]), date: match[2] || null }
+  }
+
+  // Check if event is a theory class (not in-car session)
+  const isTheoryEvent = (event: TeamupEvent) => {
+    const titleMatch = event.title.match(/^Module\s+\d+\s+-/)
+    const notesMatch = event.notes && stripHtml(event.notes).toLowerCase().includes('theory class')
+    return !!(titleMatch || notesMatch)
+  }
+
+  // Get theory group name from event
+  const getTheoryGroupName = (event: TeamupEvent) => {
+    const fromNotes = parseGroupFromNotes(event.notes)
+    if (fromNotes) return fromNotes
+    // Fallback: parse from title "Module 8 - GroupName"
+    const parts = event.title.split(' - ')
+    return parts[1]?.trim() || ''
   }
 
   // Fill form from event data
@@ -502,12 +533,31 @@ export default function SchedulingPage() {
     })
   }
 
-  // Open event detail view (info card) when clicking an event
+  // Open event detail view
   const handleEventClick = (event: TeamupEvent, e: React.MouseEvent) => {
     e.stopPropagation()
     setSelectedEvent(event)
+    setTheoryGroupId(null)
     setShowEventDetail(true)
   }
+
+  // Look up theory group ID when event detail opens
+  useEffect(() => {
+    if (!showEventDetail || !selectedEvent || !isTheoryEvent(selectedEvent)) {
+      setTheoryGroupId(null)
+      return
+    }
+    const groupName = getTheoryGroupName(selectedEvent)
+    if (!groupName) return
+
+    fetch(`/api/scheduling/group-lookup?name=${encodeURIComponent(groupName)}`)
+      .then(res => res.ok ? res.json() : null)
+      .then(data => {
+        if (data?.groupId) setTheoryGroupId(data.groupId)
+      })
+      .catch(() => {})
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [showEventDetail, selectedEvent])
 
   // Open edit dialog from detail view
   const handleEditFromDetail = () => {
@@ -518,16 +568,10 @@ export default function SchedulingPage() {
     setShowEditDialog(true)
   }
 
-  // Get events for a specific day column
-  const getEventsForDay = (dayIndex: number) => {
-    const dayDate = new Date(weekStart)
-    dayDate.setDate(dayDate.getDate() + dayIndex)
-    const dayStr = formatDate(dayDate)
-
-    return events.filter(ev => {
-      const evDate = ev.start_dt.split('T')[0]
-      return evDate === dayStr
-    })
+  // Get events for a specific date
+  const getEventsForDate = (date: Date) => {
+    const dayStr = formatDate(date)
+    return events.filter(ev => ev.start_dt.split('T')[0] === dayStr)
   }
 
   // Calculate event position and height in the grid
@@ -554,30 +598,23 @@ export default function SchedulingPage() {
     return teacher?.name || ''
   }
 
-  const isToday = (dayIndex: number) => {
-    const d = new Date(weekStart)
-    d.setDate(d.getDate() + dayIndex)
+  const isTodayDate = (date: Date) => {
     const today = new Date()
-    return d.toDateString() === today.toDateString()
+    return date.toDateString() === today.toDateString()
   }
 
-  // Check for duplicate: same student + same date + same teacher + same time
+  // Check for duplicate
   const checkDuplicate = (data: EventFormData): string | null => {
     if (!data.studentName || !data.date || !data.subcalendarId) return null
-    const startDt = `${data.date}T${data.startTime}`
     const duplicate = events.find(ev => {
       const evDate = ev.start_dt.split('T')[0]
       const evTime = ev.start_dt.slice(11, 16)
       const evTeacher = ev.subcalendar_ids[0]?.toString()
       const evStudent = parseStudentFromNotes(ev.notes) || parseModuleFromTitle(ev.title).studentName
-      // Check same student + same date + overlapping time + same teacher
       if (evStudent.toLowerCase() === data.studentName.toLowerCase() &&
-          evDate === data.date &&
-          evTime === data.startTime &&
-          evTeacher === data.subcalendarId) {
+          evDate === data.date && evTime === data.startTime && evTeacher === data.subcalendarId) {
         return true
       }
-      // Also check same student + same date + same module (different teacher ok, but same class = duplicate)
       if (data.module && evStudent.toLowerCase() === data.studentName.toLowerCase() && evDate === data.date) {
         const evParsed = parseModuleFromTitle(ev.title)
         if (evParsed.module === data.module) return true
@@ -595,10 +632,7 @@ export default function SchedulingPage() {
     if ((!formData.module && !formData.title) || !formData.date || !formData.subcalendarId) return
     setDuplicateError(null)
     const dup = checkDuplicate(formData)
-    if (dup) {
-      setDuplicateError(dup)
-      return
-    }
+    if (dup) { setDuplicateError(dup); return }
     createMutation.mutate(formData)
   }
 
@@ -612,6 +646,213 @@ export default function SchedulingPage() {
     deleteMutation.mutate(editingEvent.id)
   }
 
+  // Render an event block (shared between day and week views)
+  const renderEventBlock = (event: TeamupEvent, top: number, height: number, wide?: boolean) => {
+    const color = getEventColor(event)
+    const teacherName = getTeacherName(event)
+    const isExtra = parseExtraHoursFromNotes(event.notes)
+    const isPaid = parsePaidFromNotes(event.notes)
+    const startTime = new Date(event.start_dt).toLocaleTimeString('en-US', {
+      hour: 'numeric', minute: '2-digit', hour12: true,
+    })
+    const studentName = parseStudentFromNotes(event.notes) || parseModuleFromTitle(event.title).studentName
+
+    return (
+      <div
+        key={event.id}
+        className={`absolute left-1 right-1 rounded px-1.5 py-0.5 cursor-pointer overflow-hidden text-xs leading-tight shadow-sm hover:shadow-md transition-shadow ${
+          isExtra ? 'text-black border-2' : 'text-white'
+        }`}
+        style={{
+          top, height,
+          backgroundColor: isExtra ? (isPaid ? '#FDE68A' : '#FCA5A5') : color,
+          borderColor: isExtra ? (isPaid ? '#D97706' : '#DC2626') : undefined,
+          minHeight: 22,
+        }}
+        onClick={(e) => handleEventClick(event, e)}
+        title={`${event.title}\n${teacherName}\n${startTime}`}
+      >
+        <div className="font-medium truncate">{event.title}</div>
+        {height > 36 && <div className="opacity-80 truncate">{teacherName}</div>}
+        {height > 50 && <div className="opacity-70 truncate">{startTime}</div>}
+        {wide && height > 64 && studentName && <div className="opacity-70 truncate">{studentName}</div>}
+      </div>
+    )
+  }
+
+  // Hour rows for day/week views
+  const renderHourLabels = () => (
+    <div>
+      {Array.from({ length: HOUR_END - HOUR_START }, (_, i) => (
+        <div
+          key={i}
+          className="border-b text-xs text-muted-foreground text-right pr-2 flex items-start justify-end"
+          style={{ height: HOUR_HEIGHT }}
+        >
+          <span className="relative -top-2">
+            {(HOUR_START + i) % 12 === 0 ? 12 : (HOUR_START + i) % 12}
+            {HOUR_START + i < 12 ? 'am' : 'pm'}
+          </span>
+        </div>
+      ))}
+    </div>
+  )
+
+  // Render a day column with hour slots and events
+  const renderDayColumn = (date: Date, highlight: boolean) => {
+    const dayEvents = getEventsForDate(date)
+    return (
+      <div className={`border-l relative ${highlight ? 'bg-primary/5' : ''}`}>
+        {Array.from({ length: HOUR_END - HOUR_START }, (_, hourIdx) => (
+          <div
+            key={hourIdx}
+            className="border-b cursor-pointer hover:bg-muted/30 transition-colors"
+            style={{ height: HOUR_HEIGHT }}
+            onClick={() => handleSlotClick(date, HOUR_START + hourIdx)}
+          />
+        ))}
+        {dayEvents.map(event => {
+          const { top, height } = getEventStyle(event)
+          return renderEventBlock(event, top, height, viewMode === 'day')
+        })}
+      </div>
+    )
+  }
+
+  // === WEEK VIEW ===
+  const weekMonday = useMemo(() => getMonday(currentDate), [currentDate])
+
+  const renderWeekView = () => (
+    <div className="border rounded-lg overflow-x-auto">
+      <div className="min-w-[700px]">
+        {/* Day headers */}
+        <div className="grid grid-cols-[60px_repeat(7,1fr)] border-b bg-muted/30">
+          <div className="p-2 text-xs text-muted-foreground" />
+          {DAY_NAMES.map((day, i) => {
+            const d = new Date(weekMonday)
+            d.setDate(d.getDate() + i)
+            return (
+              <div
+                key={day}
+                className={`p-2 text-center border-l cursor-pointer hover:bg-muted/50 ${isTodayDate(d) ? 'bg-primary/10' : ''}`}
+                onClick={() => { setCurrentDate(d); setViewMode('day') }}
+              >
+                <div className="text-xs text-muted-foreground">{day}</div>
+                <div className={`text-sm font-medium ${isTodayDate(d) ? 'text-primary' : ''}`}>{d.getDate()}</div>
+              </div>
+            )
+          })}
+        </div>
+        {/* Time grid */}
+        <div className="grid grid-cols-[60px_repeat(7,1fr)] relative">
+          {renderHourLabels()}
+          {DAY_NAMES.map((_, dayIndex) => {
+            const d = new Date(weekMonday)
+            d.setDate(d.getDate() + dayIndex)
+            return <div key={dayIndex}>{renderDayColumn(d, isTodayDate(d))}</div>
+          })}
+        </div>
+      </div>
+    </div>
+  )
+
+  // === DAY VIEW ===
+  const renderDayView = () => (
+    <div className="border rounded-lg overflow-x-auto">
+      <div className="min-w-[300px]">
+        {/* Day header */}
+        <div className="grid grid-cols-[60px_1fr] border-b bg-muted/30">
+          <div className="p-2 text-xs text-muted-foreground" />
+          <div className={`p-2 text-center border-l ${isTodayDate(currentDate) ? 'bg-primary/10' : ''}`}>
+            <div className="text-xs text-muted-foreground">
+              {currentDate.toLocaleDateString('en-US', { weekday: 'long' })}
+            </div>
+            <div className={`text-sm font-medium ${isTodayDate(currentDate) ? 'text-primary' : ''}`}>
+              {currentDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
+            </div>
+          </div>
+        </div>
+        {/* Time grid */}
+        <div className="grid grid-cols-[60px_1fr] relative">
+          {renderHourLabels()}
+          {renderDayColumn(currentDate, isTodayDate(currentDate))}
+        </div>
+      </div>
+    </div>
+  )
+
+  // === MONTH VIEW ===
+  const monthGridDates = useMemo(() => {
+    const first = new Date(currentDate.getFullYear(), currentDate.getMonth(), 1)
+    const startMonday = getMonday(first)
+    const dates: Date[] = []
+    for (let i = 0; i < 42; i++) {
+      const d = new Date(startMonday)
+      d.setDate(d.getDate() + i)
+      dates.push(d)
+    }
+    return dates
+  }, [currentDate])
+
+  const renderMonthView = () => (
+    <div className="border rounded-lg">
+      {/* Day headers */}
+      <div className="grid grid-cols-7 border-b bg-muted/30">
+        {DAY_NAMES.map(day => (
+          <div key={day} className="p-2 text-center text-xs font-medium text-muted-foreground border-l first:border-l-0">
+            {day}
+          </div>
+        ))}
+      </div>
+      {/* Day cells */}
+      <div className="grid grid-cols-7">
+        {monthGridDates.map((date, idx) => {
+          const isCurrentMonth = date.getMonth() === currentDate.getMonth()
+          const today = isTodayDate(date)
+          const dayEvents = getEventsForDate(date)
+          const maxShow = 3
+
+          return (
+            <div
+              key={idx}
+              className={`min-h-[90px] border-l border-b first:border-l-0 p-1 cursor-pointer hover:bg-muted/30 transition-colors ${
+                !isCurrentMonth ? 'opacity-40' : ''
+              } ${today ? 'bg-primary/5' : ''}`}
+              onClick={() => { setCurrentDate(date); setViewMode('day') }}
+            >
+              <div className={`text-xs font-medium mb-1 ${today ? 'text-primary font-bold' : 'text-muted-foreground'}`}>
+                {date.getDate()}
+              </div>
+              <div className="space-y-0.5">
+                {dayEvents.slice(0, maxShow).map(event => {
+                  const isExtra = parseExtraHoursFromNotes(event.notes)
+                  const isPaid = parsePaidFromNotes(event.notes)
+                  const color = getEventColor(event)
+                  return (
+                    <div
+                      key={event.id}
+                      className="text-[10px] leading-tight truncate rounded px-1 py-0.5 cursor-pointer"
+                      style={{
+                        backgroundColor: isExtra ? (isPaid ? '#FDE68A' : '#FCA5A5') : color,
+                        color: isExtra ? '#000' : '#fff',
+                      }}
+                      onClick={(e) => handleEventClick(event, e)}
+                    >
+                      {event.title}
+                    </div>
+                  )
+                })}
+                {dayEvents.length > maxShow && (
+                  <div className="text-[10px] text-muted-foreground pl-1">+{dayEvents.length - maxShow} more</div>
+                )}
+              </div>
+            </div>
+          )
+        })}
+      </div>
+    </div>
+  )
+
   const eventForm = (
     <div className="space-y-4">
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
@@ -621,17 +862,12 @@ export default function SchedulingPage() {
             value={formData.subcalendarId}
             onValueChange={(val) => setFormData(prev => ({ ...prev, subcalendarId: val }))}
           >
-            <SelectTrigger>
-              <SelectValue placeholder="Select teacher" />
-            </SelectTrigger>
+            <SelectTrigger><SelectValue placeholder="Select teacher" /></SelectTrigger>
             <SelectContent>
               {activeTeachers.map(t => (
                 <SelectItem key={t.id} value={t.id.toString()}>
                   <div className="flex items-center gap-2">
-                    <div
-                      className="w-3 h-3 rounded-full flex-shrink-0"
-                      style={{ backgroundColor: getColor(t.color) }}
-                    />
+                    <div className="w-3 h-3 rounded-full flex-shrink-0" style={{ backgroundColor: getColor(t.color) }} />
                     {t.name}
                   </div>
                 </SelectItem>
@@ -645,14 +881,10 @@ export default function SchedulingPage() {
             value={formData.module}
             onValueChange={(val) => setFormData(prev => ({ ...prev, module: val }))}
           >
-            <SelectTrigger>
-              <SelectValue placeholder="Select session" />
-            </SelectTrigger>
+            <SelectTrigger><SelectValue placeholder="Select session" /></SelectTrigger>
             <SelectContent>
               {MODULE_OPTIONS.map(opt => (
-                <SelectItem key={opt.value} value={opt.value}>
-                  {opt.label}
-                </SelectItem>
+                <SelectItem key={opt.value} value={opt.value}>{opt.label}</SelectItem>
               ))}
             </SelectContent>
           </Select>
@@ -673,18 +905,12 @@ export default function SchedulingPage() {
           variant={formData.isExtraHours ? 'default' : 'outline'}
           size="sm"
           onClick={() => setFormData(prev => ({
-            ...prev,
-            isExtraHours: !prev.isExtraHours,
-            isPaid: false,
-            studentPhone: '',
-            group: '',
-            lastTheoryModule: null,
-            lastTheoryDate: null,
+            ...prev, isExtraHours: !prev.isExtraHours, isPaid: false,
+            studentPhone: '', group: '', lastTheoryModule: null, lastTheoryDate: null,
           }))}
           className={formData.isExtraHours ? 'bg-amber-600 hover:bg-amber-700' : ''}
         >
-          <Clock4 className="h-4 w-4 mr-1" />
-          Extra Hours
+          <Clock4 className="h-4 w-4 mr-1" />Extra Hours
         </Button>
         {formData.isExtraHours && (
           <Button
@@ -694,12 +920,11 @@ export default function SchedulingPage() {
             onClick={() => setFormData(prev => ({ ...prev, isPaid: !prev.isPaid }))}
             className={formData.isPaid ? 'bg-green-600 hover:bg-green-700' : 'border-red-300 text-red-600 hover:bg-red-50'}
           >
-            <DollarSign className="h-4 w-4 mr-1" />
-            {formData.isPaid ? 'Paid' : 'Not Paid'}
+            <DollarSign className="h-4 w-4 mr-1" />{formData.isPaid ? 'Paid' : 'Not Paid'}
           </Button>
         )}
       </div>
-      {/* Student Name — autocomplete for normal, plain input for extra hours */}
+      {/* Student Name */}
       <div>
         <Label>Student Name</Label>
         {formData.isExtraHours ? (
@@ -714,18 +939,13 @@ export default function SchedulingPage() {
             phone={formData.studentPhone}
             group={formData.group}
             onSelect={(name, phone, groupInfo) => setFormData(prev => ({
-              ...prev,
-              studentName: name,
-              studentPhone: phone,
-              group: groupInfo.groupName,
-              lastTheoryModule: groupInfo.lastTheoryModule,
-              lastTheoryDate: groupInfo.lastTheoryDate,
+              ...prev, studentName: name, studentPhone: phone, group: groupInfo.groupName,
+              lastTheoryModule: groupInfo.lastTheoryModule, lastTheoryDate: groupInfo.lastTheoryDate,
             }))}
             onChange={(name) => setFormData(prev => ({ ...prev, studentName: name, studentPhone: '', group: '', lastTheoryModule: null, lastTheoryDate: null }))}
           />
         )}
       </div>
-      {/* Manual phone input for extra hours */}
       {formData.isExtraHours && (
         <div>
           <Label>Phone Number</Label>
@@ -739,27 +959,15 @@ export default function SchedulingPage() {
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
         <div>
           <Label>Date</Label>
-          <Input
-            type="date"
-            value={formData.date}
-            onChange={(e) => setFormData(prev => ({ ...prev, date: e.target.value }))}
-          />
+          <Input type="date" value={formData.date} onChange={(e) => setFormData(prev => ({ ...prev, date: e.target.value }))} />
         </div>
         <div>
           <Label>Start Time</Label>
-          <Input
-            type="time"
-            value={formData.startTime}
-            onChange={(e) => setFormData(prev => ({ ...prev, startTime: e.target.value }))}
-          />
+          <Input type="time" value={formData.startTime} onChange={(e) => setFormData(prev => ({ ...prev, startTime: e.target.value }))} />
         </div>
         <div>
           <Label>End Time</Label>
-          <Input
-            type="time"
-            value={formData.endTime}
-            onChange={(e) => setFormData(prev => ({ ...prev, endTime: e.target.value }))}
-          />
+          <Input type="time" value={formData.endTime} onChange={(e) => setFormData(prev => ({ ...prev, endTime: e.target.value }))} />
         </div>
       </div>
     </div>
@@ -767,21 +975,6 @@ export default function SchedulingPage() {
 
   return (
     <div className="min-h-screen bg-background">
-      <header className="border-b">
-        <div className="container mx-auto px-4 py-4 flex items-center gap-4">
-          <Link href="/">
-            <Button variant="ghost" size="sm">
-              <ArrowLeft className="h-4 w-4 mr-2" />
-              Back
-            </Button>
-          </Link>
-          <h1 className="text-xl font-semibold flex items-center gap-2">
-            <CalendarDays className="h-5 w-5" />
-            Scheduling
-          </h1>
-        </div>
-      </header>
-
       <main className="container mx-auto px-4 py-4">
         {/* Teacher Tabs */}
         <div className="flex items-center gap-2 mb-4 overflow-x-auto pb-2">
@@ -805,26 +998,41 @@ export default function SchedulingPage() {
                 onClick={() => setSelectedTeacher(t.id)}
                 className="flex items-center gap-2 whitespace-nowrap"
               >
-                <div
-                  className="w-3 h-3 rounded-full flex-shrink-0"
-                  style={{ backgroundColor: getColor(t.color) }}
-                />
+                <div className="w-3 h-3 rounded-full flex-shrink-0" style={{ backgroundColor: getColor(t.color) }} />
                 {t.name}
               </Button>
             ))
           )}
         </div>
 
-        {/* Week Navigation */}
+        {/* View Switcher + Date Navigation */}
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 mb-4">
           <div className="flex items-center gap-2">
-            <Button variant="outline" size="icon" onClick={goToPrevWeek}>
+            {/* View Switcher */}
+            <div className="inline-flex rounded-lg border bg-muted p-1">
+              {(['day', 'week', 'month'] as ViewMode[]).map(mode => (
+                <button
+                  key={mode}
+                  onClick={() => setViewMode(mode)}
+                  className={`px-3 py-1 text-sm font-medium rounded-md transition-colors ${
+                    viewMode === mode
+                      ? 'bg-background text-foreground shadow-sm'
+                      : 'text-muted-foreground hover:text-foreground'
+                  }`}
+                >
+                  {mode.charAt(0).toUpperCase() + mode.slice(1)}
+                </button>
+              ))}
+            </div>
+
+            {/* Date Navigation */}
+            <Button variant="outline" size="icon" onClick={goToPrev}>
               <ChevronLeft className="h-4 w-4" />
             </Button>
-            <span className="text-sm font-medium min-w-[200px] text-center">
-              {formatWeekRange(weekStart)}
+            <span className="text-sm font-medium min-w-[180px] text-center truncate">
+              {dateLabel}
             </span>
-            <Button variant="outline" size="icon" onClick={goToNextWeek}>
+            <Button variant="outline" size="icon" onClick={goToNext}>
               <ChevronRight className="h-4 w-4" />
             </Button>
             <Button variant="outline" size="sm" onClick={goToToday}>
@@ -834,7 +1042,7 @@ export default function SchedulingPage() {
           <Button size="sm" onClick={() => {
             setFormData({
               ...initialFormData,
-              date: formatDate(new Date()),
+              date: formatDate(currentDate),
               subcalendarId: selectedTeacher ? selectedTeacher.toString() : '',
             })
             setDuplicateError(null)
@@ -845,109 +1053,17 @@ export default function SchedulingPage() {
           </Button>
         </div>
 
-        {/* Week Grid */}
+        {/* Calendar View */}
         {loadingEvents ? (
           <div className="flex items-center justify-center py-20">
             <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
           </div>
         ) : (
-          <div className="border rounded-lg overflow-x-auto">
-            <div className="min-w-[700px]">
-              {/* Day headers */}
-              <div className="grid grid-cols-[60px_repeat(7,1fr)] border-b bg-muted/30">
-                <div className="p-2 text-xs text-muted-foreground" />
-                {DAY_NAMES.map((day, i) => {
-                  const d = new Date(weekStart)
-                  d.setDate(d.getDate() + i)
-                  return (
-                    <div
-                      key={day}
-                      className={`p-2 text-center border-l ${isToday(i) ? 'bg-primary/10' : ''}`}
-                    >
-                      <div className="text-xs text-muted-foreground">{day}</div>
-                      <div className={`text-sm font-medium ${isToday(i) ? 'text-primary' : ''}`}>
-                        {d.getDate()}
-                      </div>
-                    </div>
-                  )
-                })}
-              </div>
-
-              {/* Time grid */}
-              <div className="grid grid-cols-[60px_repeat(7,1fr)] relative">
-                {/* Hour labels */}
-                <div>
-                  {Array.from({ length: HOUR_END - HOUR_START }, (_, i) => (
-                    <div
-                      key={i}
-                      className="border-b text-xs text-muted-foreground text-right pr-2 flex items-start justify-end"
-                      style={{ height: HOUR_HEIGHT }}
-                    >
-                      <span className="relative -top-2">
-                        {(HOUR_START + i) % 12 === 0 ? 12 : (HOUR_START + i) % 12}
-                        {HOUR_START + i < 12 ? 'am' : 'pm'}
-                      </span>
-                    </div>
-                  ))}
-                </div>
-
-                {/* Day columns */}
-                {DAY_NAMES.map((_, dayIndex) => (
-                  <div key={dayIndex} className={`border-l relative ${isToday(dayIndex) ? 'bg-primary/5' : ''}`}>
-                    {/* Hour row backgrounds (clickable) */}
-                    {Array.from({ length: HOUR_END - HOUR_START }, (_, hourIdx) => (
-                      <div
-                        key={hourIdx}
-                        className="border-b cursor-pointer hover:bg-muted/30 transition-colors"
-                        style={{ height: HOUR_HEIGHT }}
-                        onClick={() => handleSlotClick(dayIndex, HOUR_START + hourIdx)}
-                      />
-                    ))}
-
-                    {/* Events */}
-                    {getEventsForDay(dayIndex).map(event => {
-                      const { top, height } = getEventStyle(event)
-                      const color = getEventColor(event)
-                      const teacherName = getTeacherName(event)
-                      const isExtra = parseExtraHoursFromNotes(event.notes)
-                      const isPaid = parsePaidFromNotes(event.notes)
-                      const startTime = new Date(event.start_dt).toLocaleTimeString('en-US', {
-                        hour: 'numeric',
-                        minute: '2-digit',
-                        hour12: true,
-                      })
-
-                      return (
-                        <div
-                          key={event.id}
-                          className={`absolute left-1 right-1 rounded px-1.5 py-0.5 cursor-pointer overflow-hidden text-xs leading-tight shadow-sm hover:shadow-md transition-shadow ${
-                            isExtra ? 'text-black border-2' : 'text-white'
-                          }`}
-                          style={{
-                            top,
-                            height,
-                            backgroundColor: isExtra ? (isPaid ? '#FDE68A' : '#FCA5A5') : color,
-                            borderColor: isExtra ? (isPaid ? '#D97706' : '#DC2626') : undefined,
-                            minHeight: 22,
-                          }}
-                          onClick={(e) => handleEventClick(event, e)}
-                          title={`${event.title}\n${teacherName}\n${startTime}`}
-                        >
-                          <div className="font-medium truncate">{event.title}</div>
-                          {height > 36 && (
-                            <div className="opacity-80 truncate">{teacherName}</div>
-                          )}
-                          {height > 50 && (
-                            <div className="opacity-70 truncate">{startTime}</div>
-                          )}
-                        </div>
-                      )
-                    })}
-                  </div>
-                ))}
-              </div>
-            </div>
-          </div>
+          <>
+            {viewMode === 'day' && renderDayView()}
+            {viewMode === 'week' && renderWeekView()}
+            {viewMode === 'month' && renderMonthView()}
+          </>
         )}
       </main>
 
@@ -956,9 +1072,7 @@ export default function SchedulingPage() {
         <DialogContent className="w-[95vw] sm:max-w-lg">
           <DialogHeader>
             <DialogTitle>New Class</DialogTitle>
-            <DialogDescription>
-              Schedule a new class for a teacher.
-            </DialogDescription>
+            <DialogDescription>Schedule a new class for a teacher.</DialogDescription>
           </DialogHeader>
           {eventForm}
           {duplicateError && (
@@ -968,18 +1082,12 @@ export default function SchedulingPage() {
             </div>
           )}
           <DialogFooter>
-            <Button variant="outline" onClick={() => setShowCreateDialog(false)}>
-              Cancel
-            </Button>
+            <Button variant="outline" onClick={() => setShowCreateDialog(false)}>Cancel</Button>
             <Button
               onClick={handleCreate}
               disabled={createMutation.isPending || (!formData.module && !formData.title) || !formData.subcalendarId || !formData.date}
             >
-              {createMutation.isPending ? (
-                <Loader2 className="h-4 w-4 animate-spin mr-2" />
-              ) : (
-                <Plus className="h-4 w-4 mr-2" />
-              )}
+              {createMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : <Plus className="h-4 w-4 mr-2" />}
               Create
             </Button>
           </DialogFooter>
@@ -987,44 +1095,25 @@ export default function SchedulingPage() {
       </Dialog>
 
       {/* Edit Event Dialog */}
-      <Dialog open={showEditDialog} onOpenChange={(open) => {
-        if (!open) {
-          setShowEditDialog(false)
-          setEditingEvent(null)
-        }
-      }}>
+      <Dialog open={showEditDialog} onOpenChange={(open) => { if (!open) { setShowEditDialog(false); setEditingEvent(null) } }}>
         <DialogContent className="w-[95vw] sm:max-w-lg">
           <DialogHeader>
             <DialogTitle>Edit Class</DialogTitle>
-            <DialogDescription>
-              Modify or delete this class.
-            </DialogDescription>
+            <DialogDescription>Modify or delete this class.</DialogDescription>
           </DialogHeader>
           {eventForm}
           <DialogFooter className="flex flex-col-reverse sm:flex-row sm:justify-between gap-2">
-            <Button
-              variant="destructive"
-              onClick={handleDelete}
-              disabled={deleteMutation.isPending}
-            >
-              {deleteMutation.isPending ? (
-                <Loader2 className="h-4 w-4 animate-spin mr-2" />
-              ) : (
-                <Trash2 className="h-4 w-4 mr-2" />
-              )}
+            <Button variant="destructive" onClick={handleDelete} disabled={deleteMutation.isPending}>
+              {deleteMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : <Trash2 className="h-4 w-4 mr-2" />}
               Delete
             </Button>
             <div className="flex gap-2">
-              <Button variant="outline" onClick={() => setShowEditDialog(false)}>
-                Cancel
-              </Button>
+              <Button variant="outline" onClick={() => setShowEditDialog(false)}>Cancel</Button>
               <Button
                 onClick={handleUpdate}
                 disabled={updateMutation.isPending || (!formData.module && !formData.title) || !formData.subcalendarId || !formData.date}
               >
-                {updateMutation.isPending ? (
-                  <Loader2 className="h-4 w-4 animate-spin mr-2" />
-                ) : null}
+                {updateMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : null}
                 Save
               </Button>
             </div>
@@ -1033,18 +1122,11 @@ export default function SchedulingPage() {
       </Dialog>
 
       {/* Event Detail Dialog */}
-      <Dialog open={showEventDetail} onOpenChange={(open) => {
-        if (!open) {
-          setShowEventDetail(false)
-          setSelectedEvent(null)
-        }
-      }}>
+      <Dialog open={showEventDetail} onOpenChange={(open) => { if (!open) { setShowEventDetail(false); setSelectedEvent(null); setTheoryGroupId(null) } }}>
         <DialogContent className="w-[95vw] sm:max-w-md">
           <DialogHeader>
             <DialogTitle>Class Details</DialogTitle>
-            <DialogDescription>
-              View class information
-            </DialogDescription>
+            <DialogDescription>View class information</DialogDescription>
           </DialogHeader>
           {selectedEvent && (() => {
             const parsed = parseModuleFromTitle(selectedEvent.title)
@@ -1064,6 +1146,7 @@ export default function SchedulingPage() {
             const phaseInfo = parsed.module ? getPhaseInfo(parsed.module) : null
             const studentName = studentFromNotes || parsed.studentName
             const group = groupFromNotes || parsed.group
+            const isTheory = isTheoryEvent(selectedEvent)
 
             return (
               <div className="space-y-4">
@@ -1079,7 +1162,15 @@ export default function SchedulingPage() {
                   </div>
                 )}
 
-                {/* Class Info - Module/Session + Phase */}
+                {/* Theory Class Badge */}
+                {isTheory && (
+                  <div className="flex items-center gap-2 p-3 rounded-lg border-2 bg-indigo-50 border-indigo-400">
+                    <BookOpen className="h-5 w-5 text-indigo-600" />
+                    <span className="font-medium text-indigo-800">Theory Class</span>
+                  </div>
+                )}
+
+                {/* Class Info */}
                 {(moduleLabel || phaseInfo) && (
                   <div className="p-3 bg-muted/50 rounded-lg space-y-2">
                     {moduleLabel && (
@@ -1122,12 +1213,7 @@ export default function SchedulingPage() {
                         <Phone className="h-4 w-4 text-muted-foreground flex-shrink-0" />
                         <div>
                           <p className="text-sm text-muted-foreground">Phone</p>
-                          <a
-                            href={`tel:+${phone}`}
-                            className="font-medium text-primary hover:underline"
-                          >
-                            +{phone}
-                          </a>
+                          <a href={`tel:+${phone}`} className="font-medium text-primary hover:underline">+{phone}</a>
                         </div>
                       </div>
                     )}
@@ -1147,9 +1233,7 @@ export default function SchedulingPage() {
                           <p className="text-sm text-muted-foreground">Last Theory Class</p>
                           <p className="font-medium">
                             Module {lastTheory.module}
-                            {lastTheory.date && (
-                              <span className="text-sm text-muted-foreground ml-1">— {lastTheory.date}</span>
-                            )}
+                            {lastTheory.date && <span className="text-sm text-muted-foreground ml-1">— {lastTheory.date}</span>}
                           </p>
                         </div>
                       </div>
@@ -1160,10 +1244,7 @@ export default function SchedulingPage() {
                 {/* Teacher */}
                 {teacher && (
                   <div className="flex items-center gap-3">
-                    <div
-                      className="w-4 h-4 rounded-full flex-shrink-0"
-                      style={{ backgroundColor: getColor(teacher.color) }}
-                    />
+                    <div className="w-4 h-4 rounded-full flex-shrink-0" style={{ backgroundColor: getColor(teacher.color) }} />
                     <div>
                       <p className="text-sm text-muted-foreground">Teacher</p>
                       <p className="font-medium">{teacher.name}</p>
@@ -1195,12 +1276,18 @@ export default function SchedulingPage() {
             )
           })()}
           <DialogFooter className="flex flex-col-reverse sm:flex-row gap-2">
-            <Button variant="outline" onClick={() => setShowEventDetail(false)}>
-              Close
-            </Button>
+            {/* View Theory Class button */}
+            {selectedEvent && isTheoryEvent(selectedEvent) && theoryGroupId && (
+              <Link href={`/groups/${encodeURIComponent(theoryGroupId)}`} className="sm:mr-auto">
+                <Button variant="outline" className="w-full sm:w-auto">
+                  <Eye className="h-4 w-4 mr-2" />
+                  View Theory Class
+                </Button>
+              </Link>
+            )}
+            <Button variant="outline" onClick={() => setShowEventDetail(false)}>Close</Button>
             <Button onClick={handleEditFromDetail}>
-              <Edit3 className="h-4 w-4 mr-2" />
-              Edit
+              <Edit3 className="h-4 w-4 mr-2" />Edit
             </Button>
           </DialogFooter>
         </DialogContent>

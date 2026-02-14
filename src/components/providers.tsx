@@ -3,6 +3,7 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { useState } from 'react'
 import { ScheduledMessageProcessor } from './ScheduledMessageProcessor'
+import { Navbar } from './Navbar'
 
 export function Providers({ children }: { children: React.ReactNode }) {
   const [queryClient] = useState(
@@ -20,6 +21,7 @@ export function Providers({ children }: { children: React.ReactNode }) {
   return (
     <QueryClientProvider client={queryClient}>
       <ScheduledMessageProcessor />
+      <Navbar />
       {children}
     </QueryClientProvider>
   )
