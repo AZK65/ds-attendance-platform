@@ -12,11 +12,17 @@ import {
   CommandItem,
   CommandList,
 } from '@/components/ui/command'
+import { motion, AnimatePresence } from 'motion/react'
 import { Loader2, RefreshCw, Link as LinkIcon, Search, User, Users, BookOpen } from 'lucide-react'
 import Link from 'next/link'
 import Image from 'next/image'
 import { useRouter } from 'next/navigation'
 import { useState, useMemo, useEffect, useCallback } from 'react'
+
+const staggerContainer = {
+  hidden: {},
+  visible: { transition: { staggerChildren: 0.06 } },
+}
 
 interface Group {
   id: string
@@ -353,101 +359,171 @@ export default function GroupsPage() {
           </div>
         </CommandDialog>
 
-        {isLoading ? (
-          <div className="flex items-center justify-center py-12">
-            <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
-          </div>
-        ) : totalGroups > 0 ? (
-          <>
-            <p className="text-sm text-muted-foreground mb-6">
-              Showing {totalGroups} groups
-            </p>
+        <AnimatePresence mode="wait">
+          {isLoading ? (
+            <motion.div
+              key="loading"
+              className="flex items-center justify-center py-12"
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              transition={{ duration: 0.2 }}
+            >
+              <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+            </motion.div>
+          ) : totalGroups > 0 ? (
+            <motion.div
+              key="groups"
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              transition={{ duration: 0.3 }}
+            >
+              <p className="text-sm text-muted-foreground mb-6">
+                Showing {totalGroups} groups
+              </p>
 
-            {/* Phase 1: Modules 1-5 */}
-            {groupsByPhase.phase1.length > 0 && (
-              <div className="mb-8">
-                <h3 className="text-lg font-semibold mb-3 flex items-center gap-2">
-                  <span className="bg-yellow-100 text-yellow-800 px-2 py-1 rounded text-sm">Phase 1</span>
-                  <span className="text-muted-foreground text-sm font-normal">Modules 1-5</span>
-                </h3>
-                <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
-                  {groupsByPhase.phase1.map((group) => (
-                    <GroupCard key={group.id} group={group} />
-                  ))}
-                </div>
-              </div>
-            )}
+              {/* Phase 1: Modules 1-5 */}
+              {groupsByPhase.phase1.length > 0 && (
+                <motion.div
+                  className="mb-8"
+                  initial={{ opacity: 0, y: 10 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={{ duration: 0.3 }}
+                >
+                  <h3 className="text-lg font-semibold mb-3 flex items-center gap-2">
+                    <span className="bg-yellow-100 text-yellow-800 px-2 py-1 rounded text-sm">Phase 1</span>
+                    <span className="text-muted-foreground text-sm font-normal">Modules 1-5</span>
+                  </h3>
+                  <motion.div
+                    className="grid gap-4 md:grid-cols-2 lg:grid-cols-3"
+                    variants={staggerContainer}
+                    initial="hidden"
+                    animate="visible"
+                  >
+                    {groupsByPhase.phase1.map((group) => (
+                      <GroupCard key={group.id} group={group} />
+                    ))}
+                  </motion.div>
+                </motion.div>
+              )}
 
-            {/* Phase 2: Modules 6-7 */}
-            {groupsByPhase.phase2.length > 0 && (
-              <div className="mb-8">
-                <h3 className="text-lg font-semibold mb-3 flex items-center gap-2">
-                  <span className="bg-green-100 text-green-800 px-2 py-1 rounded text-sm">Phase 2</span>
-                  <span className="text-muted-foreground text-sm font-normal">Modules 6-7</span>
-                </h3>
-                <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
-                  {groupsByPhase.phase2.map((group) => (
-                    <GroupCard key={group.id} group={group} />
-                  ))}
-                </div>
-              </div>
-            )}
+              {/* Phase 2: Modules 6-7 */}
+              {groupsByPhase.phase2.length > 0 && (
+                <motion.div
+                  className="mb-8"
+                  initial={{ opacity: 0, y: 10 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={{ duration: 0.3, delay: 0.1 }}
+                >
+                  <h3 className="text-lg font-semibold mb-3 flex items-center gap-2">
+                    <span className="bg-green-100 text-green-800 px-2 py-1 rounded text-sm">Phase 2</span>
+                    <span className="text-muted-foreground text-sm font-normal">Modules 6-7</span>
+                  </h3>
+                  <motion.div
+                    className="grid gap-4 md:grid-cols-2 lg:grid-cols-3"
+                    variants={staggerContainer}
+                    initial="hidden"
+                    animate="visible"
+                  >
+                    {groupsByPhase.phase2.map((group) => (
+                      <GroupCard key={group.id} group={group} />
+                    ))}
+                  </motion.div>
+                </motion.div>
+              )}
 
-            {/* Phase 3: Modules 8-10 */}
-            {groupsByPhase.phase3.length > 0 && (
-              <div className="mb-8">
-                <h3 className="text-lg font-semibold mb-3 flex items-center gap-2">
-                  <span className="bg-blue-100 text-blue-800 px-2 py-1 rounded text-sm">Phase 3</span>
-                  <span className="text-muted-foreground text-sm font-normal">Modules 8-10</span>
-                </h3>
-                <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
-                  {groupsByPhase.phase3.map((group) => (
-                    <GroupCard key={group.id} group={group} />
-                  ))}
-                </div>
-              </div>
-            )}
+              {/* Phase 3: Modules 8-10 */}
+              {groupsByPhase.phase3.length > 0 && (
+                <motion.div
+                  className="mb-8"
+                  initial={{ opacity: 0, y: 10 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={{ duration: 0.3, delay: 0.2 }}
+                >
+                  <h3 className="text-lg font-semibold mb-3 flex items-center gap-2">
+                    <span className="bg-blue-100 text-blue-800 px-2 py-1 rounded text-sm">Phase 3</span>
+                    <span className="text-muted-foreground text-sm font-normal">Modules 8-10</span>
+                  </h3>
+                  <motion.div
+                    className="grid gap-4 md:grid-cols-2 lg:grid-cols-3"
+                    variants={staggerContainer}
+                    initial="hidden"
+                    animate="visible"
+                  >
+                    {groupsByPhase.phase3.map((group) => (
+                      <GroupCard key={group.id} group={group} />
+                    ))}
+                  </motion.div>
+                </motion.div>
+              )}
 
-            {/* Phase 4: Modules 11-12 */}
-            {groupsByPhase.phase4.length > 0 && (
-              <div className="mb-8">
-                <h3 className="text-lg font-semibold mb-3 flex items-center gap-2">
-                  <span className="bg-purple-100 text-purple-800 px-2 py-1 rounded text-sm">Phase 4</span>
-                  <span className="text-muted-foreground text-sm font-normal">Modules 11-12</span>
-                </h3>
-                <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
-                  {groupsByPhase.phase4.map((group) => (
-                    <GroupCard key={group.id} group={group} />
-                  ))}
-                </div>
-              </div>
-            )}
+              {/* Phase 4: Modules 11-12 */}
+              {groupsByPhase.phase4.length > 0 && (
+                <motion.div
+                  className="mb-8"
+                  initial={{ opacity: 0, y: 10 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={{ duration: 0.3, delay: 0.3 }}
+                >
+                  <h3 className="text-lg font-semibold mb-3 flex items-center gap-2">
+                    <span className="bg-purple-100 text-purple-800 px-2 py-1 rounded text-sm">Phase 4</span>
+                    <span className="text-muted-foreground text-sm font-normal">Modules 11-12</span>
+                  </h3>
+                  <motion.div
+                    className="grid gap-4 md:grid-cols-2 lg:grid-cols-3"
+                    variants={staggerContainer}
+                    initial="hidden"
+                    animate="visible"
+                  >
+                    {groupsByPhase.phase4.map((group) => (
+                      <GroupCard key={group.id} group={group} />
+                    ))}
+                  </motion.div>
+                </motion.div>
+              )}
 
-            {/* Groups without module info */}
-            {groupsByPhase.noPhase.length > 0 && (
-              <div className="mb-8">
-                <h3 className="text-lg font-semibold mb-3 flex items-center gap-2">
-                  <span className="bg-gray-100 text-gray-800 px-2 py-1 rounded text-sm">Other</span>
-                  <span className="text-muted-foreground text-sm font-normal">No module info</span>
-                </h3>
-                <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
-                  {groupsByPhase.noPhase.map((group) => (
-                    <GroupCard key={group.id} group={group} />
-                  ))}
-                </div>
-              </div>
-            )}
-          </>
-        ) : (
-          <div className="text-center py-12">
-            <p className="text-muted-foreground mb-4">
-              No groups found. Make sure you are connected.
-            </p>
-            <Link href="/connect">
-              <Button>Connect</Button>
-            </Link>
-          </div>
-        )}
+              {/* Groups without module info */}
+              {groupsByPhase.noPhase.length > 0 && (
+                <motion.div
+                  className="mb-8"
+                  initial={{ opacity: 0, y: 10 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={{ duration: 0.3, delay: 0.4 }}
+                >
+                  <h3 className="text-lg font-semibold mb-3 flex items-center gap-2">
+                    <span className="bg-gray-100 text-gray-800 px-2 py-1 rounded text-sm">Other</span>
+                    <span className="text-muted-foreground text-sm font-normal">No module info</span>
+                  </h3>
+                  <motion.div
+                    className="grid gap-4 md:grid-cols-2 lg:grid-cols-3"
+                    variants={staggerContainer}
+                    initial="hidden"
+                    animate="visible"
+                  >
+                    {groupsByPhase.noPhase.map((group) => (
+                      <GroupCard key={group.id} group={group} />
+                    ))}
+                  </motion.div>
+                </motion.div>
+              )}
+            </motion.div>
+          ) : (
+            <motion.div
+              key="empty"
+              className="text-center py-12"
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              transition={{ duration: 0.3 }}
+            >
+              <p className="text-muted-foreground mb-4">
+                No groups found. Make sure you are connected.
+              </p>
+              <Link href="/connect">
+                <Button>Connect</Button>
+              </Link>
+            </motion.div>
+          )}
+        </AnimatePresence>
 
         {data?.fromCache && (
           <p className="text-sm text-muted-foreground mt-4 text-center">

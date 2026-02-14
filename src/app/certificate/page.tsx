@@ -8,6 +8,7 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Badge } from '@/components/ui/badge'
 import { Upload, FileText, Download, Loader2, Camera, ArrowLeft, ArrowRight, CheckCircle2, Edit3, Settings, Plus } from 'lucide-react'
+import { motion, AnimatePresence } from 'motion/react'
 import Link from 'next/link'
 
 interface ExtractedData {
@@ -126,8 +127,18 @@ type Step = 'upload-pdf' | 'upload-docs' | 'review' | 'download'
 type UploadMode = 'separate' | 'combined'
 type TemplateMode = 'new' | 'upload'
 
+const STEP_ORDER: Step[] = ['upload-pdf', 'upload-docs', 'review', 'download']
+
 export default function CertificatePage() {
   const [step, setStep] = useState<Step>('upload-pdf')
+  const [direction, setDirection] = useState(1) // 1 = forward, -1 = back
+
+  const navigateStep = (newStep: Step) => {
+    const oldIdx = STEP_ORDER.indexOf(step)
+    const newIdx = STEP_ORDER.indexOf(newStep)
+    setDirection(newIdx >= oldIdx ? 1 : -1)
+    setStep(newStep)
+  }
   const [uploadMode, setUploadMode] = useState<UploadMode>('combined')
   const [templateMode, setTemplateMode] = useState<TemplateMode>('new')
   const [templatePdf, setTemplatePdf] = useState<string | null>(null)
@@ -185,7 +196,7 @@ export default function CertificatePage() {
         ...prev,
         ...data,
       }))
-      setStep('review')
+      navigateStep('review')
     }
   })
 
@@ -359,7 +370,7 @@ export default function CertificatePage() {
     }
 
     pdfMutation.mutate({ ...finalFormData, templatePdf })
-    setStep('download')
+    navigateStep('download')
   }
 
   const canProceedToOcr = templatePdf
@@ -400,9 +411,18 @@ export default function CertificatePage() {
             </div>
           </div>
 
+          <AnimatePresence mode="wait" custom={direction}>
           {/* Step 1: Upload PDF Template */}
           {step === 'upload-pdf' && (
-            <div className="space-y-6">
+            <motion.div
+              key="upload-pdf"
+              custom={direction}
+              initial={{ opacity: 0, x: direction * 30 }}
+              animate={{ opacity: 1, x: 0 }}
+              exit={{ opacity: 0, x: direction * -30 }}
+              transition={{ duration: 0.25 }}
+              className="space-y-6"
+            >
               <div className="text-center mb-6">
                 <div className="flex items-center justify-center gap-2 mb-2">
                   <h2 className="text-2xl font-bold">Certificate Template</h2>
@@ -525,19 +545,27 @@ export default function CertificatePage() {
               <div className="flex justify-center">
                 <Button
                   size="lg"
-                  onClick={() => setStep('upload-docs')}
+                  onClick={() => navigateStep('upload-docs')}
                   disabled={!canProceedToOcr}
                 >
                   Continue
                   <ArrowRight className="h-4 w-4 ml-2" />
                 </Button>
               </div>
-            </div>
+            </motion.div>
           )}
 
           {/* Step 2: Upload Documents for OCR */}
           {step === 'upload-docs' && (
-            <div className="space-y-6">
+            <motion.div
+              key="upload-docs"
+              custom={direction}
+              initial={{ opacity: 0, x: direction * 30 }}
+              animate={{ opacity: 1, x: 0 }}
+              exit={{ opacity: 0, x: direction * -30 }}
+              transition={{ duration: 0.25 }}
+              className="space-y-6"
+            >
               <div className="text-center mb-6">
                 <h2 className="text-2xl font-bold mb-2">Scan Documents</h2>
                 <p className="text-muted-foreground">Upload the driver&apos;s licence and attendance sheet to auto-fill</p>
@@ -702,7 +730,7 @@ export default function CertificatePage() {
               )}
 
               <div className="flex justify-between">
-                <Button variant="outline" onClick={() => setStep('upload-pdf')}>
+                <Button variant="outline" onClick={() => navigateStep('upload-pdf')}>
                   <ArrowLeft className="h-4 w-4 mr-2" />
                   Back
                 </Button>
@@ -730,12 +758,20 @@ export default function CertificatePage() {
                   {ocrMutation.error instanceof Error ? ocrMutation.error.message : 'Failed to process images. Please try again.'}
                 </p>
               )}
-            </div>
+            </motion.div>
           )}
 
           {/* Step 3: Review & Edit */}
           {step === 'review' && (
-            <div className="space-y-6">
+            <motion.div
+              key="review"
+              custom={direction}
+              initial={{ opacity: 0, x: direction * 30 }}
+              animate={{ opacity: 1, x: 0 }}
+              exit={{ opacity: 0, x: direction * -30 }}
+              transition={{ duration: 0.25 }}
+              className="space-y-6"
+            >
               <div className="text-center mb-6">
                 <h2 className="text-2xl font-bold mb-2">Review & Edit</h2>
                 <p className="text-muted-foreground">Verify the extracted information and make any corrections</p>
@@ -1013,7 +1049,7 @@ export default function CertificatePage() {
               )}
 
               <div className="flex justify-between">
-                <Button variant="outline" onClick={() => setStep('upload-docs')}>
+                <Button variant="outline" onClick={() => navigateStep('upload-docs')}>
                   <ArrowLeft className="h-4 w-4 mr-2" />
                   Back
                 </Button>
@@ -1035,12 +1071,20 @@ export default function CertificatePage() {
                   )}
                 </Button>
               </div>
-            </div>
+            </motion.div>
           )}
 
           {/* Step 4: Download */}
           {step === 'download' && (
-            <div className="space-y-6">
+            <motion.div
+              key="download"
+              custom={direction}
+              initial={{ opacity: 0, x: direction * 30 }}
+              animate={{ opacity: 1, x: 0 }}
+              exit={{ opacity: 0, x: direction * -30 }}
+              transition={{ duration: 0.25 }}
+              className="space-y-6"
+            >
               <div className="text-center">
                 <div className="flex items-center justify-center w-20 h-20 rounded-full bg-green-100 mx-auto mb-4">
                   <CheckCircle2 className="h-10 w-10 text-green-600" />
@@ -1054,7 +1098,7 @@ export default function CertificatePage() {
                     Download Again
                   </Button>
                   <Button onClick={() => {
-                    setStep('upload-pdf')
+                    navigateStep('upload-pdf')
                     setTemplatePdf(null)
                     setTemplatePdfName('')
                     setLicenceImage(null)
@@ -1066,8 +1110,9 @@ export default function CertificatePage() {
                   </Button>
                 </div>
               </div>
-            </div>
+            </motion.div>
           )}
+          </AnimatePresence>
 
           {pdfMutation.isError && (
             <p className="text-destructive text-sm text-center mt-4">

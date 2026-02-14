@@ -50,6 +50,20 @@ import {
 } from 'lucide-react'
 import { Input } from '@/components/ui/input'
 import Link from 'next/link'
+import { motion } from 'motion/react'
+
+const staggerContainer = {
+  hidden: {},
+  visible: { transition: { staggerChildren: 0.04 } },
+}
+
+const fadeSlideUp = {
+  hidden: { opacity: 0, y: 10 },
+  visible: { opacity: 1, y: 0, transition: { duration: 0.25 } },
+}
+
+const MotionTableBody = motion.create(TableBody)
+const MotionTableRow = motion.create(TableRow)
 
 interface Participant {
   id: string
@@ -516,67 +530,84 @@ export default function GroupDetailPage() {
             )}
           </div>
 
-          <div className="flex flex-wrap gap-2">
-            <Button
-              variant="outline"
-              onClick={() => refetch()}
-              disabled={isFetching}
-            >
-              <RefreshCw
-                className={`mr-2 h-4 w-4 ${isFetching ? 'animate-spin' : ''}`}
-              />
-              Refresh
-            </Button>
-            <Button
-              variant="outline"
-              onClick={handleDownloadPDF}
-              disabled={participants.length === 0}
-            >
-              <FileDown className="mr-2 h-4 w-4" />
-              Download PDF
-            </Button>
-            <Button onClick={() => setShowAddModal(true)} disabled={!isConnected}>
-              <UserPlus className="mr-2 h-4 w-4" />
-              Add Person
-            </Button>
-            <Button
-              onClick={() => setShowSendClassMessage(true)}
-              disabled={!isConnected}
-              variant="default"
-            >
-              <Send className="mr-2 h-4 w-4" />
-              Send Class Message
-            </Button>
-            <Button
-              onClick={() => {
-                setReminderModule(currentModuleNumber + 1)
-                setReminderTime('5 pm to 7 pm')
-                setSelectedMembers(new Set(participants.filter(p => !p.isSuperAdmin).map(p => p.phone)))
-                setReminderLog([])
-                setReminderDone(false)
-                setReminderSummary(null)
-                setReminderSending(false)
-                setScheduleMode('now')
-                setScheduleDate('')
-                setScheduleTime('')
-                setScheduleSuccess(false)
-                setClassDate('')
-                setShowSendReminder(true)
-              }}
-              disabled={!isConnected || participants.length === 0}
-              variant="outline"
-            >
-              <Bell className="mr-2 h-4 w-4" />
-              Send Reminder
-            </Button>
-            <Button
-              onClick={() => setShowZoomAttendance(true)}
-              variant="default"
-            >
-              <Video className="mr-2 h-4 w-4" />
-              Process Attendance
-            </Button>
-          </div>
+          <motion.div
+            className="flex flex-wrap gap-2"
+            variants={staggerContainer}
+            initial="hidden"
+            animate="visible"
+          >
+            <motion.div variants={fadeSlideUp}>
+              <Button
+                variant="outline"
+                onClick={() => refetch()}
+                disabled={isFetching}
+              >
+                <RefreshCw
+                  className={`mr-2 h-4 w-4 ${isFetching ? 'animate-spin' : ''}`}
+                />
+                Refresh
+              </Button>
+            </motion.div>
+            <motion.div variants={fadeSlideUp}>
+              <Button
+                variant="outline"
+                onClick={handleDownloadPDF}
+                disabled={participants.length === 0}
+              >
+                <FileDown className="mr-2 h-4 w-4" />
+                Download PDF
+              </Button>
+            </motion.div>
+            <motion.div variants={fadeSlideUp}>
+              <Button onClick={() => setShowAddModal(true)} disabled={!isConnected}>
+                <UserPlus className="mr-2 h-4 w-4" />
+                Add Person
+              </Button>
+            </motion.div>
+            <motion.div variants={fadeSlideUp}>
+              <Button
+                onClick={() => setShowSendClassMessage(true)}
+                disabled={!isConnected}
+                variant="default"
+              >
+                <Send className="mr-2 h-4 w-4" />
+                Send Class Message
+              </Button>
+            </motion.div>
+            <motion.div variants={fadeSlideUp}>
+              <Button
+                onClick={() => {
+                  setReminderModule(currentModuleNumber + 1)
+                  setReminderTime('5 pm to 7 pm')
+                  setSelectedMembers(new Set(participants.filter(p => !p.isSuperAdmin).map(p => p.phone)))
+                  setReminderLog([])
+                  setReminderDone(false)
+                  setReminderSummary(null)
+                  setReminderSending(false)
+                  setScheduleMode('now')
+                  setScheduleDate('')
+                  setScheduleTime('')
+                  setScheduleSuccess(false)
+                  setClassDate('')
+                  setShowSendReminder(true)
+                }}
+                disabled={!isConnected || participants.length === 0}
+                variant="outline"
+              >
+                <Bell className="mr-2 h-4 w-4" />
+                Send Reminder
+              </Button>
+            </motion.div>
+            <motion.div variants={fadeSlideUp}>
+              <Button
+                onClick={() => setShowZoomAttendance(true)}
+                variant="default"
+              >
+                <Video className="mr-2 h-4 w-4" />
+                Process Attendance
+              </Button>
+            </motion.div>
+          </motion.div>
         </div>
 
         {!isConnected && (
@@ -617,9 +648,13 @@ export default function GroupDetailPage() {
                   <TableHead className="w-[80px]">Actions</TableHead>
                 </TableRow>
               </TableHeader>
-              <TableBody>
+              <MotionTableBody
+                variants={staggerContainer}
+                initial="hidden"
+                animate="visible"
+              >
                 {participants.map((participant, index) => (
-                  <TableRow key={participant.id}>
+                  <MotionTableRow key={participant.id} variants={fadeSlideUp}>
                     <TableCell className="text-muted-foreground">
                       {index + 1}
                     </TableCell>
@@ -668,9 +703,9 @@ export default function GroupDetailPage() {
                         <Trash2 className="h-4 w-4" />
                       </Button>
                     </TableCell>
-                  </TableRow>
+                  </MotionTableRow>
                 ))}
-              </TableBody>
+              </MotionTableBody>
             </Table>
           </div>
         )}

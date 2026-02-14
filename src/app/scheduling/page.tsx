@@ -50,6 +50,7 @@ import {
   Save,
 } from 'lucide-react'
 import { Checkbox } from '@/components/ui/checkbox'
+import { motion, AnimatePresence } from 'motion/react'
 import Link from 'next/link'
 import { ContactSearchAutocomplete, type StudentGroupInfo } from '@/components/ContactSearchAutocomplete'
 
@@ -1274,29 +1275,46 @@ export default function SchedulingPage() {
       <main className="container mx-auto px-4 py-4">
         {/* Teacher Tabs */}
         <div className="flex items-center gap-2 mb-4 overflow-x-auto pb-2">
-          <Button
-            variant={selectedTeacher === null ? 'default' : 'outline'}
-            size="sm"
+          <button
+            className={`relative px-3 py-1.5 text-sm font-medium rounded-md transition-colors whitespace-nowrap ${
+              selectedTeacher === null ? 'text-primary-foreground' : 'text-foreground hover:bg-muted'
+            }`}
             onClick={() => setSelectedTeacher(null)}
           >
-            All Teachers
-          </Button>
+            {selectedTeacher === null && (
+              <motion.div
+                layoutId="activeTeacherTab"
+                className="absolute inset-0 bg-primary rounded-md"
+                transition={{ type: 'spring', duration: 0.4, bounce: 0.15 }}
+              />
+            )}
+            <span className="relative z-10">All Teachers</span>
+          </button>
           {loadingTeachers ? (
             <Loader2 className="h-4 w-4 animate-spin" />
           ) : teachersError ? (
             <Badge variant="destructive">Failed to load teachers</Badge>
           ) : (
             activeTeachers.map(t => (
-              <Button
+              <button
                 key={t.id}
-                variant={selectedTeacher === t.id ? 'default' : 'outline'}
-                size="sm"
+                className={`relative flex items-center gap-2 px-3 py-1.5 text-sm font-medium rounded-md transition-colors whitespace-nowrap ${
+                  selectedTeacher === t.id ? 'text-primary-foreground' : 'text-foreground hover:bg-muted'
+                }`}
                 onClick={() => setSelectedTeacher(t.id)}
-                className="flex items-center gap-2 whitespace-nowrap"
               >
-                <div className="w-3 h-3 rounded-full flex-shrink-0" style={{ backgroundColor: getColor(t.color) }} />
-                {t.name}
-              </Button>
+                {selectedTeacher === t.id && (
+                  <motion.div
+                    layoutId="activeTeacherTab"
+                    className="absolute inset-0 bg-primary rounded-md"
+                    transition={{ type: 'spring', duration: 0.4, bounce: 0.15 }}
+                  />
+                )}
+                <span className="relative z-10 flex items-center gap-2">
+                  <div className="w-3 h-3 rounded-full flex-shrink-0" style={{ backgroundColor: getColor(t.color) }} />
+                  {t.name}
+                </span>
+              </button>
             ))
           )}
           <Button
@@ -1319,13 +1337,20 @@ export default function SchedulingPage() {
                 <button
                   key={mode}
                   onClick={() => setViewMode(mode)}
-                  className={`px-3 py-1 text-sm font-medium rounded-md transition-colors ${
+                  className={`relative px-3 py-1 text-sm font-medium rounded-md transition-colors ${
                     viewMode === mode
-                      ? 'bg-background text-foreground shadow-sm'
+                      ? 'text-foreground'
                       : 'text-muted-foreground hover:text-foreground'
                   }`}
                 >
-                  {mode.charAt(0).toUpperCase() + mode.slice(1)}
+                  {viewMode === mode && (
+                    <motion.div
+                      layoutId="activeViewMode"
+                      className="absolute inset-0 bg-background rounded-md shadow-sm"
+                      transition={{ type: 'spring', duration: 0.35, bounce: 0.15 }}
+                    />
+                  )}
+                  <span className="relative z-10">{mode.charAt(0).toUpperCase() + mode.slice(1)}</span>
                 </button>
               ))}
             </div>
@@ -2028,14 +2053,21 @@ export default function SchedulingPage() {
       </Dialog>
 
       {/* WhatsApp Notification Status */}
-      {(notifyStatus || truckNotifyStatus) && (
-        <div className="fixed bottom-4 right-4 z-50 space-y-2">
+      <div className="fixed bottom-4 right-4 z-50 space-y-2">
+        <AnimatePresence>
           {notifyStatus && (
-            <div className={`flex items-center gap-2 px-4 py-3 rounded-lg shadow-lg text-sm font-medium ${
-              notifyStatus === 'sending' ? 'bg-blue-100 text-blue-800' :
-              notifyStatus === 'sent' ? 'bg-green-100 text-green-800' :
-              'bg-red-100 text-red-800'
-            }`}>
+            <motion.div
+              key="notify"
+              initial={{ opacity: 0, x: 80 }}
+              animate={{ opacity: 1, x: 0 }}
+              exit={{ opacity: 0, x: 80 }}
+              transition={{ duration: 0.3 }}
+              className={`flex items-center gap-2 px-4 py-3 rounded-lg shadow-lg text-sm font-medium ${
+                notifyStatus === 'sending' ? 'bg-blue-100 text-blue-800' :
+                notifyStatus === 'sent' ? 'bg-green-100 text-green-800' :
+                'bg-red-100 text-red-800'
+              }`}
+            >
               {notifyStatus === 'sending' && <Loader2 className="h-4 w-4 animate-spin" />}
               {notifyStatus === 'sent' && <CheckCircle2 className="h-4 w-4" />}
               {notifyStatus === 'failed' && <AlertCircle className="h-4 w-4" />}
@@ -2043,14 +2075,21 @@ export default function SchedulingPage() {
               {notifyStatus === 'sending' && 'Sending WhatsApp message...'}
               {notifyStatus === 'sent' && 'WhatsApp message sent!'}
               {notifyStatus === 'failed' && 'Failed to send WhatsApp message'}
-            </div>
+            </motion.div>
           )}
           {truckNotifyStatus && (
-            <div className={`flex items-center gap-2 px-4 py-3 rounded-lg shadow-lg text-sm font-medium ${
-              truckNotifyStatus === 'sending' ? 'bg-emerald-100 text-emerald-800' :
-              truckNotifyStatus === 'sent' ? 'bg-green-100 text-green-800' :
-              'bg-red-100 text-red-800'
-            }`}>
+            <motion.div
+              key="truck-notify"
+              initial={{ opacity: 0, x: 80 }}
+              animate={{ opacity: 1, x: 0 }}
+              exit={{ opacity: 0, x: 80 }}
+              transition={{ duration: 0.3 }}
+              className={`flex items-center gap-2 px-4 py-3 rounded-lg shadow-lg text-sm font-medium ${
+                truckNotifyStatus === 'sending' ? 'bg-emerald-100 text-emerald-800' :
+                truckNotifyStatus === 'sent' ? 'bg-green-100 text-green-800' :
+                'bg-red-100 text-red-800'
+              }`}
+            >
               {truckNotifyStatus === 'sending' && <Loader2 className="h-4 w-4 animate-spin" />}
               {truckNotifyStatus === 'sent' && <CheckCircle2 className="h-4 w-4" />}
               {truckNotifyStatus === 'failed' && <AlertCircle className="h-4 w-4" />}
@@ -2058,10 +2097,10 @@ export default function SchedulingPage() {
               {truckNotifyStatus === 'sending' && 'Creating truck classes & sending schedule...'}
               {truckNotifyStatus === 'sent' && 'Truck classes created & schedule sent!'}
               {truckNotifyStatus === 'failed' && 'Failed to create truck classes'}
-            </div>
+            </motion.div>
           )}
-        </div>
-      )}
+        </AnimatePresence>
+      </div>
     </div>
   )
 }

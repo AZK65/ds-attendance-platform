@@ -3,6 +3,7 @@
 import Link from 'next/link'
 import Image from 'next/image'
 import { usePathname } from 'next/navigation'
+import { motion } from 'motion/react'
 import { Home, Users, Award, CalendarDays, Link as LinkIcon } from 'lucide-react'
 import { ConnectionStatus } from './ConnectionStatus'
 
@@ -43,14 +44,23 @@ export function Navbar() {
               <Link
                 key={href}
                 href={href}
-                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-sm font-medium transition-colors whitespace-nowrap ${
+                className={`relative flex items-center gap-1.5 px-3 py-1.5 rounded-md text-sm font-medium transition-colors whitespace-nowrap ${
                   isActive(href)
-                    ? 'bg-primary text-primary-foreground'
+                    ? 'text-primary-foreground'
                     : 'text-muted-foreground hover:text-foreground hover:bg-muted'
                 }`}
               >
-                <Icon className="h-4 w-4" />
-                <span className="hidden md:inline">{label}</span>
+                {isActive(href) && (
+                  <motion.div
+                    layoutId="activeNavTab"
+                    className="absolute inset-0 bg-primary rounded-md"
+                    transition={{ type: 'spring', duration: 0.4, bounce: 0.15 }}
+                  />
+                )}
+                <span className="relative z-10 flex items-center gap-1.5">
+                  <Icon className="h-4 w-4" />
+                  <span className="hidden md:inline">{label}</span>
+                </span>
               </Link>
             ))}
           </div>

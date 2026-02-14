@@ -1,11 +1,22 @@
 'use client'
 
 import { useQuery } from '@tanstack/react-query'
+import { motion } from 'motion/react'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Link as LinkIcon, Users, ClipboardList, ArrowRight, Award, CalendarDays } from 'lucide-react'
 import Link from 'next/link'
+
+const staggerContainer = {
+  hidden: {},
+  visible: { transition: { staggerChildren: 0.08 } },
+}
+
+const fadeSlideUp = {
+  hidden: { opacity: 0, y: 20 },
+  visible: { opacity: 1, y: 0, transition: { duration: 0.35 } },
+}
 
 export default function Home() {
   const { data: status } = useQuery({
@@ -32,7 +43,12 @@ export default function Home() {
     <div className="min-h-screen bg-background">
       <main className="container mx-auto px-4 py-8">
         <div className="max-w-4xl mx-auto">
-          <div className="text-center mb-12">
+          <motion.div
+            className="text-center mb-12"
+            initial={{ opacity: 0, y: -10 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.4 }}
+          >
             <h2 className="text-2xl sm:text-3xl font-bold mb-4">
               Qazi Groups
             </h2>
@@ -40,185 +56,187 @@ export default function Home() {
               Manage your groups, track attendance, and sync members
               all in one place.
             </p>
-          </div>
+          </motion.div>
 
-          <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 mb-12">
-            <Card>
+          <motion.div
+            className="grid gap-6 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 mb-12"
+            variants={staggerContainer}
+            initial="hidden"
+            animate="visible"
+          >
+            <motion.div variants={fadeSlideUp}>
+              <Card>
+                <CardHeader>
+                  <CardTitle className="flex items-center gap-2">
+                    <LinkIcon className="h-5 w-5" />
+                    Connect
+                  </CardTitle>
+                  <CardDescription>
+                    Link your account by scanning a QR code
+                  </CardDescription>
+                </CardHeader>
+                <CardContent>
+                  <div className="flex items-center justify-between">
+                    <Badge variant={isConnected ? 'default' : 'secondary'}>
+                      {isConnected ? 'Connected' : 'Not Connected'}
+                    </Badge>
+                    <Link href="/connect">
+                      <Button variant="ghost" size="sm">
+                        <ArrowRight className="h-4 w-4" />
+                      </Button>
+                    </Link>
+                  </div>
+                </CardContent>
+              </Card>
+            </motion.div>
+
+            <motion.div variants={fadeSlideUp}>
+              <Card>
+                <CardHeader>
+                  <CardTitle className="flex items-center gap-2">
+                    <Users className="h-5 w-5" />
+                    Groups
+                  </CardTitle>
+                  <CardDescription>
+                    View and select groups to manage
+                  </CardDescription>
+                </CardHeader>
+                <CardContent>
+                  <div className="flex items-center justify-between">
+                    <Badge variant="outline">{groupCount} groups</Badge>
+                    <Link href="/groups">
+                      <Button variant="ghost" size="sm">
+                        <ArrowRight className="h-4 w-4" />
+                      </Button>
+                    </Link>
+                  </div>
+                </CardContent>
+              </Card>
+            </motion.div>
+
+            <motion.div variants={fadeSlideUp}>
+              <Card>
+                <CardHeader>
+                  <CardTitle className="flex items-center gap-2">
+                    <ClipboardList className="h-5 w-5" />
+                    Attendance
+                  </CardTitle>
+                  <CardDescription>
+                    Track attendance and export to PDF
+                  </CardDescription>
+                </CardHeader>
+                <CardContent>
+                  <div className="flex items-center justify-between">
+                    <Badge variant="outline">PDF Export</Badge>
+                    <Link href="/groups">
+                      <Button variant="ghost" size="sm">
+                        <ArrowRight className="h-4 w-4" />
+                      </Button>
+                    </Link>
+                  </div>
+                </CardContent>
+              </Card>
+            </motion.div>
+
+            <motion.div variants={fadeSlideUp}>
+              <Card>
+                <CardHeader>
+                  <CardTitle className="flex items-center gap-2">
+                    <Award className="h-5 w-5" />
+                    Certificates
+                  </CardTitle>
+                  <CardDescription>
+                    Generate driving course certificates with OCR
+                  </CardDescription>
+                </CardHeader>
+                <CardContent>
+                  <div className="flex items-center justify-between">
+                    <Badge variant="outline">OCR Scan</Badge>
+                    <Link href="/certificate">
+                      <Button variant="ghost" size="sm">
+                        <ArrowRight className="h-4 w-4" />
+                      </Button>
+                    </Link>
+                  </div>
+                </CardContent>
+              </Card>
+            </motion.div>
+
+            <motion.div variants={fadeSlideUp}>
+              <Card>
+                <CardHeader>
+                  <CardTitle className="flex items-center gap-2">
+                    <CalendarDays className="h-5 w-5" />
+                    Scheduling
+                  </CardTitle>
+                  <CardDescription>
+                    Schedule classes for teachers via calendar
+                  </CardDescription>
+                </CardHeader>
+                <CardContent>
+                  <div className="flex items-center justify-between">
+                    <Badge variant="outline">Teamup</Badge>
+                    <Link href="/scheduling">
+                      <Button variant="ghost" size="sm">
+                        <ArrowRight className="h-4 w-4" />
+                      </Button>
+                    </Link>
+                  </div>
+                </CardContent>
+              </Card>
+            </motion.div>
+          </motion.div>
+
+          <motion.div
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.4, delay: 0.5 }}
+          >
+            <Card className="bg-accent/50">
               <CardHeader>
-                <CardTitle className="flex items-center gap-2">
-                  <LinkIcon className="h-5 w-5" />
-                  Connect
-                </CardTitle>
-                <CardDescription>
-                  Link your account by scanning a QR code
-                </CardDescription>
+                <CardTitle>Getting Started</CardTitle>
               </CardHeader>
               <CardContent>
-                <div className="flex items-center justify-between">
-                  <Badge variant={isConnected ? 'default' : 'secondary'}>
-                    {isConnected ? 'Connected' : 'Not Connected'}
-                  </Badge>
-                  <Link href="/connect">
-                    <Button variant="ghost" size="sm">
-                      <ArrowRight className="h-4 w-4" />
-                    </Button>
-                  </Link>
-                </div>
+                <motion.div
+                  className="space-y-4"
+                  variants={staggerContainer}
+                  initial="hidden"
+                  animate="visible"
+                >
+                  {[
+                    { num: 1, title: 'Connect', desc: 'Go to the Connect page and scan the QR code with your phone' },
+                    { num: 2, title: 'Select a Group', desc: 'Choose a group from your list to create an attendance sheet' },
+                    { num: 3, title: 'Manage Attendance', desc: 'Add or remove people, mark attendance status, and add notes for each person' },
+                    { num: 4, title: 'Download PDF', desc: 'Export your attendance sheet as a professional PDF document' },
+                  ].map(step => (
+                    <motion.div key={step.num} className="flex items-start gap-4" variants={fadeSlideUp}>
+                      <div className="flex items-center justify-center w-8 h-8 rounded-full bg-primary text-primary-foreground font-bold text-sm">
+                        {step.num}
+                      </div>
+                      <div>
+                        <h4 className="font-medium">{step.title}</h4>
+                        <p className="text-sm text-muted-foreground">{step.desc}</p>
+                      </div>
+                    </motion.div>
+                  ))}
+                </motion.div>
               </CardContent>
             </Card>
+          </motion.div>
 
-            <Card>
-              <CardHeader>
-                <CardTitle className="flex items-center gap-2">
-                  <Users className="h-5 w-5" />
-                  Groups
-                </CardTitle>
-                <CardDescription>
-                  View and select groups to manage
-                </CardDescription>
-              </CardHeader>
-              <CardContent>
-                <div className="flex items-center justify-between">
-                  <Badge variant="outline">{groupCount} groups</Badge>
-                  <Link href="/groups">
-                    <Button variant="ghost" size="sm">
-                      <ArrowRight className="h-4 w-4" />
-                    </Button>
-                  </Link>
-                </div>
-              </CardContent>
-            </Card>
-
-            <Card>
-              <CardHeader>
-                <CardTitle className="flex items-center gap-2">
-                  <ClipboardList className="h-5 w-5" />
-                  Attendance
-                </CardTitle>
-                <CardDescription>
-                  Track attendance and export to PDF
-                </CardDescription>
-              </CardHeader>
-              <CardContent>
-                <div className="flex items-center justify-between">
-                  <Badge variant="outline">PDF Export</Badge>
-                  <Link href="/groups">
-                    <Button variant="ghost" size="sm">
-                      <ArrowRight className="h-4 w-4" />
-                    </Button>
-                  </Link>
-                </div>
-              </CardContent>
-            </Card>
-
-            <Card>
-              <CardHeader>
-                <CardTitle className="flex items-center gap-2">
-                  <Award className="h-5 w-5" />
-                  Certificates
-                </CardTitle>
-                <CardDescription>
-                  Generate driving course certificates with OCR
-                </CardDescription>
-              </CardHeader>
-              <CardContent>
-                <div className="flex items-center justify-between">
-                  <Badge variant="outline">OCR Scan</Badge>
-                  <Link href="/certificate">
-                    <Button variant="ghost" size="sm">
-                      <ArrowRight className="h-4 w-4" />
-                    </Button>
-                  </Link>
-                </div>
-              </CardContent>
-            </Card>
-
-            <Card>
-              <CardHeader>
-                <CardTitle className="flex items-center gap-2">
-                  <CalendarDays className="h-5 w-5" />
-                  Scheduling
-                </CardTitle>
-                <CardDescription>
-                  Schedule classes for teachers via calendar
-                </CardDescription>
-              </CardHeader>
-              <CardContent>
-                <div className="flex items-center justify-between">
-                  <Badge variant="outline">Teamup</Badge>
-                  <Link href="/scheduling">
-                    <Button variant="ghost" size="sm">
-                      <ArrowRight className="h-4 w-4" />
-                    </Button>
-                  </Link>
-                </div>
-              </CardContent>
-            </Card>
-          </div>
-
-          <Card className="bg-accent/50">
-            <CardHeader>
-              <CardTitle>Getting Started</CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              <div className="flex items-start gap-4">
-                <div className="flex items-center justify-center w-8 h-8 rounded-full bg-primary text-primary-foreground font-bold text-sm">
-                  1
-                </div>
-                <div>
-                  <h4 className="font-medium">Connect</h4>
-                  <p className="text-sm text-muted-foreground">
-                    Go to the Connect page and scan the QR code with your
-                    phone
-                  </p>
-                </div>
-              </div>
-              <div className="flex items-start gap-4">
-                <div className="flex items-center justify-center w-8 h-8 rounded-full bg-primary text-primary-foreground font-bold text-sm">
-                  2
-                </div>
-                <div>
-                  <h4 className="font-medium">Select a Group</h4>
-                  <p className="text-sm text-muted-foreground">
-                    Choose a group from your list to create an
-                    attendance sheet
-                  </p>
-                </div>
-              </div>
-              <div className="flex items-start gap-4">
-                <div className="flex items-center justify-center w-8 h-8 rounded-full bg-primary text-primary-foreground font-bold text-sm">
-                  3
-                </div>
-                <div>
-                  <h4 className="font-medium">Manage Attendance</h4>
-                  <p className="text-sm text-muted-foreground">
-                    Add or remove people, mark attendance status, and add notes
-                    for each person
-                  </p>
-                </div>
-              </div>
-              <div className="flex items-start gap-4">
-                <div className="flex items-center justify-center w-8 h-8 rounded-full bg-primary text-primary-foreground font-bold text-sm">
-                  4
-                </div>
-                <div>
-                  <h4 className="font-medium">Download PDF</h4>
-                  <p className="text-sm text-muted-foreground">
-                    Export your attendance sheet as a professional PDF document
-                  </p>
-                </div>
-              </div>
-            </CardContent>
-          </Card>
-
-          <div className="mt-8 text-center">
+          <motion.div
+            className="mt-8 text-center"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            transition={{ duration: 0.4, delay: 0.7 }}
+          >
             <Link href={isConnected ? '/groups' : '/connect'}>
               <Button size="lg">
                 {isConnected ? 'View Groups' : 'Get Started'}
                 <ArrowRight className="ml-2 h-4 w-4" />
               </Button>
             </Link>
-          </div>
+          </motion.div>
         </div>
       </main>
     </div>

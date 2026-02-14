@@ -1,5 +1,6 @@
 'use client'
 
+import { motion } from 'motion/react'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Users, Clock, BookOpen } from 'lucide-react'
@@ -16,40 +17,47 @@ interface GroupCardProps {
   }
 }
 
+const fadeSlideUp = {
+  hidden: { opacity: 0, y: 20 },
+  visible: { opacity: 1, y: 0, transition: { duration: 0.35 } },
+}
+
 export function GroupCard({ group }: GroupCardProps) {
   const lastMessageDate = group.lastMessageDate ? new Date(group.lastMessageDate) : null
   const timeAgo = lastMessageDate ? getTimeAgo(lastMessageDate) : null
 
   return (
-    <Link href={`/groups/${encodeURIComponent(group.id)}`}>
-      <Card className="hover:bg-accent/50 transition-colors cursor-pointer h-full">
-        <CardHeader className="pb-2">
-          <div className="flex items-start justify-between gap-2">
-            <CardTitle className="text-lg leading-tight">{group.name}</CardTitle>
-            {group.moduleNumber && (
-              <Badge variant="default" className="shrink-0 gap-1">
-                <BookOpen className="h-3 w-3" />
-                Module {group.moduleNumber}
-              </Badge>
+    <motion.div variants={fadeSlideUp} whileHover={{ y: -2, transition: { duration: 0.2 } }}>
+      <Link href={`/groups/${encodeURIComponent(group.id)}`}>
+        <Card className="hover:bg-accent/50 transition-colors cursor-pointer h-full">
+          <CardHeader className="pb-2">
+            <div className="flex items-start justify-between gap-2">
+              <CardTitle className="text-lg leading-tight">{group.name}</CardTitle>
+              {group.moduleNumber && (
+                <Badge variant="default" className="shrink-0 gap-1">
+                  <BookOpen className="h-3 w-3" />
+                  Module {group.moduleNumber}
+                </Badge>
+              )}
+            </div>
+            {timeAgo && (
+              <CardDescription className="flex items-center gap-1">
+                <Clock className="h-3 w-3" />
+                Last message {timeAgo}
+              </CardDescription>
             )}
-          </div>
-          {timeAgo && (
-            <CardDescription className="flex items-center gap-1">
-              <Clock className="h-3 w-3" />
-              Last message {timeAgo}
-            </CardDescription>
-          )}
-        </CardHeader>
-        <CardContent>
-          <div className="flex flex-wrap gap-2">
-            <Badge variant="secondary" className="gap-1">
-              <Users className="h-3 w-3" />
-              {group.participantCount} members
-            </Badge>
-          </div>
-        </CardContent>
-      </Card>
-    </Link>
+          </CardHeader>
+          <CardContent>
+            <div className="flex flex-wrap gap-2">
+              <Badge variant="secondary" className="gap-1">
+                <Users className="h-3 w-3" />
+                {group.participantCount} members
+              </Badge>
+            </div>
+          </CardContent>
+        </Card>
+      </Link>
+    </motion.div>
   )
 }
 

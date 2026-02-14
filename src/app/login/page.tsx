@@ -2,6 +2,7 @@
 
 import { useState } from 'react'
 import { useRouter } from 'next/navigation'
+import { motion, AnimatePresence } from 'motion/react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import Image from 'next/image'
@@ -40,8 +41,18 @@ export default function LoginPage() {
 
   return (
     <div className="min-h-screen flex items-center justify-center bg-background">
-      <div className="w-full max-w-sm mx-auto p-6">
-        <div className="flex flex-col items-center mb-8">
+      <motion.div
+        className="w-full max-w-sm mx-auto p-6"
+        initial={{ opacity: 0, y: 20 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ duration: 0.4 }}
+      >
+        <motion.div
+          className="flex flex-col items-center mb-8"
+          initial={{ opacity: 0, scale: 0.9 }}
+          animate={{ opacity: 1, scale: 1 }}
+          transition={{ duration: 0.4, delay: 0.1 }}
+        >
           <Image
             src="/qazi-logo.png"
             alt="Qazi Driving School"
@@ -51,7 +62,7 @@ export default function LoginPage() {
           />
           <h1 className="text-xl font-semibold">Qazi Groups</h1>
           <p className="text-sm text-muted-foreground mt-1">Enter password to continue</p>
-        </div>
+        </motion.div>
 
         <form onSubmit={handleSubmit} className="space-y-4">
           <Input
@@ -62,14 +73,24 @@ export default function LoginPage() {
             autoFocus
             disabled={loading}
           />
-          {error && (
-            <p className="text-sm text-red-500 text-center">{error}</p>
-          )}
+          <AnimatePresence>
+            {error && (
+              <motion.p
+                className="text-sm text-red-500 text-center"
+                initial={{ opacity: 0, y: -5, height: 0 }}
+                animate={{ opacity: 1, y: 0, height: 'auto' }}
+                exit={{ opacity: 0, y: -5, height: 0 }}
+                transition={{ duration: 0.2 }}
+              >
+                {error}
+              </motion.p>
+            )}
+          </AnimatePresence>
           <Button type="submit" className="w-full" disabled={loading || !password}>
             {loading ? 'Checking...' : 'Login'}
           </Button>
         </form>
-      </div>
+      </motion.div>
     </div>
   )
 }
