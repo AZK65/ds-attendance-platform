@@ -254,10 +254,12 @@ export default function SchedulingPage() {
   // Export dialog
   type ExportView = 'day' | 'week' | 'month'
   type ExportMode = 'schedule' | 'attendance'
+  type ExportFormat = 'pdf' | 'csv'
   const [showExportDialog, setShowExportDialog] = useState(false)
   const [exportTeacher, setExportTeacher] = useState<string>('all')
   const [exportView, setExportView] = useState<ExportView>('day')
   const [exportMode, setExportMode] = useState<ExportMode>('schedule')
+  const [exportFormat, setExportFormat] = useState<ExportFormat>('pdf')
   const [exportDate, setExportDate] = useState('')
 
   // Compute date range based on view mode
@@ -993,30 +995,32 @@ export default function SchedulingPage() {
     deleteMutation.mutate({ eventId: editingEvent.id, data: formData })
   }
 
-  // Export schedule data
-  const handleExport = () => {
-    // Determine date range for export
+  // Gather export data (shared between CSV and PDF)
+  const getExportData = () => {
     const expDate = exportDate ? new Date(exportDate + 'T12:00:00') : currentDate
     let rangeStart: Date
     let rangeEnd: Date
     let filenameDatePart: string
+    let dateRangeLabel: string
 
     if (exportView === 'day') {
       rangeStart = new Date(expDate)
       rangeEnd = new Date(expDate)
       filenameDatePart = formatDate(expDate)
+      dateRangeLabel = expDate.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' })
     } else if (exportView === 'week') {
       rangeStart = getMonday(expDate)
       rangeEnd = new Date(rangeStart)
       rangeEnd.setDate(rangeEnd.getDate() + 6)
       filenameDatePart = `${formatDate(rangeStart)}_to_${formatDate(rangeEnd)}`
+      dateRangeLabel = `${rangeStart.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} – ${rangeEnd.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}`
     } else {
       rangeStart = new Date(expDate.getFullYear(), expDate.getMonth(), 1)
       rangeEnd = new Date(expDate.getFullYear(), expDate.getMonth() + 1, 0)
       filenameDatePart = `${expDate.getFullYear()}-${(expDate.getMonth() + 1).toString().padStart(2, '0')}`
+      dateRangeLabel = expDate.toLocaleDateString('en-US', { month: 'long', year: 'numeric' })
     }
 
-    // Filter events by date range
     const rangeStartStr = formatDate(rangeStart)
     const rangeEndStr = formatDate(rangeEnd)
     let filteredEvents = events.filter(ev => {
@@ -1024,25 +1028,29 @@ export default function SchedulingPage() {
       return evDate >= rangeStartStr && evDate <= rangeEndStr
     })
 
-    // Filter by teacher
     if (exportTeacher !== 'all') {
       const teacherId = parseInt(exportTeacher)
       filteredEvents = filteredEvents.filter(ev => ev.subcalendar_ids.includes(teacherId))
     }
 
-    // Sort by date then time
     filteredEvents.sort((a, b) => a.start_dt.localeCompare(b.start_dt))
 
-    const teacherLabel = exportTeacher === 'all' ? 'All-Teachers' : (activeTeachers.find(t => t.id === parseInt(exportTeacher))?.name || 'Teacher')
+    const teacherLabel = exportTeacher === 'all' ? 'All Teachers' : (activeTeachers.find(t => t.id === parseInt(exportTeacher))?.name || 'Teacher')
+    const teacherFilename = teacherLabel.replace(/\s+/g, '-')
 
+    return { filteredEvents, teacherLabel, teacherFilename, filenameDatePart, dateRangeLabel }
+  }
+
+  // Build row data for export
+  const buildExportRows = (filteredEvents: TeamupEvent[]) => {
     if (exportMode === 'attendance') {
-      // Attendance summary — who was present/absent
-      const rows: string[][] = [['Date', 'Time', 'Class', 'Student', 'Teacher', 'Status']]
+      const headers = ['Date', 'Time', 'Class', 'Student', 'Teacher', 'Status']
+      const rows: string[][] = []
 
       for (const ev of filteredEvents) {
         const startDt = new Date(ev.start_dt)
         const endDt = new Date(ev.end_dt)
-        const dateStr = startDt.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric' })
+        const dateStr = startDt.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })
         const timeStr = `${startDt.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true })} - ${endDt.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true })}`
         const parsed = parseModuleFromTitle(ev.title)
         const classLabel = parsed.module ? getModuleLabel(parsed.module) : ev.title
@@ -1050,36 +1058,23 @@ export default function SchedulingPage() {
         const teacher = activeTeachers.find(t => t.id === ev.subcalendar_ids[0])
         const isPresent = parsePresentFromNotes(ev.notes)
 
-        rows.push([
-          dateStr,
-          timeStr,
-          classLabel,
-          studentName,
-          teacher?.name || '-',
-          isPresent ? 'Present' : 'Absent',
-        ])
+        rows.push([dateStr, timeStr, classLabel, studentName, teacher?.name || '-', isPresent ? 'Present' : 'Absent'])
       }
 
-      // Summary stats at bottom
       const totalClasses = filteredEvents.length
       const presentCount = filteredEvents.filter(ev => parsePresentFromNotes(ev.notes)).length
       const absentCount = totalClasses - presentCount
-      rows.push([])
-      rows.push(['Summary'])
-      rows.push(['Total Classes', totalClasses.toString()])
-      rows.push(['Present', presentCount.toString()])
-      rows.push(['Absent', absentCount.toString()])
-      rows.push(['Attendance Rate', totalClasses > 0 ? `${Math.round((presentCount / totalClasses) * 100)}%` : 'N/A'])
+      const rate = totalClasses > 0 ? `${Math.round((presentCount / totalClasses) * 100)}%` : 'N/A'
 
-      downloadCSV(rows, `attendance-${teacherLabel}-${filenameDatePart}.csv`)
+      return { headers, rows, summary: { totalClasses, presentCount, absentCount, rate } }
     } else {
-      // Full schedule export
-      const rows: string[][] = [['Date', 'Start', 'End', 'Class', 'Student', 'Phone', 'Teacher', 'Present', 'Extra Hours', 'Paid']]
+      const headers = ['Date', 'Start', 'End', 'Class', 'Student', 'Phone', 'Teacher', 'Present', 'Extra Hours', 'Paid']
+      const rows: string[][] = []
 
       for (const ev of filteredEvents) {
         const startDt = new Date(ev.start_dt)
         const endDt = new Date(ev.end_dt)
-        const dateStr = startDt.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric' })
+        const dateStr = startDt.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })
         const startTimeStr = startDt.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true })
         const endTimeStr = endDt.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true })
         const parsed = parseModuleFromTitle(ev.title)
@@ -1092,20 +1087,39 @@ export default function SchedulingPage() {
         const isPaid = parsePaidFromNotes(ev.notes)
 
         rows.push([
-          dateStr,
-          startTimeStr,
-          endTimeStr,
-          classLabel,
-          studentName,
-          phone,
-          teacher?.name || '-',
-          isPresent ? 'Yes' : 'No',
-          isExtra ? 'Yes' : 'No',
+          dateStr, startTimeStr, endTimeStr, classLabel, studentName, phone,
+          teacher?.name || '-', isPresent ? 'Yes' : 'No', isExtra ? 'Yes' : 'No',
           isExtra ? (isPaid ? 'Yes' : 'No') : '-',
         ])
       }
 
-      downloadCSV(rows, `schedule-${teacherLabel}-${filenameDatePart}.csv`)
+      return { headers, rows, summary: null }
+    }
+  }
+
+  // Export handler
+  const handleExport = () => {
+    const { filteredEvents, teacherLabel, teacherFilename, filenameDatePart, dateRangeLabel } = getExportData()
+    const { headers, rows, summary } = buildExportRows(filteredEvents)
+    const prefix = exportMode === 'attendance' ? 'attendance' : 'schedule'
+
+    if (exportFormat === 'csv') {
+      const csvRows: string[][] = [headers, ...rows]
+      if (summary) {
+        csvRows.push([])
+        csvRows.push(['Summary'])
+        csvRows.push(['Total Classes', summary.totalClasses.toString()])
+        csvRows.push(['Present', summary.presentCount.toString()])
+        csvRows.push(['Absent', summary.absentCount.toString()])
+        csvRows.push(['Attendance Rate', summary.rate])
+      }
+      downloadCSV(csvRows, `${prefix}-${teacherFilename}-${filenameDatePart}.csv`)
+    } else {
+      downloadPDF(headers, rows, summary, {
+        title: exportMode === 'attendance' ? 'Attendance Summary' : 'Class Schedule',
+        subtitle: `${teacherLabel} — ${dateRangeLabel}`,
+        filename: `${prefix}-${teacherFilename}-${filenameDatePart}`,
+      })
     }
 
     setShowExportDialog(false)
@@ -1115,7 +1129,6 @@ export default function SchedulingPage() {
   const downloadCSV = (rows: string[][], filename: string) => {
     const csvContent = rows.map(row =>
       row.map(cell => {
-        // Escape quotes and wrap in quotes if contains comma, quote, or newline
         const escaped = cell.replace(/"/g, '""')
         return /[",\n]/.test(cell) ? `"${escaped}"` : escaped
       }).join(',')
@@ -1130,6 +1143,98 @@ export default function SchedulingPage() {
     link.click()
     document.body.removeChild(link)
     URL.revokeObjectURL(url)
+  }
+
+  // Helper: download PDF via print
+  const downloadPDF = (
+    headers: string[],
+    rows: string[][],
+    summary: { totalClasses: number; presentCount: number; absentCount: number; rate: string } | null,
+    meta: { title: string; subtitle: string; filename: string }
+  ) => {
+    const statusColIdx = headers.indexOf('Status')
+    const presentColIdx = headers.indexOf('Present')
+
+    const tableRows = rows.map(row => {
+      const cells = row.map((cell, i) => {
+        let style = ''
+        if (i === statusColIdx) {
+          style = cell === 'Present'
+            ? 'color:#16a34a;font-weight:600;'
+            : 'color:#dc2626;font-weight:600;'
+        }
+        if (i === presentColIdx) {
+          style = cell === 'Yes'
+            ? 'color:#16a34a;font-weight:600;'
+            : cell === 'No' ? 'color:#dc2626;font-weight:600;' : ''
+        }
+        return `<td style="padding:6px 10px;border-bottom:1px solid #e5e7eb;font-size:12px;${style}">${cell}</td>`
+      }).join('')
+      return `<tr>${cells}</tr>`
+    }).join('')
+
+    const summaryHtml = summary ? `
+      <div style="margin-top:24px;display:flex;gap:16px;flex-wrap:wrap;">
+        <div style="background:#f0fdf4;border:1px solid #bbf7d0;border-radius:8px;padding:12px 20px;text-align:center;">
+          <div style="font-size:24px;font-weight:700;color:#16a34a;">${summary.presentCount}</div>
+          <div style="font-size:11px;color:#15803d;font-weight:500;">Present</div>
+        </div>
+        <div style="background:#fef2f2;border:1px solid #fecaca;border-radius:8px;padding:12px 20px;text-align:center;">
+          <div style="font-size:24px;font-weight:700;color:#dc2626;">${summary.absentCount}</div>
+          <div style="font-size:11px;color:#b91c1c;font-weight:500;">Absent</div>
+        </div>
+        <div style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;padding:12px 20px;text-align:center;">
+          <div style="font-size:24px;font-weight:700;color:#0f172a;">${summary.totalClasses}</div>
+          <div style="font-size:11px;color:#64748b;font-weight:500;">Total</div>
+        </div>
+        <div style="background:#eff6ff;border:1px solid #bfdbfe;border-radius:8px;padding:12px 20px;text-align:center;">
+          <div style="font-size:24px;font-weight:700;color:#2563eb;">${summary.rate}</div>
+          <div style="font-size:11px;color:#1d4ed8;font-weight:500;">Rate</div>
+        </div>
+      </div>
+    ` : ''
+
+    const html = `
+      <!DOCTYPE html>
+      <html>
+      <head>
+        <title>${meta.title}</title>
+        <style>
+          @page { margin: 40px; size: ${exportMode === 'schedule' ? 'landscape' : 'portrait'}; }
+          body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; margin: 0; padding: 20px; color: #1e293b; }
+          h1 { font-size: 20px; margin: 0 0 4px 0; }
+          .subtitle { font-size: 13px; color: #64748b; margin-bottom: 20px; }
+          table { width: 100%; border-collapse: collapse; }
+          th { text-align: left; padding: 8px 10px; background: #f8fafc; border-bottom: 2px solid #e2e8f0; font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; color: #64748b; }
+          tr:nth-child(even) td { background: #f8fafc; }
+          .footer { margin-top: 32px; padding-top: 12px; border-top: 1px solid #e2e8f0; font-size: 10px; color: #94a3b8; display: flex; justify-content: space-between; }
+        </style>
+      </head>
+      <body>
+        <h1>${meta.title}</h1>
+        <div class="subtitle">${meta.subtitle} &bull; ${rows.length} class${rows.length !== 1 ? 'es' : ''}</div>
+        <table>
+          <thead><tr>${headers.map(h => `<th>${h}</th>`).join('')}</tr></thead>
+          <tbody>${tableRows}</tbody>
+        </table>
+        ${summaryHtml}
+        <div class="footer">
+          <span>Qazi Driving School</span>
+          <span>Generated ${new Date().toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit' })}</span>
+        </div>
+      </body>
+      </html>
+    `
+
+    const printWindow = window.open('', '_blank')
+    if (!printWindow) return
+    printWindow.document.write(html)
+    printWindow.document.close()
+    printWindow.onload = () => {
+      setTimeout(() => {
+        printWindow.print()
+      }, 250)
+    }
   }
 
   // Render an event block (shared between day and week views)
@@ -1590,6 +1695,7 @@ export default function SchedulingPage() {
               setExportView(viewMode)
               setExportTeacher(selectedTeacher ? selectedTeacher.toString() : 'all')
               setExportMode('schedule')
+              setExportFormat('pdf')
               setShowExportDialog(true)
             }}>
               <Download className="h-4 w-4 mr-1" />
@@ -2389,13 +2495,46 @@ export default function SchedulingPage() {
                 }
               </p>
             </div>
+
+            {/* Format Selection */}
+            <div>
+              <Label>Format</Label>
+              <div className="flex gap-2 mt-1.5">
+                <button
+                  onClick={() => setExportFormat('pdf')}
+                  className={`flex-1 px-3 py-2 text-sm font-medium rounded-md border transition-colors ${
+                    exportFormat === 'pdf'
+                      ? 'bg-primary text-primary-foreground border-primary'
+                      : 'bg-background hover:bg-muted border-input'
+                  }`}
+                >
+                  <div className="flex items-center justify-center gap-1.5">
+                    <Printer className="h-4 w-4" />
+                    <span>PDF</span>
+                  </div>
+                </button>
+                <button
+                  onClick={() => setExportFormat('csv')}
+                  className={`flex-1 px-3 py-2 text-sm font-medium rounded-md border transition-colors ${
+                    exportFormat === 'csv'
+                      ? 'bg-primary text-primary-foreground border-primary'
+                      : 'bg-background hover:bg-muted border-input'
+                  }`}
+                >
+                  <div className="flex items-center justify-center gap-1.5">
+                    <FileText className="h-4 w-4" />
+                    <span>CSV</span>
+                  </div>
+                </button>
+              </div>
+            </div>
           </div>
 
           <DialogFooter>
             <Button variant="outline" onClick={() => setShowExportDialog(false)}>Cancel</Button>
             <Button onClick={handleExport} disabled={!exportDate}>
               <Download className="h-4 w-4 mr-2" />
-              Export CSV
+              Export {exportFormat.toUpperCase()}
             </Button>
           </DialogFooter>
         </DialogContent>
