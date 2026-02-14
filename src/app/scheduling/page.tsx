@@ -49,6 +49,7 @@ import {
   Settings,
   Save,
   Check,
+  Download,
 } from 'lucide-react'
 import { Checkbox } from '@/components/ui/checkbox'
 import { motion, AnimatePresence } from 'motion/react'
@@ -249,6 +250,15 @@ export default function SchedulingPage() {
   const [showTeacherSettings, setShowTeacherSettings] = useState(false)
   const [teacherPhones, setTeacherPhones] = useState<Record<number, string>>({})
   const [savingTeacherPhones, setSavingTeacherPhones] = useState(false)
+
+  // Export dialog
+  type ExportView = 'day' | 'week' | 'month'
+  type ExportMode = 'schedule' | 'attendance'
+  const [showExportDialog, setShowExportDialog] = useState(false)
+  const [exportTeacher, setExportTeacher] = useState<string>('all')
+  const [exportView, setExportView] = useState<ExportView>('day')
+  const [exportMode, setExportMode] = useState<ExportMode>('schedule')
+  const [exportDate, setExportDate] = useState('')
 
   // Compute date range based on view mode
   const { startDate, endDate } = useMemo(() => {
@@ -983,6 +993,145 @@ export default function SchedulingPage() {
     deleteMutation.mutate({ eventId: editingEvent.id, data: formData })
   }
 
+  // Export schedule data
+  const handleExport = () => {
+    // Determine date range for export
+    const expDate = exportDate ? new Date(exportDate + 'T12:00:00') : currentDate
+    let rangeStart: Date
+    let rangeEnd: Date
+    let filenameDatePart: string
+
+    if (exportView === 'day') {
+      rangeStart = new Date(expDate)
+      rangeEnd = new Date(expDate)
+      filenameDatePart = formatDate(expDate)
+    } else if (exportView === 'week') {
+      rangeStart = getMonday(expDate)
+      rangeEnd = new Date(rangeStart)
+      rangeEnd.setDate(rangeEnd.getDate() + 6)
+      filenameDatePart = `${formatDate(rangeStart)}_to_${formatDate(rangeEnd)}`
+    } else {
+      rangeStart = new Date(expDate.getFullYear(), expDate.getMonth(), 1)
+      rangeEnd = new Date(expDate.getFullYear(), expDate.getMonth() + 1, 0)
+      filenameDatePart = `${expDate.getFullYear()}-${(expDate.getMonth() + 1).toString().padStart(2, '0')}`
+    }
+
+    // Filter events by date range
+    const rangeStartStr = formatDate(rangeStart)
+    const rangeEndStr = formatDate(rangeEnd)
+    let filteredEvents = events.filter(ev => {
+      const evDate = ev.start_dt.split('T')[0]
+      return evDate >= rangeStartStr && evDate <= rangeEndStr
+    })
+
+    // Filter by teacher
+    if (exportTeacher !== 'all') {
+      const teacherId = parseInt(exportTeacher)
+      filteredEvents = filteredEvents.filter(ev => ev.subcalendar_ids.includes(teacherId))
+    }
+
+    // Sort by date then time
+    filteredEvents.sort((a, b) => a.start_dt.localeCompare(b.start_dt))
+
+    const teacherLabel = exportTeacher === 'all' ? 'All-Teachers' : (activeTeachers.find(t => t.id === parseInt(exportTeacher))?.name || 'Teacher')
+
+    if (exportMode === 'attendance') {
+      // Attendance summary — who was present/absent
+      const rows: string[][] = [['Date', 'Time', 'Class', 'Student', 'Teacher', 'Status']]
+
+      for (const ev of filteredEvents) {
+        const startDt = new Date(ev.start_dt)
+        const endDt = new Date(ev.end_dt)
+        const dateStr = startDt.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric' })
+        const timeStr = `${startDt.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true })} - ${endDt.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true })}`
+        const parsed = parseModuleFromTitle(ev.title)
+        const classLabel = parsed.module ? getModuleLabel(parsed.module) : ev.title
+        const studentName = parseStudentFromNotes(ev.notes) || parsed.studentName || '-'
+        const teacher = activeTeachers.find(t => t.id === ev.subcalendar_ids[0])
+        const isPresent = parsePresentFromNotes(ev.notes)
+
+        rows.push([
+          dateStr,
+          timeStr,
+          classLabel,
+          studentName,
+          teacher?.name || '-',
+          isPresent ? 'Present' : 'Absent',
+        ])
+      }
+
+      // Summary stats at bottom
+      const totalClasses = filteredEvents.length
+      const presentCount = filteredEvents.filter(ev => parsePresentFromNotes(ev.notes)).length
+      const absentCount = totalClasses - presentCount
+      rows.push([])
+      rows.push(['Summary'])
+      rows.push(['Total Classes', totalClasses.toString()])
+      rows.push(['Present', presentCount.toString()])
+      rows.push(['Absent', absentCount.toString()])
+      rows.push(['Attendance Rate', totalClasses > 0 ? `${Math.round((presentCount / totalClasses) * 100)}%` : 'N/A'])
+
+      downloadCSV(rows, `attendance-${teacherLabel}-${filenameDatePart}.csv`)
+    } else {
+      // Full schedule export
+      const rows: string[][] = [['Date', 'Start', 'End', 'Class', 'Student', 'Phone', 'Teacher', 'Present', 'Extra Hours', 'Paid']]
+
+      for (const ev of filteredEvents) {
+        const startDt = new Date(ev.start_dt)
+        const endDt = new Date(ev.end_dt)
+        const dateStr = startDt.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric' })
+        const startTimeStr = startDt.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true })
+        const endTimeStr = endDt.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true })
+        const parsed = parseModuleFromTitle(ev.title)
+        const classLabel = parsed.module ? getModuleLabel(parsed.module) : ev.title
+        const studentName = parseStudentFromNotes(ev.notes) || parsed.studentName || '-'
+        const phone = parsePhoneFromNotes(ev.notes) || '-'
+        const teacher = activeTeachers.find(t => t.id === ev.subcalendar_ids[0])
+        const isPresent = parsePresentFromNotes(ev.notes)
+        const isExtra = parseExtraHoursFromNotes(ev.notes)
+        const isPaid = parsePaidFromNotes(ev.notes)
+
+        rows.push([
+          dateStr,
+          startTimeStr,
+          endTimeStr,
+          classLabel,
+          studentName,
+          phone,
+          teacher?.name || '-',
+          isPresent ? 'Yes' : 'No',
+          isExtra ? 'Yes' : 'No',
+          isExtra ? (isPaid ? 'Yes' : 'No') : '-',
+        ])
+      }
+
+      downloadCSV(rows, `schedule-${teacherLabel}-${filenameDatePart}.csv`)
+    }
+
+    setShowExportDialog(false)
+  }
+
+  // Helper: download CSV
+  const downloadCSV = (rows: string[][], filename: string) => {
+    const csvContent = rows.map(row =>
+      row.map(cell => {
+        // Escape quotes and wrap in quotes if contains comma, quote, or newline
+        const escaped = cell.replace(/"/g, '""')
+        return /[",\n]/.test(cell) ? `"${escaped}"` : escaped
+      }).join(',')
+    ).join('\n')
+
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' })
+    const url = URL.createObjectURL(blob)
+    const link = document.createElement('a')
+    link.href = url
+    link.download = filename
+    document.body.appendChild(link)
+    link.click()
+    document.body.removeChild(link)
+    URL.revokeObjectURL(url)
+  }
+
   // Render an event block (shared between day and week views)
   const renderEventBlock = (event: TeamupEvent, top: number, height: number, wide?: boolean) => {
     const color = getEventColor(event)
@@ -1435,6 +1584,16 @@ export default function SchedulingPage() {
             }} className="border-emerald-300 text-emerald-700 hover:bg-emerald-50">
               <Truck className="h-4 w-4 mr-1" />
               Truck Class
+            </Button>
+            <Button size="sm" variant="outline" onClick={() => {
+              setExportDate(formatDate(currentDate))
+              setExportView(viewMode)
+              setExportTeacher(selectedTeacher ? selectedTeacher.toString() : 'all')
+              setExportMode('schedule')
+              setShowExportDialog(true)
+            }}>
+              <Download className="h-4 w-4 mr-1" />
+              Export
             </Button>
           </div>
         </div>
@@ -2118,6 +2277,125 @@ export default function SchedulingPage() {
             <Button onClick={handleSaveTeacherPhones} disabled={savingTeacherPhones}>
               {savingTeacherPhones ? <Loader2 className="h-4 w-4 animate-spin mr-1" /> : <Save className="h-4 w-4 mr-1" />}
               Save
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Export Dialog */}
+      <Dialog open={showExportDialog} onOpenChange={setShowExportDialog}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Download className="h-5 w-5" />
+              Export Schedule
+            </DialogTitle>
+            <DialogDescription>
+              Choose what to export and the format
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-4 py-2">
+            {/* Teacher Selection */}
+            <div>
+              <Label>Teacher</Label>
+              <Select value={exportTeacher} onValueChange={setExportTeacher}>
+                <SelectTrigger><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All Teachers</SelectItem>
+                  {activeTeachers.map(t => (
+                    <SelectItem key={t.id} value={t.id.toString()}>
+                      <div className="flex items-center gap-2">
+                        <div className="w-3 h-3 rounded-full flex-shrink-0" style={{ backgroundColor: getColor(t.color) }} />
+                        {t.name}
+                      </div>
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+
+            {/* View Selection */}
+            <div>
+              <Label>Date Range</Label>
+              <div className="flex gap-2 mt-1.5">
+                {(['day', 'week', 'month'] as ExportView[]).map(v => (
+                  <button
+                    key={v}
+                    onClick={() => setExportView(v)}
+                    className={`flex-1 px-3 py-2 text-sm font-medium rounded-md border transition-colors ${
+                      exportView === v
+                        ? 'bg-primary text-primary-foreground border-primary'
+                        : 'bg-background hover:bg-muted border-input'
+                    }`}
+                  >
+                    {v.charAt(0).toUpperCase() + v.slice(1)}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* Date picker */}
+            <div>
+              <Label>{exportView === 'day' ? 'Date' : exportView === 'week' ? 'Week of' : 'Month'}</Label>
+              <Input
+                type={exportView === 'month' ? 'month' : 'date'}
+                value={exportView === 'month' ? (exportDate ? exportDate.slice(0, 7) : '') : exportDate}
+                onChange={(e) => {
+                  if (exportView === 'month') {
+                    setExportDate(e.target.value ? e.target.value + '-01' : '')
+                  } else {
+                    setExportDate(e.target.value)
+                  }
+                }}
+              />
+            </div>
+
+            {/* Export Mode (only for day view, but useful for all) */}
+            <div>
+              <Label>Export Type</Label>
+              <div className="flex gap-2 mt-1.5">
+                <button
+                  onClick={() => setExportMode('schedule')}
+                  className={`flex-1 px-3 py-2.5 text-sm font-medium rounded-md border transition-colors ${
+                    exportMode === 'schedule'
+                      ? 'bg-primary text-primary-foreground border-primary'
+                      : 'bg-background hover:bg-muted border-input'
+                  }`}
+                >
+                  <div className="flex flex-col items-center gap-1">
+                    <FileText className="h-4 w-4" />
+                    <span>Full Schedule</span>
+                  </div>
+                </button>
+                <button
+                  onClick={() => setExportMode('attendance')}
+                  className={`flex-1 px-3 py-2.5 text-sm font-medium rounded-md border transition-colors ${
+                    exportMode === 'attendance'
+                      ? 'bg-primary text-primary-foreground border-primary'
+                      : 'bg-background hover:bg-muted border-input'
+                  }`}
+                >
+                  <div className="flex flex-col items-center gap-1">
+                    <Check className="h-4 w-4" />
+                    <span>Attendance Summary</span>
+                  </div>
+                </button>
+              </div>
+              <p className="text-xs text-muted-foreground mt-1.5">
+                {exportMode === 'schedule'
+                  ? 'Exports all class details including student info, times, and payment status'
+                  : 'Exports a summary of who was present or absent in each class'
+                }
+              </p>
+            </div>
+          </div>
+
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowExportDialog(false)}>Cancel</Button>
+            <Button onClick={handleExport} disabled={!exportDate}>
+              <Download className="h-4 w-4 mr-2" />
+              Export CSV
             </Button>
           </DialogFooter>
         </DialogContent>
