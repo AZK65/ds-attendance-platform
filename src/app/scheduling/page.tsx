@@ -56,6 +56,7 @@ interface EventFormData {
   date: string
   startTime: string
   endTime: string
+  studentName: string
   group: string
 }
 
@@ -65,23 +66,24 @@ const initialFormData: EventFormData = {
   date: '',
   startTime: '09:00',
   endTime: '10:00',
+  studentName: '',
   group: '',
 }
 
-// Teamup uses integer color IDs — map to CSS colors
+// Teamup has 48 color IDs — comprehensive map
 const TEAMUP_COLORS: Record<number, string> = {
-  1: '#EF4444',  // red
-  2: '#F97316',  // orange
-  3: '#EAB308',  // yellow
-  4: '#22C55E',  // green
-  5: '#14B8A6',  // teal
-  6: '#3B82F6',  // blue
-  7: '#8B5CF6',  // violet
-  8: '#EC4899',  // pink
-  9: '#6B7280',  // gray
-  10: '#92400E', // brown
-  11: '#065F46', // dark green
-  12: '#1E3A5F', // dark blue
+  1: '#CC2D30', 2: '#F47B20', 3: '#F5A623', 4: '#8BC34A',
+  5: '#4CAF50', 6: '#009688', 7: '#03A9F4', 8: '#2196F3',
+  9: '#3F51B5', 10: '#673AB7', 11: '#9C27B0', 12: '#E91E63',
+  13: '#F44336', 14: '#FF5722', 15: '#FF9800', 16: '#FFC107',
+  17: '#CDDC39', 18: '#66BB6A', 19: '#26A69A', 20: '#29B6F6',
+  21: '#42A5F5', 22: '#5C6BC0', 23: '#7E57C2', 24: '#AB47BC',
+  25: '#EC407A', 26: '#EF5350', 27: '#FF7043', 28: '#FFA726',
+  29: '#FFCA28', 30: '#D4E157', 31: '#9CCC65', 32: '#66BB6A',
+  33: '#26C6DA', 34: '#29B6F6', 35: '#5C6BC0', 36: '#7E57C2',
+  37: '#BA68C8', 38: '#F06292', 39: '#E57373', 40: '#FF8A65',
+  41: '#FFB74D', 42: '#FFD54F', 43: '#AED581', 44: '#81C784',
+  45: '#4DB6AC', 46: '#4FC3F7', 47: '#7986CB', 48: '#9575CD',
 }
 
 function getColor(colorId: number): string {
@@ -162,7 +164,11 @@ export default function SchedulingPage() {
   // Create event mutation
   const createMutation = useMutation({
     mutationFn: async (data: EventFormData) => {
-      const title = data.group ? `${data.title} - ${data.group}` : data.title
+      const parts = [data.title, data.studentName, data.group].filter(Boolean)
+      const title = parts.join(' - ')
+      const noteLines = []
+      if (data.studentName) noteLines.push(`Student: ${data.studentName}`)
+      if (data.group) noteLines.push(`Group: ${data.group}`)
       const res = await fetch('/api/scheduling/events', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -171,7 +177,7 @@ export default function SchedulingPage() {
           startDate: `${data.date}T${data.startTime}:00`,
           endDate: `${data.date}T${data.endTime}:00`,
           subcalendarIds: [parseInt(data.subcalendarId)],
-          notes: data.group ? `Group: ${data.group}` : '',
+          notes: noteLines.join('\n'),
         }),
       })
       if (!res.ok) throw new Error('Failed to create event')
@@ -187,7 +193,11 @@ export default function SchedulingPage() {
   // Update event mutation
   const updateMutation = useMutation({
     mutationFn: async ({ eventId, data }: { eventId: string; data: EventFormData }) => {
-      const title = data.group ? `${data.title} - ${data.group}` : data.title
+      const parts = [data.title, data.studentName, data.group].filter(Boolean)
+      const title = parts.join(' - ')
+      const noteLines = []
+      if (data.studentName) noteLines.push(`Student: ${data.studentName}`)
+      if (data.group) noteLines.push(`Group: ${data.group}`)
       const res = await fetch(`/api/scheduling/events/${eventId}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
@@ -196,7 +206,7 @@ export default function SchedulingPage() {
           startDate: `${data.date}T${data.startTime}:00`,
           endDate: `${data.date}T${data.endTime}:00`,
           subcalendarIds: [parseInt(data.subcalendarId)],
-          notes: data.group ? `Group: ${data.group}` : '',
+          notes: noteLines.join('\n'),
         }),
       })
       if (!res.ok) throw new Error('Failed to update event')
@@ -263,7 +273,8 @@ export default function SchedulingPage() {
     const startDt = new Date(event.start_dt)
     const titleParts = event.title.split(' - ')
     const title = titleParts[0] || event.title
-    const group = titleParts.slice(1).join(' - ') || ''
+    const studentName = titleParts[1] || ''
+    const group = titleParts.slice(2).join(' - ') || ''
 
     setFormData({
       title,
@@ -271,6 +282,7 @@ export default function SchedulingPage() {
       date: formatDate(startDt),
       startTime: startDt.toTimeString().slice(0, 5),
       endTime: new Date(event.end_dt).toTimeString().slice(0, 5),
+      studentName,
       group,
     })
     setEditingEvent(event)
@@ -372,7 +384,15 @@ export default function SchedulingPage() {
         </div>
       </div>
       <div>
-        <Label>Student Group</Label>
+        <Label>Student Name</Label>
+        <Input
+          value={formData.studentName}
+          onChange={(e) => setFormData(prev => ({ ...prev, studentName: e.target.value }))}
+          placeholder="Person's name"
+        />
+      </div>
+      <div>
+        <Label>Student Group (optional)</Label>
         <Input
           value={formData.group}
           onChange={(e) => setFormData(prev => ({ ...prev, group: e.target.value }))}
