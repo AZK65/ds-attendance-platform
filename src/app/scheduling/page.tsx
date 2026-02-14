@@ -40,7 +40,14 @@ import {
   DollarSign,
   Clock4,
   Eye,
+  Truck,
+  MapPin,
+  X,
+  Printer,
+  FileText,
+  ArrowLeft,
 } from 'lucide-react'
+import { Checkbox } from '@/components/ui/checkbox'
 import Link from 'next/link'
 import { ContactSearchAutocomplete, type StudentGroupInfo } from '@/components/ContactSearchAutocomplete'
 
@@ -94,6 +101,30 @@ const initialFormData: EventFormData = {
   lastTheoryDate: null,
   isExtraHours: false,
   isPaid: false,
+}
+
+interface TruckClassRow {
+  date: string
+  startTime: string
+  endTime: string
+  isExam: boolean
+  examLocation: string
+}
+
+const EXAM_LOCATIONS = ['Laval', 'Joliette', 'Saint-Jérôme']
+
+const emptyTruckRow = (): TruckClassRow => ({
+  date: '',
+  startTime: '09:00',
+  endTime: '10:00',
+  isExam: false,
+  examLocation: '',
+})
+
+interface TruckFormData {
+  studentName: string
+  studentPhone: string
+  classes: TruckClassRow[]
 }
 
 const MODULE_OPTIONS = [
@@ -162,6 +193,18 @@ function formatMonthYear(date: Date): string {
   return date.toLocaleDateString('en-US', { month: 'long', year: 'numeric' })
 }
 
+function formatTimeDisplay12h(time: string): string {
+  const [h, m] = time.split(':').map(Number)
+  const ampm = h >= 12 ? 'PM' : 'AM'
+  const hour12 = h === 0 ? 12 : h > 12 ? h - 12 : h
+  return `${hour12}:${m.toString().padStart(2, '0')} ${ampm}`
+}
+
+function formatDateNice(dateStr: string): string {
+  const date = new Date(dateStr + 'T12:00:00')
+  return date.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric' })
+}
+
 const DAY_NAMES = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']
 const HOUR_START = 7
 const HOUR_END = 21
@@ -181,6 +224,21 @@ export default function SchedulingPage() {
   const [notifyStatus, setNotifyStatus] = useState<null | 'sending' | 'sent' | 'failed'>(null)
   const [duplicateError, setDuplicateError] = useState<string | null>(null)
   const [theoryGroupId, setTheoryGroupId] = useState<string | null>(null)
+
+  // Truck class dialog state
+  const [showTruckDialog, setShowTruckDialog] = useState(false)
+  const [truckForm, setTruckForm] = useState<TruckFormData>({
+    studentName: '',
+    studentPhone: '',
+    classes: [emptyTruckRow()],
+  })
+  const [truckCreating, setTruckCreating] = useState(false)
+  const [truckNotifyStatus, setTruckNotifyStatus] = useState<null | 'sending' | 'sent' | 'failed'>(null)
+  const [truckStep, setTruckStep] = useState<'form' | 'preview'>('form')
+
+  // Truck schedule viewer (from event detail)
+  const [showTruckSchedule, setShowTruckSchedule] = useState(false)
+  const [truckScheduleData, setTruckScheduleData] = useState<{ studentName: string; studentPhone: string; classes: TruckClassRow[] } | null>(null)
 
   // Compute date range based on view mode
   const { startDate, endDate } = useMemo(() => {
@@ -503,6 +561,167 @@ export default function SchedulingPage() {
     // Fallback: parse from title "Module 8 - GroupName"
     const parts = event.title.split(' - ')
     return parts[1]?.trim() || ''
+  }
+
+  // Check if event is a truck class
+  const isTruckClass = (event: TeamupEvent) => {
+    if (!event.notes) return false
+    return /TruckClass:\s*yes/i.test(stripHtml(event.notes))
+  }
+
+  // Check if event is a truck exam
+  const isTruckExam = (event: TeamupEvent) => {
+    if (!event.notes) return false
+    const clean = stripHtml(event.notes)
+    return /TruckClass:\s*yes/i.test(clean) && /Exam:\s*.+/i.test(clean)
+  }
+
+  // Parse exam location from notes
+  const parseExamLocationFromNotes = (notes?: string) => {
+    if (!notes) return ''
+    const match = stripHtml(notes).match(/Exam:\s*(.+)/)
+    return match?.[1]?.trim() || ''
+  }
+
+  // Parse truck class number from notes
+  const parseTruckClassNumberFromNotes = (notes?: string) => {
+    if (!notes) return null
+    const match = stripHtml(notes).match(/ClassNumber:\s*(\d+)/)
+    return match ? parseInt(match[1]) : null
+  }
+
+  // Truck form helpers
+  const updateTruckClass = (index: number, updates: Partial<TruckClassRow>) => {
+    setTruckForm(prev => ({
+      ...prev,
+      classes: prev.classes.map((cls, i) => i === index ? { ...cls, ...updates } : cls),
+    }))
+  }
+
+  const removeTruckClass = (index: number) => {
+    setTruckForm(prev => ({
+      ...prev,
+      classes: prev.classes.filter((_, i) => i !== index),
+    }))
+  }
+
+  const addTruckClass = () => {
+    setTruckForm(prev => {
+      const lastClass = prev.classes[prev.classes.length - 1]
+      const newRow: TruckClassRow = {
+        date: lastClass ? (() => {
+          if (!lastClass.date) return ''
+          const d = new Date(lastClass.date + 'T12:00:00')
+          d.setDate(d.getDate() + 1)
+          return formatDate(d)
+        })() : '',
+        startTime: lastClass?.startTime || '09:00',
+        endTime: lastClass?.endTime || '10:00',
+        isExam: false,
+        examLocation: '',
+      }
+      return { ...prev, classes: [...prev.classes, newRow] }
+    })
+  }
+
+  const handleTruckSubmit = async () => {
+    if (!truckForm.studentName || !truckForm.studentPhone || truckForm.classes.length === 0) return
+    // Validate all classes have dates
+    if (truckForm.classes.some(c => !c.date)) return
+
+    setTruckCreating(true)
+    setTruckNotifyStatus('sending')
+    try {
+      const res = await fetch('/api/scheduling/truck-classes', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          studentName: truckForm.studentName,
+          studentPhone: truckForm.studentPhone,
+          classes: truckForm.classes.map(c => ({
+            date: c.date,
+            startTime: c.startTime,
+            endTime: c.endTime,
+            isExam: c.isExam,
+            examLocation: c.isExam ? c.examLocation : null,
+          })),
+        }),
+      })
+
+      if (res.ok) {
+        const result = await res.json()
+        queryClient.invalidateQueries({ queryKey: ['scheduling-events'] })
+        setShowTruckDialog(false)
+        setTruckStep('form')
+        setTruckForm({ studentName: '', studentPhone: '', classes: [emptyTruckRow()] })
+        setTruckNotifyStatus('sent')
+        console.log(`Truck classes created: ${result.eventsCreated}, reminders: ${result.remindersScheduled}`)
+      } else {
+        setTruckNotifyStatus('failed')
+      }
+    } catch {
+      setTruckNotifyStatus('failed')
+    } finally {
+      setTruckCreating(false)
+      setTimeout(() => setTruckNotifyStatus(null), 4000)
+    }
+  }
+
+  // Print truck schedule as PDF
+  const handlePrintTruckSchedule = async (data: { studentName: string; studentPhone: string; classes: TruckClassRow[] }) => {
+    try {
+      const res = await fetch('/api/scheduling/truck-schedule-pdf', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          studentName: data.studentName,
+          studentPhone: data.studentPhone,
+          classes: data.classes.map(c => ({
+            date: c.date,
+            startTime: c.startTime,
+            endTime: c.endTime,
+            isExam: c.isExam,
+            examLocation: c.isExam ? c.examLocation : null,
+          })),
+        }),
+      })
+      if (res.ok) {
+        const blob = await res.blob()
+        const url = URL.createObjectURL(blob)
+        window.open(url, '_blank')
+      }
+    } catch (err) {
+      console.error('Failed to generate truck schedule PDF:', err)
+    }
+  }
+
+  // View truck schedule from event detail (gather all truck events for the student)
+  const handleViewTruckSchedule = (event: TeamupEvent) => {
+    const studentName = parseStudentFromNotes(event.notes)
+    const studentPhone = parsePhoneFromNotes(event.notes)
+    if (!studentName) return
+
+    // Find all truck events for this student from loaded events
+    const truckEvents = events
+      .filter(ev => isTruckClass(ev) && parseStudentFromNotes(ev.notes) === studentName)
+      .sort((a, b) => new Date(a.start_dt).getTime() - new Date(b.start_dt).getTime())
+
+    const scheduleClasses: TruckClassRow[] = truckEvents.map(ev => {
+      const startDt = new Date(ev.start_dt)
+      const endDt = new Date(ev.end_dt)
+      const examLoc = parseExamLocationFromNotes(ev.notes)
+      return {
+        date: formatDate(startDt),
+        startTime: startDt.toTimeString().slice(0, 5),
+        endTime: endDt.toTimeString().slice(0, 5),
+        isExam: !!examLoc,
+        examLocation: examLoc,
+      }
+    })
+
+    setTruckScheduleData({ studentName, studentPhone, classes: scheduleClasses })
+    setShowEventDetail(false)
+    setShowTruckSchedule(true)
   }
 
   // Fill form from event data
@@ -1039,18 +1258,28 @@ export default function SchedulingPage() {
               Today
             </Button>
           </div>
-          <Button size="sm" onClick={() => {
-            setFormData({
-              ...initialFormData,
-              date: formatDate(currentDate),
-              subcalendarId: selectedTeacher ? selectedTeacher.toString() : '',
-            })
-            setDuplicateError(null)
-            setShowCreateDialog(true)
-          }}>
-            <Plus className="h-4 w-4 mr-1" />
-            New Class
-          </Button>
+          <div className="flex items-center gap-2">
+            <Button size="sm" onClick={() => {
+              setFormData({
+                ...initialFormData,
+                date: formatDate(currentDate),
+                subcalendarId: selectedTeacher ? selectedTeacher.toString() : '',
+              })
+              setDuplicateError(null)
+              setShowCreateDialog(true)
+            }}>
+              <Plus className="h-4 w-4 mr-1" />
+              New Class
+            </Button>
+            <Button size="sm" variant="outline" onClick={() => {
+              setTruckForm({ studentName: '', studentPhone: '', classes: [emptyTruckRow()] })
+              setTruckStep('form')
+              setShowTruckDialog(true)
+            }} className="border-emerald-300 text-emerald-700 hover:bg-emerald-50">
+              <Truck className="h-4 w-4 mr-1" />
+              Truck Class
+            </Button>
+          </div>
         </div>
 
         {/* Calendar View */}
@@ -1147,6 +1376,10 @@ export default function SchedulingPage() {
             const studentName = studentFromNotes || parsed.studentName
             const group = groupFromNotes || parsed.group
             const isTheory = isTheoryEvent(selectedEvent)
+            const isTruck = isTruckClass(selectedEvent)
+            const isExam = isTruckExam(selectedEvent)
+            const examLocation = parseExamLocationFromNotes(selectedEvent.notes)
+            const truckClassNum = parseTruckClassNumberFromNotes(selectedEvent.notes)
 
             return (
               <div className="space-y-4">
@@ -1167,6 +1400,28 @@ export default function SchedulingPage() {
                   <div className="flex items-center gap-2 p-3 rounded-lg border-2 bg-indigo-50 border-indigo-400">
                     <BookOpen className="h-5 w-5 text-indigo-600" />
                     <span className="font-medium text-indigo-800">Theory Class</span>
+                  </div>
+                )}
+
+                {/* Truck Class Badge */}
+                {isTruck && !isExam && (
+                  <div className="flex items-center gap-2 p-3 rounded-lg border-2 bg-emerald-50 border-emerald-400">
+                    <Truck className="h-5 w-5 text-emerald-600" />
+                    <span className="font-medium text-emerald-800">Truck Class{truckClassNum ? ` #${truckClassNum}` : ''}</span>
+                  </div>
+                )}
+
+                {/* Truck Exam Badge */}
+                {isExam && (
+                  <div className="flex items-center gap-2 p-3 rounded-lg border-2 bg-red-50 border-red-400">
+                    <Truck className="h-5 w-5 text-red-600" />
+                    <span className="font-medium text-red-800">Truck Exam</span>
+                    {examLocation && (
+                      <span className="ml-auto inline-flex items-center gap-1 px-2 py-0.5 rounded text-sm font-medium bg-red-100 text-red-800">
+                        <MapPin className="h-3.5 w-3.5" />
+                        {examLocation}
+                      </span>
+                    )}
                   </div>
                 )}
 
@@ -1285,6 +1540,13 @@ export default function SchedulingPage() {
                 </Button>
               </Link>
             )}
+            {/* View Truck Schedule button */}
+            {selectedEvent && isTruckClass(selectedEvent) && (
+              <Button variant="outline" onClick={() => handleViewTruckSchedule(selectedEvent)} className="sm:mr-auto">
+                <FileText className="h-4 w-4 mr-2" />
+                View Schedule
+              </Button>
+            )}
             <Button variant="outline" onClick={() => setShowEventDetail(false)}>Close</Button>
             <Button onClick={handleEditFromDetail}>
               <Edit3 className="h-4 w-4 mr-2" />Edit
@@ -1293,22 +1555,369 @@ export default function SchedulingPage() {
         </DialogContent>
       </Dialog>
 
+      {/* Truck Class Dialog (Form + Preview steps) */}
+      <Dialog open={showTruckDialog} onOpenChange={(open) => {
+        if (!open) { setShowTruckDialog(false); setTruckStep('form') }
+      }}>
+        <DialogContent className="w-[95vw] sm:max-w-2xl max-h-[90vh] overflow-y-auto">
+          {truckStep === 'form' ? (
+            <>
+              <DialogHeader>
+                <DialogTitle className="flex items-center gap-2">
+                  <Truck className="h-5 w-5 text-emerald-600" />
+                  Create Truck Classes
+                </DialogTitle>
+                <DialogDescription>Schedule multiple truck training classes for a student.</DialogDescription>
+              </DialogHeader>
+
+              <div className="space-y-4">
+                {/* Student Info */}
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  <div>
+                    <Label>Student Name</Label>
+                    <Input
+                      value={truckForm.studentName}
+                      onChange={(e) => setTruckForm(prev => ({ ...prev, studentName: e.target.value }))}
+                      placeholder="Enter student name"
+                    />
+                  </div>
+                  <div>
+                    <Label>Phone Number</Label>
+                    <Input
+                      value={truckForm.studentPhone}
+                      onChange={(e) => setTruckForm(prev => ({ ...prev, studentPhone: e.target.value }))}
+                      placeholder="e.g. 15145551234"
+                    />
+                  </div>
+                </div>
+
+                {/* Class Rows */}
+                <div>
+                  <div className="flex items-center justify-between mb-2">
+                    <Label className="text-base font-semibold">Classes ({truckForm.classes.length})</Label>
+                    <Button type="button" size="sm" variant="outline" onClick={addTruckClass}>
+                      <Plus className="h-3 w-3 mr-1" />Add Class
+                    </Button>
+                  </div>
+
+                  <div className="space-y-2 max-h-[400px] overflow-y-auto pr-1">
+                    {truckForm.classes.map((cls, idx) => {
+                      const classNum = cls.isExam ? null : truckForm.classes.slice(0, idx + 1).filter(c => !c.isExam).length
+                      return (
+                        <div key={idx} className={`p-3 rounded-lg border ${cls.isExam ? 'border-red-200 bg-red-50/50' : 'border-border bg-muted/30'}`}>
+                          <div className="flex items-center gap-2 mb-2">
+                            <span className={`text-xs font-bold px-2 py-0.5 rounded ${cls.isExam ? 'bg-red-100 text-red-700' : 'bg-emerald-100 text-emerald-700'}`}>
+                              {cls.isExam ? 'EXAM' : `#${classNum}`}
+                            </span>
+                            <div className="flex items-center gap-2 ml-auto">
+                              <label className="flex items-center gap-1.5 text-xs cursor-pointer">
+                                <Checkbox
+                                  checked={cls.isExam}
+                                  onCheckedChange={(checked) => updateTruckClass(idx, {
+                                    isExam: !!checked,
+                                    examLocation: checked ? cls.examLocation || '' : '',
+                                  })}
+                                />
+                                Exam
+                              </label>
+                              {truckForm.classes.length > 1 && (
+                                <Button
+                                  type="button"
+                                  variant="ghost"
+                                  size="sm"
+                                  className="h-6 w-6 p-0 text-muted-foreground hover:text-red-600"
+                                  onClick={() => removeTruckClass(idx)}
+                                >
+                                  <X className="h-3 w-3" />
+                                </Button>
+                              )}
+                            </div>
+                          </div>
+                          <div className="grid grid-cols-3 sm:grid-cols-4 gap-2">
+                            <div>
+                              <Input
+                                type="date"
+                                value={cls.date}
+                                onChange={(e) => updateTruckClass(idx, { date: e.target.value })}
+                                className="text-xs h-8"
+                              />
+                            </div>
+                            <div>
+                              <Input
+                                type="time"
+                                value={cls.startTime}
+                                onChange={(e) => updateTruckClass(idx, { startTime: e.target.value })}
+                                className="text-xs h-8"
+                              />
+                            </div>
+                            <div>
+                              <Input
+                                type="time"
+                                value={cls.endTime}
+                                onChange={(e) => updateTruckClass(idx, { endTime: e.target.value })}
+                                className="text-xs h-8"
+                              />
+                            </div>
+                            {cls.isExam && (
+                              <div>
+                                <Select
+                                  value={cls.examLocation}
+                                  onValueChange={(val) => updateTruckClass(idx, { examLocation: val })}
+                                >
+                                  <SelectTrigger className="text-xs h-8">
+                                    <SelectValue placeholder="Location" />
+                                  </SelectTrigger>
+                                  <SelectContent>
+                                    {EXAM_LOCATIONS.map(loc => (
+                                      <SelectItem key={loc} value={loc}>{loc}</SelectItem>
+                                    ))}
+                                  </SelectContent>
+                                </Select>
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      )
+                    })}
+                  </div>
+                </div>
+              </div>
+
+              <DialogFooter>
+                <Button variant="outline" onClick={() => setShowTruckDialog(false)}>Cancel</Button>
+                <Button
+                  onClick={() => setTruckStep('preview')}
+                  disabled={!truckForm.studentName || !truckForm.studentPhone || truckForm.classes.some(c => !c.date)}
+                  className="bg-emerald-600 hover:bg-emerald-700"
+                >
+                  Review Schedule
+                  <ChevronRight className="h-4 w-4 ml-1" />
+                </Button>
+              </DialogFooter>
+            </>
+          ) : (
+            <>
+              <DialogHeader>
+                <DialogTitle className="flex items-center gap-2">
+                  <FileText className="h-5 w-5 text-emerald-600" />
+                  Schedule Preview
+                </DialogTitle>
+                <DialogDescription>Review the schedule before creating classes.</DialogDescription>
+              </DialogHeader>
+
+              {/* Preview Content */}
+              <div className="space-y-4">
+                {/* Student Info Summary */}
+                <div className="flex items-center gap-4 p-3 rounded-lg bg-emerald-50 border border-emerald-200">
+                  <div>
+                    <p className="text-sm text-muted-foreground">Student</p>
+                    <p className="font-semibold">{truckForm.studentName}</p>
+                  </div>
+                  <div className="ml-auto">
+                    <p className="text-sm text-muted-foreground">Phone</p>
+                    <p className="font-medium">+{truckForm.studentPhone}</p>
+                  </div>
+                </div>
+
+                {/* Schedule Table */}
+                <div className="rounded-lg border overflow-hidden">
+                  <table className="w-full text-sm">
+                    <thead>
+                      <tr className="bg-emerald-600 text-white">
+                        <th className="text-left px-3 py-2 font-medium">#</th>
+                        <th className="text-left px-3 py-2 font-medium">Date</th>
+                        <th className="text-left px-3 py-2 font-medium">Time</th>
+                        <th className="text-left px-3 py-2 font-medium">Type</th>
+                        <th className="text-left px-3 py-2 font-medium">Location</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {(() => {
+                        let num = 0
+                        return truckForm.classes.map((cls, idx) => {
+                          if (!cls.isExam) num++
+                          return (
+                            <tr key={idx} className={`border-t ${cls.isExam ? 'bg-red-50' : idx % 2 === 1 ? 'bg-emerald-50/50' : ''}`}>
+                              <td className="px-3 py-2">
+                                {cls.isExam ? (
+                                  <span className="text-xs font-bold px-1.5 py-0.5 rounded bg-red-100 text-red-700">EXAM</span>
+                                ) : (
+                                  <span className="text-xs font-bold px-1.5 py-0.5 rounded bg-emerald-100 text-emerald-700">#{num}</span>
+                                )}
+                              </td>
+                              <td className="px-3 py-2 font-medium">{formatDateNice(cls.date)}</td>
+                              <td className="px-3 py-2">{formatTimeDisplay12h(cls.startTime)} – {formatTimeDisplay12h(cls.endTime)}</td>
+                              <td className="px-3 py-2">
+                                <span className={`text-xs font-medium ${cls.isExam ? 'text-red-700' : 'text-emerald-700'}`}>
+                                  {cls.isExam ? 'Exam' : 'Class'}
+                                </span>
+                              </td>
+                              <td className="px-3 py-2 text-muted-foreground">{cls.isExam && cls.examLocation ? cls.examLocation : '—'}</td>
+                            </tr>
+                          )
+                        })
+                      })()}
+                    </tbody>
+                  </table>
+                </div>
+
+                {/* Summary Stats */}
+                <div className="flex items-center gap-4 text-sm text-muted-foreground">
+                  <span>{truckForm.classes.filter(c => !c.isExam).length} classes</span>
+                  {truckForm.classes.some(c => c.isExam) && (
+                    <span className="text-red-600 font-medium">{truckForm.classes.filter(c => c.isExam).length} exam{truckForm.classes.filter(c => c.isExam).length !== 1 ? 's' : ''}</span>
+                  )}
+                  <span>•</span>
+                  <span>Reminders 6h before each class</span>
+                </div>
+              </div>
+
+              <DialogFooter className="flex flex-col-reverse sm:flex-row gap-2">
+                <Button variant="outline" onClick={() => setTruckStep('form')} className="sm:mr-auto">
+                  <ArrowLeft className="h-4 w-4 mr-1" />Back
+                </Button>
+                <Button variant="outline" onClick={() => handlePrintTruckSchedule(truckForm)}>
+                  <Printer className="h-4 w-4 mr-1" />Print PDF
+                </Button>
+                <Button
+                  onClick={handleTruckSubmit}
+                  disabled={truckCreating}
+                  className="bg-emerald-600 hover:bg-emerald-700"
+                >
+                  {truckCreating ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : <Truck className="h-4 w-4 mr-2" />}
+                  Confirm & Send
+                </Button>
+              </DialogFooter>
+            </>
+          )}
+        </DialogContent>
+      </Dialog>
+
+      {/* Truck Schedule Viewer (from event detail) */}
+      <Dialog open={showTruckSchedule} onOpenChange={(open) => {
+        if (!open) { setShowTruckSchedule(false); setTruckScheduleData(null) }
+      }}>
+        <DialogContent className="w-[95vw] sm:max-w-2xl max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <FileText className="h-5 w-5 text-emerald-600" />
+              Truck Training Schedule
+            </DialogTitle>
+            <DialogDescription>Complete schedule for this student.</DialogDescription>
+          </DialogHeader>
+
+          {truckScheduleData && (
+            <div className="space-y-4">
+              {/* Student Info */}
+              <div className="flex items-center gap-4 p-3 rounded-lg bg-emerald-50 border border-emerald-200">
+                <div>
+                  <p className="text-sm text-muted-foreground">Student</p>
+                  <p className="font-semibold">{truckScheduleData.studentName}</p>
+                </div>
+                {truckScheduleData.studentPhone && (
+                  <div className="ml-auto">
+                    <p className="text-sm text-muted-foreground">Phone</p>
+                    <p className="font-medium">+{truckScheduleData.studentPhone}</p>
+                  </div>
+                )}
+              </div>
+
+              {/* Schedule Table */}
+              <div className="rounded-lg border overflow-hidden">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="bg-emerald-600 text-white">
+                      <th className="text-left px-3 py-2 font-medium">#</th>
+                      <th className="text-left px-3 py-2 font-medium">Date</th>
+                      <th className="text-left px-3 py-2 font-medium">Time</th>
+                      <th className="text-left px-3 py-2 font-medium">Type</th>
+                      <th className="text-left px-3 py-2 font-medium">Location</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {(() => {
+                      let num = 0
+                      return truckScheduleData.classes.map((cls, idx) => {
+                        if (!cls.isExam) num++
+                        return (
+                          <tr key={idx} className={`border-t ${cls.isExam ? 'bg-red-50' : idx % 2 === 1 ? 'bg-emerald-50/50' : ''}`}>
+                            <td className="px-3 py-2">
+                              {cls.isExam ? (
+                                <span className="text-xs font-bold px-1.5 py-0.5 rounded bg-red-100 text-red-700">EXAM</span>
+                              ) : (
+                                <span className="text-xs font-bold px-1.5 py-0.5 rounded bg-emerald-100 text-emerald-700">#{num}</span>
+                              )}
+                            </td>
+                            <td className="px-3 py-2 font-medium">{formatDateNice(cls.date)}</td>
+                            <td className="px-3 py-2">{formatTimeDisplay12h(cls.startTime)} – {formatTimeDisplay12h(cls.endTime)}</td>
+                            <td className="px-3 py-2">
+                              <span className={`text-xs font-medium ${cls.isExam ? 'text-red-700' : 'text-emerald-700'}`}>
+                                {cls.isExam ? 'Exam' : 'Class'}
+                              </span>
+                            </td>
+                            <td className="px-3 py-2 text-muted-foreground">{cls.isExam && cls.examLocation ? cls.examLocation : '—'}</td>
+                          </tr>
+                        )
+                      })
+                    })()}
+                  </tbody>
+                </table>
+              </div>
+
+              {/* Summary */}
+              <div className="flex items-center gap-4 text-sm text-muted-foreground">
+                <span>{truckScheduleData.classes.filter(c => !c.isExam).length} classes</span>
+                {truckScheduleData.classes.some(c => c.isExam) && (
+                  <span className="text-red-600 font-medium">{truckScheduleData.classes.filter(c => c.isExam).length} exam{truckScheduleData.classes.filter(c => c.isExam).length !== 1 ? 's' : ''}</span>
+                )}
+              </div>
+            </div>
+          )}
+
+          <DialogFooter>
+            <Button variant="outline" onClick={() => { setShowTruckSchedule(false); setTruckScheduleData(null) }}>Close</Button>
+            {truckScheduleData && (
+              <Button variant="outline" onClick={() => handlePrintTruckSchedule(truckScheduleData)}>
+                <Printer className="h-4 w-4 mr-1" />Print PDF
+              </Button>
+            )}
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
       {/* WhatsApp Notification Status */}
-      {notifyStatus && (
-        <div className="fixed bottom-4 right-4 z-50">
-          <div className={`flex items-center gap-2 px-4 py-3 rounded-lg shadow-lg text-sm font-medium ${
-            notifyStatus === 'sending' ? 'bg-blue-100 text-blue-800' :
-            notifyStatus === 'sent' ? 'bg-green-100 text-green-800' :
-            'bg-red-100 text-red-800'
-          }`}>
-            {notifyStatus === 'sending' && <Loader2 className="h-4 w-4 animate-spin" />}
-            {notifyStatus === 'sent' && <CheckCircle2 className="h-4 w-4" />}
-            {notifyStatus === 'failed' && <AlertCircle className="h-4 w-4" />}
-            <MessageCircle className="h-4 w-4" />
-            {notifyStatus === 'sending' && 'Sending WhatsApp message...'}
-            {notifyStatus === 'sent' && 'WhatsApp message sent!'}
-            {notifyStatus === 'failed' && 'Failed to send WhatsApp message'}
-          </div>
+      {(notifyStatus || truckNotifyStatus) && (
+        <div className="fixed bottom-4 right-4 z-50 space-y-2">
+          {notifyStatus && (
+            <div className={`flex items-center gap-2 px-4 py-3 rounded-lg shadow-lg text-sm font-medium ${
+              notifyStatus === 'sending' ? 'bg-blue-100 text-blue-800' :
+              notifyStatus === 'sent' ? 'bg-green-100 text-green-800' :
+              'bg-red-100 text-red-800'
+            }`}>
+              {notifyStatus === 'sending' && <Loader2 className="h-4 w-4 animate-spin" />}
+              {notifyStatus === 'sent' && <CheckCircle2 className="h-4 w-4" />}
+              {notifyStatus === 'failed' && <AlertCircle className="h-4 w-4" />}
+              <MessageCircle className="h-4 w-4" />
+              {notifyStatus === 'sending' && 'Sending WhatsApp message...'}
+              {notifyStatus === 'sent' && 'WhatsApp message sent!'}
+              {notifyStatus === 'failed' && 'Failed to send WhatsApp message'}
+            </div>
+          )}
+          {truckNotifyStatus && (
+            <div className={`flex items-center gap-2 px-4 py-3 rounded-lg shadow-lg text-sm font-medium ${
+              truckNotifyStatus === 'sending' ? 'bg-emerald-100 text-emerald-800' :
+              truckNotifyStatus === 'sent' ? 'bg-green-100 text-green-800' :
+              'bg-red-100 text-red-800'
+            }`}>
+              {truckNotifyStatus === 'sending' && <Loader2 className="h-4 w-4 animate-spin" />}
+              {truckNotifyStatus === 'sent' && <CheckCircle2 className="h-4 w-4" />}
+              {truckNotifyStatus === 'failed' && <AlertCircle className="h-4 w-4" />}
+              <Truck className="h-4 w-4" />
+              {truckNotifyStatus === 'sending' && 'Creating truck classes & sending schedule...'}
+              {truckNotifyStatus === 'sent' && 'Truck classes created & schedule sent!'}
+              {truckNotifyStatus === 'failed' && 'Failed to create truck classes'}
+            </div>
+          )}
         </div>
       )}
     </div>

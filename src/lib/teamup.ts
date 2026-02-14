@@ -1,6 +1,7 @@
 const BASE_URL = 'https://api.teamup.com'
 
 let cachedFayyazSubcalendarId: number | null = null
+let cachedNasarSubcalendarId: number | null = null
 
 /**
  * Parse a time range string like "5 pm to 7 pm" into { start: "17:00", end: "19:00" }
@@ -54,6 +55,40 @@ async function getFayyazSubcalendarId(): Promise<number | null> {
     return null
   } catch (error) {
     console.error('Failed to fetch subcalendars for Fayyaz lookup:', error)
+    return null
+  }
+}
+
+/**
+ * Find Nasar's subcalendar ID by name match (for truck classes)
+ */
+export async function getNasarSubcalendarId(): Promise<number | null> {
+  if (cachedNasarSubcalendarId !== null) return cachedNasarSubcalendarId
+
+  const apiKey = process.env.TEAMUP_API_KEY || ''
+  const calendarKey = process.env.TEAMUP_CALENDAR_KEY || ''
+  if (!apiKey || !calendarKey) return null
+
+  try {
+    const res = await fetch(`${BASE_URL}/${calendarKey}/subcalendars`, {
+      headers: { 'Teamup-Token': apiKey },
+    })
+    if (!res.ok) return null
+
+    const data = await res.json()
+    const subcalendars = data.subcalendars || []
+    const nasar = subcalendars.find(
+      (s: { name: string; active: boolean }) =>
+        s.active && s.name.toLowerCase().includes('nasar')
+    )
+
+    if (nasar) {
+      cachedNasarSubcalendarId = nasar.id
+      return nasar.id
+    }
+    return null
+  } catch (error) {
+    console.error('Failed to fetch subcalendars for Nasar lookup:', error)
     return null
   }
 }
