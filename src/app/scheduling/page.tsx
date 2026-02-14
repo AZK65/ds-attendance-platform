@@ -51,6 +51,7 @@ interface TeamupEvent {
 }
 
 interface EventFormData {
+  module: string
   title: string
   subcalendarId: string
   date: string
@@ -61,6 +62,7 @@ interface EventFormData {
 }
 
 const initialFormData: EventFormData = {
+  module: '',
   title: '',
   subcalendarId: '',
   date: '',
@@ -69,6 +71,36 @@ const initialFormData: EventFormData = {
   studentName: '',
   group: '',
 }
+
+const MODULE_OPTIONS = [
+  { value: '1', label: 'Module 1 - The Vehicle' },
+  { value: '2', label: 'Module 2 - The Driver' },
+  { value: '3', label: 'Module 3 - The Environment' },
+  { value: '4', label: 'Module 4 - At-Risk Behaviours' },
+  { value: '5', label: 'Module 5 - Evaluation' },
+  { value: '6', label: 'Module 6 - Accompanied Driving' },
+  { value: '7', label: 'Module 7 - Semi-Guided Driving' },
+  { value: '8', label: 'Module 8 - Speed' },
+  { value: '9', label: 'Module 9 - Sharing the Road' },
+  { value: '10', label: 'Module 10 - Alcohol & Drugs' },
+  { value: '11', label: 'Module 11 - Fatigue' },
+  { value: '12', label: 'Module 12 - Eco-driving' },
+  { value: 'S1', label: 'Session 1 (In-Car)' },
+  { value: 'S2', label: 'Session 2 (In-Car)' },
+  { value: 'S3', label: 'Session 3 (In-Car)' },
+  { value: 'S4', label: 'Session 4 (In-Car)' },
+  { value: 'S5', label: 'Session 5 (In-Car)' },
+  { value: 'S6', label: 'Session 6 (In-Car)' },
+  { value: 'S7', label: 'Session 7 (In-Car)' },
+  { value: 'S8', label: 'Session 8 (In-Car)' },
+  { value: 'S9', label: 'Session 9 (In-Car)' },
+  { value: 'S10', label: 'Session 10 (In-Car)' },
+  { value: 'S11', label: 'Session 11 (In-Car)' },
+  { value: 'S12', label: 'Session 12 (In-Car)' },
+  { value: 'S13', label: 'Session 13 (In-Car)' },
+  { value: 'S14', label: 'Session 14 (In-Car)' },
+  { value: 'S15', label: 'Session 15 (In-Car)' },
+]
 
 // Teamup has 48 color IDs — comprehensive map
 const TEAMUP_COLORS: Record<number, string> = {
@@ -164,7 +196,8 @@ export default function SchedulingPage() {
   // Create event mutation
   const createMutation = useMutation({
     mutationFn: async (data: EventFormData) => {
-      const parts = [data.title, data.studentName, data.group].filter(Boolean)
+      const moduleLabel = data.module ? (data.module.startsWith('S') ? `Session ${data.module.slice(1)}` : `M${data.module}`) : ''
+      const parts = [moduleLabel, data.title, data.studentName, data.group].filter(Boolean)
       const title = parts.join(' - ')
       const noteLines = []
       if (data.studentName) noteLines.push(`Student: ${data.studentName}`)
@@ -193,7 +226,8 @@ export default function SchedulingPage() {
   // Update event mutation
   const updateMutation = useMutation({
     mutationFn: async ({ eventId, data }: { eventId: string; data: EventFormData }) => {
-      const parts = [data.title, data.studentName, data.group].filter(Boolean)
+      const moduleLabel = data.module ? (data.module.startsWith('S') ? `Session ${data.module.slice(1)}` : `M${data.module}`) : ''
+      const parts = [moduleLabel, data.title, data.studentName, data.group].filter(Boolean)
       const title = parts.join(' - ')
       const noteLines = []
       if (data.studentName) noteLines.push(`Student: ${data.studentName}`)
@@ -267,23 +301,46 @@ export default function SchedulingPage() {
     setShowCreateDialog(true)
   }
 
+  // Parse module from title like "M3 - ..." or "Session 5 - ..."
+  const parseModuleFromTitle = (fullTitle: string) => {
+    const parts = fullTitle.split(' - ')
+    const first = parts[0]?.trim() || ''
+    let module = ''
+    let restParts = parts
+
+    const mMatch = first.match(/^M(\d+)$/)
+    const sMatch = first.match(/^Session (\d+)$/)
+    if (mMatch) {
+      module = mMatch[1]
+      restParts = parts.slice(1)
+    } else if (sMatch) {
+      module = `S${sMatch[1]}`
+      restParts = parts.slice(1)
+    }
+
+    return {
+      module,
+      title: restParts[0] || '',
+      studentName: restParts[1] || '',
+      group: restParts.slice(2).join(' - ') || '',
+    }
+  }
+
   // Open edit dialog for existing event
   const handleEventClick = (event: TeamupEvent, e: React.MouseEvent) => {
     e.stopPropagation()
     const startDt = new Date(event.start_dt)
-    const titleParts = event.title.split(' - ')
-    const title = titleParts[0] || event.title
-    const studentName = titleParts[1] || ''
-    const group = titleParts.slice(2).join(' - ') || ''
+    const parsed = parseModuleFromTitle(event.title)
 
     setFormData({
-      title,
+      module: parsed.module,
+      title: parsed.title,
       subcalendarId: event.subcalendar_ids[0]?.toString() || '',
       date: formatDate(startDt),
       startTime: startDt.toTimeString().slice(0, 5),
       endTime: new Date(event.end_dt).toTimeString().slice(0, 5),
-      studentName,
-      group,
+      studentName: parsed.studentName,
+      group: parsed.group,
     })
     setEditingEvent(event)
     setShowEditDialog(true)
@@ -333,12 +390,12 @@ export default function SchedulingPage() {
   }
 
   const handleCreate = () => {
-    if (!formData.title || !formData.date || !formData.subcalendarId) return
+    if ((!formData.module && !formData.title) || !formData.date || !formData.subcalendarId) return
     createMutation.mutate(formData)
   }
 
   const handleUpdate = () => {
-    if (!editingEvent || !formData.title || !formData.date || !formData.subcalendarId) return
+    if (!editingEvent || (!formData.module && !formData.title) || !formData.date || !formData.subcalendarId) return
     updateMutation.mutate({ eventId: editingEvent.id, data: formData })
   }
 
@@ -375,13 +432,31 @@ export default function SchedulingPage() {
           </Select>
         </div>
         <div>
-          <Label>Title / Module</Label>
-          <Input
-            value={formData.title}
-            onChange={(e) => setFormData(prev => ({ ...prev, title: e.target.value }))}
-            placeholder="Module 3"
-          />
+          <Label>Module / Session</Label>
+          <Select
+            value={formData.module}
+            onValueChange={(val) => setFormData(prev => ({ ...prev, module: val }))}
+          >
+            <SelectTrigger>
+              <SelectValue placeholder="Select module" />
+            </SelectTrigger>
+            <SelectContent>
+              {MODULE_OPTIONS.map(opt => (
+                <SelectItem key={opt.value} value={opt.value}>
+                  {opt.label}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
         </div>
+      </div>
+      <div>
+        <Label>Title (optional)</Label>
+        <Input
+          value={formData.title}
+          onChange={(e) => setFormData(prev => ({ ...prev, title: e.target.value }))}
+          placeholder="Custom title or notes"
+        />
       </div>
       <div>
         <Label>Student Name</Label>
@@ -624,7 +699,7 @@ export default function SchedulingPage() {
             </Button>
             <Button
               onClick={handleCreate}
-              disabled={createMutation.isPending || !formData.title || !formData.subcalendarId || !formData.date}
+              disabled={createMutation.isPending || (!formData.module && !formData.title) || !formData.subcalendarId || !formData.date}
             >
               {createMutation.isPending ? (
                 <Loader2 className="h-4 w-4 animate-spin mr-2" />
@@ -671,7 +746,7 @@ export default function SchedulingPage() {
               </Button>
               <Button
                 onClick={handleUpdate}
-                disabled={updateMutation.isPending || !formData.title || !formData.subcalendarId || !formData.date}
+                disabled={updateMutation.isPending || (!formData.module && !formData.title) || !formData.subcalendarId || !formData.date}
               >
                 {updateMutation.isPending ? (
                   <Loader2 className="h-4 w-4 animate-spin mr-2" />
