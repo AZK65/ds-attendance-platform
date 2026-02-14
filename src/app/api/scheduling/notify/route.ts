@@ -31,8 +31,16 @@ export async function POST(request: NextRequest) {
     // Build message
     const moduleStr = module || 'class'
     const dateStr = date || 'TBD'
-    const timeStr = startTime && endTime ? `from ${startTime} to ${endTime}` : ''
     const teacherStr = teacherName ? ` with ${teacherName}` : ''
+
+    // Convert 24h time (e.g. "09:00") to 12h format with EST
+    const formatTime12h = (t: string) => {
+      const [h, m] = t.split(':').map(Number)
+      const ampm = h >= 12 ? 'PM' : 'AM'
+      const hour12 = h === 0 ? 12 : h > 12 ? h - 12 : h
+      return `${hour12}:${m.toString().padStart(2, '0')} ${ampm}`
+    }
+    const timeStr = startTime && endTime ? `from ${formatTime12h(startTime)} to ${formatTime12h(endTime)} EST` : ''
 
     const message = `Hi ${studentName}! Your ${moduleStr} class has been scheduled${teacherStr} on ${dateStr} ${timeStr}. See you there!`.trim()
 

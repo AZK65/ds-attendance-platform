@@ -31,7 +31,7 @@ export async function POST(
 
   // Build the message
   const dateStr = classDate ? `${classDate} from ` : ''
-  const message = customMessage || `Hey! Your Module ${moduleNum} class is scheduled for ${dateStr}${time}. You'll receive another reminder on the day of the class. Please make sure to put your full name when joining Zoom. Invite Link: https://us02web.zoom.us/j/4171672829?pwd=ZTlHSEdmTGRYV1QraU5MaThqaC9Rdz09 — Password: qazi`
+  const message = customMessage || `Hey! Your Module ${moduleNum} class is scheduled for ${dateStr}${time} EST. You'll receive another reminder on the day of the class. Please make sure to put your full name when joining Zoom. Invite Link: https://us02web.zoom.us/j/4171672829?pwd=ZTlHSEdmTGRYV1QraU5MaThqaC9Rdz09 — Password: qazi`
 
   // Get participant names for the log
   let participantMap: Map<string, string> = new Map()
@@ -98,7 +98,7 @@ export async function POST(
       let groupReminderScheduled = false
       if (scheduleGroupReminder && classDateISO) {
         try {
-          const classDayMessage = `Reminder: Your Module ${moduleNum} class is TODAY at ${time}! Please make sure to put your full name when joining Zoom. Invite Link: https://us02web.zoom.us/j/4171672829?pwd=ZTlHSEdmTGRYV1QraU5MaThqaC9Rdz09 — Password: qazi`
+          const classDayMessage = `Reminder: Your Module ${moduleNum} class is TODAY at ${time} EST! Please make sure to put your full name when joining Zoom. Invite Link: https://us02web.zoom.us/j/4171672829?pwd=ZTlHSEdmTGRYV1QraU5MaThqaC9Rdz09 — Password: qazi`
 
           // Create scheduled date at 12pm on the class day
           // classDateISO is in format "2025-02-10"
