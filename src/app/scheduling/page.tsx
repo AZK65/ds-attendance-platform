@@ -48,6 +48,7 @@ import {
   ArrowLeft,
   Settings,
   Save,
+  Check,
 } from 'lucide-react'
 import { Checkbox } from '@/components/ui/checkbox'
 import { motion, AnimatePresence } from 'motion/react'
@@ -535,6 +536,40 @@ export default function SchedulingPage() {
     },
   })
 
+  // Toggle present status on an event
+  const togglePresentMutation = useMutation({
+    mutationFn: async ({ event, present }: { event: TeamupEvent; present: boolean }) => {
+      const cleanNotes = event.notes ? stripHtml(event.notes) : ''
+      // Remove existing Present line if any
+      const notesWithoutPresent = cleanNotes.replace(/\n?Present:\s*(yes|no)/i, '').trim()
+      // Add Present: yes or remove it
+      const newNotes = present
+        ? (notesWithoutPresent ? notesWithoutPresent + '\nPresent: yes' : 'Present: yes')
+        : notesWithoutPresent
+
+      const res = await fetch(`/api/scheduling/events/${event.id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          title: event.title,
+          startDate: event.start_dt,
+          endDate: event.end_dt,
+          subcalendarIds: event.subcalendar_ids,
+          notes: newNotes,
+        }),
+      })
+      if (!res.ok) throw new Error('Failed to update attendance')
+      return res.json()
+    },
+    onSuccess: (result) => {
+      queryClient.invalidateQueries({ queryKey: ['scheduling-events'] })
+      // Update selectedEvent in place so the dialog reflects the change
+      if (selectedEvent) {
+        setSelectedEvent({ ...selectedEvent, notes: result.notes || '' })
+      }
+    },
+  })
+
   // Open create dialog pre-filled with day/time
   const handleSlotClick = (date: Date, hour: number) => {
     setFormData({
@@ -611,6 +646,11 @@ export default function SchedulingPage() {
   const parsePaidFromNotes = (notes?: string) => {
     if (!notes) return false
     return /Paid:\s*yes/i.test(stripHtml(notes))
+  }
+
+  const parsePresentFromNotes = (notes?: string) => {
+    if (!notes) return false
+    return /Present:\s*yes/i.test(stripHtml(notes))
   }
 
   const parseLastTheoryFromNotes = (notes?: string): { module: number | null; date: string | null } => {
@@ -949,6 +989,7 @@ export default function SchedulingPage() {
     const teacherName = getTeacherName(event)
     const isExtra = parseExtraHoursFromNotes(event.notes)
     const isPaid = parsePaidFromNotes(event.notes)
+    const isPresent = parsePresentFromNotes(event.notes)
     const startTime = new Date(event.start_dt).toLocaleTimeString('en-US', {
       hour: 'numeric', minute: '2-digit', hour12: true,
     })
@@ -967,9 +1008,12 @@ export default function SchedulingPage() {
           minHeight: 22,
         }}
         onClick={(e) => handleEventClick(event, e)}
-        title={`${event.title}\n${teacherName}\n${startTime}`}
+        title={`${event.title}\n${teacherName}\n${startTime}${isPresent ? '\n✓ Present' : ''}`}
       >
-        <div className="font-medium truncate">{event.title}</div>
+        <div className="font-medium truncate flex items-center gap-1">
+          {isPresent && <Check className="h-3 w-3 flex-shrink-0" />}
+          <span className="truncate">{event.title}</span>
+        </div>
         {height > 36 && <div className="opacity-80 truncate">{teacherName}</div>}
         {height > 50 && <div className="opacity-70 truncate">{startTime}</div>}
         {wide && height > 64 && studentName && <div className="opacity-70 truncate">{studentName}</div>}
@@ -1124,18 +1168,20 @@ export default function SchedulingPage() {
                 {dayEvents.slice(0, maxShow).map(event => {
                   const isExtra = parseExtraHoursFromNotes(event.notes)
                   const isPaid = parsePaidFromNotes(event.notes)
+                  const isPresent = parsePresentFromNotes(event.notes)
                   const color = getEventColor(event)
                   return (
                     <div
                       key={event.id}
-                      className="text-[10px] leading-tight truncate rounded px-1 py-0.5 cursor-pointer"
+                      className="text-[10px] leading-tight truncate rounded px-1 py-0.5 cursor-pointer flex items-center gap-0.5"
                       style={{
                         backgroundColor: isExtra ? (isPaid ? '#FDE68A' : '#FCA5A5') : color,
                         color: isExtra ? '#000' : '#fff',
                       }}
                       onClick={(e) => handleEventClick(event, e)}
                     >
-                      {event.title}
+                      {isPresent && <Check className="h-2.5 w-2.5 flex-shrink-0" />}
+                      <span className="truncate">{event.title}</span>
                     </div>
                   )
                 })}
@@ -1641,27 +1687,52 @@ export default function SchedulingPage() {
               </div>
             )
           })()}
-          <DialogFooter className="flex flex-col-reverse sm:flex-row gap-2">
-            {/* View Theory Class button */}
-            {selectedEvent && isTheoryEvent(selectedEvent) && theoryGroupId && (
-              <Link href={`/groups/${encodeURIComponent(theoryGroupId)}`} className="sm:mr-auto">
-                <Button variant="outline" className="w-full sm:w-auto">
-                  <Eye className="h-4 w-4 mr-2" />
-                  View Theory Class
+          <DialogFooter className="flex flex-col-reverse sm:flex-row sm:justify-between gap-2">
+            {/* Left side buttons */}
+            <div className="flex gap-2">
+              {/* Present toggle */}
+              {selectedEvent && (() => {
+                const isPresent = parsePresentFromNotes(selectedEvent.notes)
+                return (
+                  <Button
+                    variant={isPresent ? 'default' : 'outline'}
+                    className={isPresent ? 'bg-green-600 hover:bg-green-700' : ''}
+                    disabled={togglePresentMutation.isPending}
+                    onClick={() => togglePresentMutation.mutate({ event: selectedEvent, present: !isPresent })}
+                  >
+                    {togglePresentMutation.isPending ? (
+                      <Loader2 className="h-4 w-4 animate-spin mr-2" />
+                    ) : (
+                      <Check className="h-4 w-4 mr-2" />
+                    )}
+                    {isPresent ? 'Present' : 'Mark Present'}
+                  </Button>
+                )
+              })()}
+              {/* View Theory Class button */}
+              {selectedEvent && isTheoryEvent(selectedEvent) && theoryGroupId && (
+                <Link href={`/groups/${encodeURIComponent(theoryGroupId)}`}>
+                  <Button variant="outline" className="w-full sm:w-auto">
+                    <Eye className="h-4 w-4 mr-2" />
+                    View Theory Class
+                  </Button>
+                </Link>
+              )}
+              {/* View Truck Schedule button */}
+              {selectedEvent && isTruckClass(selectedEvent) && (
+                <Button variant="outline" onClick={() => handleViewTruckSchedule(selectedEvent)}>
+                  <FileText className="h-4 w-4 mr-2" />
+                  View Schedule
                 </Button>
-              </Link>
-            )}
-            {/* View Truck Schedule button */}
-            {selectedEvent && isTruckClass(selectedEvent) && (
-              <Button variant="outline" onClick={() => handleViewTruckSchedule(selectedEvent)} className="sm:mr-auto">
-                <FileText className="h-4 w-4 mr-2" />
-                View Schedule
+              )}
+            </div>
+            {/* Right side buttons */}
+            <div className="flex gap-2">
+              <Button variant="outline" onClick={() => setShowEventDetail(false)}>Close</Button>
+              <Button onClick={handleEditFromDetail}>
+                <Edit3 className="h-4 w-4 mr-2" />Edit
               </Button>
-            )}
-            <Button variant="outline" onClick={() => setShowEventDetail(false)}>Close</Button>
-            <Button onClick={handleEditFromDetail}>
-              <Edit3 className="h-4 w-4 mr-2" />Edit
-            </Button>
+            </div>
           </DialogFooter>
         </DialogContent>
       </Dialog>
