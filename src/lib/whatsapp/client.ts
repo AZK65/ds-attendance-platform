@@ -950,8 +950,9 @@ export async function sendMessageToGroup(groupId: string, message: string): Prom
     await client.sendMessage(groupId, message)
     console.log('Message sent successfully')
   } catch (error) {
-    console.error('Send message error:', error)
-    throw error
+    const errMsg = error instanceof Error ? error.message : typeof error === 'object' ? JSON.stringify(error) : String(error)
+    console.error('Send message error:', errMsg)
+    throw new Error(errMsg)
   }
 }
 
@@ -1326,8 +1327,9 @@ export async function sendPrivateMessage(phone: string, message: string): Promis
     await client.sendMessage(chatId, message)
     console.log(`Private message sent to ${chatId}`)
   } catch (error) {
-    console.error(`Send private message error to ${chatId}:`, error)
-    throw error
+    const errMsg = error instanceof Error ? error.message : typeof error === 'object' ? JSON.stringify(error) : String(error)
+    console.error(`Send private message error to ${chatId}:`, errMsg)
+    throw new Error(errMsg)
   }
 }
 
