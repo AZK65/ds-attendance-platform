@@ -472,7 +472,9 @@ export default function SchedulingPage() {
     try {
       const teacher = activeTeachers.find(t => t.id.toString() === data.subcalendarId)
       const moduleLabel = getModuleLabel(data.module)
-      const dateObj = new Date(data.date)
+      // Parse date parts directly to avoid timezone shift (new Date("2026-02-15") creates UTC midnight which shifts back a day in local time)
+      const [year, month, day] = data.date.split('-').map(Number)
+      const dateObj = new Date(year, month - 1, day)
       const dateStr = dateObj.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' })
       const res = await fetch('/api/scheduling/notify', {
         method: 'POST',
