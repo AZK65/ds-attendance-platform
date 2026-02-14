@@ -41,13 +41,6 @@ import {
 import Link from 'next/link'
 import { ContactSearchAutocomplete } from '@/components/ContactSearchAutocomplete'
 
-interface WhatsAppGroup {
-  id: string
-  name: string
-  participantCount: number
-  moduleNumber?: number | null
-}
-
 interface SubCalendar {
   id: number
   name: string
@@ -199,19 +192,6 @@ export default function SchedulingPage() {
   })
 
   const activeTeachers = subcalendars.filter(s => s.active)
-
-  // Fetch WhatsApp groups
-  const { data: groupsData } = useQuery<{ groups: WhatsAppGroup[] }>({
-    queryKey: ['whatsapp-groups'],
-    queryFn: async () => {
-      const res = await fetch('/api/groups')
-      if (!res.ok) throw new Error('Failed to fetch groups')
-      return res.json()
-    },
-    staleTime: 5 * 60 * 1000,
-  })
-
-  const whatsappGroups = groupsData?.groups || []
 
   // Fetch events for current week
   const { data: events = [], isLoading: loadingEvents } = useQuery<TeamupEvent[]>({
@@ -586,32 +566,10 @@ export default function SchedulingPage() {
         <ContactSearchAutocomplete
           value={formData.studentName}
           phone={formData.studentPhone}
-          onSelect={(name, phone) => setFormData(prev => ({ ...prev, studentName: name, studentPhone: phone }))}
-          onChange={(name) => setFormData(prev => ({ ...prev, studentName: name, studentPhone: '' }))}
+          group={formData.group}
+          onSelect={(name, phone, group) => setFormData(prev => ({ ...prev, studentName: name, studentPhone: phone, group }))}
+          onChange={(name) => setFormData(prev => ({ ...prev, studentName: name, studentPhone: '', group: '' }))}
         />
-      </div>
-      <div>
-        <Label>Student Group (optional)</Label>
-        <Select
-          value={formData.group}
-          onValueChange={(val) => setFormData(prev => ({ ...prev, group: val }))}
-        >
-          <SelectTrigger>
-            <SelectValue placeholder="Select group" />
-          </SelectTrigger>
-          <SelectContent>
-            {whatsappGroups.map(g => (
-              <SelectItem key={g.id} value={g.name}>
-                <div className="flex items-center gap-2">
-                  <span>{g.name}</span>
-                  <span className="text-xs text-muted-foreground">
-                    ({g.participantCount} members{g.moduleNumber ? `, M${g.moduleNumber}` : ''})
-                  </span>
-                </div>
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
       </div>
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
         <div>

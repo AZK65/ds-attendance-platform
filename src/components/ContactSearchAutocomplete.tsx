@@ -1,9 +1,10 @@
 'use client'
 
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect, useRef, useMemo } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { Input } from '@/components/ui/input'
-import { Loader2, Phone, User } from 'lucide-react'
+import { Badge } from '@/components/ui/badge'
+import { Loader2, Phone, User, Users } from 'lucide-react'
 
 interface Contact {
   id: string
@@ -12,10 +13,21 @@ interface Contact {
   pushName: string | null
 }
 
+interface ParticipantWithGroup {
+  id: string
+  phone: string
+  name: string | null
+  pushName: string | null
+  groupId: string
+  groupName: string
+  moduleNumber: number | null
+}
+
 interface ContactSearchAutocompleteProps {
   value: string
   phone: string
-  onSelect: (name: string, phone: string) => void
+  group: string
+  onSelect: (name: string, phone: string, group: string) => void
   onChange: (name: string) => void
   placeholder?: string
 }
@@ -23,6 +35,7 @@ interface ContactSearchAutocompleteProps {
 export function ContactSearchAutocomplete({
   value,
   phone,
+  group,
   onSelect,
   onChange,
   placeholder = "Search WhatsApp contacts or type name",
@@ -54,8 +67,8 @@ export function ContactSearchAutocomplete({
     return () => document.removeEventListener('mousedown', handleClickOutside)
   }, [])
 
-  // Fetch contacts
-  const { data, isLoading } = useQuery({
+  // Fetch contacts from basic search
+  const { data: contactsData, isLoading: loadingContacts } = useQuery({
     queryKey: ['contact-search', debouncedSearch],
     queryFn: async () => {
       const params = new URLSearchParams({ search: debouncedSearch })
@@ -66,7 +79,30 @@ export function ContactSearchAutocomplete({
     enabled: debouncedSearch.length >= 2,
   })
 
-  const contacts: Contact[] = data?.contacts || []
+  // Fetch all group participants (cached, one-time load)
+  const { data: participantsData } = useQuery<{ participants: ParticipantWithGroup[] }>({
+    queryKey: ['group-participants-all'],
+    queryFn: async () => {
+      const res = await fetch('/api/groups/participants')
+      if (!res.ok) return { participants: [] }
+      return res.json()
+    },
+    staleTime: 5 * 60 * 1000,
+  })
+
+  const contacts: Contact[] = contactsData?.contacts || []
+  const groupParticipants = participantsData?.participants || []
+
+  // Build a phone → groups map for quick lookup
+  const phoneToGroups = useMemo(() => {
+    const map = new Map<string, ParticipantWithGroup[]>()
+    for (const p of groupParticipants) {
+      const existing = map.get(p.phone) || []
+      existing.push(p)
+      map.set(p.phone, existing)
+    }
+    return map
+  }, [groupParticipants])
 
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     onChange(e.target.value)
@@ -75,7 +111,11 @@ export function ContactSearchAutocomplete({
 
   const handleSelect = (contact: Contact) => {
     const displayName = contact.name || contact.pushName || contact.phone
-    onSelect(displayName, contact.phone)
+    // Look up which groups this contact belongs to
+    const groups = phoneToGroups.get(contact.phone) || []
+    // Pick the first group (most common case: student is in one group)
+    const groupName = groups.length > 0 ? groups[0].groupName : ''
+    onSelect(displayName, contact.phone, groupName)
     setShowDropdown(false)
   }
 
@@ -85,6 +125,13 @@ export function ContactSearchAutocomplete({
     }
     return phoneNum
   }
+
+  // Get group info for a contact to display in dropdown
+  const getContactGroups = (contactPhone: string) => {
+    return phoneToGroups.get(contactPhone) || []
+  }
+
+  const isLoading = loadingContacts
 
   return (
     <div ref={wrapperRef} className="relative">
@@ -102,37 +149,59 @@ export function ContactSearchAutocomplete({
         )}
       </div>
 
-      {/* Selected phone indicator */}
-      {phone && (
-        <div className="flex items-center gap-1 mt-1 text-xs text-muted-foreground">
-          <Phone className="h-3 w-3" />
-          <span>{formatPhone(phone)}</span>
+      {/* Selected info indicators */}
+      {(phone || group) && (
+        <div className="flex flex-wrap items-center gap-2 mt-1">
+          {phone && (
+            <div className="flex items-center gap-1 text-xs text-muted-foreground">
+              <Phone className="h-3 w-3" />
+              <span>{formatPhone(phone)}</span>
+            </div>
+          )}
+          {group && (
+            <div className="flex items-center gap-1 text-xs text-muted-foreground">
+              <Users className="h-3 w-3" />
+              <span>{group}</span>
+            </div>
+          )}
         </div>
       )}
 
       {/* Dropdown */}
       {showDropdown && contacts.length > 0 && (
-        <div className="absolute z-50 w-full mt-1 bg-background border rounded-md shadow-lg max-h-[200px] overflow-y-auto">
-          {contacts.map((contact) => (
-            <button
-              key={contact.id}
-              type="button"
-              className="w-full flex items-center gap-3 px-3 py-2 hover:bg-accent/50 text-left transition-colors"
-              onClick={() => handleSelect(contact)}
-            >
-              <div className="w-8 h-8 rounded-full bg-muted flex items-center justify-center flex-shrink-0">
-                <User className="h-4 w-4 text-muted-foreground" />
-              </div>
-              <div className="min-w-0 flex-1">
-                <p className="font-medium text-sm truncate">
-                  {contact.name || contact.pushName || 'Unknown'}
-                </p>
-                <p className="text-xs text-muted-foreground">
-                  {formatPhone(contact.phone)}
-                </p>
-              </div>
-            </button>
-          ))}
+        <div className="absolute z-50 w-full mt-1 bg-background border rounded-md shadow-lg max-h-[250px] overflow-y-auto">
+          {contacts.map((contact) => {
+            const groups = getContactGroups(contact.phone)
+            return (
+              <button
+                key={contact.id}
+                type="button"
+                className="w-full flex items-center gap-3 px-3 py-2 hover:bg-accent/50 text-left transition-colors"
+                onClick={() => handleSelect(contact)}
+              >
+                <div className="w-8 h-8 rounded-full bg-muted flex items-center justify-center flex-shrink-0">
+                  <User className="h-4 w-4 text-muted-foreground" />
+                </div>
+                <div className="min-w-0 flex-1">
+                  <p className="font-medium text-sm truncate">
+                    {contact.name || contact.pushName || 'Unknown'}
+                  </p>
+                  <p className="text-xs text-muted-foreground">
+                    {formatPhone(contact.phone)}
+                  </p>
+                  {groups.length > 0 && (
+                    <div className="flex flex-wrap gap-1 mt-0.5">
+                      {groups.map((g, i) => (
+                        <Badge key={i} variant="secondary" className="text-[10px] px-1.5 py-0">
+                          {g.groupName}
+                        </Badge>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              </button>
+            )
+          })}
         </div>
       )}
     </div>
