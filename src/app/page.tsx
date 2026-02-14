@@ -5,7 +5,7 @@ import { ConnectionStatus } from '@/components/ConnectionStatus'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
-import { Link as LinkIcon, Users, ClipboardList, ArrowRight, Award } from 'lucide-react'
+import { Link as LinkIcon, Users, ClipboardList, ArrowRight, Award, CalendarDays } from 'lucide-react'
 import Link from 'next/link'
 
 export default function Home() {
@@ -50,7 +50,7 @@ export default function Home() {
             </p>
           </div>
 
-          <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-4 mb-12">
+          <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 mb-12">
             <Card>
               <CardHeader>
                 <CardTitle className="flex items-center gap-2">
@@ -133,6 +133,28 @@ export default function Home() {
                 <div className="flex items-center justify-between">
                   <Badge variant="outline">OCR Scan</Badge>
                   <Link href="/certificate">
+                    <Button variant="ghost" size="sm">
+                      <ArrowRight className="h-4 w-4" />
+                    </Button>
+                  </Link>
+                </div>
+              </CardContent>
+            </Card>
+
+            <Card>
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2">
+                  <CalendarDays className="h-5 w-5" />
+                  Scheduling
+                </CardTitle>
+                <CardDescription>
+                  Schedule classes for teachers via calendar
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                <div className="flex items-center justify-between">
+                  <Badge variant="outline">Teamup</Badge>
+                  <Link href="/scheduling">
                     <Button variant="ghost" size="sm">
                       <ArrowRight className="h-4 w-4" />
                     </Button>
