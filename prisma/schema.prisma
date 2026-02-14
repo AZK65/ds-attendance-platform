@@ -120,6 +120,8 @@ model ScheduledMessage {
   scheduledAt   DateTime // When to send the message
   memberPhones  String   // JSON array of phone numbers (empty for group messages)
   moduleNumber  Int?
+  classDateISO  String?  // The class date in ISO format (e.g. "2026-02-20")
+  classTime     String?  // The class time text (e.g. "5 pm to 7 pm")
   isGroupMessage Boolean @default(false) // true = send to group, false = send to individuals
   status        String   @default("pending") // pending, sent, failed, cancelled
   sentAt        DateTime?

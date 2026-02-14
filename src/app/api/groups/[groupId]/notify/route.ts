@@ -1,6 +1,7 @@
 import { NextRequest } from 'next/server'
 import { sendPrivateMessage, getGroupParticipants } from '@/lib/whatsapp/client'
 import { prisma } from '@/lib/db'
+import { createTheoryEvent } from '@/lib/teamup'
 
 export async function POST(
   request: NextRequest,
@@ -100,6 +101,26 @@ export async function POST(
         }
       }
 
+      // Create Teamup event on Fayyaz's calendar for theory class
+      let calendarSynced = false
+      if (classDateISO && moduleNum) {
+        try {
+          const group = await prisma.group.findUnique({ where: { id: decodedGroupId } })
+          const result = await createTheoryEvent({
+            classDate: classDateISO,
+            classTime: time,
+            moduleNumber: moduleNum,
+            groupName: group?.name || 'Unknown Group',
+          })
+          calendarSynced = result.success
+          if (!result.success) {
+            console.error('Theory event sync failed:', result.error)
+          }
+        } catch (error) {
+          console.error('Failed to sync theory event to calendar:', error)
+        }
+      }
+
       // Send summary
       controller.enqueue(encoder.encode(
         JSON.stringify({
@@ -108,7 +129,8 @@ export async function POST(
           failed,
           total: memberPhones.length,
           groupReminderScheduled,
-          groupReminderDate: scheduleGroupReminder && classDateISO ? classDateISO + ' at 12:00 PM' : null
+          groupReminderDate: scheduleGroupReminder && classDateISO ? classDateISO + ' at 12:00 PM' : null,
+          calendarSynced,
         }) + '\n'
       ))
       controller.close()

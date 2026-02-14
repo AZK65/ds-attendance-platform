@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/db'
 import { sendPrivateMessage, sendMessageToGroup } from '@/lib/whatsapp/client'
+import { createTheoryEvent } from '@/lib/teamup'
 
 // Process pending scheduled messages that are due
 // This endpoint should be called periodically (e.g., every minute via cron or setInterval)
@@ -56,14 +57,30 @@ export async function POST(request: NextRequest) {
       }
 
       // Update the scheduled message status
+      const messageStatus = failed > 0 && sent === 0 ? 'failed' : 'sent'
       await prisma.scheduledMessage.update({
         where: { id: scheduled.id },
         data: {
-          status: failed > 0 && sent === 0 ? 'failed' : 'sent',
+          status: messageStatus,
           sentAt: new Date(),
           error: errors.length > 0 ? errors.join('; ') : null
         }
       })
+
+      // Sync theory event to Fayyaz's Teamup calendar if message was sent successfully
+      if (messageStatus === 'sent' && scheduled.classDateISO && scheduled.moduleNumber && scheduled.classTime) {
+        try {
+          const group = await prisma.group.findUnique({ where: { id: scheduled.groupId } })
+          await createTheoryEvent({
+            classDate: scheduled.classDateISO,
+            classTime: scheduled.classTime,
+            moduleNumber: scheduled.moduleNumber,
+            groupName: group?.name || 'Unknown Group',
+          })
+        } catch (error) {
+          console.error('Failed to sync theory event to calendar:', error)
+        }
+      }
 
       results.push({ id: scheduled.id, sent, failed })
     }

@@ -1676,7 +1676,9 @@ export default function GroupDetailPage() {
                             message,
                             scheduledAt: scheduledAt.toISOString(),
                             memberPhones: Array.from(selectedMembers),
-                            moduleNumber: reminderModule
+                            moduleNumber: reminderModule,
+                            classDateISO: classDate,
+                            classTime: reminderTime,
                           })
                         })
 

@@ -5,7 +5,7 @@ import { prisma } from '@/lib/db'
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json()
-    const { groupId, message, scheduledAt, memberPhones, moduleNumber } = body
+    const { groupId, message, scheduledAt, memberPhones, moduleNumber, classDateISO, classTime } = body
 
     if (!groupId || !message || !scheduledAt || !memberPhones || memberPhones.length === 0) {
       return NextResponse.json(
@@ -29,6 +29,8 @@ export async function POST(request: NextRequest) {
         scheduledAt: scheduledDate,
         memberPhones: JSON.stringify(memberPhones),
         moduleNumber: moduleNumber || null,
+        classDateISO: classDateISO || null,
+        classTime: classTime || null,
         status: 'pending'
       }
     })
