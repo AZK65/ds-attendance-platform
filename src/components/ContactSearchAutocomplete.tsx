@@ -126,7 +126,7 @@ export function ContactSearchAutocomplete({
     const latestTheory = theoryGroups.sort((a, b) => (b.moduleNumber || 0) - (a.moduleNumber || 0))[0]
 
     const groupInfo: StudentGroupInfo = {
-      groupName: groups.length > 0 ? groups[0].groupName : '',
+      groupName: latestTheory?.groupName || (groups.length > 0 ? groups[0].groupName : ''),
       lastTheoryModule: latestTheory?.moduleNumber || null,
       lastTheoryDate: latestTheory?.lastMessageDate || null,
     }

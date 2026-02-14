@@ -96,18 +96,6 @@ const initialFormData: EventFormData = {
 }
 
 const MODULE_OPTIONS = [
-  { value: '1', label: 'Module 1 - The Vehicle' },
-  { value: '2', label: 'Module 2 - The Driver' },
-  { value: '3', label: 'Module 3 - The Environment' },
-  { value: '4', label: 'Module 4 - At-Risk Behaviours' },
-  { value: '5', label: 'Module 5 - Evaluation' },
-  { value: '6', label: 'Module 6 - Accompanied Driving' },
-  { value: '7', label: 'Module 7 - Semi-Guided Driving' },
-  { value: '8', label: 'Module 8 - Speed' },
-  { value: '9', label: 'Module 9 - Sharing the Road' },
-  { value: '10', label: 'Module 10 - Alcohol & Drugs' },
-  { value: '11', label: 'Module 11 - Fatigue' },
-  { value: '12', label: 'Module 12 - Eco-driving' },
   { value: 'S1', label: 'Session 1 (In-Car)' },
   { value: 'S2', label: 'Session 2 (In-Car)' },
   { value: 'S3', label: 'Session 3 (In-Car)' },
@@ -652,13 +640,13 @@ export default function SchedulingPage() {
           </Select>
         </div>
         <div>
-          <Label>Module / Session</Label>
+          <Label>In-Car Session</Label>
           <Select
             value={formData.module}
             onValueChange={(val) => setFormData(prev => ({ ...prev, module: val }))}
           >
             <SelectTrigger>
-              <SelectValue placeholder="Select module" />
+              <SelectValue placeholder="Select session" />
             </SelectTrigger>
             <SelectContent>
               {MODULE_OPTIONS.map(opt => (
