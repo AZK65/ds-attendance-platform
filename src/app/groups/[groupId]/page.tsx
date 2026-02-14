@@ -485,29 +485,23 @@ export default function GroupDetailPage() {
 
   return (
     <div className="min-h-screen bg-background">
-      <header className="border-b">
-        <div className="container mx-auto px-4 py-4 flex items-center justify-between">
-          <div className="flex items-center gap-4">
-            <Link href="/groups">
-              <Button variant="ghost" size="icon">
-                <ArrowLeft className="h-4 w-4" />
-              </Button>
-            </Link>
-            <div>
-              <h1 className="text-xl font-semibold">
-                {group?.name || 'Loading...'}
-              </h1>
-              <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                <Users className="h-3 w-3" />
-                {participants.length} members
-              </div>
+      <main className="container mx-auto px-4 py-8">
+        <div className="flex items-center gap-3 mb-6">
+          <Link href="/groups">
+            <Button variant="ghost" size="icon">
+              <ArrowLeft className="h-4 w-4" />
+            </Button>
+          </Link>
+          <div>
+            <h1 className="text-xl font-semibold">
+              {group?.name || 'Loading...'}
+            </h1>
+            <div className="flex items-center gap-2 text-sm text-muted-foreground">
+              <Users className="h-3 w-3" />
+              {participants.length} members
             </div>
           </div>
-          <ConnectionStatus />
         </div>
-      </header>
-
-      <main className="container mx-auto px-4 py-8">
         <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4 mb-6">
           <div className="flex flex-wrap items-center gap-2">
             <Badge variant="outline">

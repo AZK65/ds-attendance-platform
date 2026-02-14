@@ -202,27 +202,6 @@ export default function GroupsPage() {
 
   return (
     <div className="min-h-screen bg-background">
-      <header className="border-b">
-        <div className="container mx-auto px-4 py-4 flex items-center justify-between">
-          <Image
-            src="/qazi-logo.png"
-            alt="Qazi Driving School"
-            width={120}
-            height={40}
-            className="h-10 w-auto"
-          />
-          <div className="flex items-center gap-4">
-            <ConnectionStatus />
-            <Link href="/connect">
-              <Button variant="outline" size="sm">
-                <LinkIcon className="mr-2 h-4 w-4" />
-                Connect
-              </Button>
-            </Link>
-          </div>
-        </div>
-      </header>
-
       <main className="container mx-auto px-4 py-8">
         <div className="flex flex-col gap-4 mb-6">
           <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">

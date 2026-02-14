@@ -1,6 +1,7 @@
 'use client'
 
 import Link from 'next/link'
+import Image from 'next/image'
 import { usePathname } from 'next/navigation'
 import { Home, Users, Award, CalendarDays, Link as LinkIcon } from 'lucide-react'
 import { ConnectionStatus } from './ConnectionStatus'
@@ -25,9 +26,15 @@ export function Navbar() {
     <nav className="border-b bg-background sticky top-0 z-50">
       <div className="container mx-auto px-4">
         <div className="flex items-center justify-between h-14">
-          {/* Logo / Brand */}
-          <Link href="/" className="font-semibold text-lg whitespace-nowrap mr-4">
-            Qazi DS
+          {/* Logo */}
+          <Link href="/" className="flex-shrink-0 mr-4">
+            <Image
+              src="/qazi-logo.png"
+              alt="Qazi Driving School"
+              width={100}
+              height={34}
+              className="h-9 w-auto"
+            />
           </Link>
 
           {/* Nav Links */}
