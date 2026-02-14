@@ -41,7 +41,7 @@ import {
   BookOpen,
 } from 'lucide-react'
 import Link from 'next/link'
-import { ContactSearchAutocomplete } from '@/components/ContactSearchAutocomplete'
+import { ContactSearchAutocomplete, type StudentGroupInfo } from '@/components/ContactSearchAutocomplete'
 
 interface SubCalendar {
   id: number
@@ -71,6 +71,8 @@ interface EventFormData {
   studentName: string
   studentPhone: string
   group: string
+  lastTheoryModule: number | null
+  lastTheoryDate: string | null
 }
 
 const initialFormData: EventFormData = {
@@ -83,6 +85,8 @@ const initialFormData: EventFormData = {
   studentName: '',
   studentPhone: '',
   group: '',
+  lastTheoryModule: null,
+  lastTheoryDate: null,
 }
 
 const MODULE_OPTIONS = [
@@ -175,6 +179,7 @@ export default function SchedulingPage() {
   const [editingEvent, setEditingEvent] = useState<TeamupEvent | null>(null)
   const [formData, setFormData] = useState<EventFormData>(initialFormData)
   const [notifyStatus, setNotifyStatus] = useState<null | 'sending' | 'sent' | 'failed'>(null)
+  const [duplicateError, setDuplicateError] = useState<string | null>(null)
 
   const weekEnd = useMemo(() => {
     const d = new Date(weekStart)
@@ -215,6 +220,12 @@ export default function SchedulingPage() {
     if (data.studentName) noteLines.push(`Student: ${data.studentName}`)
     if (data.studentPhone) noteLines.push(`Phone: ${data.studentPhone}`)
     if (data.group) noteLines.push(`Group: ${data.group}`)
+    if (data.lastTheoryModule) {
+      const dateStr = data.lastTheoryDate
+        ? new Date(data.lastTheoryDate).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
+        : ''
+      noteLines.push(`LastTheory: ${data.lastTheoryModule}${dateStr ? ` (${dateStr})` : ''}`)
+    }
     return noteLines.join('\n')
   }
 
@@ -382,6 +393,7 @@ export default function SchedulingPage() {
       endTime: `${(hour + 1).toString().padStart(2, '0')}:00`,
       subcalendarId: selectedTeacher ? selectedTeacher.toString() : '',
     })
+    setDuplicateError(null)
     setShowCreateDialog(true)
   }
 
@@ -443,6 +455,15 @@ export default function SchedulingPage() {
     return match?.[1]?.trim() || ''
   }
 
+  // Parse last theory class from notes e.g. "LastTheory: 5 (Feb 10, 2026)"
+  const parseLastTheoryFromNotes = (notes?: string): { module: number | null; date: string | null } => {
+    if (!notes) return { module: null, date: null }
+    const clean = stripHtml(notes)
+    const match = clean.match(/LastTheory:\s*(\d+)(?:\s*\((.+?)\))?/)
+    if (!match) return { module: null, date: null }
+    return { module: parseInt(match[1]), date: match[2] || null }
+  }
+
   // Fill form from event data
   const fillFormFromEvent = (event: TeamupEvent) => {
     const startDt = new Date(event.start_dt)
@@ -450,6 +471,7 @@ export default function SchedulingPage() {
     const phone = parsePhoneFromNotes(event.notes)
     const studentFromNotes = parseStudentFromNotes(event.notes)
     const groupFromNotes = parseGroupFromNotes(event.notes)
+    const lastTheory = parseLastTheoryFromNotes(event.notes)
 
     setFormData({
       module: parsed.module,
@@ -461,6 +483,8 @@ export default function SchedulingPage() {
       studentName: studentFromNotes || parsed.studentName,
       studentPhone: phone,
       group: groupFromNotes || parsed.group,
+      lastTheoryModule: lastTheory.module,
+      lastTheoryDate: lastTheory.date,
     })
   }
 
@@ -523,8 +547,44 @@ export default function SchedulingPage() {
     return d.toDateString() === today.toDateString()
   }
 
+  // Check for duplicate: same student + same date + same teacher + same time
+  const checkDuplicate = (data: EventFormData): string | null => {
+    if (!data.studentName || !data.date || !data.subcalendarId) return null
+    const startDt = `${data.date}T${data.startTime}`
+    const duplicate = events.find(ev => {
+      const evDate = ev.start_dt.split('T')[0]
+      const evTime = ev.start_dt.slice(11, 16)
+      const evTeacher = ev.subcalendar_ids[0]?.toString()
+      const evStudent = parseStudentFromNotes(ev.notes) || parseModuleFromTitle(ev.title).studentName
+      // Check same student + same date + overlapping time + same teacher
+      if (evStudent.toLowerCase() === data.studentName.toLowerCase() &&
+          evDate === data.date &&
+          evTime === data.startTime &&
+          evTeacher === data.subcalendarId) {
+        return true
+      }
+      // Also check same student + same date + same module (different teacher ok, but same class = duplicate)
+      if (data.module && evStudent.toLowerCase() === data.studentName.toLowerCase() && evDate === data.date) {
+        const evParsed = parseModuleFromTitle(ev.title)
+        if (evParsed.module === data.module) return true
+      }
+      return false
+    })
+    if (duplicate) {
+      const teacher = activeTeachers.find(t => t.id === duplicate.subcalendar_ids[0])
+      return `${data.studentName} already has a class scheduled on ${data.date} (${duplicate.title} with ${teacher?.name || 'teacher'})`
+    }
+    return null
+  }
+
   const handleCreate = () => {
     if ((!formData.module && !formData.title) || !formData.date || !formData.subcalendarId) return
+    setDuplicateError(null)
+    const dup = checkDuplicate(formData)
+    if (dup) {
+      setDuplicateError(dup)
+      return
+    }
     createMutation.mutate(formData)
   }
 
@@ -598,8 +658,15 @@ export default function SchedulingPage() {
           value={formData.studentName}
           phone={formData.studentPhone}
           group={formData.group}
-          onSelect={(name, phone, group) => setFormData(prev => ({ ...prev, studentName: name, studentPhone: phone, group }))}
-          onChange={(name) => setFormData(prev => ({ ...prev, studentName: name, studentPhone: '', group: '' }))}
+          onSelect={(name, phone, groupInfo) => setFormData(prev => ({
+            ...prev,
+            studentName: name,
+            studentPhone: phone,
+            group: groupInfo.groupName,
+            lastTheoryModule: groupInfo.lastTheoryModule,
+            lastTheoryDate: groupInfo.lastTheoryDate,
+          }))}
+          onChange={(name) => setFormData(prev => ({ ...prev, studentName: name, studentPhone: '', group: '', lastTheoryModule: null, lastTheoryDate: null }))}
         />
       </div>
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
@@ -703,6 +770,7 @@ export default function SchedulingPage() {
               date: formatDate(new Date()),
               subcalendarId: selectedTeacher ? selectedTeacher.toString() : '',
             })
+            setDuplicateError(null)
             setShowCreateDialog(true)
           }}>
             <Plus className="h-4 w-4 mr-1" />
@@ -821,6 +889,12 @@ export default function SchedulingPage() {
             </DialogDescription>
           </DialogHeader>
           {eventForm}
+          {duplicateError && (
+            <div className="bg-red-50 border border-red-200 rounded-lg p-3 text-sm text-red-800 flex items-start gap-2">
+              <AlertCircle className="h-4 w-4 flex-shrink-0 mt-0.5" />
+              <span>{duplicateError}</span>
+            </div>
+          )}
           <DialogFooter>
             <Button variant="outline" onClick={() => setShowCreateDialog(false)}>
               Cancel
@@ -905,6 +979,7 @@ export default function SchedulingPage() {
             const phone = parsePhoneFromNotes(selectedEvent.notes)
             const studentFromNotes = parseStudentFromNotes(selectedEvent.notes)
             const groupFromNotes = parseGroupFromNotes(selectedEvent.notes)
+            const lastTheory = parseLastTheoryFromNotes(selectedEvent.notes)
             const teacher = activeTeachers.find(t => t.id === selectedEvent.subcalendar_ids[0])
             const startDt = new Date(selectedEvent.start_dt)
             const endDt = new Date(selectedEvent.end_dt)
@@ -976,6 +1051,20 @@ export default function SchedulingPage() {
                         <div>
                           <p className="text-sm text-muted-foreground">Group</p>
                           <p className="font-medium">{group}</p>
+                        </div>
+                      </div>
+                    )}
+                    {lastTheory.module && (
+                      <div className="flex items-center gap-3">
+                        <BookOpen className="h-4 w-4 text-muted-foreground flex-shrink-0" />
+                        <div>
+                          <p className="text-sm text-muted-foreground">Last Theory Class</p>
+                          <p className="font-medium">
+                            Module {lastTheory.module}
+                            {lastTheory.date && (
+                              <span className="text-sm text-muted-foreground ml-1">— {lastTheory.date}</span>
+                            )}
+                          </p>
                         </div>
                       </div>
                     )}

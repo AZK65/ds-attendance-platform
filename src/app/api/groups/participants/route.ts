@@ -9,6 +9,7 @@ interface ParticipantWithGroup {
   groupId: string
   groupName: string
   moduleNumber: number | null
+  lastMessageDate: string | null
 }
 
 export async function GET() {
@@ -45,7 +46,8 @@ export async function GET() {
             pushName: p.pushName || null,
             groupId: group.id,
             groupName: group.name!,
-            moduleNumber: group.moduleNumber || null
+            moduleNumber: group.moduleNumber || null,
+            lastMessageDate: group.lastMessageDate ? group.lastMessageDate.toISOString() : null
           }))
         })
       )

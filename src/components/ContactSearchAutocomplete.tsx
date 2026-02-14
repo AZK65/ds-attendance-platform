@@ -4,7 +4,7 @@ import { useState, useEffect, useRef, useMemo } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { Input } from '@/components/ui/input'
 import { Badge } from '@/components/ui/badge'
-import { Loader2, Phone, User, Users } from 'lucide-react'
+import { Loader2, Phone, User, Users, BookOpen } from 'lucide-react'
 
 interface Contact {
   id: string
@@ -21,13 +21,20 @@ interface ParticipantWithGroup {
   groupId: string
   groupName: string
   moduleNumber: number | null
+  lastMessageDate: string | null
+}
+
+export interface StudentGroupInfo {
+  groupName: string
+  lastTheoryModule: number | null
+  lastTheoryDate: string | null
 }
 
 interface ContactSearchAutocompleteProps {
   value: string
   phone: string
   group: string
-  onSelect: (name: string, phone: string, group: string) => void
+  onSelect: (name: string, phone: string, groupInfo: StudentGroupInfo) => void
   onChange: (name: string) => void
   placeholder?: string
 }
@@ -111,11 +118,20 @@ export function ContactSearchAutocomplete({
 
   const handleSelect = (contact: Contact) => {
     const displayName = contact.name || contact.pushName || contact.phone
-    // Look up which groups this contact belongs to
     const groups = phoneToGroups.get(contact.phone) || []
-    // Pick the first group (most common case: student is in one group)
-    const groupName = groups.length > 0 ? groups[0].groupName : ''
-    onSelect(displayName, contact.phone, groupName)
+
+    // Find the group with module info (theory class) — pick the one with highest module number
+    // as that represents their latest theory progress
+    const theoryGroups = groups.filter(g => g.moduleNumber)
+    const latestTheory = theoryGroups.sort((a, b) => (b.moduleNumber || 0) - (a.moduleNumber || 0))[0]
+
+    const groupInfo: StudentGroupInfo = {
+      groupName: groups.length > 0 ? groups[0].groupName : '',
+      lastTheoryModule: latestTheory?.moduleNumber || null,
+      lastTheoryDate: latestTheory?.lastMessageDate || null,
+    }
+
+    onSelect(displayName, contact.phone, groupInfo)
     setShowDropdown(false)
   }
 
@@ -126,7 +142,6 @@ export function ContactSearchAutocomplete({
     return phoneNum
   }
 
-  // Get group info for a contact to display in dropdown
   const getContactGroups = (contactPhone: string) => {
     return phoneToGroups.get(contactPhone) || []
   }
@@ -172,6 +187,8 @@ export function ContactSearchAutocomplete({
         <div className="absolute z-50 w-full mt-1 bg-background border rounded-md shadow-lg max-h-[250px] overflow-y-auto">
           {contacts.map((contact) => {
             const groups = getContactGroups(contact.phone)
+            const theoryGroups = groups.filter(g => g.moduleNumber)
+            const latestTheory = theoryGroups.sort((a, b) => (b.moduleNumber || 0) - (a.moduleNumber || 0))[0]
             return (
               <button
                 key={contact.id}
@@ -196,6 +213,15 @@ export function ContactSearchAutocomplete({
                           {g.groupName}
                         </Badge>
                       ))}
+                    </div>
+                  )}
+                  {latestTheory && (
+                    <div className="flex items-center gap-1 mt-0.5 text-[10px] text-muted-foreground">
+                      <BookOpen className="h-3 w-3" />
+                      <span>Last: Module {latestTheory.moduleNumber}</span>
+                      {latestTheory.lastMessageDate && (
+                        <span>— {new Date(latestTheory.lastMessageDate).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}</span>
+                      )}
                     </div>
                   )}
                 </div>
