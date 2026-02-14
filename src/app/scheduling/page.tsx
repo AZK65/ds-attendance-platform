@@ -31,6 +31,7 @@ import {
   Trash2,
   Phone,
   User,
+  Users,
   Clock,
   Edit3,
   MessageCircle,
@@ -39,6 +40,13 @@ import {
 } from 'lucide-react'
 import Link from 'next/link'
 import { ContactSearchAutocomplete } from '@/components/ContactSearchAutocomplete'
+
+interface WhatsAppGroup {
+  id: string
+  name: string
+  participantCount: number
+  moduleNumber?: number | null
+}
 
 interface SubCalendar {
   id: number
@@ -191,6 +199,19 @@ export default function SchedulingPage() {
   })
 
   const activeTeachers = subcalendars.filter(s => s.active)
+
+  // Fetch WhatsApp groups
+  const { data: groupsData } = useQuery<{ groups: WhatsAppGroup[] }>({
+    queryKey: ['whatsapp-groups'],
+    queryFn: async () => {
+      const res = await fetch('/api/groups')
+      if (!res.ok) throw new Error('Failed to fetch groups')
+      return res.json()
+    },
+    staleTime: 5 * 60 * 1000,
+  })
+
+  const whatsappGroups = groupsData?.groups || []
 
   // Fetch events for current week
   const { data: events = [], isLoading: loadingEvents } = useQuery<TeamupEvent[]>({
@@ -571,11 +592,26 @@ export default function SchedulingPage() {
       </div>
       <div>
         <Label>Student Group (optional)</Label>
-        <Input
+        <Select
           value={formData.group}
-          onChange={(e) => setFormData(prev => ({ ...prev, group: e.target.value }))}
-          placeholder="Group name (optional)"
-        />
+          onValueChange={(val) => setFormData(prev => ({ ...prev, group: val }))}
+        >
+          <SelectTrigger>
+            <SelectValue placeholder="Select group" />
+          </SelectTrigger>
+          <SelectContent>
+            {whatsappGroups.map(g => (
+              <SelectItem key={g.id} value={g.name}>
+                <div className="flex items-center gap-2">
+                  <span>{g.name}</span>
+                  <span className="text-xs text-muted-foreground">
+                    ({g.participantCount} members{g.moduleNumber ? `, M${g.moduleNumber}` : ''})
+                  </span>
+                </div>
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
       </div>
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
         <div>
@@ -957,7 +993,7 @@ export default function SchedulingPage() {
                 {/* Group */}
                 {group && (
                   <div className="flex items-center gap-3">
-                    <User className="h-4 w-4 text-muted-foreground flex-shrink-0" />
+                    <Users className="h-4 w-4 text-muted-foreground flex-shrink-0" />
                     <div>
                       <p className="text-sm text-muted-foreground">Group</p>
                       <p className="font-medium">{group}</p>
