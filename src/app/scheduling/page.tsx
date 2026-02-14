@@ -39,6 +39,8 @@ import {
   AlertCircle,
   GraduationCap,
   BookOpen,
+  DollarSign,
+  Clock4,
 } from 'lucide-react'
 import Link from 'next/link'
 import { ContactSearchAutocomplete, type StudentGroupInfo } from '@/components/ContactSearchAutocomplete'
@@ -73,6 +75,8 @@ interface EventFormData {
   group: string
   lastTheoryModule: number | null
   lastTheoryDate: string | null
+  isExtraHours: boolean
+  isPaid: boolean
 }
 
 const initialFormData: EventFormData = {
@@ -87,6 +91,8 @@ const initialFormData: EventFormData = {
   group: '',
   lastTheoryModule: null,
   lastTheoryDate: null,
+  isExtraHours: false,
+  isPaid: false,
 }
 
 const MODULE_OPTIONS = [
@@ -217,6 +223,8 @@ export default function SchedulingPage() {
   // Build notes string with phone
   const buildNotes = (data: EventFormData) => {
     const noteLines = []
+    if (data.isExtraHours) noteLines.push('ExtraHours: yes')
+    if (data.isExtraHours) noteLines.push(`Paid: ${data.isPaid ? 'yes' : 'no'}`)
     if (data.studentName) noteLines.push(`Student: ${data.studentName}`)
     if (data.studentPhone) noteLines.push(`Phone: ${data.studentPhone}`)
     if (data.group) noteLines.push(`Group: ${data.group}`)
@@ -455,6 +463,20 @@ export default function SchedulingPage() {
     return match?.[1]?.trim() || ''
   }
 
+  // Parse extra hours flag from notes
+  const parseExtraHoursFromNotes = (notes?: string) => {
+    if (!notes) return false
+    const clean = stripHtml(notes)
+    return /ExtraHours:\s*yes/i.test(clean)
+  }
+
+  // Parse paid status from notes
+  const parsePaidFromNotes = (notes?: string) => {
+    if (!notes) return false
+    const clean = stripHtml(notes)
+    return /Paid:\s*yes/i.test(clean)
+  }
+
   // Parse last theory class from notes e.g. "LastTheory: 5 (Feb 10, 2026)"
   const parseLastTheoryFromNotes = (notes?: string): { module: number | null; date: string | null } => {
     if (!notes) return { module: null, date: null }
@@ -472,6 +494,8 @@ export default function SchedulingPage() {
     const studentFromNotes = parseStudentFromNotes(event.notes)
     const groupFromNotes = parseGroupFromNotes(event.notes)
     const lastTheory = parseLastTheoryFromNotes(event.notes)
+    const isExtra = parseExtraHoursFromNotes(event.notes)
+    const paid = parsePaidFromNotes(event.notes)
 
     setFormData({
       module: parsed.module,
@@ -485,6 +509,8 @@ export default function SchedulingPage() {
       group: groupFromNotes || parsed.group,
       lastTheoryModule: lastTheory.module,
       lastTheoryDate: lastTheory.date,
+      isExtraHours: isExtra,
+      isPaid: paid,
     })
   }
 
@@ -652,23 +678,76 @@ export default function SchedulingPage() {
           placeholder="Custom title or notes"
         />
       </div>
+      {/* Extra Hours Toggle */}
+      <div className="flex items-center gap-3">
+        <Button
+          type="button"
+          variant={formData.isExtraHours ? 'default' : 'outline'}
+          size="sm"
+          onClick={() => setFormData(prev => ({
+            ...prev,
+            isExtraHours: !prev.isExtraHours,
+            isPaid: false,
+            studentPhone: '',
+            group: '',
+            lastTheoryModule: null,
+            lastTheoryDate: null,
+          }))}
+          className={formData.isExtraHours ? 'bg-amber-600 hover:bg-amber-700' : ''}
+        >
+          <Clock4 className="h-4 w-4 mr-1" />
+          Extra Hours
+        </Button>
+        {formData.isExtraHours && (
+          <Button
+            type="button"
+            variant={formData.isPaid ? 'default' : 'outline'}
+            size="sm"
+            onClick={() => setFormData(prev => ({ ...prev, isPaid: !prev.isPaid }))}
+            className={formData.isPaid ? 'bg-green-600 hover:bg-green-700' : 'border-red-300 text-red-600 hover:bg-red-50'}
+          >
+            <DollarSign className="h-4 w-4 mr-1" />
+            {formData.isPaid ? 'Paid' : 'Not Paid'}
+          </Button>
+        )}
+      </div>
+      {/* Student Name — autocomplete for normal, plain input for extra hours */}
       <div>
         <Label>Student Name</Label>
-        <ContactSearchAutocomplete
-          value={formData.studentName}
-          phone={formData.studentPhone}
-          group={formData.group}
-          onSelect={(name, phone, groupInfo) => setFormData(prev => ({
-            ...prev,
-            studentName: name,
-            studentPhone: phone,
-            group: groupInfo.groupName,
-            lastTheoryModule: groupInfo.lastTheoryModule,
-            lastTheoryDate: groupInfo.lastTheoryDate,
-          }))}
-          onChange={(name) => setFormData(prev => ({ ...prev, studentName: name, studentPhone: '', group: '', lastTheoryModule: null, lastTheoryDate: null }))}
-        />
+        {formData.isExtraHours ? (
+          <Input
+            value={formData.studentName}
+            onChange={(e) => setFormData(prev => ({ ...prev, studentName: e.target.value }))}
+            placeholder="Enter student name"
+          />
+        ) : (
+          <ContactSearchAutocomplete
+            value={formData.studentName}
+            phone={formData.studentPhone}
+            group={formData.group}
+            onSelect={(name, phone, groupInfo) => setFormData(prev => ({
+              ...prev,
+              studentName: name,
+              studentPhone: phone,
+              group: groupInfo.groupName,
+              lastTheoryModule: groupInfo.lastTheoryModule,
+              lastTheoryDate: groupInfo.lastTheoryDate,
+            }))}
+            onChange={(name) => setFormData(prev => ({ ...prev, studentName: name, studentPhone: '', group: '', lastTheoryModule: null, lastTheoryDate: null }))}
+          />
+        )}
       </div>
+      {/* Manual phone input for extra hours */}
+      {formData.isExtraHours && (
+        <div>
+          <Label>Phone Number</Label>
+          <Input
+            value={formData.studentPhone}
+            onChange={(e) => setFormData(prev => ({ ...prev, studentPhone: e.target.value }))}
+            placeholder="e.g. 15145551234"
+          />
+        </div>
+      )}
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
         <div>
           <Label>Date</Label>
@@ -842,6 +921,8 @@ export default function SchedulingPage() {
                       const { top, height } = getEventStyle(event)
                       const color = getEventColor(event)
                       const teacherName = getTeacherName(event)
+                      const isExtra = parseExtraHoursFromNotes(event.notes)
+                      const isPaid = parsePaidFromNotes(event.notes)
                       const startTime = new Date(event.start_dt).toLocaleTimeString('en-US', {
                         hour: 'numeric',
                         minute: '2-digit',
@@ -851,11 +932,14 @@ export default function SchedulingPage() {
                       return (
                         <div
                           key={event.id}
-                          className="absolute left-1 right-1 rounded px-1.5 py-0.5 cursor-pointer overflow-hidden text-white text-xs leading-tight shadow-sm hover:shadow-md transition-shadow"
+                          className={`absolute left-1 right-1 rounded px-1.5 py-0.5 cursor-pointer overflow-hidden text-xs leading-tight shadow-sm hover:shadow-md transition-shadow ${
+                            isExtra ? 'text-black border-2' : 'text-white'
+                          }`}
                           style={{
                             top,
                             height,
-                            backgroundColor: color,
+                            backgroundColor: isExtra ? (isPaid ? '#FDE68A' : '#FCA5A5') : color,
+                            borderColor: isExtra ? (isPaid ? '#D97706' : '#DC2626') : undefined,
                             minHeight: 22,
                           }}
                           onClick={(e) => handleEventClick(event, e)}
@@ -980,6 +1064,8 @@ export default function SchedulingPage() {
             const studentFromNotes = parseStudentFromNotes(selectedEvent.notes)
             const groupFromNotes = parseGroupFromNotes(selectedEvent.notes)
             const lastTheory = parseLastTheoryFromNotes(selectedEvent.notes)
+            const isExtra = parseExtraHoursFromNotes(selectedEvent.notes)
+            const isPaid = parsePaidFromNotes(selectedEvent.notes)
             const teacher = activeTeachers.find(t => t.id === selectedEvent.subcalendar_ids[0])
             const startDt = new Date(selectedEvent.start_dt)
             const endDt = new Date(selectedEvent.end_dt)
@@ -993,6 +1079,18 @@ export default function SchedulingPage() {
 
             return (
               <div className="space-y-4">
+                {/* Extra Hours Badge */}
+                {isExtra && (
+                  <div className={`flex items-center gap-2 p-3 rounded-lg border-2 ${isPaid ? 'bg-amber-50 border-amber-400' : 'bg-red-50 border-red-400'}`}>
+                    <Clock4 className={`h-5 w-5 ${isPaid ? 'text-amber-600' : 'text-red-600'}`} />
+                    <span className="font-medium">Extra Hours</span>
+                    <span className={`ml-auto inline-flex items-center gap-1 px-2 py-0.5 rounded text-sm font-medium ${isPaid ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'}`}>
+                      <DollarSign className="h-3.5 w-3.5" />
+                      {isPaid ? 'Paid' : 'Not Paid'}
+                    </span>
+                  </div>
+                )}
+
                 {/* Class Info - Module/Session + Phase */}
                 {(moduleLabel || phaseInfo) && (
                   <div className="p-3 bg-muted/50 rounded-lg space-y-2">
