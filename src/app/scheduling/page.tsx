@@ -391,24 +391,36 @@ export default function SchedulingPage() {
     }
   }
 
+  // Teamup returns notes as HTML (e.g. <p>Student: X<br>Phone: Y</p>)
+  // Strip HTML tags and convert <br> to newlines for parsing
+  const stripHtml = (html: string) => {
+    return html
+      .replace(/<br\s*\/?>/gi, '\n')
+      .replace(/<\/?[^>]+(>|$)/g, '')
+      .trim()
+  }
+
   // Parse phone from event notes
   const parsePhoneFromNotes = (notes?: string) => {
     if (!notes) return ''
-    const phoneMatch = notes.match(/Phone:\s*(\S+)/)
+    const clean = stripHtml(notes)
+    const phoneMatch = clean.match(/Phone:\s*(\S+)/)
     return phoneMatch?.[1] || ''
   }
 
   // Parse student name from notes (more reliable than title parsing)
   const parseStudentFromNotes = (notes?: string) => {
     if (!notes) return ''
-    const match = notes.match(/Student:\s*(.+)/)
+    const clean = stripHtml(notes)
+    const match = clean.match(/Student:\s*(.+)/)
     return match?.[1]?.trim() || ''
   }
 
   // Parse group from notes
   const parseGroupFromNotes = (notes?: string) => {
     if (!notes) return ''
-    const match = notes.match(/Group:\s*(.+)/)
+    const clean = stripHtml(notes)
+    const match = clean.match(/Group:\s*(.+)/)
     return match?.[1]?.trim() || ''
   }
 
