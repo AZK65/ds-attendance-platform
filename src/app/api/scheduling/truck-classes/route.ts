@@ -227,6 +227,43 @@ export async function POST(request: NextRequest) {
       errors.push(`Summary message: ${err instanceof Error ? err.message : 'Failed to send'}`)
     }
 
+    // Notify teacher (Nasar) about the new truck classes
+    try {
+      const state2 = getWhatsAppState()
+      if (state2.isConnected) {
+        const teacherPhone = await prisma.teacherPhone.findUnique({
+          where: { subcalendarId: nasarId },
+        })
+        if (teacherPhone?.phone) {
+          // Check if any class is within next 7 days
+          const now = new Date()
+          const sevenDaysFromNow = new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000)
+          const upcomingClasses = classes.filter(cls => {
+            const classDate = new Date(cls.date + 'T12:00:00')
+            return classDate <= sevenDaysFromNow
+          })
+
+          if (upcomingClasses.length > 0) {
+            let teacherMsg = `📅 New truck classes added for ${studentName}:\n\n`
+            let num = 0
+            for (const cls of classes) {
+              if (!cls.isExam) num++
+              const dateStr = formatDateDisplay(cls.date)
+              const timeStr = `${formatTimeDisplay(cls.startTime)} - ${formatTimeDisplay(cls.endTime)}`
+              if (cls.isExam) {
+                teacherMsg += `🎯 Exam: ${dateStr} ${timeStr}${cls.examLocation ? ` (${cls.examLocation})` : ''}\n`
+              } else {
+                teacherMsg += `${num}. ${dateStr} ${timeStr}\n`
+              }
+            }
+            await sendPrivateMessage(teacherPhone.phone, teacherMsg)
+          }
+        }
+      }
+    } catch (err) {
+      console.error('Failed to notify teacher about truck classes:', err)
+    }
+
     return NextResponse.json({
       success: true,
       eventsCreated,

@@ -112,6 +112,16 @@ model CertificateSettings {
   updatedAt             DateTime @updatedAt
 }
 
+// Teacher phone numbers for WhatsApp notifications
+model TeacherPhone {
+  id            String   @id @default(cuid())
+  subcalendarId Int      @unique // Teamup subcalendar ID
+  name          String           // Teacher name (for display)
+  phone         String           // WhatsApp phone e.g. "15145551234"
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+}
+
 // Scheduled messages for sending reminders at a specific time
 model ScheduledMessage {
   id            String   @id @default(cuid())

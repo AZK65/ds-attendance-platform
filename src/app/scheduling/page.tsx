@@ -46,6 +46,8 @@ import {
   Printer,
   FileText,
   ArrowLeft,
+  Settings,
+  Save,
 } from 'lucide-react'
 import { Checkbox } from '@/components/ui/checkbox'
 import Link from 'next/link'
@@ -241,6 +243,11 @@ export default function SchedulingPage() {
   const [showTruckSchedule, setShowTruckSchedule] = useState(false)
   const [truckScheduleData, setTruckScheduleData] = useState<{ studentName: string; studentPhone: string; classes: TruckClassRow[] } | null>(null)
 
+  // Teacher phone management
+  const [showTeacherSettings, setShowTeacherSettings] = useState(false)
+  const [teacherPhones, setTeacherPhones] = useState<Record<number, string>>({})
+  const [savingTeacherPhones, setSavingTeacherPhones] = useState(false)
+
   // Compute date range based on view mode
   const { startDate, endDate } = useMemo(() => {
     if (viewMode === 'day') {
@@ -310,6 +317,67 @@ export default function SchedulingPage() {
       return res.json()
     },
   })
+
+  // Fetch teacher phone numbers
+  const { data: teacherPhoneData } = useQuery<{ teachers: { subcalendarId: number; name: string; phone: string }[] }>({
+    queryKey: ['teacher-phones'],
+    queryFn: async () => {
+      const res = await fetch('/api/scheduling/teacher-phones')
+      if (!res.ok) throw new Error('Failed to fetch teacher phones')
+      return res.json()
+    },
+    staleTime: 5 * 60 * 1000,
+  })
+
+  // Initialize teacher phones when data loads
+  useEffect(() => {
+    if (teacherPhoneData?.teachers) {
+      const phoneMap: Record<number, string> = {}
+      teacherPhoneData.teachers.forEach(t => { phoneMap[t.subcalendarId] = t.phone })
+      setTeacherPhones(phoneMap)
+    }
+  }, [teacherPhoneData])
+
+  // Save teacher phones
+  const handleSaveTeacherPhones = async () => {
+    setSavingTeacherPhones(true)
+    try {
+      for (const teacher of activeTeachers) {
+        const phone = teacherPhones[teacher.id]
+        if (phone) {
+          await fetch('/api/scheduling/teacher-phones', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ subcalendarId: teacher.id, name: teacher.name, phone }),
+          })
+        }
+      }
+      queryClient.invalidateQueries({ queryKey: ['teacher-phones'] })
+    } catch (err) {
+      console.error('Failed to save teacher phones:', err)
+    } finally {
+      setSavingTeacherPhones(false)
+      setShowTeacherSettings(false)
+    }
+  }
+
+  // Notify teacher about class change (fire-and-forget)
+  const notifyTeacher = (subcalendarId: string, type: 'created' | 'updated' | 'deleted', data: EventFormData) => {
+    const moduleLabel = data.module ? getModuleLabel(data.module) : data.title || 'Class'
+    fetch('/api/scheduling/teacher-notify', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        subcalendarId,
+        type,
+        studentName: data.studentName,
+        module: moduleLabel,
+        date: data.date,
+        startTime: data.startTime,
+        endTime: data.endTime,
+      }),
+    }).catch(() => {}) // fire-and-forget
+  }
 
   // Build notes string with phone
   const buildNotes = (data: EventFormData) => {
@@ -419,6 +487,7 @@ export default function SchedulingPage() {
       queryClient.invalidateQueries({ queryKey: ['scheduling-events'] })
       setShowCreateDialog(false)
       if (data.studentPhone) sendNotification(data)
+      if (data.subcalendarId) notifyTeacher(data.subcalendarId, 'created', data)
       setFormData(initialFormData)
     },
   })
@@ -441,9 +510,10 @@ export default function SchedulingPage() {
       if (!res.ok) throw new Error('Failed to update event')
       return res.json()
     },
-    onSuccess: () => {
+    onSuccess: (_, { data }) => {
       queryClient.invalidateQueries({ queryKey: ['scheduling-events'] })
       setShowEditDialog(false)
+      if (data.subcalendarId) notifyTeacher(data.subcalendarId, 'updated', data)
       setEditingEvent(null)
       setFormData(initialFormData)
     },
@@ -451,14 +521,15 @@ export default function SchedulingPage() {
 
   // Delete event mutation
   const deleteMutation = useMutation({
-    mutationFn: async (eventId: string) => {
+    mutationFn: async ({ eventId, data }: { eventId: string; data: EventFormData }) => {
       const res = await fetch(`/api/scheduling/events/${eventId}`, { method: 'DELETE' })
       if (!res.ok) throw new Error('Failed to delete event')
       return res.json()
     },
-    onSuccess: () => {
+    onSuccess: (_, { data }) => {
       queryClient.invalidateQueries({ queryKey: ['scheduling-events'] })
       setShowEditDialog(false)
+      if (data.subcalendarId) notifyTeacher(data.subcalendarId, 'deleted', data)
       setEditingEvent(null)
     },
   })
@@ -868,7 +939,7 @@ export default function SchedulingPage() {
 
   const handleDelete = () => {
     if (!editingEvent) return
-    deleteMutation.mutate(editingEvent.id)
+    deleteMutation.mutate({ eventId: editingEvent.id, data: formData })
   }
 
   // Render an event block (shared between day and week views)
@@ -1228,6 +1299,15 @@ export default function SchedulingPage() {
               </Button>
             ))
           )}
+          <Button
+            variant="ghost"
+            size="icon"
+            className="h-8 w-8 text-muted-foreground hover:text-foreground"
+            onClick={() => setShowTeacherSettings(true)}
+            title="Teacher Phone Settings"
+          >
+            <Settings className="h-4 w-4" />
+          </Button>
         </div>
 
         {/* View Switcher + Date Navigation */}
@@ -1900,6 +1980,49 @@ export default function SchedulingPage() {
                 <Printer className="h-4 w-4 mr-1" />Print PDF
               </Button>
             )}
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Teacher Phone Settings Dialog */}
+      <Dialog open={showTeacherSettings} onOpenChange={setShowTeacherSettings}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Settings className="h-5 w-5" />
+              Teacher Phone Numbers
+            </DialogTitle>
+            <DialogDescription>
+              Add phone numbers to notify teachers via WhatsApp when classes are created, updated, or cancelled within the next 7 days.
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-3 py-2">
+            {activeTeachers.map(teacher => (
+              <div key={teacher.id} className="flex items-center gap-3">
+                <div className="flex items-center gap-2 min-w-[120px]">
+                  <div className="w-3 h-3 rounded-full flex-shrink-0" style={{ backgroundColor: getColor(teacher.color) }} />
+                  <span className="text-sm font-medium">{teacher.name}</span>
+                </div>
+                <Input
+                  placeholder="15145551234"
+                  value={teacherPhones[teacher.id] || ''}
+                  onChange={(e) => setTeacherPhones(prev => ({ ...prev, [teacher.id]: e.target.value }))}
+                  className="flex-1"
+                />
+              </div>
+            ))}
+            {activeTeachers.length === 0 && (
+              <p className="text-sm text-muted-foreground text-center py-4">No teachers found. Make sure subcalendars are configured in Teamup.</p>
+            )}
+          </div>
+
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowTeacherSettings(false)}>Cancel</Button>
+            <Button onClick={handleSaveTeacherPhones} disabled={savingTeacherPhones}>
+              {savingTeacherPhones ? <Loader2 className="h-4 w-4 animate-spin mr-1" /> : <Save className="h-4 w-4 mr-1" />}
+              Save
+            </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
