@@ -902,34 +902,30 @@ export async function sendMessageToGroup(groupId: string, message: string): Prom
     throw new Error('WhatsApp not connected')
   }
 
-  try {
-    const client = state.client as {
-      sendMessage: (chatId: string, content: string) => Promise<unknown>
-      pupPage?: {
-        evaluate: <T>(fn: string) => Promise<T>
-      }
+  const client = state.client as {
+    sendMessage: (chatId: string, content: string) => Promise<unknown>
+    pupPage?: {
+      evaluate: <T>(fn: string) => Promise<T>
     }
+  }
 
-    console.log(`Sending message to group ${groupId}`)
+  console.log(`Sending message to group ${groupId}`)
 
-    // Try using pupPage to send directly via WhatsApp's internal API
-    if (client.pupPage) {
-      console.log('Using pupPage to send message...')
+  // Try pupPage first, then fall back to client.sendMessage
+  if (client.pupPage) {
+    try {
       const result = await client.pupPage.evaluate(`
         (async () => {
           try {
             const chatId = '${groupId}';
             const message = ${JSON.stringify(message)};
 
-            // Get the chat
             const chat = await window.Store.Chat.find(chatId);
             if (!chat) {
-              return { error: 'Chat not found' };
+              return { error: 'Chat not found for ' + chatId };
             }
 
-            // Send message using WWebJS internal method
             await window.WWebJS.sendMessage(chat, message, {});
-
             return { success: true };
           } catch (e) {
             return { error: String(e) };
@@ -938,20 +934,30 @@ export async function sendMessageToGroup(groupId: string, message: string): Prom
       `) as { success?: boolean; error?: string }
 
       if (result.error) {
-        console.error('pupPage send error:', result.error)
-        throw new Error(result.error)
+        console.warn(`pupPage group send error for ${groupId}: ${result.error}, falling back to client.sendMessage`)
+        // Fall through to client.sendMessage below
+      } else {
+        console.log(`Group message sent to ${groupId} via pupPage`)
+        return
       }
-
-      console.log('Message sent successfully via pupPage')
-      return
+    } catch (pupError) {
+      const pupErrMsg = pupError instanceof Error ? pupError.message : String(pupError)
+      console.warn(`pupPage.evaluate failed for group ${groupId}: ${pupErrMsg}, falling back to client.sendMessage`)
+      if (pupErrMsg.includes('detached') || pupErrMsg.includes('Target closed') || pupErrMsg.includes('destroyed')) {
+        state.isConnected = false
+        throw new Error(`WhatsApp browser session lost: ${pupErrMsg}`)
+      }
+      // Fall through to client.sendMessage below
     }
+  }
 
-    // Fallback to client.sendMessage
+  // Fallback: use the standard client.sendMessage method
+  try {
     await client.sendMessage(groupId, message)
-    console.log('Message sent successfully')
+    console.log(`Group message sent to ${groupId} via client.sendMessage`)
   } catch (error) {
     const errMsg = error instanceof Error ? error.message : typeof error === 'object' ? JSON.stringify(error) : String(error)
-    console.error('Send message error:', errMsg)
+    console.error(`Send group message error for ${groupId}:`, errMsg)
     throw new Error(errMsg)
   }
 }
@@ -1280,33 +1286,30 @@ export async function sendPrivateMessage(phone: string, message: string): Promis
 
   const chatId = phoneToJid(phone)
 
-  try {
-    const client = state.client as {
-      sendMessage: (chatId: string, content: string) => Promise<unknown>
-      pupPage?: {
-        evaluate: <T>(fn: string) => Promise<T>
-      }
+  const client = state.client as {
+    sendMessage: (chatId: string, content: string) => Promise<unknown>
+    pupPage?: {
+      evaluate: <T>(fn: string) => Promise<T>
     }
+  }
 
-    console.log(`Sending private message to ${chatId}`)
+  console.log(`Sending private message to ${chatId}`)
 
-    // Try using pupPage to send directly via WhatsApp's internal API
-    if (client.pupPage) {
+  // Try pupPage first, then fall back to client.sendMessage
+  if (client.pupPage) {
+    try {
       const result = await client.pupPage.evaluate(`
         (async () => {
           try {
             const chatId = '${chatId}';
             const message = ${JSON.stringify(message)};
 
-            // Get or create the chat
             const chat = await window.Store.Chat.find(chatId);
             if (!chat) {
-              return { error: 'Chat not found' };
+              return { error: 'Chat not found for ' + chatId };
             }
 
-            // Send message using WWebJS internal method
             await window.WWebJS.sendMessage(chat, message, {});
-
             return { success: true };
           } catch (e) {
             return { error: String(e) };
@@ -1315,17 +1318,28 @@ export async function sendPrivateMessage(phone: string, message: string): Promis
       `) as { success?: boolean; error?: string }
 
       if (result.error) {
-        console.error('pupPage send error:', result.error)
-        throw new Error(result.error)
+        console.warn(`pupPage send error for ${chatId}: ${result.error}, falling back to client.sendMessage`)
+        // Fall through to client.sendMessage below
+      } else {
+        console.log(`Private message sent to ${chatId} via pupPage`)
+        return
       }
-
-      console.log(`Private message sent to ${chatId} via pupPage`)
-      return
+    } catch (pupError) {
+      const pupErrMsg = pupError instanceof Error ? pupError.message : String(pupError)
+      console.warn(`pupPage.evaluate failed for ${chatId}: ${pupErrMsg}, falling back to client.sendMessage`)
+      // If frame is detached, mark it so we know
+      if (pupErrMsg.includes('detached') || pupErrMsg.includes('Target closed') || pupErrMsg.includes('destroyed')) {
+        state.isConnected = false
+        throw new Error(`WhatsApp browser session lost: ${pupErrMsg}`)
+      }
+      // Fall through to client.sendMessage below
     }
+  }
 
-    // Fallback to client.sendMessage
+  // Fallback: use the standard client.sendMessage method
+  try {
     await client.sendMessage(chatId, message)
-    console.log(`Private message sent to ${chatId}`)
+    console.log(`Private message sent to ${chatId} via client.sendMessage`)
   } catch (error) {
     const errMsg = error instanceof Error ? error.message : typeof error === 'object' ? JSON.stringify(error) : String(error)
     console.error(`Send private message error to ${chatId}:`, errMsg)
