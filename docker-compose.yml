@@ -17,6 +17,8 @@ services:
       - ZOOM_CLIENT_SECRET=${ZOOM_CLIENT_SECRET}
       - AUTH_PASSWORD=${AUTH_PASSWORD}
       - OPENROUTER_API_KEY=${OPENROUTER_API_KEY}
+      - TEAMUP_API_KEY=${TEAMUP_API_KEY}
+      - TEAMUP_CALENDAR_KEY=${TEAMUP_CALENDAR_KEY}
       - NODE_ENV=production
     restart: unless-stopped
 
