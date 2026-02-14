@@ -267,6 +267,11 @@ export async function POST(request: NextRequest) {
               }
             }
             await sendPrivateMessage(teacherPhone.phone, teacherMsg)
+
+            // Log teacher notification
+            await prisma.messageLog.create({
+              data: { type: 'teacher-notify', to: teacherPhone.phone, toName: teacherPhone.name, message: teacherMsg.slice(0, 500), status: 'sent' },
+            }).catch(() => {})
           }
         }
       }

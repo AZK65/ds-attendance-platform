@@ -34,7 +34,7 @@ export async function POST(request: NextRequest) {
 
     // Log the sent message
     await prisma.messageLog.create({
-      data: { type: 'student-notify', to: phone, toName: studentName, message: message.slice(0, 500), status: 'sent' },
+      data: { type: 'class-scheduled', to: phone, toName: studentName, message: message.slice(0, 500), status: 'sent' },
     }).catch(() => {})
 
     return NextResponse.json({ success: true })
@@ -45,7 +45,7 @@ export async function POST(request: NextRequest) {
     const body2 = await request.clone().json().catch(() => ({}))
     await prisma.messageLog.create({
       data: {
-        type: 'student-notify',
+        type: 'class-scheduled',
         to: body2.phone || 'unknown',
         toName: body2.studentName || null,
         message: 'Failed to send scheduling notification',

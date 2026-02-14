@@ -3,7 +3,7 @@
 import { useState, useRef, useEffect } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { motion, AnimatePresence } from 'motion/react'
-import { Bell, CheckCircle2, AlertCircle, Clock, Send, Loader2, MessageCircle, Truck, Users } from 'lucide-react'
+import { Bell, CheckCircle2, AlertCircle, Clock, Send, Loader2, CalendarPlus, Truck, Users, MessageSquare, Image } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
 
 interface MessageLog {
@@ -32,22 +32,30 @@ type Tab = 'sent' | 'queue'
 
 function getTypeIcon(type: string) {
   switch (type) {
-    case 'student-notify': return <MessageCircle className="h-3.5 w-3.5 text-blue-500" />
+    case 'class-scheduled': return <CalendarPlus className="h-3.5 w-3.5 text-blue-500" />
+    case 'student-notify': return <CalendarPlus className="h-3.5 w-3.5 text-blue-500" />
     case 'teacher-notify': return <Users className="h-3.5 w-3.5 text-purple-500" />
     case 'truck-summary': return <Truck className="h-3.5 w-3.5 text-emerald-500" />
+    case 'group-reminder': return <Clock className="h-3.5 w-3.5 text-orange-500" />
     case 'reminder': return <Clock className="h-3.5 w-3.5 text-orange-500" />
-    case 'group-message': return <Send className="h-3.5 w-3.5 text-indigo-500" />
+    case 'group-notify': return <Send className="h-3.5 w-3.5 text-cyan-500" />
+    case 'group-message': return <MessageSquare className="h-3.5 w-3.5 text-indigo-500" />
+    case 'certificate': return <Image className="h-3.5 w-3.5 text-pink-500" />
     default: return <Send className="h-3.5 w-3.5 text-gray-500" />
   }
 }
 
 function getTypeLabel(type: string) {
   switch (type) {
-    case 'student-notify': return 'Student'
-    case 'teacher-notify': return 'Teacher'
-    case 'truck-summary': return 'Truck'
-    case 'reminder': return 'Reminder'
-    case 'group-message': return 'Group'
+    case 'class-scheduled': return 'Class Scheduled'
+    case 'student-notify': return 'Class Scheduled'
+    case 'teacher-notify': return 'Teacher Notified'
+    case 'truck-summary': return 'Truck Schedule'
+    case 'group-reminder': return 'Group Reminder'
+    case 'reminder': return 'Group Reminder'
+    case 'group-notify': return 'Group Notified'
+    case 'group-message': return 'Group Message'
+    case 'certificate': return 'Certificate'
     default: return 'Message'
   }
 }

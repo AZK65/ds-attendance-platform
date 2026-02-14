@@ -59,12 +59,35 @@ export async function POST(
           controller.enqueue(encoder.encode(
             JSON.stringify({ phone, name, status: 'sent' }) + '\n'
           ))
+
+          // Log to MessageLog
+          await prisma.messageLog.create({
+            data: {
+              type: 'group-notify',
+              to: phone,
+              toName: name !== phone ? name : null,
+              message: message.slice(0, 500),
+              status: 'sent',
+            },
+          }).catch(() => {})
         } catch (error) {
           failed++
           const errorMsg = error instanceof Error ? error.message : 'Unknown error'
           controller.enqueue(encoder.encode(
             JSON.stringify({ phone, name, status: 'failed', error: errorMsg }) + '\n'
           ))
+
+          // Log failure
+          await prisma.messageLog.create({
+            data: {
+              type: 'group-notify',
+              to: phone,
+              toName: name !== phone ? name : null,
+              message: message.slice(0, 500),
+              status: 'failed',
+              error: errorMsg,
+            },
+          }).catch(() => {})
         }
 
         // Small delay between messages to avoid rate limiting

@@ -34,9 +34,32 @@ export async function POST(request: NextRequest) {
         try {
           await sendMessageToGroup(scheduled.groupId, scheduled.message)
           sent = 1
+
+          // Log to MessageLog
+          await prisma.messageLog.create({
+            data: {
+              type: 'group-reminder',
+              to: scheduled.groupId,
+              toName: `Group (Module ${scheduled.moduleNumber || '?'})`,
+              message: scheduled.message.slice(0, 500),
+              status: 'sent',
+            },
+          }).catch(() => {})
         } catch (error) {
           failed = 1
           errors.push(`Group: ${error instanceof Error ? error.message : 'Unknown error'}`)
+
+          // Log failure
+          await prisma.messageLog.create({
+            data: {
+              type: 'group-reminder',
+              to: scheduled.groupId,
+              toName: `Group (Module ${scheduled.moduleNumber || '?'})`,
+              message: scheduled.message.slice(0, 500),
+              status: 'failed',
+              error: error instanceof Error ? error.message : 'Unknown error',
+            },
+          }).catch(() => {})
         }
       } else {
         // Send to individual members
@@ -46,9 +69,32 @@ export async function POST(request: NextRequest) {
           try {
             await sendPrivateMessage(phone, scheduled.message)
             sent++
+
+            // Log to MessageLog
+            await prisma.messageLog.create({
+              data: {
+                type: 'group-reminder',
+                to: phone,
+                toName: null,
+                message: scheduled.message.slice(0, 500),
+                status: 'sent',
+              },
+            }).catch(() => {})
           } catch (error) {
             failed++
             errors.push(`${phone}: ${error instanceof Error ? error.message : 'Unknown error'}`)
+
+            // Log failure
+            await prisma.messageLog.create({
+              data: {
+                type: 'group-reminder',
+                to: phone,
+                toName: null,
+                message: scheduled.message.slice(0, 500),
+                status: 'failed',
+                error: error instanceof Error ? error.message : 'Unknown error',
+              },
+            }).catch(() => {})
           }
 
           // Small delay between messages to avoid rate limiting
