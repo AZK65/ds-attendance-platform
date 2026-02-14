@@ -122,6 +122,20 @@ model TeacherPhone {
   updatedAt     DateTime @updatedAt
 }
 
+// Message log for tracking all sent WhatsApp messages
+model MessageLog {
+  id        String   @id @default(cuid())
+  type      String   // "student-notify", "teacher-notify", "truck-summary", "reminder", "group-message"
+  to        String   // Phone number or group ID
+  toName    String?  // Recipient name for display
+  message   String   // Message content (first 200 chars)
+  status    String   @default("sent") // sent, failed
+  error     String?
+  createdAt DateTime @default(now())
+
+  @@index([createdAt])
+}
+
 // Scheduled messages for sending reminders at a specific time
 model ScheduledMessage {
   id            String   @id @default(cuid())

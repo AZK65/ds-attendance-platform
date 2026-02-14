@@ -6,6 +6,7 @@ import { usePathname } from 'next/navigation'
 import { motion } from 'motion/react'
 import { Home, Users, Award, CalendarDays, Link as LinkIcon } from 'lucide-react'
 import { ConnectionStatus } from './ConnectionStatus'
+import { NotificationBell } from './NotificationBell'
 
 const NAV_ITEMS = [
   { href: '/', label: 'Home', icon: Home },
@@ -65,8 +66,9 @@ export function Navbar() {
             ))}
           </div>
 
-          {/* Connection Status */}
-          <div className="ml-4 flex-shrink-0">
+          {/* Notification Bell + Connection Status */}
+          <div className="ml-4 flex-shrink-0 flex items-center gap-2">
+            <NotificationBell />
             <ConnectionStatus />
           </div>
         </div>

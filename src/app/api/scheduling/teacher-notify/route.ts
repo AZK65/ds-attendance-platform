@@ -80,6 +80,11 @@ export async function POST(request: NextRequest) {
 
     await sendPrivateMessage(teacherPhone.phone, message)
 
+    // Log the sent message
+    await prisma.messageLog.create({
+      data: { type: 'teacher-notify', to: teacherPhone.phone, toName: teacherPhone.name, message: message.slice(0, 500), status: 'sent' },
+    }).catch(() => {})
+
     return NextResponse.json({ success: true, sent: true })
   } catch (error) {
     console.error('Failed to send teacher notification:', error)

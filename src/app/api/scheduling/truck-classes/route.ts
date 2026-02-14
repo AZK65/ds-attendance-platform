@@ -221,10 +221,20 @@ export async function POST(request: NextRequest) {
         message += `\nYou'll receive a reminder 6 hours before each class. Good luck! 🚛`
 
         await sendPrivateMessage(studentPhone, message)
+
+        // Log the sent truck summary
+        await prisma.messageLog.create({
+          data: { type: 'truck-summary', to: studentPhone, toName: studentName, message: message.slice(0, 500), status: 'sent' },
+        }).catch(() => {})
       }
     } catch (err) {
       console.error('Failed to send summary message:', err)
       errors.push(`Summary message: ${err instanceof Error ? err.message : 'Failed to send'}`)
+
+      // Log the failure
+      await prisma.messageLog.create({
+        data: { type: 'truck-summary', to: studentPhone, toName: studentName, message: 'Failed to send truck schedule', status: 'failed', error: err instanceof Error ? err.message : 'Unknown' },
+      }).catch(() => {})
     }
 
     // Notify teacher (Nasar) about the new truck classes

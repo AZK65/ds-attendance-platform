@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { prisma } from '@/lib/db'
 import { sendPrivateMessage, getWhatsAppState } from '@/lib/whatsapp/client'
 
 export async function POST(request: NextRequest) {
@@ -31,9 +32,28 @@ export async function POST(request: NextRequest) {
 
     await sendPrivateMessage(phone, message)
 
+    // Log the sent message
+    await prisma.messageLog.create({
+      data: { type: 'student-notify', to: phone, toName: studentName, message: message.slice(0, 500), status: 'sent' },
+    }).catch(() => {})
+
     return NextResponse.json({ success: true })
   } catch (error) {
     console.error('Failed to send scheduling notification:', error)
+
+    // Log the failed message
+    const body2 = await request.clone().json().catch(() => ({}))
+    await prisma.messageLog.create({
+      data: {
+        type: 'student-notify',
+        to: body2.phone || 'unknown',
+        toName: body2.studentName || null,
+        message: 'Failed to send scheduling notification',
+        status: 'failed',
+        error: error instanceof Error ? error.message : 'Unknown error',
+      },
+    }).catch(() => {})
+
     return NextResponse.json(
       { error: 'Failed to send notification' },
       { status: 500 }
