@@ -37,6 +37,8 @@ import {
   MessageCircle,
   CheckCircle2,
   AlertCircle,
+  GraduationCap,
+  BookOpen,
 } from 'lucide-react'
 import Link from 'next/link'
 import { ContactSearchAutocomplete } from '@/components/ContactSearchAutocomplete'
@@ -228,6 +230,23 @@ export default function SchedulingPage() {
     if (!moduleVal) return ''
     const opt = MODULE_OPTIONS.find(o => o.value === moduleVal)
     return opt?.label || moduleVal
+  }
+
+  // Derive phase from module value
+  // Phase 1: Modules 1-5, Phase 2: Modules 6-7, Phase 3: Modules 8-10, Phase 4: Modules 11-12
+  // In-car sessions (S1-S15) are separate
+  const getPhaseInfo = (moduleVal: string): { phase: number | null; label: string; color: string } | null => {
+    if (!moduleVal) return null
+    if (moduleVal.startsWith('S')) {
+      return { phase: null, label: 'In-Car', color: 'bg-orange-100 text-orange-800' }
+    }
+    const num = parseInt(moduleVal)
+    if (isNaN(num)) return null
+    if (num >= 1 && num <= 5) return { phase: 1, label: 'Phase 1', color: 'bg-yellow-100 text-yellow-800' }
+    if (num >= 6 && num <= 7) return { phase: 2, label: 'Phase 2', color: 'bg-green-100 text-green-800' }
+    if (num >= 8 && num <= 10) return { phase: 3, label: 'Phase 3', color: 'bg-blue-100 text-blue-800' }
+    if (num >= 11 && num <= 12) return { phase: 4, label: 'Phase 4', color: 'bg-purple-100 text-purple-800' }
+    return null
   }
 
   // Send WhatsApp notification
@@ -893,19 +912,73 @@ export default function SchedulingPage() {
             const startTimeStr = startDt.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true })
             const endTimeStr = endDt.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true })
             const moduleLabel = parsed.module ? getModuleLabel(parsed.module) : ''
+            const phaseInfo = parsed.module ? getPhaseInfo(parsed.module) : null
             const studentName = studentFromNotes || parsed.studentName
             const group = groupFromNotes || parsed.group
 
             return (
               <div className="space-y-4">
-                {/* Module/Session */}
-                {moduleLabel && (
-                  <div className="flex items-center gap-3 p-3 bg-muted/50 rounded-lg">
-                    <CalendarDays className="h-5 w-5 text-primary flex-shrink-0" />
-                    <div>
-                      <p className="text-sm text-muted-foreground">Module / Session</p>
-                      <p className="font-medium">{moduleLabel}</p>
-                    </div>
+                {/* Class Info - Module/Session + Phase */}
+                {(moduleLabel || phaseInfo) && (
+                  <div className="p-3 bg-muted/50 rounded-lg space-y-2">
+                    {moduleLabel && (
+                      <div className="flex items-center gap-3">
+                        <BookOpen className="h-5 w-5 text-primary flex-shrink-0" />
+                        <div>
+                          <p className="text-sm text-muted-foreground">Class</p>
+                          <p className="font-medium">{moduleLabel}</p>
+                        </div>
+                      </div>
+                    )}
+                    {phaseInfo && (
+                      <div className="flex items-center gap-3">
+                        <GraduationCap className="h-5 w-5 text-primary flex-shrink-0" />
+                        <div>
+                          <p className="text-sm text-muted-foreground">Phase</p>
+                          <span className={`inline-block px-2 py-0.5 rounded text-sm font-medium ${phaseInfo.color}`}>
+                            {phaseInfo.label}
+                          </span>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {/* Student Info */}
+                {(studentName || phone) && (
+                  <div className="p-3 border rounded-lg space-y-3">
+                    {studentName && (
+                      <div className="flex items-center gap-3">
+                        <User className="h-4 w-4 text-muted-foreground flex-shrink-0" />
+                        <div>
+                          <p className="text-sm text-muted-foreground">Student</p>
+                          <p className="font-medium">{studentName}</p>
+                        </div>
+                      </div>
+                    )}
+                    {phone && (
+                      <div className="flex items-center gap-3">
+                        <Phone className="h-4 w-4 text-muted-foreground flex-shrink-0" />
+                        <div>
+                          <p className="text-sm text-muted-foreground">Phone</p>
+                          <a
+                            href={`tel:+${phone}`}
+                            className="font-medium text-primary hover:underline"
+                          >
+                            +{phone}
+                          </a>
+                        </div>
+                      </div>
+                    )}
+                    {group && (
+                      <div className="flex items-center gap-3">
+                        <Users className="h-4 w-4 text-muted-foreground flex-shrink-0" />
+                        <div>
+                          <p className="text-sm text-muted-foreground">Group</p>
+                          <p className="font-medium">{group}</p>
+                        </div>
+                      </div>
+                    )}
                   </div>
                 )}
 
@@ -923,33 +996,6 @@ export default function SchedulingPage() {
                   </div>
                 )}
 
-                {/* Student */}
-                {studentName && (
-                  <div className="flex items-center gap-3">
-                    <User className="h-4 w-4 text-muted-foreground flex-shrink-0" />
-                    <div>
-                      <p className="text-sm text-muted-foreground">Student</p>
-                      <p className="font-medium">{studentName}</p>
-                    </div>
-                  </div>
-                )}
-
-                {/* Phone */}
-                {phone && (
-                  <div className="flex items-center gap-3">
-                    <Phone className="h-4 w-4 text-muted-foreground flex-shrink-0" />
-                    <div>
-                      <p className="text-sm text-muted-foreground">Phone</p>
-                      <a
-                        href={`tel:+${phone}`}
-                        className="font-medium text-primary hover:underline"
-                      >
-                        +{phone}
-                      </a>
-                    </div>
-                  </div>
-                )}
-
                 {/* Date & Time */}
                 <div className="flex items-center gap-3">
                   <Clock className="h-4 w-4 text-muted-foreground flex-shrink-0" />
@@ -960,18 +1006,7 @@ export default function SchedulingPage() {
                   </div>
                 </div>
 
-                {/* Group */}
-                {group && (
-                  <div className="flex items-center gap-3">
-                    <Users className="h-4 w-4 text-muted-foreground flex-shrink-0" />
-                    <div>
-                      <p className="text-sm text-muted-foreground">Group</p>
-                      <p className="font-medium">{group}</p>
-                    </div>
-                  </div>
-                )}
-
-                {/* Custom title */}
+                {/* Custom title / notes */}
                 {parsed.title && (
                   <div className="flex items-center gap-3">
                     <Edit3 className="h-4 w-4 text-muted-foreground flex-shrink-0" />
