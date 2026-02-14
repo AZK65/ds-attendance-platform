@@ -332,6 +332,22 @@ export default function SchedulingPage() {
     },
   })
 
+  // Fetch attendance data for current events
+  const { data: attendanceMap = {} } = useQuery<Record<string, boolean>>({
+    queryKey: ['class-attendance', events.map(e => e.id).join(',')],
+    queryFn: async () => {
+      if (events.length === 0) return {}
+      const ids = events.map(e => e.id).join(',')
+      const res = await fetch(`/api/scheduling/attendance?eventIds=${ids}`)
+      if (!res.ok) return {}
+      return res.json()
+    },
+    enabled: events.length > 0,
+  })
+
+  // Check if an event is marked present
+  const isEventPresent = (eventId: string) => !!attendanceMap[eventId]
+
   // Fetch teacher phone numbers
   const { data: teacherPhoneData } = useQuery<{ teachers: { subcalendarId: number; name: string; phone: string }[] }>({
     queryKey: ['teacher-phones'],
@@ -550,44 +566,17 @@ export default function SchedulingPage() {
 
   // Toggle present status on an event
   const togglePresentMutation = useMutation({
-    mutationFn: async ({ event, present }: { event: TeamupEvent; present: boolean }) => {
-      const rawNotes = event.notes || ''
-
-      // Work with raw notes (may contain HTML like <br> tags)
-      // Remove any existing Present line (handles both plain text \n and HTML <br>)
-      let cleaned = rawNotes
-        .replace(/<br\s*\/?>Present:\s*(yes|no)/gi, '')
-        .replace(/\nPresent:\s*(yes|no)/gi, '')
-        .replace(/^Present:\s*(yes|no)\s*(<br\s*\/?>|\n)?/gi, '')
-        .trim()
-
-      // Add Present: yes if marking present
-      const newNotes = present
-        ? (cleaned ? cleaned + '\nPresent: yes' : 'Present: yes')
-        : cleaned
-
-      const res = await fetch(`/api/scheduling/events/${event.id}`, {
-        method: 'PUT',
+    mutationFn: async ({ eventId, present }: { eventId: string; present: boolean }) => {
+      const res = await fetch('/api/scheduling/attendance', {
+        method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          title: event.title,
-          startDate: event.start_dt,
-          endDate: event.end_dt,
-          subcalendarIds: event.subcalendar_ids,
-          notes: newNotes,
-        }),
+        body: JSON.stringify({ eventId, present }),
       })
-      if (!res.ok) {
-        const errText = await res.text()
-        console.error('Toggle present failed:', errText)
-        throw new Error('Failed to update attendance')
-      }
-      return { ...event, notes: newNotes }
+      if (!res.ok) throw new Error('Failed to update attendance')
+      return { eventId, present }
     },
-    onSuccess: (updatedEvent) => {
-      queryClient.invalidateQueries({ queryKey: ['scheduling-events'] })
-      // Update selectedEvent in place so the dialog reflects the change immediately
-      setSelectedEvent(updatedEvent)
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['class-attendance'] })
     },
   })
 
@@ -669,10 +658,7 @@ export default function SchedulingPage() {
     return /Paid:\s*yes/i.test(stripHtml(notes))
   }
 
-  const parsePresentFromNotes = (notes?: string) => {
-    if (!notes) return false
-    return /Present:\s*yes/i.test(stripHtml(notes))
-  }
+  // parsePresentFromNotes removed — attendance is now stored locally in ClassAttendance table
 
   const parseLastTheoryFromNotes = (notes?: string): { module: number | null; date: string | null } => {
     if (!notes) return { module: null, date: null }
@@ -1065,13 +1051,13 @@ export default function SchedulingPage() {
         const classLabel = parsed.module ? getModuleLabel(parsed.module) : ev.title
         const studentName = parseStudentFromNotes(ev.notes) || parsed.studentName || '-'
         const teacher = activeTeachers.find(t => t.id === ev.subcalendar_ids[0])
-        const isPresent = parsePresentFromNotes(ev.notes)
+        const isPresent = isEventPresent(ev.id)
 
         rows.push([dateStr, timeStr, classLabel, studentName, teacher?.name || '-', isPresent ? 'Present' : 'Absent'])
       }
 
       const totalClasses = filteredEvents.length
-      const presentCount = filteredEvents.filter(ev => parsePresentFromNotes(ev.notes)).length
+      const presentCount = filteredEvents.filter(ev => isEventPresent(ev.id)).length
       const absentCount = totalClasses - presentCount
       const rate = totalClasses > 0 ? `${Math.round((presentCount / totalClasses) * 100)}%` : 'N/A'
 
@@ -1091,7 +1077,7 @@ export default function SchedulingPage() {
         const studentName = parseStudentFromNotes(ev.notes) || parsed.studentName || '-'
         const phone = parsePhoneFromNotes(ev.notes) || '-'
         const teacher = activeTeachers.find(t => t.id === ev.subcalendar_ids[0])
-        const isPresent = parsePresentFromNotes(ev.notes)
+        const isPresent = isEventPresent(ev.id)
         const isExtra = parseExtraHoursFromNotes(ev.notes)
         const isPaid = parsePaidFromNotes(ev.notes)
 
@@ -1265,7 +1251,7 @@ export default function SchedulingPage() {
     const teacherName = getTeacherName(event)
     const isExtra = parseExtraHoursFromNotes(event.notes)
     const isPaid = parsePaidFromNotes(event.notes)
-    const isPresent = parsePresentFromNotes(event.notes)
+    const isPresent = isEventPresent(event.id)
     const startTime = new Date(event.start_dt).toLocaleTimeString('en-US', {
       hour: 'numeric', minute: '2-digit', hour12: true,
     })
@@ -1444,7 +1430,7 @@ export default function SchedulingPage() {
                 {dayEvents.slice(0, maxShow).map(event => {
                   const isExtra = parseExtraHoursFromNotes(event.notes)
                   const isPaid = parsePaidFromNotes(event.notes)
-                  const isPresent = parsePresentFromNotes(event.notes)
+                  const isPresent = isEventPresent(event.id)
                   const color = getEventColor(event)
                   return (
                     <div
@@ -1979,13 +1965,13 @@ export default function SchedulingPage() {
             <div className="flex gap-2">
               {/* Present toggle */}
               {selectedEvent && (() => {
-                const isPresent = parsePresentFromNotes(selectedEvent.notes)
+                const isPresent = isEventPresent(selectedEvent.id)
                 return (
                   <Button
                     variant={isPresent ? 'default' : 'outline'}
                     className={isPresent ? 'bg-green-600 hover:bg-green-700' : ''}
                     disabled={togglePresentMutation.isPending}
-                    onClick={() => togglePresentMutation.mutate({ event: selectedEvent, present: !isPresent })}
+                    onClick={() => togglePresentMutation.mutate({ eventId: selectedEvent.id, present: !isPresent })}
                   >
                     {togglePresentMutation.isPending ? (
                       <Loader2 className="h-4 w-4 animate-spin mr-2" />

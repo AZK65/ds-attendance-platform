@@ -136,6 +136,15 @@ model MessageLog {
   @@index([createdAt])
 }
 
+// Class attendance tracking (local, not stored in Teamup)
+model ClassAttendance {
+  id        String   @id @default(cuid())
+  eventId   String   @unique // Teamup event ID
+  present   Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
 // Scheduled messages for sending reminders at a specific time
 model ScheduledMessage {
   id            String   @id @default(cuid())
