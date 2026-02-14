@@ -163,9 +163,9 @@ export async function POST(request: NextRequest) {
           let reminderMessage: string
 
           if (cls.isExam) {
-            reminderMessage = `Reminder: You have your Truck Exam today at ${timeDisplay} EST${cls.examLocation ? ` in ${cls.examLocation}` : ''}. Good luck! 🍀`
+            reminderMessage = `Reminder: You have your Truck Exam today at ${timeDisplay}${cls.examLocation ? ` in ${cls.examLocation}` : ''}. Good luck! 🍀`
           } else {
-            reminderMessage = `Reminder: You have Truck Class ${classNumber} today at ${timeDisplay} EST. See you there!`
+            reminderMessage = `Reminder: You have Truck Class ${classNumber} today at ${timeDisplay}. See you there!`
           }
 
           await prisma.scheduledMessage.create({
@@ -204,7 +204,7 @@ export async function POST(request: NextRequest) {
             const dateStr = formatDateDisplay(cls.date)
             const startStr = formatTimeDisplay(cls.startTime)
             const endStr = formatTimeDisplay(cls.endTime)
-            message += `${num}. ${dateStr} — ${startStr} to ${endStr} EST\n`
+            message += `${num}. ${dateStr} — ${startStr} to ${endStr}\n`
           }
         }
 
@@ -214,7 +214,7 @@ export async function POST(request: NextRequest) {
             const dateStr = formatDateDisplay(exam.date)
             const startStr = formatTimeDisplay(exam.startTime)
             const endStr = formatTimeDisplay(exam.endTime)
-            message += `📍 ${exam.examLocation || 'TBD'} — ${dateStr} at ${startStr} to ${endStr} EST\n`
+            message += `📍 ${exam.examLocation || 'TBD'} — ${dateStr} at ${startStr} to ${endStr}\n`
           }
         }
 

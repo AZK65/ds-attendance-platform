@@ -33,14 +33,14 @@ export async function POST(request: NextRequest) {
     const dateStr = date || 'TBD'
     const teacherStr = teacherName ? ` with ${teacherName}` : ''
 
-    // Convert 24h time (e.g. "09:00") to 12h format with EST
+    // Convert 24h time (e.g. "09:00") to 12h format
     const formatTime12h = (t: string) => {
       const [h, m] = t.split(':').map(Number)
       const ampm = h >= 12 ? 'PM' : 'AM'
       const hour12 = h === 0 ? 12 : h > 12 ? h - 12 : h
       return `${hour12}:${m.toString().padStart(2, '0')} ${ampm}`
     }
-    const timeStr = startTime && endTime ? `from ${formatTime12h(startTime)} to ${formatTime12h(endTime)} EST` : ''
+    const timeStr = startTime && endTime ? `from ${formatTime12h(startTime)} to ${formatTime12h(endTime)}` : ''
 
     const message = `Hi ${studentName}! Your ${moduleStr} class has been scheduled${teacherStr} on ${dateStr} ${timeStr}. See you there!`.trim()
 
