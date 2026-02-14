@@ -59,6 +59,51 @@ export async function POST(request: NextRequest) {
       )
     }
 
+    // Fetch existing events on Nasar's calendar to check for duplicates
+    const dates = classes.map(c => c.date).sort()
+    const minDate = dates[0]
+    const maxDate = dates[dates.length - 1]
+    let existingEvents: { title: string; start_dt: string; end_dt: string; notes?: string }[] = []
+
+    try {
+      const eventsRes = await fetch(
+        `${BASE_URL}/${calendarKey}/events?startDate=${minDate}&endDate=${maxDate}&subcalendarId[]=${nasarId}`,
+        { headers: { 'Teamup-Token': apiKey } }
+      )
+      if (eventsRes.ok) {
+        const eventsData = await eventsRes.json()
+        existingEvents = eventsData.events || []
+      }
+    } catch {
+      // If we can't fetch, continue without duplicate check
+    }
+
+    // Check for duplicates before creating
+    const duplicates: string[] = []
+    for (const cls of classes) {
+      const clsStart = `${cls.date}T${cls.startTime}:00`
+      const dup = existingEvents.find(ev => {
+        const evDate = ev.start_dt.split('T')[0]
+        if (evDate !== cls.date) return false
+        // Check if same student name in title
+        const hasStudent = ev.title.toLowerCase().includes(studentName.toLowerCase())
+        // Check if same start time
+        const evTime = ev.start_dt.slice(11, 16)
+        const sameTime = evTime === cls.startTime
+        return hasStudent && sameTime
+      })
+      if (dup) {
+        duplicates.push(`${studentName} already has a class on ${formatDateDisplay(cls.date)} at ${formatTimeDisplay(cls.startTime)} (${dup.title})`)
+      }
+    }
+
+    if (duplicates.length > 0) {
+      return NextResponse.json(
+        { error: 'Duplicate classes found', duplicates },
+        { status: 409 }
+      )
+    }
+
     let eventsCreated = 0
     let remindersScheduled = 0
     const errors: string[] = []

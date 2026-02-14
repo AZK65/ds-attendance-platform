@@ -235,6 +235,7 @@ export default function SchedulingPage() {
   const [truckCreating, setTruckCreating] = useState(false)
   const [truckNotifyStatus, setTruckNotifyStatus] = useState<null | 'sending' | 'sent' | 'failed'>(null)
   const [truckStep, setTruckStep] = useState<'form' | 'preview'>('form')
+  const [truckDuplicateError, setTruckDuplicateError] = useState<string[] | null>(null)
 
   // Truck schedule viewer (from event detail)
   const [showTruckSchedule, setShowTruckSchedule] = useState(false)
@@ -631,6 +632,7 @@ export default function SchedulingPage() {
 
     setTruckCreating(true)
     setTruckNotifyStatus('sending')
+    setTruckDuplicateError(null)
     try {
       const res = await fetch('/api/scheduling/truck-classes', {
         method: 'POST',
@@ -656,6 +658,10 @@ export default function SchedulingPage() {
         setTruckForm({ studentName: '', studentPhone: '', classes: [emptyTruckRow()] })
         setTruckNotifyStatus('sent')
         console.log(`Truck classes created: ${result.eventsCreated}, reminders: ${result.remindersScheduled}`)
+      } else if (res.status === 409) {
+        const data = await res.json()
+        setTruckDuplicateError(data.duplicates || ['Duplicate classes detected'])
+        setTruckNotifyStatus(null)
       } else {
         setTruckNotifyStatus('failed')
       }
@@ -1770,10 +1776,23 @@ export default function SchedulingPage() {
                   <span>•</span>
                   <span>Reminders 6h before each class</span>
                 </div>
+
+                {/* Duplicate Error */}
+                {truckDuplicateError && (
+                  <div className="bg-red-50 border border-red-200 rounded-lg p-3 space-y-1">
+                    <div className="flex items-start gap-2 text-sm font-medium text-red-800">
+                      <AlertCircle className="h-4 w-4 flex-shrink-0 mt-0.5" />
+                      <span>Duplicate classes found:</span>
+                    </div>
+                    {truckDuplicateError.map((msg, i) => (
+                      <p key={i} className="text-sm text-red-700 pl-6">{msg}</p>
+                    ))}
+                  </div>
+                )}
               </div>
 
               <DialogFooter className="flex flex-col-reverse sm:flex-row gap-2">
-                <Button variant="outline" onClick={() => setTruckStep('form')} className="sm:mr-auto">
+                <Button variant="outline" onClick={() => { setTruckStep('form'); setTruckDuplicateError(null) }} className="sm:mr-auto">
                   <ArrowLeft className="h-4 w-4 mr-1" />Back
                 </Button>
                 <Button variant="outline" onClick={() => handlePrintTruckSchedule(truckForm)}>
