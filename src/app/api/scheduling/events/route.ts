@@ -1,11 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server'
 
-const TEAMUP_API_KEY = process.env.TEAMUP_API_KEY || ''
-const TEAMUP_CALENDAR_KEY = process.env.TEAMUP_CALENDAR_KEY || ''
 const BASE_URL = 'https://api.teamup.com'
 
 export async function GET(request: NextRequest) {
   try {
+    const apiKey = process.env.TEAMUP_API_KEY || ''
+    const calendarKey = process.env.TEAMUP_CALENDAR_KEY || ''
+
     const { searchParams } = new URL(request.url)
     const startDate = searchParams.get('startDate')
     const endDate = searchParams.get('endDate')
@@ -18,14 +19,14 @@ export async function GET(request: NextRequest) {
       )
     }
 
-    let url = `${BASE_URL}/${TEAMUP_CALENDAR_KEY}/events?startDate=${startDate}&endDate=${endDate}`
+    let url = `${BASE_URL}/${calendarKey}/events?startDate=${startDate}&endDate=${endDate}`
     if (subcalendarId) {
       url += `&subcalendarId[]=${subcalendarId}`
     }
 
     const res = await fetch(url, {
       headers: {
-        'Teamup-Token': TEAMUP_API_KEY,
+        'Teamup-Token': apiKey,
       },
     })
 
@@ -50,6 +51,9 @@ export async function GET(request: NextRequest) {
 
 export async function POST(request: NextRequest) {
   try {
+    const apiKey = process.env.TEAMUP_API_KEY || ''
+    const calendarKey = process.env.TEAMUP_CALENDAR_KEY || ''
+
     const body = await request.json()
     const { title, startDate, endDate, subcalendarIds, notes } = body
 
@@ -60,10 +64,10 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    const res = await fetch(`${BASE_URL}/${TEAMUP_CALENDAR_KEY}/events`, {
+    const res = await fetch(`${BASE_URL}/${calendarKey}/events`, {
       method: 'POST',
       headers: {
-        'Teamup-Token': TEAMUP_API_KEY,
+        'Teamup-Token': apiKey,
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({

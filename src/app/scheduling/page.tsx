@@ -135,7 +135,7 @@ export default function SchedulingPage() {
   }, [weekStart])
 
   // Fetch sub-calendars (teachers)
-  const { data: subcalendars = [], isLoading: loadingTeachers } = useQuery<SubCalendar[]>({
+  const { data: subcalendars = [], isLoading: loadingTeachers, isError: teachersError } = useQuery<SubCalendar[]>({
     queryKey: ['subcalendars'],
     queryFn: async () => {
       const res = await fetch('/api/scheduling/subcalendars')
@@ -457,6 +457,8 @@ export default function SchedulingPage() {
           </Button>
           {loadingTeachers ? (
             <Loader2 className="h-4 w-4 animate-spin" />
+          ) : teachersError ? (
+            <Badge variant="destructive">Failed to load teachers</Badge>
           ) : (
             activeTeachers.map(t => (
               <Button
