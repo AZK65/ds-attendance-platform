@@ -29,8 +29,16 @@ import {
   Loader2,
   CalendarDays,
   Trash2,
+  Phone,
+  User,
+  Clock,
+  Edit3,
+  MessageCircle,
+  CheckCircle2,
+  AlertCircle,
 } from 'lucide-react'
 import Link from 'next/link'
+import { ContactSearchAutocomplete } from '@/components/ContactSearchAutocomplete'
 
 interface SubCalendar {
   id: number
@@ -58,6 +66,7 @@ interface EventFormData {
   startTime: string
   endTime: string
   studentName: string
+  studentPhone: string
   group: string
 }
 
@@ -69,6 +78,7 @@ const initialFormData: EventFormData = {
   startTime: '09:00',
   endTime: '10:00',
   studentName: '',
+  studentPhone: '',
   group: '',
 }
 
@@ -157,8 +167,11 @@ export default function SchedulingPage() {
   const [selectedTeacher, setSelectedTeacher] = useState<number | null>(null)
   const [showCreateDialog, setShowCreateDialog] = useState(false)
   const [showEditDialog, setShowEditDialog] = useState(false)
+  const [showEventDetail, setShowEventDetail] = useState(false)
+  const [selectedEvent, setSelectedEvent] = useState<TeamupEvent | null>(null)
   const [editingEvent, setEditingEvent] = useState<TeamupEvent | null>(null)
   const [formData, setFormData] = useState<EventFormData>(initialFormData)
+  const [notifyStatus, setNotifyStatus] = useState<null | 'sending' | 'sent' | 'failed'>(null)
 
   const weekEnd = useMemo(() => {
     const d = new Date(weekStart)
@@ -193,15 +206,67 @@ export default function SchedulingPage() {
     },
   })
 
+  // Build notes string with phone
+  const buildNotes = (data: EventFormData) => {
+    const noteLines = []
+    if (data.studentName) noteLines.push(`Student: ${data.studentName}`)
+    if (data.studentPhone) noteLines.push(`Phone: ${data.studentPhone}`)
+    if (data.group) noteLines.push(`Group: ${data.group}`)
+    return noteLines.join('\n')
+  }
+
+  // Build title from form data
+  const buildTitle = (data: EventFormData) => {
+    const moduleLabel = data.module ? (data.module.startsWith('S') ? `Session ${data.module.slice(1)}` : `M${data.module}`) : ''
+    const parts = [moduleLabel, data.title, data.studentName, data.group].filter(Boolean)
+    return parts.join(' - ')
+  }
+
+  // Get module display label
+  const getModuleLabel = (moduleVal: string) => {
+    if (!moduleVal) return ''
+    const opt = MODULE_OPTIONS.find(o => o.value === moduleVal)
+    return opt?.label || moduleVal
+  }
+
+  // Send WhatsApp notification
+  const sendNotification = async (data: EventFormData) => {
+    if (!data.studentPhone) return
+    setNotifyStatus('sending')
+    try {
+      const teacher = activeTeachers.find(t => t.id.toString() === data.subcalendarId)
+      const moduleLabel = getModuleLabel(data.module)
+      const dateObj = new Date(data.date)
+      const dateStr = dateObj.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' })
+      const res = await fetch('/api/scheduling/notify', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          phone: data.studentPhone,
+          studentName: data.studentName,
+          module: moduleLabel,
+          teacherName: teacher?.name || '',
+          date: dateStr,
+          startTime: data.startTime,
+          endTime: data.endTime,
+        }),
+      })
+      if (res.ok) {
+        setNotifyStatus('sent')
+      } else {
+        setNotifyStatus('failed')
+      }
+    } catch {
+      setNotifyStatus('failed')
+    }
+    // Clear status after 4 seconds
+    setTimeout(() => setNotifyStatus(null), 4000)
+  }
+
   // Create event mutation
   const createMutation = useMutation({
     mutationFn: async (data: EventFormData) => {
-      const moduleLabel = data.module ? (data.module.startsWith('S') ? `Session ${data.module.slice(1)}` : `M${data.module}`) : ''
-      const parts = [moduleLabel, data.title, data.studentName, data.group].filter(Boolean)
-      const title = parts.join(' - ')
-      const noteLines = []
-      if (data.studentName) noteLines.push(`Student: ${data.studentName}`)
-      if (data.group) noteLines.push(`Group: ${data.group}`)
+      const title = buildTitle(data)
       const res = await fetch('/api/scheduling/events', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -210,15 +275,19 @@ export default function SchedulingPage() {
           startDate: `${data.date}T${data.startTime}:00`,
           endDate: `${data.date}T${data.endTime}:00`,
           subcalendarIds: [parseInt(data.subcalendarId)],
-          notes: noteLines.join('\n'),
+          notes: buildNotes(data),
         }),
       })
       if (!res.ok) throw new Error('Failed to create event')
       return res.json()
     },
-    onSuccess: () => {
+    onSuccess: (_, data) => {
       queryClient.invalidateQueries({ queryKey: ['scheduling-events'] })
       setShowCreateDialog(false)
+      // Send WhatsApp notification if phone is available
+      if (data.studentPhone) {
+        sendNotification(data)
+      }
       setFormData(initialFormData)
     },
   })
@@ -226,12 +295,7 @@ export default function SchedulingPage() {
   // Update event mutation
   const updateMutation = useMutation({
     mutationFn: async ({ eventId, data }: { eventId: string; data: EventFormData }) => {
-      const moduleLabel = data.module ? (data.module.startsWith('S') ? `Session ${data.module.slice(1)}` : `M${data.module}`) : ''
-      const parts = [moduleLabel, data.title, data.studentName, data.group].filter(Boolean)
-      const title = parts.join(' - ')
-      const noteLines = []
-      if (data.studentName) noteLines.push(`Student: ${data.studentName}`)
-      if (data.group) noteLines.push(`Group: ${data.group}`)
+      const title = buildTitle(data)
       const res = await fetch(`/api/scheduling/events/${eventId}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
@@ -240,7 +304,7 @@ export default function SchedulingPage() {
           startDate: `${data.date}T${data.startTime}:00`,
           endDate: `${data.date}T${data.endTime}:00`,
           subcalendarIds: [parseInt(data.subcalendarId)],
-          notes: noteLines.join('\n'),
+          notes: buildNotes(data),
         }),
       })
       if (!res.ok) throw new Error('Failed to update event')
@@ -326,11 +390,34 @@ export default function SchedulingPage() {
     }
   }
 
-  // Open edit dialog for existing event
-  const handleEventClick = (event: TeamupEvent, e: React.MouseEvent) => {
-    e.stopPropagation()
+  // Parse phone from event notes
+  const parsePhoneFromNotes = (notes?: string) => {
+    if (!notes) return ''
+    const phoneMatch = notes.match(/Phone:\s*(\S+)/)
+    return phoneMatch?.[1] || ''
+  }
+
+  // Parse student name from notes (more reliable than title parsing)
+  const parseStudentFromNotes = (notes?: string) => {
+    if (!notes) return ''
+    const match = notes.match(/Student:\s*(.+)/)
+    return match?.[1]?.trim() || ''
+  }
+
+  // Parse group from notes
+  const parseGroupFromNotes = (notes?: string) => {
+    if (!notes) return ''
+    const match = notes.match(/Group:\s*(.+)/)
+    return match?.[1]?.trim() || ''
+  }
+
+  // Fill form from event data
+  const fillFormFromEvent = (event: TeamupEvent) => {
     const startDt = new Date(event.start_dt)
     const parsed = parseModuleFromTitle(event.title)
+    const phone = parsePhoneFromNotes(event.notes)
+    const studentFromNotes = parseStudentFromNotes(event.notes)
+    const groupFromNotes = parseGroupFromNotes(event.notes)
 
     setFormData({
       module: parsed.module,
@@ -339,10 +426,25 @@ export default function SchedulingPage() {
       date: formatDate(startDt),
       startTime: startDt.toTimeString().slice(0, 5),
       endTime: new Date(event.end_dt).toTimeString().slice(0, 5),
-      studentName: parsed.studentName,
-      group: parsed.group,
+      studentName: studentFromNotes || parsed.studentName,
+      studentPhone: phone,
+      group: groupFromNotes || parsed.group,
     })
-    setEditingEvent(event)
+  }
+
+  // Open event detail view (info card) when clicking an event
+  const handleEventClick = (event: TeamupEvent, e: React.MouseEvent) => {
+    e.stopPropagation()
+    setSelectedEvent(event)
+    setShowEventDetail(true)
+  }
+
+  // Open edit dialog from detail view
+  const handleEditFromDetail = () => {
+    if (!selectedEvent) return
+    fillFormFromEvent(selectedEvent)
+    setEditingEvent(selectedEvent)
+    setShowEventDetail(false)
     setShowEditDialog(true)
   }
 
@@ -460,10 +562,11 @@ export default function SchedulingPage() {
       </div>
       <div>
         <Label>Student Name</Label>
-        <Input
+        <ContactSearchAutocomplete
           value={formData.studentName}
-          onChange={(e) => setFormData(prev => ({ ...prev, studentName: e.target.value }))}
-          placeholder="Person's name"
+          phone={formData.studentPhone}
+          onSelect={(name, phone) => setFormData(prev => ({ ...prev, studentName: name, studentPhone: phone }))}
+          onChange={(name) => setFormData(prev => ({ ...prev, studentName: name, studentPhone: '' }))}
         />
       </div>
       <div>
@@ -757,6 +860,154 @@ export default function SchedulingPage() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {/* Event Detail Dialog */}
+      <Dialog open={showEventDetail} onOpenChange={(open) => {
+        if (!open) {
+          setShowEventDetail(false)
+          setSelectedEvent(null)
+        }
+      }}>
+        <DialogContent className="w-[95vw] sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Class Details</DialogTitle>
+            <DialogDescription>
+              View class information
+            </DialogDescription>
+          </DialogHeader>
+          {selectedEvent && (() => {
+            const parsed = parseModuleFromTitle(selectedEvent.title)
+            const phone = parsePhoneFromNotes(selectedEvent.notes)
+            const studentFromNotes = parseStudentFromNotes(selectedEvent.notes)
+            const groupFromNotes = parseGroupFromNotes(selectedEvent.notes)
+            const teacher = activeTeachers.find(t => t.id === selectedEvent.subcalendar_ids[0])
+            const startDt = new Date(selectedEvent.start_dt)
+            const endDt = new Date(selectedEvent.end_dt)
+            const dateStr = startDt.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' })
+            const startTimeStr = startDt.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true })
+            const endTimeStr = endDt.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true })
+            const moduleLabel = parsed.module ? getModuleLabel(parsed.module) : ''
+            const studentName = studentFromNotes || parsed.studentName
+            const group = groupFromNotes || parsed.group
+
+            return (
+              <div className="space-y-4">
+                {/* Module/Session */}
+                {moduleLabel && (
+                  <div className="flex items-center gap-3 p-3 bg-muted/50 rounded-lg">
+                    <CalendarDays className="h-5 w-5 text-primary flex-shrink-0" />
+                    <div>
+                      <p className="text-sm text-muted-foreground">Module / Session</p>
+                      <p className="font-medium">{moduleLabel}</p>
+                    </div>
+                  </div>
+                )}
+
+                {/* Teacher */}
+                {teacher && (
+                  <div className="flex items-center gap-3">
+                    <div
+                      className="w-4 h-4 rounded-full flex-shrink-0"
+                      style={{ backgroundColor: getColor(teacher.color) }}
+                    />
+                    <div>
+                      <p className="text-sm text-muted-foreground">Teacher</p>
+                      <p className="font-medium">{teacher.name}</p>
+                    </div>
+                  </div>
+                )}
+
+                {/* Student */}
+                {studentName && (
+                  <div className="flex items-center gap-3">
+                    <User className="h-4 w-4 text-muted-foreground flex-shrink-0" />
+                    <div>
+                      <p className="text-sm text-muted-foreground">Student</p>
+                      <p className="font-medium">{studentName}</p>
+                    </div>
+                  </div>
+                )}
+
+                {/* Phone */}
+                {phone && (
+                  <div className="flex items-center gap-3">
+                    <Phone className="h-4 w-4 text-muted-foreground flex-shrink-0" />
+                    <div>
+                      <p className="text-sm text-muted-foreground">Phone</p>
+                      <a
+                        href={`tel:+${phone}`}
+                        className="font-medium text-primary hover:underline"
+                      >
+                        +{phone}
+                      </a>
+                    </div>
+                  </div>
+                )}
+
+                {/* Date & Time */}
+                <div className="flex items-center gap-3">
+                  <Clock className="h-4 w-4 text-muted-foreground flex-shrink-0" />
+                  <div>
+                    <p className="text-sm text-muted-foreground">Date & Time</p>
+                    <p className="font-medium">{dateStr}</p>
+                    <p className="text-sm">{startTimeStr} - {endTimeStr}</p>
+                  </div>
+                </div>
+
+                {/* Group */}
+                {group && (
+                  <div className="flex items-center gap-3">
+                    <User className="h-4 w-4 text-muted-foreground flex-shrink-0" />
+                    <div>
+                      <p className="text-sm text-muted-foreground">Group</p>
+                      <p className="font-medium">{group}</p>
+                    </div>
+                  </div>
+                )}
+
+                {/* Custom title */}
+                {parsed.title && (
+                  <div className="flex items-center gap-3">
+                    <Edit3 className="h-4 w-4 text-muted-foreground flex-shrink-0" />
+                    <div>
+                      <p className="text-sm text-muted-foreground">Notes</p>
+                      <p className="font-medium">{parsed.title}</p>
+                    </div>
+                  </div>
+                )}
+              </div>
+            )
+          })()}
+          <DialogFooter className="flex flex-col-reverse sm:flex-row gap-2">
+            <Button variant="outline" onClick={() => setShowEventDetail(false)}>
+              Close
+            </Button>
+            <Button onClick={handleEditFromDetail}>
+              <Edit3 className="h-4 w-4 mr-2" />
+              Edit
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* WhatsApp Notification Status */}
+      {notifyStatus && (
+        <div className="fixed bottom-4 right-4 z-50">
+          <div className={`flex items-center gap-2 px-4 py-3 rounded-lg shadow-lg text-sm font-medium ${
+            notifyStatus === 'sending' ? 'bg-blue-100 text-blue-800' :
+            notifyStatus === 'sent' ? 'bg-green-100 text-green-800' :
+            'bg-red-100 text-red-800'
+          }`}>
+            {notifyStatus === 'sending' && <Loader2 className="h-4 w-4 animate-spin" />}
+            {notifyStatus === 'sent' && <CheckCircle2 className="h-4 w-4" />}
+            {notifyStatus === 'failed' && <AlertCircle className="h-4 w-4" />}
+            <MessageCircle className="h-4 w-4" />
+            {notifyStatus === 'sending' && 'Sending WhatsApp message...'}
+            {notifyStatus === 'sent' && 'WhatsApp message sent!'}
+            {notifyStatus === 'failed' && 'Failed to send WhatsApp message'}
+          </div>
+        </div>
+      )}
     </div>
   )
 }
