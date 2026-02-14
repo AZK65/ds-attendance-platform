@@ -551,13 +551,20 @@ export default function SchedulingPage() {
   // Toggle present status on an event
   const togglePresentMutation = useMutation({
     mutationFn: async ({ event, present }: { event: TeamupEvent; present: boolean }) => {
-      const cleanNotes = event.notes ? stripHtml(event.notes) : ''
-      // Remove existing Present line if any
-      const notesWithoutPresent = cleanNotes.replace(/\n?Present:\s*(yes|no)/i, '').trim()
-      // Add Present: yes or remove it
+      const rawNotes = event.notes || ''
+
+      // Work with raw notes (may contain HTML like <br> tags)
+      // Remove any existing Present line (handles both plain text \n and HTML <br>)
+      let cleaned = rawNotes
+        .replace(/<br\s*\/?>Present:\s*(yes|no)/gi, '')
+        .replace(/\nPresent:\s*(yes|no)/gi, '')
+        .replace(/^Present:\s*(yes|no)\s*(<br\s*\/?>|\n)?/gi, '')
+        .trim()
+
+      // Add Present: yes if marking present
       const newNotes = present
-        ? (notesWithoutPresent ? notesWithoutPresent + '\nPresent: yes' : 'Present: yes')
-        : notesWithoutPresent
+        ? (cleaned ? cleaned + '\nPresent: yes' : 'Present: yes')
+        : cleaned
 
       const res = await fetch(`/api/scheduling/events/${event.id}`, {
         method: 'PUT',
@@ -570,15 +577,17 @@ export default function SchedulingPage() {
           notes: newNotes,
         }),
       })
-      if (!res.ok) throw new Error('Failed to update attendance')
-      return res.json()
-    },
-    onSuccess: (result) => {
-      queryClient.invalidateQueries({ queryKey: ['scheduling-events'] })
-      // Update selectedEvent in place so the dialog reflects the change
-      if (selectedEvent) {
-        setSelectedEvent({ ...selectedEvent, notes: result.notes || '' })
+      if (!res.ok) {
+        const errText = await res.text()
+        console.error('Toggle present failed:', errText)
+        throw new Error('Failed to update attendance')
       }
+      return { ...event, notes: newNotes }
+    },
+    onSuccess: (updatedEvent) => {
+      queryClient.invalidateQueries({ queryKey: ['scheduling-events'] })
+      // Update selectedEvent in place so the dialog reflects the change immediately
+      setSelectedEvent(updatedEvent)
     },
   })
 
@@ -1098,7 +1107,7 @@ export default function SchedulingPage() {
   }
 
   // Export handler
-  const handleExport = () => {
+  const handleExport = async () => {
     const { filteredEvents, teacherLabel, teacherFilename, filenameDatePart, dateRangeLabel } = getExportData()
     const { headers, rows, summary } = buildExportRows(filteredEvents)
     const prefix = exportMode === 'attendance' ? 'attendance' : 'schedule'
@@ -1115,7 +1124,7 @@ export default function SchedulingPage() {
       }
       downloadCSV(csvRows, `${prefix}-${teacherFilename}-${filenameDatePart}.csv`)
     } else {
-      downloadPDF(headers, rows, summary, {
+      await downloadPDF(headers, rows, summary, {
         title: exportMode === 'attendance' ? 'Attendance Summary' : 'Class Schedule',
         subtitle: `${teacherLabel} — ${dateRangeLabel}`,
         filename: `${prefix}-${teacherFilename}-${filenameDatePart}`,
@@ -1145,13 +1154,34 @@ export default function SchedulingPage() {
     URL.revokeObjectURL(url)
   }
 
+  // Helper: convert image to base64 data URL
+  const imageToBase64 = (src: string): Promise<string> => {
+    return new Promise((resolve) => {
+      const img = new window.Image()
+      img.crossOrigin = 'anonymous'
+      img.onload = () => {
+        const canvas = document.createElement('canvas')
+        canvas.width = img.width
+        canvas.height = img.height
+        const ctx = canvas.getContext('2d')
+        ctx?.drawImage(img, 0, 0)
+        resolve(canvas.toDataURL('image/png'))
+      }
+      img.onerror = () => resolve('')
+      img.src = src
+    })
+  }
+
   // Helper: download PDF via print
-  const downloadPDF = (
+  const downloadPDF = async (
     headers: string[],
     rows: string[][],
-    summary: { totalClasses: number; presentCount: number; absentCount: number; rate: string } | null,
+    _summary: { totalClasses: number; presentCount: number; absentCount: number; rate: string } | null,
     meta: { title: string; subtitle: string; filename: string }
   ) => {
+    // Load logo as base64
+    const logoBase64 = await imageToBase64('/qazi-logo.png')
+
     const statusColIdx = headers.indexOf('Status')
     const presentColIdx = headers.indexOf('Present')
 
@@ -1173,26 +1203,9 @@ export default function SchedulingPage() {
       return `<tr>${cells}</tr>`
     }).join('')
 
-    const summaryHtml = summary ? `
-      <div style="margin-top:24px;display:flex;gap:16px;flex-wrap:wrap;">
-        <div style="background:#f0fdf4;border:1px solid #bbf7d0;border-radius:8px;padding:12px 20px;text-align:center;">
-          <div style="font-size:24px;font-weight:700;color:#16a34a;">${summary.presentCount}</div>
-          <div style="font-size:11px;color:#15803d;font-weight:500;">Present</div>
-        </div>
-        <div style="background:#fef2f2;border:1px solid #fecaca;border-radius:8px;padding:12px 20px;text-align:center;">
-          <div style="font-size:24px;font-weight:700;color:#dc2626;">${summary.absentCount}</div>
-          <div style="font-size:11px;color:#b91c1c;font-weight:500;">Absent</div>
-        </div>
-        <div style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;padding:12px 20px;text-align:center;">
-          <div style="font-size:24px;font-weight:700;color:#0f172a;">${summary.totalClasses}</div>
-          <div style="font-size:11px;color:#64748b;font-weight:500;">Total</div>
-        </div>
-        <div style="background:#eff6ff;border:1px solid #bfdbfe;border-radius:8px;padding:12px 20px;text-align:center;">
-          <div style="font-size:24px;font-weight:700;color:#2563eb;">${summary.rate}</div>
-          <div style="font-size:11px;color:#1d4ed8;font-weight:500;">Rate</div>
-        </div>
-      </div>
-    ` : ''
+    const logoHtml = logoBase64
+      ? `<img src="${logoBase64}" style="height:50px;object-fit:contain;" />`
+      : `<div style="font-size:18px;font-weight:700;">Qazi Driving School</div>`
 
     const html = `
       <!DOCTYPE html>
@@ -1202,8 +1215,11 @@ export default function SchedulingPage() {
         <style>
           @page { margin: 40px; size: ${exportMode === 'schedule' ? 'landscape' : 'portrait'}; }
           body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; margin: 0; padding: 20px; color: #1e293b; }
-          h1 { font-size: 20px; margin: 0 0 4px 0; }
-          .subtitle { font-size: 13px; color: #64748b; margin-bottom: 20px; }
+          .header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 20px; padding-bottom: 16px; border-bottom: 2px solid #e2e8f0; }
+          .header-left { display: flex; align-items: center; gap: 16px; }
+          .header-text h1 { font-size: 18px; margin: 0 0 2px 0; }
+          .header-text .subtitle { font-size: 12px; color: #64748b; margin: 0; }
+          .count-badge { background: #f1f5f9; border-radius: 6px; padding: 4px 12px; font-size: 12px; color: #475569; font-weight: 500; }
           table { width: 100%; border-collapse: collapse; }
           th { text-align: left; padding: 8px 10px; background: #f8fafc; border-bottom: 2px solid #e2e8f0; font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; color: #64748b; }
           tr:nth-child(even) td { background: #f8fafc; }
@@ -1211,13 +1227,20 @@ export default function SchedulingPage() {
         </style>
       </head>
       <body>
-        <h1>${meta.title}</h1>
-        <div class="subtitle">${meta.subtitle} &bull; ${rows.length} class${rows.length !== 1 ? 'es' : ''}</div>
+        <div class="header">
+          <div class="header-left">
+            ${logoHtml}
+            <div class="header-text">
+              <h1>${meta.title}</h1>
+              <div class="subtitle">${meta.subtitle}</div>
+            </div>
+          </div>
+          <div class="count-badge">${rows.length} class${rows.length !== 1 ? 'es' : ''}</div>
+        </div>
         <table>
           <thead><tr>${headers.map(h => `<th>${h}</th>`).join('')}</tr></thead>
           <tbody>${tableRows}</tbody>
         </table>
-        ${summaryHtml}
         <div class="footer">
           <span>Qazi Driving School</span>
           <span>Generated ${new Date().toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit' })}</span>
@@ -1230,11 +1253,10 @@ export default function SchedulingPage() {
     if (!printWindow) return
     printWindow.document.write(html)
     printWindow.document.close()
-    printWindow.onload = () => {
-      setTimeout(() => {
-        printWindow.print()
-      }, 250)
-    }
+    // Wait for logo image to load before printing
+    setTimeout(() => {
+      printWindow.print()
+    }, 500)
   }
 
   // Render an event block (shared between day and week views)
