@@ -20,6 +20,7 @@ services:
       - TEAMUP_API_KEY=${TEAMUP_API_KEY}
       - TEAMUP_CALENDAR_KEY=${TEAMUP_CALENDAR_KEY}
       - NODE_ENV=production
+      - TZ=America/Montreal
     restart: unless-stopped
 
 volumes:

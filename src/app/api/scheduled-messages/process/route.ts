@@ -1,12 +1,19 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/db'
-import { sendPrivateMessage, sendMessageToGroup } from '@/lib/whatsapp/client'
+import { sendPrivateMessage, sendMessageToGroup, getWhatsAppState } from '@/lib/whatsapp/client'
 import { createTheoryEvent } from '@/lib/teamup'
 
 // Process pending scheduled messages that are due
 // This endpoint should be called periodically (e.g., every minute via cron or setInterval)
 export async function POST(request: NextRequest) {
   try {
+    // Check WhatsApp connection first
+    const waState = getWhatsAppState()
+    if (!waState.isConnected) {
+      console.log('[ScheduledProcessor] WhatsApp not connected, skipping processing')
+      return NextResponse.json({ processed: 0, skipped: true, reason: 'WhatsApp not connected' })
+    }
+
     // Find all pending messages that are due (scheduledAt <= now)
     const pendingMessages = await prisma.scheduledMessage.findMany({
       where: {
@@ -21,6 +28,8 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ processed: 0 })
     }
 
+    console.log(`[ScheduledProcessor] Processing ${pendingMessages.length} pending messages`)
+
     const results: Array<{ id: string; sent: number; failed: number }> = []
 
     for (const scheduled of pendingMessages) {
@@ -34,6 +43,7 @@ export async function POST(request: NextRequest) {
         try {
           await sendMessageToGroup(scheduled.groupId, scheduled.message)
           sent = 1
+          console.log(`[ScheduledProcessor] Group message sent to ${scheduled.groupId}`)
 
           // Log to MessageLog
           await prisma.messageLog.create({
@@ -47,7 +57,9 @@ export async function POST(request: NextRequest) {
           }).catch(() => {})
         } catch (error) {
           failed = 1
-          errors.push(`Group: ${error instanceof Error ? error.message : 'Unknown error'}`)
+          const errMsg = error instanceof Error ? error.message : 'Unknown error'
+          errors.push(`Group: ${errMsg}`)
+          console.error(`[ScheduledProcessor] Group message failed for ${scheduled.groupId}:`, errMsg)
 
           // Log failure
           await prisma.messageLog.create({
@@ -57,18 +69,31 @@ export async function POST(request: NextRequest) {
               toName: `Group (Module ${scheduled.moduleNumber || '?'})`,
               message: scheduled.message.slice(0, 500),
               status: 'failed',
-              error: error instanceof Error ? error.message : 'Unknown error',
+              error: errMsg,
             },
           }).catch(() => {})
         }
       } else {
         // Send to individual members
-        const memberPhones: string[] = JSON.parse(scheduled.memberPhones)
+        let memberPhones: string[] = []
+        try {
+          memberPhones = JSON.parse(scheduled.memberPhones)
+        } catch (parseError) {
+          console.error(`[ScheduledProcessor] Failed to parse memberPhones for message ${scheduled.id}:`, scheduled.memberPhones)
+          errors.push('Invalid memberPhones JSON')
+          failed = 1
+        }
+
+        if (memberPhones.length === 0 && errors.length === 0) {
+          console.warn(`[ScheduledProcessor] No member phones for message ${scheduled.id}, marking as sent (nothing to send)`)
+          sent = 1 // Nothing to send, mark as done
+        }
 
         for (const phone of memberPhones) {
           try {
             await sendPrivateMessage(phone, scheduled.message)
             sent++
+            console.log(`[ScheduledProcessor] Private message sent to ${phone}`)
 
             // Log to MessageLog
             await prisma.messageLog.create({
@@ -82,7 +107,9 @@ export async function POST(request: NextRequest) {
             }).catch(() => {})
           } catch (error) {
             failed++
-            errors.push(`${phone}: ${error instanceof Error ? error.message : 'Unknown error'}`)
+            const errMsg = error instanceof Error ? error.message : 'Unknown error'
+            errors.push(`${phone}: ${errMsg}`)
+            console.error(`[ScheduledProcessor] Private message failed for ${phone}:`, errMsg)
 
             // Log failure
             await prisma.messageLog.create({
@@ -92,7 +119,7 @@ export async function POST(request: NextRequest) {
                 toName: null,
                 message: scheduled.message.slice(0, 500),
                 status: 'failed',
-                error: error instanceof Error ? error.message : 'Unknown error',
+                error: errMsg,
               },
             }).catch(() => {})
           }
@@ -112,6 +139,7 @@ export async function POST(request: NextRequest) {
           error: errors.length > 0 ? errors.join('; ') : null
         }
       })
+      console.log(`[ScheduledProcessor] Message ${scheduled.id} status: ${messageStatus} (sent: ${sent}, failed: ${failed})`)
 
       // Sync theory event to Fayyaz's Teamup calendar if message was sent successfully
       if (messageStatus === 'sent' && scheduled.classDateISO && scheduled.moduleNumber && scheduled.classTime) {

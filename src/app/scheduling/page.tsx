@@ -463,9 +463,12 @@ export default function SchedulingPage() {
   }
 
   // Send WhatsApp notification
+  const [notifyError, setNotifyError] = useState<string | null>(null)
+
   const sendNotification = async (data: EventFormData) => {
     if (!data.studentPhone) return
     setNotifyStatus('sending')
+    setNotifyError(null)
     try {
       const teacher = activeTeachers.find(t => t.id.toString() === data.subcalendarId)
       const moduleLabel = getModuleLabel(data.module)
@@ -487,12 +490,17 @@ export default function SchedulingPage() {
       if (res.ok) {
         setNotifyStatus('sent')
       } else {
+        const errData = await res.json().catch(() => ({ error: `HTTP ${res.status}` }))
+        setNotifyError(errData.error || `HTTP ${res.status}`)
         setNotifyStatus('failed')
+        console.error('[Scheduling] Notification failed:', errData.error)
       }
-    } catch {
+    } catch (err) {
+      setNotifyError('Network error')
       setNotifyStatus('failed')
+      console.error('[Scheduling] Notification error:', err)
     }
-    setTimeout(() => setNotifyStatus(null), 4000)
+    setTimeout(() => { setNotifyStatus(null); setNotifyError(null) }, 6000)
   }
 
   // Create event mutation
@@ -2570,7 +2578,7 @@ export default function SchedulingPage() {
               <MessageCircle className="h-4 w-4" />
               {notifyStatus === 'sending' && 'Sending WhatsApp message...'}
               {notifyStatus === 'sent' && 'WhatsApp message sent!'}
-              {notifyStatus === 'failed' && 'Failed to send WhatsApp message'}
+              {notifyStatus === 'failed' && (notifyError ? `Failed: ${notifyError}` : 'Failed to send WhatsApp message')}
             </motion.div>
           )}
           {truckNotifyStatus && (

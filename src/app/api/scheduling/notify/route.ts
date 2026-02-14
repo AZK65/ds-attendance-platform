@@ -3,9 +3,13 @@ import { prisma } from '@/lib/db'
 import { sendPrivateMessage, getWhatsAppState } from '@/lib/whatsapp/client'
 
 export async function POST(request: NextRequest) {
+  let phone = 'unknown'
+  let studentName = ''
+
   try {
     const state = getWhatsAppState()
     if (!state.isConnected) {
+      console.log('[notify] WhatsApp not connected, cannot send scheduling notification')
       return NextResponse.json(
         { error: 'WhatsApp not connected' },
         { status: 503 }
@@ -13,9 +17,11 @@ export async function POST(request: NextRequest) {
     }
 
     const body = await request.json()
-    const { phone, studentName, module, teacherName, date, startTime, endTime } = body
+    phone = body.phone || 'unknown'
+    studentName = body.studentName || ''
+    const { module, teacherName, date, startTime, endTime } = body
 
-    if (!phone || !studentName) {
+    if (!phone || phone === 'unknown' || !studentName) {
       return NextResponse.json(
         { error: 'phone and studentName are required' },
         { status: 400 }
@@ -30,7 +36,9 @@ export async function POST(request: NextRequest) {
 
     const message = `Hi ${studentName}! Your ${moduleStr} class has been scheduled${teacherStr} on ${dateStr} ${timeStr}. See you there!`.trim()
 
+    console.log(`[notify] Sending class notification to ${phone} (${studentName})`)
     await sendPrivateMessage(phone, message)
+    console.log(`[notify] Class notification sent to ${phone}`)
 
     // Log the sent message
     await prisma.messageLog.create({
@@ -39,23 +47,23 @@ export async function POST(request: NextRequest) {
 
     return NextResponse.json({ success: true })
   } catch (error) {
-    console.error('Failed to send scheduling notification:', error)
+    const errMsg = error instanceof Error ? error.message : 'Unknown error'
+    console.error(`[notify] Failed to send scheduling notification to ${phone}:`, errMsg)
 
     // Log the failed message
-    const body2 = await request.clone().json().catch(() => ({}))
     await prisma.messageLog.create({
       data: {
         type: 'class-scheduled',
-        to: body2.phone || 'unknown',
-        toName: body2.studentName || null,
+        to: phone,
+        toName: studentName || null,
         message: 'Failed to send scheduling notification',
         status: 'failed',
-        error: error instanceof Error ? error.message : 'Unknown error',
+        error: errMsg,
       },
     }).catch(() => {})
 
     return NextResponse.json(
-      { error: 'Failed to send notification' },
+      { error: `Failed to send notification: ${errMsg}` },
       { status: 500 }
     )
   }

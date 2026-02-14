@@ -113,6 +113,8 @@ export async function POST(
                 scheduledAt: scheduledDate,
                 memberPhones: '[]', // Empty for group messages
                 moduleNumber: moduleNum,
+                classDateISO: classDateISO,
+                classTime: time,
                 isGroupMessage: true,
                 status: 'pending'
               }
