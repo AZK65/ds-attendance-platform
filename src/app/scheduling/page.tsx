@@ -1812,7 +1812,8 @@ export default function SchedulingPage() {
             const startTimeStr = startDt.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true })
             const endTimeStr = endDt.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true })
             const moduleLabel = parsed.module ? getModuleLabel(parsed.module) : ''
-            const phaseInfo = parsed.module ? getPhaseInfo(parsed.module) : null
+            // Derive phase from the group's last theory module, not from this class's module
+            const phaseInfo = lastTheory.module ? getPhaseInfo(String(lastTheory.module)) : (parsed.module ? getPhaseInfo(parsed.module) : null)
             const studentName = studentFromNotes || parsed.studentName
             const group = groupFromNotes || parsed.group
             const isTheory = isTheoryEvent(selectedEvent)
