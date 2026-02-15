@@ -1799,7 +1799,7 @@ export default function SchedulingPage() {
 
       {/* Event Detail Dialog */}
       <Dialog open={showEventDetail} onOpenChange={(open) => { if (!open) { setShowEventDetail(false); setSelectedEvent(null); setTheoryGroupId(null) } }}>
-        <DialogContent className="w-[95vw] sm:max-w-md overflow-hidden">
+        <DialogContent className="w-[95vw] sm:max-w-lg overflow-hidden">
           <DialogHeader>
             <DialogTitle>Class Details</DialogTitle>
             <DialogDescription>View class information</DialogDescription>
@@ -1867,34 +1867,28 @@ export default function SchedulingPage() {
                   </div>
                 )}
 
-                {/* Class Info */}
+                {/* Class Info & Phase */}
                 {(moduleLabel || phaseInfo) && (
-                  <div className="p-3 bg-muted/50 rounded-lg space-y-2 overflow-hidden">
-                    {moduleLabel && (
-                      <div className="flex items-center gap-3 min-w-0">
-                        <BookOpen className="h-5 w-5 text-primary flex-shrink-0" />
-                        <div className="min-w-0">
-                          <p className="text-sm text-muted-foreground">Class</p>
-                          <p className="font-medium truncate">{moduleLabel}</p>
+                  <div className="p-3 bg-muted/50 rounded-lg space-y-3 overflow-hidden">
+                    <div className="flex items-center justify-between gap-3">
+                      {moduleLabel && (
+                        <div className="flex items-center gap-3 min-w-0">
+                          <BookOpen className="h-5 w-5 text-primary flex-shrink-0" />
+                          <div className="min-w-0">
+                            <p className="text-sm text-muted-foreground">Class</p>
+                            <p className="font-medium truncate">{moduleLabel}</p>
+                          </div>
                         </div>
-                        {phaseInfo && (
-                          <span className={`ml-auto px-2 py-0.5 rounded text-sm font-medium whitespace-nowrap flex-shrink-0 ${phaseInfo.color}`}>
-                            {phaseInfo.label}
-                          </span>
-                        )}
-                      </div>
-                    )}
-                    {!moduleLabel && phaseInfo && (
-                      <div className="flex items-center gap-3">
-                        <GraduationCap className="h-5 w-5 text-primary flex-shrink-0" />
-                        <div>
-                          <p className="text-sm text-muted-foreground">Phase</p>
-                          <span className={`inline-block px-2 py-0.5 rounded text-sm font-medium ${phaseInfo.color}`}>
+                      )}
+                      {phaseInfo && (
+                        <div className="flex items-center gap-2 flex-shrink-0">
+                          <GraduationCap className="h-5 w-5 text-primary" />
+                          <span className={`px-3 py-1 rounded-full text-sm font-semibold ${phaseInfo.color}`}>
                             {phaseInfo.label}
                           </span>
                         </div>
-                      </div>
-                    )}
+                      )}
+                    </div>
                   </div>
                 )}
 
