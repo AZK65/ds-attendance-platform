@@ -659,7 +659,10 @@ export default function GroupDetailPage() {
                       {index + 1}
                     </TableCell>
                     <TableCell>
-                      <div>
+                      <Link
+                        href={`/groups/${encodeURIComponent(groupId)}/student/${encodeURIComponent(participant.id)}`}
+                        className="block hover:underline"
+                      >
                         {getDisplayName(participant) ? (
                           <>
                             <p className="font-medium">{getDisplayName(participant)}</p>
@@ -668,7 +671,7 @@ export default function GroupDetailPage() {
                         ) : (
                           <p className="font-medium">{formatPhone(participant.phone)}</p>
                         )}
-                      </div>
+                      </Link>
                     </TableCell>
                     <TableCell>
                       {participant.isSuperAdmin ? (

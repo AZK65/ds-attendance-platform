@@ -19,7 +19,7 @@ export async function POST(request: NextRequest) {
     const body = await request.json()
     phone = body.phone || 'unknown'
     studentName = body.studentName || ''
-    const { module, teacherName, date, startTime, endTime } = body
+    const { module, teacherName, date, classDateISO, startTime, endTime } = body
 
     if (!phone || phone === 'unknown' || !studentName) {
       return NextResponse.json(
@@ -28,7 +28,8 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    // Build message
+    // Build message — strip #number suffix from student name (e.g. "Sahar Tasleem #1115" → "Sahar Tasleem")
+    const cleanName = studentName.replace(/\s*#\d+$/, '').trim()
     const moduleStr = module || 'class'
     const dateStr = date || 'TBD'
     const teacherStr = teacherName ? ` with ${teacherName}` : ''
@@ -42,7 +43,7 @@ export async function POST(request: NextRequest) {
     }
     const timeStr = startTime && endTime ? `from ${formatTime12h(startTime)} to ${formatTime12h(endTime)}` : ''
 
-    const message = `Hi ${studentName}! Your ${moduleStr} class has been scheduled${teacherStr} on ${dateStr} ${timeStr}. See you there!`.trim()
+    const message = `Hi ${cleanName}! Your ${moduleStr} class has been scheduled${teacherStr} on ${dateStr} ${timeStr}. See you there!`.trim()
 
     console.log(`[notify] Sending class notification to ${phone} (${studentName})`)
     await sendPrivateMessage(phone, message)
@@ -53,7 +54,37 @@ export async function POST(request: NextRequest) {
       data: { type: 'class-scheduled', to: phone, toName: studentName, message: message.slice(0, 500), status: 'sent' },
     }).catch(() => {})
 
-    return NextResponse.json({ success: true })
+    // Schedule a 1-hour-before reminder
+    let reminderScheduled = false
+    if (classDateISO && startTime) {
+      try {
+        const classDateTime = new Date(`${classDateISO}T${startTime}:00`)
+        const reminderTime = new Date(classDateTime.getTime() - 1 * 60 * 60 * 1000) // 1 hour before
+
+        if (reminderTime > new Date()) {
+          const reminderMessage = `Reminder: Hi ${cleanName}, your ${moduleStr} class${teacherStr} is in 1 hour (${formatTime12h(startTime)}). See you soon!`
+
+          await prisma.scheduledMessage.create({
+            data: {
+              groupId: 'in-car-reminders',
+              message: reminderMessage,
+              scheduledAt: reminderTime,
+              memberPhones: JSON.stringify([phone]),
+              classDateISO,
+              classTime: timeStr,
+              isGroupMessage: false,
+              status: 'pending',
+            },
+          })
+          reminderScheduled = true
+          console.log(`[notify] Scheduled 1hr reminder for ${phone} at ${reminderTime.toISOString()}`)
+        }
+      } catch (reminderErr) {
+        console.error('[notify] Failed to schedule reminder:', reminderErr)
+      }
+    }
+
+    return NextResponse.json({ success: true, reminderScheduled })
   } catch (error) {
     const errMsg = error instanceof Error ? error.message : 'Unknown error'
     console.error(`[notify] Failed to send scheduling notification to ${phone}:`, errMsg)

@@ -194,7 +194,8 @@ export async function POST(request: NextRequest) {
         const regularClasses = classes.map((cls, idx) => ({ ...cls, _origIdx: idx })).filter(c => !c.isExam)
         const exams = classes.filter(c => c.isExam)
 
-        let message = `Hi ${studentName}! Here's your truck training schedule:\n\n`
+        const cleanName = studentName.replace(/\s*#\d+$/, '').trim()
+        let message = `Hi ${cleanName}! Here's your truck training schedule:\n\n`
 
         if (regularClasses.length > 0) {
           message += `📋 Classes:\n`

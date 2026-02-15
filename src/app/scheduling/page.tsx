@@ -90,6 +90,7 @@ interface EventFormData {
   lastTheoryDate: string | null
   isExtraHours: boolean
   isPaid: boolean
+  customNotes: string
 }
 
 const initialFormData: EventFormData = {
@@ -106,6 +107,7 @@ const initialFormData: EventFormData = {
   lastTheoryDate: null,
   isExtraHours: false,
   isPaid: false,
+  customNotes: '',
 }
 
 interface TruckClassRow {
@@ -261,6 +263,11 @@ export default function SchedulingPage() {
   const [exportMode, setExportMode] = useState<ExportMode>('schedule')
   const [exportFormat, setExportFormat] = useState<ExportFormat>('pdf')
   const [exportDate, setExportDate] = useState('')
+
+  // Inline student info edit (in event detail)
+  const [editingStudentInfo, setEditingStudentInfo] = useState(false)
+  const [editStudentName, setEditStudentName] = useState('')
+  const [editStudentPhone, setEditStudentPhone] = useState('')
 
   // Compute date range based on view mode
   const { startDate, endDate } = useMemo(() => {
@@ -423,6 +430,7 @@ export default function SchedulingPage() {
         : ''
       noteLines.push(`LastTheory: ${data.lastTheoryModule}${dateStr ? ` (${dateStr})` : ''}`)
     }
+    if (data.customNotes) noteLines.push(`Notes: ${data.customNotes}`)
     return noteLines.join('\n')
   }
 
@@ -492,6 +500,7 @@ export default function SchedulingPage() {
           module: moduleLabel,
           teacherName: teacher?.name?.split(' ')[0] || '',
           date: dateStr,
+          classDateISO: data.date,
           startTime: data.startTime,
           endTime: data.endTime,
         }),
@@ -578,6 +587,53 @@ export default function SchedulingPage() {
       setShowEditDialog(false)
       if (data.subcalendarId) notifyTeacher(data.subcalendarId, 'deleted', data)
       setEditingEvent(null)
+    },
+  })
+
+  // Update student info inline (from event detail)
+  const updateStudentInfoMutation = useMutation({
+    mutationFn: async ({ eventId, name, phone: newPhone }: { eventId: string; name: string; phone: string }) => {
+      const event = selectedEvent!
+      const parsed = parseModuleFromTitle(event.title)
+      const groupFromNotes = parseGroupFromNotes(event.notes)
+      const lastTheory = parseLastTheoryFromNotes(event.notes)
+
+      const updatedData: EventFormData = {
+        module: parsed.module,
+        title: parsed.title,
+        subcalendarId: event.subcalendar_ids[0]?.toString() || '',
+        date: event.start_dt.split('T')[0],
+        startTime: new Date(event.start_dt).toTimeString().slice(0, 5),
+        endTime: new Date(event.end_dt).toTimeString().slice(0, 5),
+        studentName: name,
+        studentPhone: newPhone,
+        group: groupFromNotes || parsed.group,
+        lastTheoryModule: lastTheory.module,
+        lastTheoryDate: lastTheory.date,
+        isExtraHours: parseExtraHoursFromNotes(event.notes),
+        isPaid: parsePaidFromNotes(event.notes),
+        customNotes: parseCustomNotesFromNotes(event.notes),
+      }
+
+      const res = await fetch(`/api/scheduling/events/${eventId}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          title: buildTitle(updatedData),
+          startDate: event.start_dt,
+          endDate: event.end_dt,
+          subcalendarIds: event.subcalendar_ids,
+          notes: buildNotes(updatedData),
+        }),
+      })
+      if (!res.ok) throw new Error('Failed to update event')
+      return res.json()
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['scheduling-events'] })
+      setEditingStudentInfo(false)
+      setShowEventDetail(false)
+      setSelectedEvent(null)
     },
   })
 
@@ -682,6 +738,12 @@ export default function SchedulingPage() {
     const match = stripHtml(notes).match(/LastTheory:\s*(\d+)(?:\s*\((.+?)\))?/)
     if (!match) return { module: null, date: null }
     return { module: parseInt(match[1]), date: match[2] || null }
+  }
+
+  const parseCustomNotesFromNotes = (notes?: string) => {
+    if (!notes) return ''
+    const match = stripHtml(notes).match(/Notes:\s*(.+)/)
+    return match?.[1]?.trim() || ''
   }
 
   // Check if event is a theory class (not in-car session)
@@ -876,6 +938,7 @@ export default function SchedulingPage() {
     const lastTheory = parseLastTheoryFromNotes(event.notes)
     const isExtra = parseExtraHoursFromNotes(event.notes)
     const paid = parsePaidFromNotes(event.notes)
+    const customNotes = parseCustomNotesFromNotes(event.notes)
 
     setFormData({
       module: parsed.module,
@@ -891,6 +954,7 @@ export default function SchedulingPage() {
       lastTheoryDate: lastTheory.date,
       isExtraHours: isExtra,
       isPaid: paid,
+      customNotes,
     })
   }
 
@@ -1528,7 +1592,6 @@ export default function SchedulingPage() {
           size="sm"
           onClick={() => setFormData(prev => ({
             ...prev, isExtraHours: !prev.isExtraHours, isPaid: false,
-            studentPhone: '', group: '', lastTheoryModule: null, lastTheoryDate: null,
           }))}
           className={formData.isExtraHours ? 'bg-amber-600 hover:bg-amber-700' : ''}
         >
@@ -1591,6 +1654,16 @@ export default function SchedulingPage() {
           <Label>End Time</Label>
           <Input type="time" value={formData.endTime} onChange={(e) => setFormData(prev => ({ ...prev, endTime: e.target.value }))} />
         </div>
+      </div>
+      <div>
+        <Label>Notes (optional)</Label>
+        <textarea
+          className="flex w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 min-h-[60px] resize-y"
+          value={formData.customNotes || ''}
+          onChange={(e) => setFormData(prev => ({ ...prev, customNotes: e.target.value }))}
+          placeholder="Add notes about this class..."
+          rows={2}
+        />
       </div>
     </div>
   )
@@ -1798,7 +1871,7 @@ export default function SchedulingPage() {
       </Dialog>
 
       {/* Event Detail Dialog */}
-      <Dialog open={showEventDetail} onOpenChange={(open) => { if (!open) { setShowEventDetail(false); setSelectedEvent(null); setTheoryGroupId(null) } }}>
+      <Dialog open={showEventDetail} onOpenChange={(open) => { if (!open) { setShowEventDetail(false); setSelectedEvent(null); setTheoryGroupId(null); setEditingStudentInfo(false) } }}>
         <DialogContent className="w-[95vw] sm:max-w-xl overflow-hidden">
           <DialogHeader>
             <DialogTitle>Class Details</DialogTitle>
@@ -1895,44 +1968,101 @@ export default function SchedulingPage() {
                 {/* Student Info */}
                 {(studentName || phone) && (
                   <div className="p-3 border rounded-lg space-y-3 overflow-hidden">
-                    {studentName && (
-                      <div className="flex items-center gap-3 min-w-0">
-                        <User className="h-4 w-4 text-muted-foreground flex-shrink-0" />
-                        <div className="min-w-0">
-                          <p className="text-sm text-muted-foreground">Student</p>
-                          <p className="font-medium truncate">{studentName}</p>
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs font-medium text-muted-foreground uppercase tracking-wider">Student Info</span>
+                      {!editingStudentInfo ? (
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className="h-6 w-6 p-0"
+                          onClick={() => {
+                            setEditStudentName(studentName)
+                            setEditStudentPhone(phone)
+                            setEditingStudentInfo(true)
+                            updateStudentInfoMutation.reset()
+                          }}
+                        >
+                          <Edit3 className="h-3.5 w-3.5" />
+                        </Button>
+                      ) : (
+                        <Button variant="ghost" size="sm" className="h-6 w-6 p-0" onClick={() => setEditingStudentInfo(false)}>
+                          <X className="h-3.5 w-3.5" />
+                        </Button>
+                      )}
+                    </div>
+
+                    {editingStudentInfo ? (
+                      <div className="space-y-3">
+                        <div>
+                          <Label className="text-xs">Name</Label>
+                          <Input value={editStudentName} onChange={e => setEditStudentName(e.target.value)} className="h-8 text-sm" />
                         </div>
-                      </div>
-                    )}
-                    {phone && (
-                      <div className="flex items-center gap-3 min-w-0">
-                        <Phone className="h-4 w-4 text-muted-foreground flex-shrink-0" />
-                        <div className="min-w-0">
-                          <p className="text-sm text-muted-foreground">Phone</p>
-                          <a href={`tel:+${phone}`} className="font-medium text-primary hover:underline truncate block">+{phone}</a>
+                        <div>
+                          <Label className="text-xs">Phone</Label>
+                          <Input value={editStudentPhone} onChange={e => setEditStudentPhone(e.target.value)} className="h-8 text-sm" />
                         </div>
+                        {updateStudentInfoMutation.isError && (
+                          <p className="text-xs text-destructive">{updateStudentInfoMutation.error?.message || 'Failed to update'}</p>
+                        )}
+                        <Button
+                          size="sm"
+                          className="w-full"
+                          disabled={updateStudentInfoMutation.isPending}
+                          onClick={() => {
+                            if (!selectedEvent) return
+                            updateStudentInfoMutation.mutate({
+                              eventId: selectedEvent.id,
+                              name: editStudentName,
+                              phone: editStudentPhone,
+                            })
+                          }}
+                        >
+                          {updateStudentInfoMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin mr-1" /> : <Save className="h-3.5 w-3.5 mr-1" />}
+                          Save
+                        </Button>
                       </div>
-                    )}
-                    {group && (
-                      <div className="flex items-center gap-3 min-w-0">
-                        <Users className="h-4 w-4 text-muted-foreground flex-shrink-0" />
-                        <div className="min-w-0">
-                          <p className="text-sm text-muted-foreground">Group</p>
-                          <p className="font-medium truncate">{group}</p>
-                        </div>
-                      </div>
-                    )}
-                    {lastTheory.module && (
-                      <div className="flex items-center gap-3 min-w-0">
-                        <BookOpen className="h-4 w-4 text-muted-foreground flex-shrink-0" />
-                        <div className="min-w-0">
-                          <p className="text-sm text-muted-foreground">Last Theory Class</p>
-                          <p className="font-medium truncate">
-                            Module {lastTheory.module}
-                            {lastTheory.date && <span className="text-sm text-muted-foreground ml-1">— {lastTheory.date}</span>}
-                          </p>
-                        </div>
-                      </div>
+                    ) : (
+                      <>
+                        {studentName && (
+                          <div className="flex items-center gap-3 min-w-0">
+                            <User className="h-4 w-4 text-muted-foreground flex-shrink-0" />
+                            <div className="min-w-0">
+                              <p className="text-sm text-muted-foreground">Student</p>
+                              <p className="font-medium truncate">{studentName}</p>
+                            </div>
+                          </div>
+                        )}
+                        {phone && (
+                          <div className="flex items-center gap-3 min-w-0">
+                            <Phone className="h-4 w-4 text-muted-foreground flex-shrink-0" />
+                            <div className="min-w-0">
+                              <p className="text-sm text-muted-foreground">Phone</p>
+                              <a href={`tel:+${phone}`} className="font-medium text-primary hover:underline truncate block">+{phone}</a>
+                            </div>
+                          </div>
+                        )}
+                        {group && (
+                          <div className="flex items-center gap-3 min-w-0">
+                            <Users className="h-4 w-4 text-muted-foreground flex-shrink-0" />
+                            <div className="min-w-0">
+                              <p className="text-sm text-muted-foreground">Group</p>
+                              <p className="font-medium truncate">{group}</p>
+                            </div>
+                          </div>
+                        )}
+                        {lastTheory.module && (
+                          <div className="flex items-center gap-3 min-w-0">
+                            <BookOpen className="h-4 w-4 text-muted-foreground flex-shrink-0" />
+                            <div className="min-w-0">
+                              <p className="text-sm text-muted-foreground">Last Theory Class</p>
+                              <p className="font-medium truncate">
+                                Module {lastTheory.module}
+                                {lastTheory.date && <span className="text-sm text-muted-foreground ml-1">— {lastTheory.date}</span>}
+                              </p>
+                            </div>
+                          </div>
+                        )}
+                      </>
                     )}
                   </div>
                 )}
@@ -1959,12 +2089,15 @@ export default function SchedulingPage() {
                 </div>
 
                 {/* Custom title / notes */}
-                {parsed.title && (
+                {(parsed.title || parseCustomNotesFromNotes(selectedEvent.notes)) && (
                   <div className="flex items-center gap-3">
                     <Edit3 className="h-4 w-4 text-muted-foreground flex-shrink-0" />
                     <div>
                       <p className="text-sm text-muted-foreground">Notes</p>
-                      <p className="font-medium">{parsed.title}</p>
+                      {parsed.title && <p className="font-medium">{parsed.title}</p>}
+                      {parseCustomNotesFromNotes(selectedEvent.notes) && (
+                        <p className="text-sm text-muted-foreground">{parseCustomNotesFromNotes(selectedEvent.notes)}</p>
+                      )}
                     </div>
                   </div>
                 )}
