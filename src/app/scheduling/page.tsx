@@ -490,7 +490,7 @@ export default function SchedulingPage() {
           phone: data.studentPhone,
           studentName: data.studentName,
           module: moduleLabel,
-          teacherName: teacher?.name || '',
+          teacherName: teacher?.name?.split(' ')[0] || '',
           date: dateStr,
           startTime: data.startTime,
           endTime: data.endTime,
