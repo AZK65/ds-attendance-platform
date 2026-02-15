@@ -20,6 +20,7 @@ export async function PUT(
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({
+        id: eventId,
         title,
         start_dt: startDate,
         end_dt: endDate,

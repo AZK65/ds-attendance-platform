@@ -118,7 +118,7 @@ interface TruckClassRow {
   examLocation: string
 }
 
-const EXAM_LOCATIONS = ['Laval', 'Joliette', 'Saint-Jérôme']
+const EXAM_LOCATIONS = ['Laval', 'Joliette', 'Saint-Jérôme', 'Longueuil']
 
 const emptyTruckRow = (): TruckClassRow => ({
   date: '',
@@ -131,8 +131,39 @@ const emptyTruckRow = (): TruckClassRow => ({
 interface TruckFormData {
   studentName: string
   studentPhone: string
+  transmission: 'auto' | 'manual'
+  startingClassNumber: number
   classes: TruckClassRow[]
 }
+
+// Bulk car class interfaces
+interface CarClassRow {
+  date: string
+  startTime: string
+  endTime: string
+  module: string
+  subcalendarId: string
+}
+
+interface CarBulkFormData {
+  studentName: string
+  studentPhone: string
+  group: string
+  lastTheoryModule: number | null
+  lastTheoryDate: string | null
+  isExtraHours: boolean
+  isPaid: boolean
+  customNotes: string
+  classes: CarClassRow[]
+}
+
+const emptyCarRow = (): CarClassRow => ({
+  date: '',
+  startTime: '09:00',
+  endTime: '10:00',
+  module: '',
+  subcalendarId: '',
+})
 
 const MODULE_OPTIONS = [
   { value: 'S1', label: 'Session 1 (In-Car)' },
@@ -237,6 +268,8 @@ export default function SchedulingPage() {
   const [truckForm, setTruckForm] = useState<TruckFormData>({
     studentName: '',
     studentPhone: '',
+    transmission: 'manual',
+    startingClassNumber: 1,
     classes: [emptyTruckRow()],
   })
   const [truckCreating, setTruckCreating] = useState(false)
@@ -247,6 +280,15 @@ export default function SchedulingPage() {
   // Truck schedule viewer (from event detail)
   const [showTruckSchedule, setShowTruckSchedule] = useState(false)
   const [truckScheduleData, setTruckScheduleData] = useState<{ studentName: string; studentPhone: string; classes: TruckClassRow[] } | null>(null)
+
+  // Bulk car class state
+  const [showCarBulkDialog, setShowCarBulkDialog] = useState(false)
+  const [carBulkForm, setCarBulkForm] = useState<CarBulkFormData>({
+    studentName: '', studentPhone: '', group: '', lastTheoryModule: null, lastTheoryDate: null,
+    isExtraHours: false, isPaid: false, customNotes: '', classes: [emptyCarRow()],
+  })
+  const [carBulkStep, setCarBulkStep] = useState<'form' | 'preview'>('form')
+  const [carBulkCreating, setCarBulkCreating] = useState(false)
 
   // Teacher phone management
   const [showTeacherSettings, setShowTeacherSettings] = useState(false)
@@ -417,8 +459,19 @@ export default function SchedulingPage() {
   }
 
   // Build notes string with phone
-  const buildNotes = (data: EventFormData) => {
+  const buildNotes = (data: EventFormData, originalNotes?: string) => {
     const noteLines = []
+    // Preserve truck-specific fields from original notes when editing truck classes
+    if (originalNotes) {
+      const clean = stripHtml(originalNotes)
+      const lines = clean.split('\n').map(l => l.trim())
+      for (const line of lines) {
+        if (/^TruckClass:/i.test(line)) noteLines.push(line)
+        else if (/^Transmission:/i.test(line)) noteLines.push(line)
+        else if (/^ClassNumber:/i.test(line)) noteLines.push(line)
+        else if (/^Exam:/i.test(line)) noteLines.push(line)
+      }
+    }
     if (data.isExtraHours) noteLines.push('ExtraHours: yes')
     if (data.isExtraHours) noteLines.push(`Paid: ${data.isPaid ? 'yes' : 'no'}`)
     if (data.studentName) noteLines.push(`Student: ${data.studentName}`)
@@ -550,8 +603,9 @@ export default function SchedulingPage() {
 
   // Update event mutation
   const updateMutation = useMutation({
-    mutationFn: async ({ eventId, data }: { eventId: string; data: EventFormData }) => {
+    mutationFn: async ({ eventId, data, originalNotes }: { eventId: string; data: EventFormData; originalNotes?: string }) => {
       const title = buildTitle(data)
+      const subCalId = parseInt(data.subcalendarId)
       const res = await fetch(`/api/scheduling/events/${eventId}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
@@ -559,11 +613,14 @@ export default function SchedulingPage() {
           title,
           startDate: `${data.date}T${data.startTime}:00`,
           endDate: `${data.date}T${data.endTime}:00`,
-          subcalendarIds: [parseInt(data.subcalendarId)],
-          notes: buildNotes(data),
+          ...(isNaN(subCalId) ? {} : { subcalendarIds: [subCalId] }),
+          notes: buildNotes(data, originalNotes),
         }),
       })
-      if (!res.ok) throw new Error('Failed to update event')
+      if (!res.ok) {
+        const errText = await res.text()
+        throw new Error(`Failed to update event: ${errText}`)
+      }
       return res.json()
     },
     onSuccess: (_, { data }) => {
@@ -623,7 +680,7 @@ export default function SchedulingPage() {
           startDate: event.start_dt,
           endDate: event.end_dt,
           subcalendarIds: event.subcalendar_ids,
-          notes: buildNotes(updatedData),
+          notes: buildNotes(updatedData, event.notes),
         }),
       })
       if (!res.ok) throw new Error('Failed to update event')
@@ -655,13 +712,24 @@ export default function SchedulingPage() {
 
   // Open create dialog pre-filled with day/time
   const handleSlotClick = (date: Date, hour: number) => {
-    setFormData({
-      ...initialFormData,
-      date: formatDate(date),
-      startTime: `${hour.toString().padStart(2, '0')}:00`,
-      endTime: `${(hour + 1).toString().padStart(2, '0')}:00`,
-      subcalendarId: selectedTeacher ? selectedTeacher.toString() : '',
-    })
+    // If user already has form data (student, module), preserve it and only update date/time
+    if (formData.studentName || formData.module) {
+      setFormData(prev => ({
+        ...prev,
+        date: formatDate(date),
+        startTime: `${hour.toString().padStart(2, '0')}:00`,
+        endTime: `${(hour + 1).toString().padStart(2, '0')}:00`,
+        subcalendarId: selectedTeacher ? selectedTeacher.toString() : prev.subcalendarId,
+      }))
+    } else {
+      setFormData({
+        ...initialFormData,
+        date: formatDate(date),
+        startTime: `${hour.toString().padStart(2, '0')}:00`,
+        endTime: `${(hour + 1).toString().padStart(2, '0')}:00`,
+        subcalendarId: selectedTeacher ? selectedTeacher.toString() : '',
+      })
+    }
     setDuplicateError(null)
     setShowCreateDialog(true)
   }
@@ -823,6 +891,119 @@ export default function SchedulingPage() {
     })
   }
 
+  // Bulk car class helpers
+  const updateCarClass = (index: number, updates: Partial<CarClassRow>) => {
+    setCarBulkForm(prev => ({
+      ...prev,
+      classes: prev.classes.map((cls, i) => i === index ? { ...cls, ...updates } : cls),
+    }))
+  }
+
+  const removeCarClass = (index: number) => {
+    setCarBulkForm(prev => ({
+      ...prev,
+      classes: prev.classes.filter((_, i) => i !== index),
+    }))
+  }
+
+  const addCarClass = () => {
+    setCarBulkForm(prev => {
+      const lastClass = prev.classes[prev.classes.length - 1]
+      // Auto-increment session number
+      let nextModule = ''
+      if (lastClass?.module?.startsWith('S')) {
+        const num = parseInt(lastClass.module.slice(1))
+        if (!isNaN(num) && num < 15) nextModule = `S${num + 1}`
+      }
+      const newRow: CarClassRow = {
+        date: lastClass ? (() => {
+          if (!lastClass.date) return ''
+          const d = new Date(lastClass.date + 'T12:00:00')
+          d.setDate(d.getDate() + 1)
+          return formatDate(d)
+        })() : '',
+        startTime: lastClass?.startTime || '09:00',
+        endTime: lastClass?.endTime || '10:00',
+        module: nextModule,
+        subcalendarId: lastClass?.subcalendarId || '',
+      }
+      return { ...prev, classes: [...prev.classes, newRow] }
+    })
+  }
+
+  const handleCarBulkSubmit = async () => {
+    if (!carBulkForm.studentName || carBulkForm.classes.length === 0) return
+    if (carBulkForm.classes.some(c => !c.date || !c.subcalendarId)) return
+
+    setCarBulkCreating(true)
+    let created = 0
+    const errors: string[] = []
+
+    try {
+      for (const cls of carBulkForm.classes) {
+        const classData: EventFormData = {
+          module: cls.module,
+          title: '',
+          subcalendarId: cls.subcalendarId,
+          date: cls.date,
+          startTime: cls.startTime,
+          endTime: cls.endTime,
+          studentName: carBulkForm.studentName,
+          studentPhone: carBulkForm.studentPhone,
+          group: carBulkForm.group,
+          lastTheoryModule: carBulkForm.lastTheoryModule,
+          lastTheoryDate: carBulkForm.lastTheoryDate,
+          isExtraHours: carBulkForm.isExtraHours,
+          isPaid: carBulkForm.isPaid,
+          customNotes: carBulkForm.customNotes,
+        }
+
+        try {
+          const title = buildTitle(classData)
+          const res = await fetch('/api/scheduling/events', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              title,
+              startDate: `${cls.date}T${cls.startTime}:00`,
+              endDate: `${cls.date}T${cls.endTime}:00`,
+              subcalendarIds: [parseInt(cls.subcalendarId)],
+              notes: buildNotes(classData),
+            }),
+          })
+
+          if (res.ok) {
+            created++
+            // Send notification + schedule reminder per class
+            if (classData.studentPhone) sendNotification(classData)
+            if (classData.subcalendarId) notifyTeacher(classData.subcalendarId, 'created', classData)
+          } else {
+            const text = await res.text()
+            errors.push(`Class on ${cls.date}: ${text}`)
+          }
+        } catch (err) {
+          errors.push(`Class on ${cls.date}: ${err instanceof Error ? err.message : 'Unknown error'}`)
+        }
+
+        // Small delay between API calls
+        await new Promise(resolve => setTimeout(resolve, 300))
+      }
+
+      queryClient.invalidateQueries({ queryKey: ['scheduling-events'] })
+      setShowCarBulkDialog(false)
+      setCarBulkStep('form')
+      setCarBulkForm({
+        studentName: '', studentPhone: '', group: '', lastTheoryModule: null, lastTheoryDate: null,
+        isExtraHours: false, isPaid: false, customNotes: '', classes: [emptyCarRow()],
+      })
+      console.log(`Bulk car classes created: ${created}/${carBulkForm.classes.length}${errors.length > 0 ? `, errors: ${errors.length}` : ''}`)
+    } catch {
+      console.error('Bulk car class creation failed')
+    } finally {
+      setCarBulkCreating(false)
+    }
+  }
+
   const handleTruckSubmit = async () => {
     if (!truckForm.studentName || !truckForm.studentPhone || truckForm.classes.length === 0) return
     // Validate all classes have dates
@@ -838,6 +1019,8 @@ export default function SchedulingPage() {
         body: JSON.stringify({
           studentName: truckForm.studentName,
           studentPhone: truckForm.studentPhone,
+          transmission: truckForm.transmission,
+          startingClassNumber: truckForm.startingClassNumber,
           classes: truckForm.classes.map(c => ({
             date: c.date,
             startTime: c.startTime,
@@ -853,7 +1036,7 @@ export default function SchedulingPage() {
         queryClient.invalidateQueries({ queryKey: ['scheduling-events'] })
         setShowTruckDialog(false)
         setTruckStep('form')
-        setTruckForm({ studentName: '', studentPhone: '', classes: [emptyTruckRow()] })
+        setTruckForm({ studentName: '', studentPhone: '', transmission: 'manual', startingClassNumber: 1, classes: [emptyTruckRow()] })
         setTruckNotifyStatus('sent')
         console.log(`Truck classes created: ${result.eventsCreated}, reminders: ${result.remindersScheduled}`)
       } else if (res.status === 409) {
@@ -900,32 +1083,63 @@ export default function SchedulingPage() {
   }
 
   // View truck schedule from event detail (gather all truck events for the student)
-  const handleViewTruckSchedule = (event: TeamupEvent) => {
+  const handleViewTruckSchedule = async (event: TeamupEvent) => {
     const studentName = parseStudentFromNotes(event.notes)
     const studentPhone = parsePhoneFromNotes(event.notes)
     if (!studentName) return
 
-    // Find all truck events for this student from loaded events
-    const truckEvents = events
-      .filter(ev => isTruckClass(ev) && parseStudentFromNotes(ev.notes) === studentName)
-      .sort((a, b) => new Date(a.start_dt).getTime() - new Date(b.start_dt).getTime())
+    // Fetch all truck events for this student from Teamup (not just loaded view)
+    try {
+      const res = await fetch(`/api/scheduling/student-events?studentName=${encodeURIComponent(studentName)}`)
+      if (!res.ok) throw new Error('Failed to fetch')
+      const allEvents: TeamupEvent[] = await res.json()
 
-    const scheduleClasses: TruckClassRow[] = truckEvents.map(ev => {
-      const startDt = new Date(ev.start_dt)
-      const endDt = new Date(ev.end_dt)
-      const examLoc = parseExamLocationFromNotes(ev.notes)
-      return {
-        date: formatDate(startDt),
-        startTime: startDt.toTimeString().slice(0, 5),
-        endTime: endDt.toTimeString().slice(0, 5),
-        isExam: !!examLoc,
-        examLocation: examLoc,
-      }
+      const truckEvents = allEvents
+        .filter(ev => isTruckClass(ev))
+        .sort((a, b) => new Date(a.start_dt).getTime() - new Date(b.start_dt).getTime())
+
+      const scheduleClasses: TruckClassRow[] = truckEvents.map(ev => {
+        const startDt = new Date(ev.start_dt)
+        const endDt = new Date(ev.end_dt)
+        const isExam = isTruckExam(ev)
+        const examLoc = parseExamLocationFromNotes(ev.notes)
+        return {
+          date: formatDate(startDt),
+          startTime: startDt.toTimeString().slice(0, 5),
+          endTime: endDt.toTimeString().slice(0, 5),
+          isExam,
+          examLocation: examLoc,
+        }
     })
 
-    setTruckScheduleData({ studentName, studentPhone, classes: scheduleClasses })
-    setShowEventDetail(false)
-    setShowTruckSchedule(true)
+      setTruckScheduleData({ studentName, studentPhone, classes: scheduleClasses })
+      setShowEventDetail(false)
+      setShowTruckSchedule(true)
+    } catch (err) {
+      console.error('Failed to fetch truck schedule:', err)
+      // Fallback to loaded events
+      const truckEvents = events
+        .filter(ev => isTruckClass(ev) && parseStudentFromNotes(ev.notes) === studentName)
+        .sort((a, b) => new Date(a.start_dt).getTime() - new Date(b.start_dt).getTime())
+
+      const scheduleClasses: TruckClassRow[] = truckEvents.map(ev => {
+        const startDt = new Date(ev.start_dt)
+        const endDt = new Date(ev.end_dt)
+        const isExam = isTruckExam(ev)
+        const examLoc = parseExamLocationFromNotes(ev.notes)
+        return {
+          date: formatDate(startDt),
+          startTime: startDt.toTimeString().slice(0, 5),
+          endTime: endDt.toTimeString().slice(0, 5),
+          isExam,
+          examLocation: examLoc,
+        }
+      })
+
+      setTruckScheduleData({ studentName, studentPhone, classes: scheduleClasses })
+      setShowEventDetail(false)
+      setShowTruckSchedule(true)
+    }
   }
 
   // Fill form from event data
@@ -1062,8 +1276,13 @@ export default function SchedulingPage() {
   }
 
   const handleUpdate = () => {
-    if (!editingEvent || (!formData.module && !formData.title) || !formData.date || !formData.subcalendarId) return
-    updateMutation.mutate({ eventId: editingEvent.id, data: formData })
+    if (!editingEvent || !formData.date) return
+    // For truck classes, use original subcalendar if not set in form
+    const data = { ...formData }
+    if (!data.subcalendarId && editingEvent.subcalendar_ids[0]) {
+      data.subcalendarId = editingEvent.subcalendar_ids[0].toString()
+    }
+    updateMutation.mutate({ eventId: editingEvent.id, data, originalNotes: editingEvent.notes })
   }
 
   const handleDelete = () => {
@@ -1769,11 +1988,14 @@ export default function SchedulingPage() {
           </div>
           <div className="flex items-center gap-2">
             <Button size="sm" onClick={() => {
-              setFormData({
-                ...initialFormData,
-                date: formatDate(currentDate),
-                subcalendarId: selectedTeacher ? selectedTeacher.toString() : '',
-              })
+              // Only reset form if no student data entered (preserve data on accidental close)
+              if (!formData.studentName && !formData.module) {
+                setFormData({
+                  ...initialFormData,
+                  date: formatDate(currentDate),
+                  subcalendarId: selectedTeacher ? selectedTeacher.toString() : '',
+                })
+              }
               setDuplicateError(null)
               setShowCreateDialog(true)
             }}>
@@ -1781,12 +2003,28 @@ export default function SchedulingPage() {
               New Class
             </Button>
             <Button size="sm" variant="outline" onClick={() => {
-              setTruckForm({ studentName: '', studentPhone: '', classes: [emptyTruckRow()] })
+              // Only reset truck form if no student data entered (preserve data on accidental close)
+              if (!truckForm.studentName && !truckForm.studentPhone) {
+                setTruckForm({ studentName: '', studentPhone: '', transmission: 'manual', startingClassNumber: 1, classes: [emptyTruckRow()] })
+              }
               setTruckStep('form')
               setShowTruckDialog(true)
             }} className="border-emerald-300 text-emerald-700 hover:bg-emerald-50">
               <Truck className="h-4 w-4 mr-1" />
               Truck Class
+            </Button>
+            <Button size="sm" variant="outline" onClick={() => {
+              if (!carBulkForm.studentName) {
+                setCarBulkForm({
+                  studentName: '', studentPhone: '', group: '', lastTheoryModule: null, lastTheoryDate: null,
+                  isExtraHours: false, isPaid: false, customNotes: '', classes: [emptyCarRow()],
+                })
+              }
+              setCarBulkStep('form')
+              setShowCarBulkDialog(true)
+            }} className="border-blue-300 text-blue-700 hover:bg-blue-50">
+              <Plus className="h-4 w-4 mr-1" />
+              Bulk Classes
             </Button>
             <Button size="sm" variant="outline" onClick={() => {
               setExportDate(formatDate(currentDate))
@@ -1860,7 +2098,7 @@ export default function SchedulingPage() {
               <Button variant="outline" onClick={() => setShowEditDialog(false)}>Cancel</Button>
               <Button
                 onClick={handleUpdate}
-                disabled={updateMutation.isPending || (!formData.module && !formData.title) || !formData.subcalendarId || !formData.date}
+                disabled={updateMutation.isPending || !formData.date}
               >
                 {updateMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : null}
                 Save
@@ -2171,7 +2409,7 @@ export default function SchedulingPage() {
 
               <div className="space-y-4">
                 {/* Student Info */}
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
                   <div>
                     <Label>Student Name</Label>
                     <Input
@@ -2188,6 +2426,39 @@ export default function SchedulingPage() {
                       placeholder="e.g. 15145551234"
                     />
                   </div>
+                  <div>
+                    <Label>Transmission</Label>
+                    <div className="flex gap-1 mt-1">
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant={truckForm.transmission === 'manual' ? 'default' : 'outline'}
+                        className={`flex-1 ${truckForm.transmission === 'manual' ? '' : 'text-muted-foreground'}`}
+                        onClick={() => setTruckForm(prev => ({ ...prev, transmission: 'manual' }))}
+                      >
+                        Manual
+                      </Button>
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant={truckForm.transmission === 'auto' ? 'default' : 'outline'}
+                        className={`flex-1 ${truckForm.transmission === 'auto' ? '' : 'text-muted-foreground'}`}
+                        onClick={() => setTruckForm(prev => ({ ...prev, transmission: 'auto' }))}
+                      >
+                        Auto
+                      </Button>
+                    </div>
+                  </div>
+                  <div>
+                    <Label>Start at Class #</Label>
+                    <Input
+                      type="number"
+                      min={1}
+                      value={truckForm.startingClassNumber}
+                      onChange={(e) => setTruckForm(prev => ({ ...prev, startingClassNumber: Math.max(1, parseInt(e.target.value) || 1) }))}
+                      className="mt-1"
+                    />
+                  </div>
                 </div>
 
                 {/* Class Rows */}
@@ -2201,7 +2472,7 @@ export default function SchedulingPage() {
 
                   <div className="space-y-2 max-h-[400px] overflow-y-auto pr-1">
                     {truckForm.classes.map((cls, idx) => {
-                      const classNum = cls.isExam ? null : truckForm.classes.slice(0, idx + 1).filter(c => !c.isExam).length
+                      const classNum = cls.isExam ? null : truckForm.classes.slice(0, idx + 1).filter(c => !c.isExam).length + (truckForm.startingClassNumber - 1)
                       return (
                         <div key={idx} className={`p-3 rounded-lg border ${cls.isExam ? 'border-red-200 bg-red-50/50' : 'border-border bg-muted/30'}`}>
                           <div className="flex items-center gap-2 mb-2">
@@ -2312,6 +2583,10 @@ export default function SchedulingPage() {
                     <p className="text-sm text-muted-foreground">Student</p>
                     <p className="font-semibold">{truckForm.studentName}</p>
                   </div>
+                  <div>
+                    <p className="text-sm text-muted-foreground">Transmission</p>
+                    <p className="font-medium">{truckForm.transmission === 'auto' ? 'Automatic' : 'Manual'}</p>
+                  </div>
                   <div className="ml-auto">
                     <p className="text-sm text-muted-foreground">Phone</p>
                     <p className="font-medium">+{truckForm.studentPhone}</p>
@@ -2332,7 +2607,7 @@ export default function SchedulingPage() {
                     </thead>
                     <tbody>
                       {(() => {
-                        let num = 0
+                        let num = truckForm.startingClassNumber - 1
                         return truckForm.classes.map((cls, idx) => {
                           if (!cls.isExam) num++
                           return (
@@ -2398,6 +2673,308 @@ export default function SchedulingPage() {
                 >
                   {truckCreating ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : <Truck className="h-4 w-4 mr-2" />}
                   Confirm & Send
+                </Button>
+              </DialogFooter>
+            </>
+          )}
+        </DialogContent>
+      </Dialog>
+
+      {/* Bulk Car Class Dialog */}
+      <Dialog open={showCarBulkDialog} onOpenChange={(open) => {
+        if (!open) { setShowCarBulkDialog(false); setCarBulkStep('form') }
+      }}>
+        <DialogContent className="w-[95vw] sm:max-w-2xl max-h-[90vh] overflow-y-auto">
+          {carBulkStep === 'form' ? (
+            <>
+              <DialogHeader>
+                <DialogTitle className="flex items-center gap-2">
+                  <Plus className="h-5 w-5 text-blue-600" />
+                  Bulk Create Classes
+                </DialogTitle>
+                <DialogDescription>Schedule multiple in-car classes for a student.</DialogDescription>
+              </DialogHeader>
+
+              <div className="space-y-4">
+                {/* Student Info */}
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  <div>
+                    <Label>Student Name</Label>
+                    {carBulkForm.isExtraHours ? (
+                      <Input
+                        value={carBulkForm.studentName}
+                        onChange={(e) => setCarBulkForm(prev => ({ ...prev, studentName: e.target.value }))}
+                        placeholder="Enter student name"
+                      />
+                    ) : (
+                      <ContactSearchAutocomplete
+                        value={carBulkForm.studentName}
+                        phone={carBulkForm.studentPhone}
+                        group={carBulkForm.group}
+                        onSelect={(name, phone, groupInfo) => setCarBulkForm(prev => ({
+                          ...prev, studentName: name, studentPhone: phone, group: groupInfo.groupName,
+                          lastTheoryModule: groupInfo.lastTheoryModule, lastTheoryDate: groupInfo.lastTheoryDate,
+                        }))}
+                        onChange={(name) => setCarBulkForm(prev => ({ ...prev, studentName: name, studentPhone: '', group: '', lastTheoryModule: null, lastTheoryDate: null }))}
+                      />
+                    )}
+                  </div>
+                  {carBulkForm.isExtraHours && (
+                    <div>
+                      <Label>Phone Number</Label>
+                      <Input
+                        value={carBulkForm.studentPhone}
+                        onChange={(e) => setCarBulkForm(prev => ({ ...prev, studentPhone: e.target.value }))}
+                        placeholder="e.g. 15145551234"
+                      />
+                    </div>
+                  )}
+                </div>
+
+                {/* Extra Hours + Notes */}
+                <div className="flex items-center gap-3">
+                  <Button
+                    type="button"
+                    variant={carBulkForm.isExtraHours ? 'default' : 'outline'}
+                    size="sm"
+                    onClick={() => setCarBulkForm(prev => ({ ...prev, isExtraHours: !prev.isExtraHours, isPaid: false }))}
+                    className={carBulkForm.isExtraHours ? 'bg-amber-600 hover:bg-amber-700' : ''}
+                  >
+                    <Clock4 className="h-4 w-4 mr-1" />Extra Hours
+                  </Button>
+                  {carBulkForm.isExtraHours && (
+                    <Button
+                      type="button"
+                      variant={carBulkForm.isPaid ? 'default' : 'outline'}
+                      size="sm"
+                      onClick={() => setCarBulkForm(prev => ({ ...prev, isPaid: !prev.isPaid }))}
+                      className={carBulkForm.isPaid ? 'bg-green-600 hover:bg-green-700' : 'border-red-300 text-red-600 hover:bg-red-50'}
+                    >
+                      <DollarSign className="h-4 w-4 mr-1" />{carBulkForm.isPaid ? 'Paid' : 'Not Paid'}
+                    </Button>
+                  )}
+                </div>
+
+                {/* Class Rows */}
+                <div>
+                  <div className="flex items-center justify-between mb-2">
+                    <Label className="text-base font-semibold">Classes ({carBulkForm.classes.length})</Label>
+                    <Button type="button" size="sm" variant="outline" onClick={addCarClass}>
+                      <Plus className="h-3 w-3 mr-1" />Add Class
+                    </Button>
+                  </div>
+
+                  <div className="space-y-2 max-h-[400px] overflow-y-auto pr-1">
+                    {carBulkForm.classes.map((cls, idx) => (
+                      <div key={idx} className="p-3 rounded-lg border border-border bg-muted/30">
+                        <div className="flex items-center gap-2 mb-2">
+                          <span className="text-xs font-bold px-2 py-0.5 rounded bg-blue-100 text-blue-700">
+                            #{idx + 1}
+                          </span>
+                          {carBulkForm.classes.length > 1 && (
+                            <Button
+                              type="button"
+                              variant="ghost"
+                              size="sm"
+                              className="h-6 w-6 p-0 ml-auto text-muted-foreground hover:text-red-600"
+                              onClick={() => removeCarClass(idx)}
+                            >
+                              <X className="h-3 w-3" />
+                            </Button>
+                          )}
+                        </div>
+                        <div className="grid grid-cols-2 sm:grid-cols-5 gap-2">
+                          <div>
+                            <Select
+                              value={cls.subcalendarId}
+                              onValueChange={(val) => updateCarClass(idx, { subcalendarId: val })}
+                            >
+                              <SelectTrigger className="text-xs h-8">
+                                <SelectValue placeholder="Teacher" />
+                              </SelectTrigger>
+                              <SelectContent>
+                                {activeTeachers.map(t => (
+                                  <SelectItem key={t.id} value={t.id.toString()}>
+                                    <div className="flex items-center gap-1">
+                                      <div className="w-2 h-2 rounded-full flex-shrink-0" style={{ backgroundColor: getColor(t.color) }} />
+                                      <span className="text-xs">{t.name}</span>
+                                    </div>
+                                  </SelectItem>
+                                ))}
+                              </SelectContent>
+                            </Select>
+                          </div>
+                          <div>
+                            <Select
+                              value={cls.module}
+                              onValueChange={(val) => updateCarClass(idx, { module: val })}
+                            >
+                              <SelectTrigger className="text-xs h-8">
+                                <SelectValue placeholder="Session" />
+                              </SelectTrigger>
+                              <SelectContent>
+                                {MODULE_OPTIONS.map(opt => (
+                                  <SelectItem key={opt.value} value={opt.value}>
+                                    <span className="text-xs">{opt.label.replace(' (In-Car)', '')}</span>
+                                  </SelectItem>
+                                ))}
+                              </SelectContent>
+                            </Select>
+                          </div>
+                          <div>
+                            <Input
+                              type="date"
+                              value={cls.date}
+                              onChange={(e) => updateCarClass(idx, { date: e.target.value })}
+                              className="text-xs h-8"
+                            />
+                          </div>
+                          <div>
+                            <Input
+                              type="time"
+                              value={cls.startTime}
+                              onChange={(e) => updateCarClass(idx, { startTime: e.target.value })}
+                              className="text-xs h-8"
+                            />
+                          </div>
+                          <div>
+                            <Input
+                              type="time"
+                              value={cls.endTime}
+                              onChange={(e) => updateCarClass(idx, { endTime: e.target.value })}
+                              className="text-xs h-8"
+                            />
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Notes */}
+                <div>
+                  <Label>Notes (optional)</Label>
+                  <textarea
+                    className="flex w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 min-h-[50px] resize-y"
+                    value={carBulkForm.customNotes}
+                    onChange={(e) => setCarBulkForm(prev => ({ ...prev, customNotes: e.target.value }))}
+                    placeholder="Add notes..."
+                    rows={2}
+                  />
+                </div>
+              </div>
+
+              <DialogFooter>
+                <Button variant="outline" onClick={() => setShowCarBulkDialog(false)}>Cancel</Button>
+                <Button
+                  onClick={() => setCarBulkStep('preview')}
+                  disabled={!carBulkForm.studentName || carBulkForm.classes.some(c => !c.date || !c.subcalendarId)}
+                  className="bg-blue-600 hover:bg-blue-700"
+                >
+                  Review Schedule
+                  <ChevronRight className="h-4 w-4 ml-1" />
+                </Button>
+              </DialogFooter>
+            </>
+          ) : (
+            <>
+              <DialogHeader>
+                <DialogTitle className="flex items-center gap-2">
+                  <FileText className="h-5 w-5 text-blue-600" />
+                  Schedule Preview
+                </DialogTitle>
+                <DialogDescription>Review the schedule before creating classes.</DialogDescription>
+              </DialogHeader>
+
+              <div className="space-y-4">
+                {/* Student Info Summary */}
+                <div className="flex items-center gap-4 p-3 rounded-lg bg-blue-50 border border-blue-200">
+                  <div>
+                    <p className="text-sm text-muted-foreground">Student</p>
+                    <p className="font-semibold">{carBulkForm.studentName}</p>
+                  </div>
+                  {carBulkForm.group && (
+                    <div>
+                      <p className="text-sm text-muted-foreground">Group</p>
+                      <p className="font-medium">{carBulkForm.group}</p>
+                    </div>
+                  )}
+                  {carBulkForm.studentPhone && (
+                    <div className="ml-auto">
+                      <p className="text-sm text-muted-foreground">Phone</p>
+                      <p className="font-medium">+{carBulkForm.studentPhone}</p>
+                    </div>
+                  )}
+                </div>
+
+                {carBulkForm.isExtraHours && (
+                  <div className={`flex items-center gap-2 p-2 rounded-lg border ${carBulkForm.isPaid ? 'bg-amber-50 border-amber-300' : 'bg-red-50 border-red-300'}`}>
+                    <Clock4 className="h-4 w-4" />
+                    <span className="text-sm font-medium">Extra Hours</span>
+                    <span className={`ml-auto text-xs font-medium px-2 py-0.5 rounded ${carBulkForm.isPaid ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'}`}>
+                      {carBulkForm.isPaid ? 'Paid' : 'Not Paid'}
+                    </span>
+                  </div>
+                )}
+
+                {/* Schedule Table */}
+                <div className="rounded-lg border overflow-hidden">
+                  <table className="w-full text-sm">
+                    <thead>
+                      <tr className="bg-blue-600 text-white">
+                        <th className="text-left px-3 py-2 font-medium">#</th>
+                        <th className="text-left px-3 py-2 font-medium">Date</th>
+                        <th className="text-left px-3 py-2 font-medium">Time</th>
+                        <th className="text-left px-3 py-2 font-medium">Session</th>
+                        <th className="text-left px-3 py-2 font-medium">Teacher</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {carBulkForm.classes.map((cls, idx) => {
+                        const teacher = activeTeachers.find(t => t.id.toString() === cls.subcalendarId)
+                        const moduleOpt = MODULE_OPTIONS.find(o => o.value === cls.module)
+                        return (
+                          <tr key={idx} className={`border-t ${idx % 2 === 1 ? 'bg-blue-50/50' : ''}`}>
+                            <td className="px-3 py-2">
+                              <span className="text-xs font-bold px-1.5 py-0.5 rounded bg-blue-100 text-blue-700">#{idx + 1}</span>
+                            </td>
+                            <td className="px-3 py-2 font-medium">{formatDateNice(cls.date)}</td>
+                            <td className="px-3 py-2">{formatTimeDisplay12h(cls.startTime)} – {formatTimeDisplay12h(cls.endTime)}</td>
+                            <td className="px-3 py-2 text-blue-700 font-medium">{moduleOpt ? moduleOpt.label.replace(' (In-Car)', '') : cls.module || '—'}</td>
+                            <td className="px-3 py-2">
+                              {teacher ? (
+                                <div className="flex items-center gap-1">
+                                  <div className="w-2 h-2 rounded-full" style={{ backgroundColor: getColor(teacher.color) }} />
+                                  <span className="text-xs">{teacher.name}</span>
+                                </div>
+                              ) : '—'}
+                            </td>
+                          </tr>
+                        )
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+
+                {/* Summary */}
+                <div className="flex items-center gap-4 text-sm text-muted-foreground">
+                  <span>{carBulkForm.classes.length} class{carBulkForm.classes.length !== 1 ? 'es' : ''}</span>
+                  <span>•</span>
+                  <span>Reminders 1h before each class</span>
+                </div>
+              </div>
+
+              <DialogFooter className="flex flex-col-reverse sm:flex-row gap-2">
+                <Button variant="outline" onClick={() => setCarBulkStep('form')} className="sm:mr-auto">
+                  <ArrowLeft className="h-4 w-4 mr-1" />Back
+                </Button>
+                <Button
+                  onClick={handleCarBulkSubmit}
+                  disabled={carBulkCreating}
+                  className="bg-blue-600 hover:bg-blue-700"
+                >
+                  {carBulkCreating ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : <Check className="h-4 w-4 mr-2" />}
+                  Create All ({carBulkForm.classes.length})
                 </Button>
               </DialogFooter>
             </>

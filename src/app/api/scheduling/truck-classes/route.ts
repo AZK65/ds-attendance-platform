@@ -28,9 +28,11 @@ function formatDateDisplay(dateStr: string): string {
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json()
-    const { studentName, studentPhone, classes } = body as {
+    const { studentName, studentPhone, transmission, startingClassNumber, classes } = body as {
       studentName: string
       studentPhone: string
+      transmission?: 'auto' | 'manual'
+      startingClassNumber?: number
       classes: TruckClassInput[]
     }
 
@@ -109,17 +111,19 @@ export async function POST(request: NextRequest) {
     const errors: string[] = []
 
     // Number regular classes (exams don't get a class number)
-    let classNumber = 0
+    let classNumber = (startingClassNumber || 1) - 1
 
     // Create each event on Teamup
     for (const cls of classes) {
       if (!cls.isExam) classNumber++
 
+      const transTag = transmission === 'auto' ? ' (Auto)' : ' (Manual)'
       const title = cls.isExam
-        ? `Truck Exam - ${studentName}${cls.examLocation ? ` - ${cls.examLocation}` : ''}`
-        : `Truck Class ${classNumber} - ${studentName}`
+        ? `Truck Exam${transTag} - ${studentName}${cls.examLocation ? ` - ${cls.examLocation}` : ''}`
+        : `Truck Class ${classNumber}${transTag} - ${studentName}`
 
-      const noteLines = ['TruckClass: yes', `Student: ${studentName}`, `Phone: ${studentPhone}`]
+      const transmissionLabel = transmission === 'auto' ? 'Automatic' : 'Manual'
+      const noteLines = ['TruckClass: yes', `Student: ${studentName}`, `Phone: ${studentPhone}`, `Transmission: ${transmissionLabel}`]
       if (cls.isExam) {
         noteLines.push(`Exam: ${cls.examLocation || 'TBD'}`)
       } else {
