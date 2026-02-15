@@ -1819,7 +1819,7 @@ export default function SchedulingPage() {
             const startTimeStr = startDt.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true })
             const endTimeStr = endDt.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true })
             const moduleLabel = parsed.module ? getModuleLabel(parsed.module) : ''
-            // Get phase from class module, fall back to group's last theory module
+            // Get phase from class module, fall back to group's last theory module from notes
             const phaseInfo = parsed.module
               ? getPhaseInfo(parsed.module)
               : (lastTheory.module ? getPhaseInfo(String(lastTheory.module)) : null)
