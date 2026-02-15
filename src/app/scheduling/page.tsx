@@ -1842,14 +1842,6 @@ export default function SchedulingPage() {
                   </div>
                 )}
 
-                {/* Theory Class Badge */}
-                {isTheory && (
-                  <div className="flex items-center gap-2 p-3 rounded-lg border-2 bg-indigo-50 border-indigo-400">
-                    <BookOpen className="h-5 w-5 text-indigo-600" />
-                    <span className="font-medium text-indigo-800">Theory Class</span>
-                  </div>
-                )}
-
                 {/* Truck Class Badge */}
                 {isTruck && !isExam && (
                   <div className="flex items-center gap-2 p-3 rounded-lg border-2 bg-emerald-50 border-emerald-400">
