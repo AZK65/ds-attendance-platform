@@ -1799,7 +1799,7 @@ export default function SchedulingPage() {
 
       {/* Event Detail Dialog */}
       <Dialog open={showEventDetail} onOpenChange={(open) => { if (!open) { setShowEventDetail(false); setSelectedEvent(null); setTheoryGroupId(null) } }}>
-        <DialogContent className="w-[95vw] sm:max-w-lg overflow-hidden">
+        <DialogContent className="w-[95vw] sm:max-w-xl overflow-hidden">
           <DialogHeader>
             <DialogTitle>Class Details</DialogTitle>
             <DialogDescription>View class information</DialogDescription>
