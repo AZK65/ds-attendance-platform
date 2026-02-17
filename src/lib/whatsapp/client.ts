@@ -1245,6 +1245,12 @@ export async function searchContacts(searchTerm: string): Promise<ParticipantInf
       number: string
       isUser: boolean
     }>>
+    getContactById: (id: string) => Promise<{
+      id: { _serialized: string; user: string }
+      name?: string
+      pushname?: string
+      number: string
+    }>
   }
 
   try {
@@ -1272,35 +1278,40 @@ export async function searchContacts(searchTerm: string): Promise<ParticipantInf
         isSuperAdmin: false
       }))
 
-    // Enrich contacts that have no name/pushName with data from local database
-    // The Contact table gets populated with better data from getGroupParticipants()
-    // which uses getContactById() per contact (more reliable for names)
+    // For contacts with no name, fetch individually via getContactById (more reliable)
+    // then fall back to local database if that still fails
     const unknownContacts = results.filter(c => !c.name && !c.pushName)
-    if (unknownContacts.length > 0) {
+    for (const contact of unknownContacts) {
       try {
-        const dbContacts = await prisma.contact.findMany({
-          where: {
-            id: { in: unknownContacts.map(c => c.id) }
-          },
-          select: { id: true, name: true, pushName: true }
-        })
-        const dbMap = new Map(dbContacts.map(c => [c.id, c]))
-        for (const contact of results) {
-          if (!contact.name && !contact.pushName) {
-            const db = dbMap.get(contact.id)
-            if (db) {
-              contact.name = db.name || null
-              contact.pushName = db.pushName || null
-            }
-          }
+        const fetched = await client.getContactById(contact.id)
+        if (fetched.name || fetched.pushname) {
+          contact.name = fetched.name || null
+          contact.pushName = fetched.pushname || null
+          // Save to local DB for future lookups
+          await prisma.contact.upsert({
+            where: { id: contact.id },
+            update: { phone: contact.phone, name: contact.name, pushName: contact.pushName, lastSynced: new Date() },
+            create: { id: contact.id, phone: contact.phone, name: contact.name, pushName: contact.pushName }
+          }).catch(() => {})
         }
       } catch {
-        // DB lookup failed, continue with what we have
+        // getContactById failed, try local DB
+        try {
+          const db = await prisma.contact.findUnique({
+            where: { id: contact.id },
+            select: { name: true, pushName: true }
+          })
+          if (db?.name || db?.pushName) {
+            contact.name = db.name || null
+            contact.pushName = db.pushName || null
+          }
+        } catch {
+          // Both failed, will show as Unknown
+        }
       }
     }
 
     // Also search the local database for contacts not found in WhatsApp's getContacts()
-    // This catches contacts that WhatsApp Web hasn't loaded into memory yet
     if (searchTerm.length >= 2) {
       try {
         const existingIds = new Set(results.map(r => r.id))
