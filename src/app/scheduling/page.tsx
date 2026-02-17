@@ -3050,17 +3050,13 @@ export default function SchedulingPage() {
                     </tr>
                   </thead>
                   <tbody>
-                    {(() => {
-                      let num = 0
-                      return truckScheduleData.classes.map((cls, idx) => {
-                        if (!cls.isExam) num++
-                        return (
-                          <tr key={idx} className={`border-t ${cls.isExam ? 'bg-red-50' : idx % 2 === 1 ? 'bg-emerald-50/50' : ''}`}>
+                    {truckScheduleData.classes.map((cls, idx) => (
+                        <tr key={idx} className={`border-t ${cls.isExam ? 'bg-red-50' : idx % 2 === 1 ? 'bg-emerald-50/50' : ''}`}>
                             <td className="px-3 py-2">
                               {cls.isExam ? (
                                 <span className="text-xs font-bold px-1.5 py-0.5 rounded bg-red-100 text-red-700">EXAM</span>
                               ) : (
-                                <span className="text-xs font-bold px-1.5 py-0.5 rounded bg-emerald-100 text-emerald-700">#{num}</span>
+                                <span className="text-xs font-bold px-1.5 py-0.5 rounded bg-emerald-100 text-emerald-700">#{cls.classNumber ?? '?'}</span>
                               )}
                             </td>
                             <td className="px-3 py-2 font-medium">{formatDateNice(cls.date)}</td>
@@ -3072,9 +3068,7 @@ export default function SchedulingPage() {
                             </td>
                             <td className="px-3 py-2 text-muted-foreground">{cls.isExam && cls.examLocation ? cls.examLocation : '—'}</td>
                           </tr>
-                        )
-                      })
-                    })()}
+                    ))}
                   </tbody>
                 </table>
               </div>
