@@ -255,6 +255,7 @@ export default function SchedulingPage() {
   const [currentDate, setCurrentDate] = useState(() => new Date())
   const [selectedTeacher, setSelectedTeacher] = useState<number | null>(null)
   const [showCreateDialog, setShowCreateDialog] = useState(false)
+  const [createMode, setCreateMode] = useState<'single' | 'bulk'>('single')
   const [showEditDialog, setShowEditDialog] = useState(false)
   const [showEventDetail, setShowEventDetail] = useState(false)
   const [selectedEvent, setSelectedEvent] = useState<TeamupEvent | null>(null)
@@ -282,7 +283,6 @@ export default function SchedulingPage() {
   const [truckScheduleData, setTruckScheduleData] = useState<{ studentName: string; studentPhone: string; classes: TruckClassRow[] } | null>(null)
 
   // Bulk car class state
-  const [showCarBulkDialog, setShowCarBulkDialog] = useState(false)
   const [carBulkForm, setCarBulkForm] = useState<CarBulkFormData>({
     studentName: '', studentPhone: '', group: '', lastTheoryModule: null, lastTheoryDate: null,
     isExtraHours: false, isPaid: false, customNotes: '', classes: [emptyCarRow()],
@@ -993,8 +993,9 @@ export default function SchedulingPage() {
       }
 
       queryClient.invalidateQueries({ queryKey: ['scheduling-events'] })
-      setShowCarBulkDialog(false)
+      setShowCreateDialog(false)
       setCarBulkStep('form')
+      setCreateMode('single')
       setCarBulkForm({
         studentName: '', studentPhone: '', group: '', lastTheoryModule: null, lastTheoryDate: null,
         isExtraHours: false, isPaid: false, customNotes: '', classes: [emptyCarRow()],
@@ -2021,19 +2022,6 @@ export default function SchedulingPage() {
               Truck Class
             </Button>
             <Button size="sm" variant="outline" onClick={() => {
-              if (!carBulkForm.studentName) {
-                setCarBulkForm({
-                  studentName: '', studentPhone: '', group: '', lastTheoryModule: null, lastTheoryDate: null,
-                  isExtraHours: false, isPaid: false, customNotes: '', classes: [emptyCarRow()],
-                })
-              }
-              setCarBulkStep('form')
-              setShowCarBulkDialog(true)
-            }} className="border-blue-300 text-blue-700 hover:bg-blue-50">
-              <Plus className="h-4 w-4 mr-1" />
-              Bulk Classes
-            </Button>
-            <Button size="sm" variant="outline" onClick={() => {
               setExportDate(formatDate(currentDate))
               setExportView(viewMode)
               setExportTeacher(selectedTeacher ? selectedTeacher.toString() : 'all')
@@ -2062,29 +2050,345 @@ export default function SchedulingPage() {
       </main>
 
       {/* Create Event Dialog */}
-      <Dialog open={showCreateDialog} onOpenChange={setShowCreateDialog}>
-        <DialogContent className="w-[95vw] sm:max-w-lg">
-          <DialogHeader>
-            <DialogTitle>New Class</DialogTitle>
-            <DialogDescription>Schedule a new class for a teacher.</DialogDescription>
-          </DialogHeader>
-          {eventForm}
-          {duplicateError && (
-            <div className="bg-red-50 border border-red-200 rounded-lg p-3 text-sm text-red-800 flex items-start gap-2">
-              <AlertCircle className="h-4 w-4 flex-shrink-0 mt-0.5" />
-              <span>{duplicateError}</span>
-            </div>
+      <Dialog open={showCreateDialog} onOpenChange={(open) => {
+        setShowCreateDialog(open)
+        if (!open) { setCarBulkStep('form'); setCreateMode('single') }
+      }}>
+        <DialogContent className={`w-[95vw] ${createMode === 'bulk' ? 'sm:max-w-2xl' : 'sm:max-w-lg'} max-h-[90vh] overflow-y-auto`}>
+          {/* Single/Bulk Toggle */}
+          {carBulkStep === 'form' && (
+            <>
+              <DialogHeader>
+                <DialogTitle>New Class</DialogTitle>
+                <DialogDescription>Schedule {createMode === 'bulk' ? 'multiple classes' : 'a new class'} for a teacher.</DialogDescription>
+              </DialogHeader>
+
+              <div className="inline-flex rounded-lg border bg-muted p-1 mb-2">
+                <button
+                  onClick={() => setCreateMode('single')}
+                  className={`px-3 py-1 text-sm font-medium rounded-md transition-colors ${
+                    createMode === 'single' ? 'bg-background text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground'
+                  }`}
+                >
+                  Single
+                </button>
+                <button
+                  onClick={() => setCreateMode('bulk')}
+                  className={`px-3 py-1 text-sm font-medium rounded-md transition-colors ${
+                    createMode === 'bulk' ? 'bg-background text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground'
+                  }`}
+                >
+                  Bulk
+                </button>
+              </div>
+
+              {createMode === 'single' ? (
+                <>
+                  {eventForm}
+                  {duplicateError && (
+                    <div className="bg-red-50 border border-red-200 rounded-lg p-3 text-sm text-red-800 flex items-start gap-2">
+                      <AlertCircle className="h-4 w-4 flex-shrink-0 mt-0.5" />
+                      <span>{duplicateError}</span>
+                    </div>
+                  )}
+                  <DialogFooter>
+                    <Button variant="outline" onClick={() => setShowCreateDialog(false)}>Cancel</Button>
+                    <Button
+                      onClick={handleCreate}
+                      disabled={createMutation.isPending || (!formData.module && !formData.title) || !formData.subcalendarId || !formData.date}
+                    >
+                      {createMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : <Plus className="h-4 w-4 mr-2" />}
+                      Create
+                    </Button>
+                  </DialogFooter>
+                </>
+              ) : (
+                <>
+                  <div className="space-y-4">
+                    {/* Student Info */}
+                    <div>
+                      <Label>Student Name</Label>
+                      {carBulkForm.isExtraHours ? (
+                        <Input
+                          value={carBulkForm.studentName}
+                          onChange={(e) => setCarBulkForm(prev => ({ ...prev, studentName: e.target.value }))}
+                          placeholder="Enter student name"
+                        />
+                      ) : (
+                        <ContactSearchAutocomplete
+                          value={carBulkForm.studentName}
+                          phone={carBulkForm.studentPhone}
+                          group={carBulkForm.group}
+                          onSelect={(name, phone, groupInfo) => setCarBulkForm(prev => ({
+                            ...prev, studentName: name, studentPhone: phone, group: groupInfo.groupName,
+                            lastTheoryModule: groupInfo.lastTheoryModule, lastTheoryDate: groupInfo.lastTheoryDate,
+                          }))}
+                          onChange={(name) => setCarBulkForm(prev => ({ ...prev, studentName: name, studentPhone: '', group: '', lastTheoryModule: null, lastTheoryDate: null }))}
+                        />
+                      )}
+                    </div>
+                    {carBulkForm.isExtraHours && (
+                      <div>
+                        <Label>Phone Number</Label>
+                        <Input
+                          value={carBulkForm.studentPhone}
+                          onChange={(e) => setCarBulkForm(prev => ({ ...prev, studentPhone: e.target.value }))}
+                          placeholder="e.g. 15145551234"
+                        />
+                      </div>
+                    )}
+
+                    {/* Extra Hours */}
+                    <div className="flex items-center gap-3">
+                      <Button
+                        type="button"
+                        variant={carBulkForm.isExtraHours ? 'default' : 'outline'}
+                        size="sm"
+                        onClick={() => setCarBulkForm(prev => ({ ...prev, isExtraHours: !prev.isExtraHours, isPaid: false }))}
+                        className={carBulkForm.isExtraHours ? 'bg-amber-600 hover:bg-amber-700' : ''}
+                      >
+                        <Clock4 className="h-4 w-4 mr-1" />Extra Hours
+                      </Button>
+                      {carBulkForm.isExtraHours && (
+                        <Button
+                          type="button"
+                          variant={carBulkForm.isPaid ? 'default' : 'outline'}
+                          size="sm"
+                          onClick={() => setCarBulkForm(prev => ({ ...prev, isPaid: !prev.isPaid }))}
+                          className={carBulkForm.isPaid ? 'bg-green-600 hover:bg-green-700' : 'border-red-300 text-red-600 hover:bg-red-50'}
+                        >
+                          <DollarSign className="h-4 w-4 mr-1" />{carBulkForm.isPaid ? 'Paid' : 'Not Paid'}
+                        </Button>
+                      )}
+                    </div>
+
+                    {/* Class Rows */}
+                    <div>
+                      <div className="flex items-center justify-between mb-2">
+                        <Label className="text-base font-semibold">Classes ({carBulkForm.classes.length})</Label>
+                        <Button type="button" size="sm" variant="outline" onClick={addCarClass}>
+                          <Plus className="h-3 w-3 mr-1" />Add Class
+                        </Button>
+                      </div>
+
+                      <div className="space-y-2 max-h-[400px] overflow-y-auto pr-1">
+                        {carBulkForm.classes.map((cls, idx) => (
+                          <div key={idx} className="p-3 rounded-lg border border-border bg-muted/30">
+                            <div className="flex items-center gap-2 mb-2">
+                              <span className="text-xs font-bold px-2 py-0.5 rounded bg-primary/10 text-primary">
+                                #{idx + 1}
+                              </span>
+                              {carBulkForm.classes.length > 1 && (
+                                <Button
+                                  type="button"
+                                  variant="ghost"
+                                  size="sm"
+                                  className="h-6 w-6 p-0 ml-auto text-muted-foreground hover:text-red-600"
+                                  onClick={() => removeCarClass(idx)}
+                                >
+                                  <X className="h-3 w-3" />
+                                </Button>
+                              )}
+                            </div>
+                            <div className="grid grid-cols-2 sm:grid-cols-5 gap-2">
+                              <div>
+                                <Select
+                                  value={cls.subcalendarId}
+                                  onValueChange={(val) => updateCarClass(idx, { subcalendarId: val })}
+                                >
+                                  <SelectTrigger className="text-xs h-8">
+                                    <SelectValue placeholder="Teacher" />
+                                  </SelectTrigger>
+                                  <SelectContent>
+                                    {activeTeachers.map(t => (
+                                      <SelectItem key={t.id} value={t.id.toString()}>
+                                        <div className="flex items-center gap-1">
+                                          <div className="w-2 h-2 rounded-full flex-shrink-0" style={{ backgroundColor: getColor(t.color) }} />
+                                          <span className="text-xs">{t.name}</span>
+                                        </div>
+                                      </SelectItem>
+                                    ))}
+                                  </SelectContent>
+                                </Select>
+                              </div>
+                              <div>
+                                <Select
+                                  value={cls.module}
+                                  onValueChange={(val) => updateCarClass(idx, { module: val })}
+                                >
+                                  <SelectTrigger className="text-xs h-8">
+                                    <SelectValue placeholder="Session" />
+                                  </SelectTrigger>
+                                  <SelectContent>
+                                    {MODULE_OPTIONS.map(opt => (
+                                      <SelectItem key={opt.value} value={opt.value}>
+                                        <span className="text-xs">{opt.label.replace(' (In-Car)', '')}</span>
+                                      </SelectItem>
+                                    ))}
+                                  </SelectContent>
+                                </Select>
+                              </div>
+                              <div>
+                                <Input
+                                  type="date"
+                                  value={cls.date}
+                                  onChange={(e) => updateCarClass(idx, { date: e.target.value })}
+                                  className="text-xs h-8"
+                                />
+                              </div>
+                              <div>
+                                <Input
+                                  type="time"
+                                  value={cls.startTime}
+                                  onChange={(e) => updateCarClass(idx, { startTime: e.target.value })}
+                                  className="text-xs h-8"
+                                />
+                              </div>
+                              <div>
+                                <Input
+                                  type="time"
+                                  value={cls.endTime}
+                                  onChange={(e) => updateCarClass(idx, { endTime: e.target.value })}
+                                  className="text-xs h-8"
+                                />
+                              </div>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+
+                    {/* Notes */}
+                    <div>
+                      <Label>Notes (optional)</Label>
+                      <textarea
+                        className="flex w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 min-h-[50px] resize-y"
+                        value={carBulkForm.customNotes}
+                        onChange={(e) => setCarBulkForm(prev => ({ ...prev, customNotes: e.target.value }))}
+                        placeholder="Add notes..."
+                        rows={2}
+                      />
+                    </div>
+                  </div>
+
+                  <DialogFooter>
+                    <Button variant="outline" onClick={() => setShowCreateDialog(false)}>Cancel</Button>
+                    <Button
+                      onClick={() => setCarBulkStep('preview')}
+                      disabled={!carBulkForm.studentName || carBulkForm.classes.some(c => !c.date || !c.subcalendarId)}
+                    >
+                      Review Schedule
+                      <ChevronRight className="h-4 w-4 ml-1" />
+                    </Button>
+                  </DialogFooter>
+                </>
+              )}
+            </>
           )}
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setShowCreateDialog(false)}>Cancel</Button>
-            <Button
-              onClick={handleCreate}
-              disabled={createMutation.isPending || (!formData.module && !formData.title) || !formData.subcalendarId || !formData.date}
-            >
-              {createMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : <Plus className="h-4 w-4 mr-2" />}
-              Create
-            </Button>
-          </DialogFooter>
+
+          {/* Bulk Preview Step */}
+          {carBulkStep === 'preview' && (
+            <>
+              <DialogHeader>
+                <DialogTitle className="flex items-center gap-2">
+                  <FileText className="h-5 w-5" />
+                  Schedule Preview
+                </DialogTitle>
+                <DialogDescription>Review the schedule before creating classes.</DialogDescription>
+              </DialogHeader>
+
+              <div className="space-y-4">
+                {/* Student Info Summary */}
+                <div className="flex items-center gap-4 p-3 rounded-lg bg-muted/50 border">
+                  <div>
+                    <p className="text-sm text-muted-foreground">Student</p>
+                    <p className="font-semibold">{carBulkForm.studentName}</p>
+                  </div>
+                  {carBulkForm.group && (
+                    <div>
+                      <p className="text-sm text-muted-foreground">Group</p>
+                      <p className="font-medium">{carBulkForm.group}</p>
+                    </div>
+                  )}
+                  {carBulkForm.studentPhone && (
+                    <div className="ml-auto">
+                      <p className="text-sm text-muted-foreground">Phone</p>
+                      <p className="font-medium">+{carBulkForm.studentPhone}</p>
+                    </div>
+                  )}
+                </div>
+
+                {carBulkForm.isExtraHours && (
+                  <div className={`flex items-center gap-2 p-2 rounded-lg border ${carBulkForm.isPaid ? 'bg-amber-50 border-amber-300' : 'bg-red-50 border-red-300'}`}>
+                    <Clock4 className="h-4 w-4" />
+                    <span className="text-sm font-medium">Extra Hours</span>
+                    <span className={`ml-auto text-xs font-medium px-2 py-0.5 rounded ${carBulkForm.isPaid ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'}`}>
+                      {carBulkForm.isPaid ? 'Paid' : 'Not Paid'}
+                    </span>
+                  </div>
+                )}
+
+                {/* Schedule Table */}
+                <div className="rounded-lg border overflow-hidden">
+                  <table className="w-full text-sm">
+                    <thead>
+                      <tr className="bg-primary text-primary-foreground">
+                        <th className="text-left px-3 py-2 font-medium">#</th>
+                        <th className="text-left px-3 py-2 font-medium">Date</th>
+                        <th className="text-left px-3 py-2 font-medium">Time</th>
+                        <th className="text-left px-3 py-2 font-medium">Session</th>
+                        <th className="text-left px-3 py-2 font-medium">Teacher</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {carBulkForm.classes.map((cls, idx) => {
+                        const teacher = activeTeachers.find(t => t.id.toString() === cls.subcalendarId)
+                        const moduleOpt = MODULE_OPTIONS.find(o => o.value === cls.module)
+                        return (
+                          <tr key={idx} className={`border-t ${idx % 2 === 1 ? 'bg-muted/30' : ''}`}>
+                            <td className="px-3 py-2">
+                              <span className="text-xs font-bold px-1.5 py-0.5 rounded bg-primary/10 text-primary">#{idx + 1}</span>
+                            </td>
+                            <td className="px-3 py-2 font-medium">{formatDateNice(cls.date)}</td>
+                            <td className="px-3 py-2">{formatTimeDisplay12h(cls.startTime)} – {formatTimeDisplay12h(cls.endTime)}</td>
+                            <td className="px-3 py-2 text-primary font-medium">{moduleOpt ? moduleOpt.label.replace(' (In-Car)', '') : cls.module || '—'}</td>
+                            <td className="px-3 py-2">
+                              {teacher ? (
+                                <div className="flex items-center gap-1">
+                                  <div className="w-2 h-2 rounded-full" style={{ backgroundColor: getColor(teacher.color) }} />
+                                  <span className="text-xs">{teacher.name}</span>
+                                </div>
+                              ) : '—'}
+                            </td>
+                          </tr>
+                        )
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+
+                {/* Summary */}
+                <div className="flex items-center gap-4 text-sm text-muted-foreground">
+                  <span>{carBulkForm.classes.length} class{carBulkForm.classes.length !== 1 ? 'es' : ''}</span>
+                  <span>•</span>
+                  <span>Reminders 1h before each class</span>
+                </div>
+              </div>
+
+              <DialogFooter className="flex flex-col-reverse sm:flex-row gap-2">
+                <Button variant="outline" onClick={() => setCarBulkStep('form')} className="sm:mr-auto">
+                  <ArrowLeft className="h-4 w-4 mr-1" />Back
+                </Button>
+                <Button
+                  onClick={handleCarBulkSubmit}
+                  disabled={carBulkCreating}
+                >
+                  {carBulkCreating ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : <Check className="h-4 w-4 mr-2" />}
+                  Create All ({carBulkForm.classes.length})
+                </Button>
+              </DialogFooter>
+            </>
+          )}
         </DialogContent>
       </Dialog>
 
@@ -2678,308 +2982,6 @@ export default function SchedulingPage() {
                 >
                   {truckCreating ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : <Truck className="h-4 w-4 mr-2" />}
                   Confirm & Send
-                </Button>
-              </DialogFooter>
-            </>
-          )}
-        </DialogContent>
-      </Dialog>
-
-      {/* Bulk Car Class Dialog */}
-      <Dialog open={showCarBulkDialog} onOpenChange={(open) => {
-        if (!open) { setShowCarBulkDialog(false); setCarBulkStep('form') }
-      }}>
-        <DialogContent className="w-[95vw] sm:max-w-2xl max-h-[90vh] overflow-y-auto">
-          {carBulkStep === 'form' ? (
-            <>
-              <DialogHeader>
-                <DialogTitle className="flex items-center gap-2">
-                  <Plus className="h-5 w-5 text-blue-600" />
-                  Bulk Create Classes
-                </DialogTitle>
-                <DialogDescription>Schedule multiple in-car classes for a student.</DialogDescription>
-              </DialogHeader>
-
-              <div className="space-y-4">
-                {/* Student Info */}
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                  <div>
-                    <Label>Student Name</Label>
-                    {carBulkForm.isExtraHours ? (
-                      <Input
-                        value={carBulkForm.studentName}
-                        onChange={(e) => setCarBulkForm(prev => ({ ...prev, studentName: e.target.value }))}
-                        placeholder="Enter student name"
-                      />
-                    ) : (
-                      <ContactSearchAutocomplete
-                        value={carBulkForm.studentName}
-                        phone={carBulkForm.studentPhone}
-                        group={carBulkForm.group}
-                        onSelect={(name, phone, groupInfo) => setCarBulkForm(prev => ({
-                          ...prev, studentName: name, studentPhone: phone, group: groupInfo.groupName,
-                          lastTheoryModule: groupInfo.lastTheoryModule, lastTheoryDate: groupInfo.lastTheoryDate,
-                        }))}
-                        onChange={(name) => setCarBulkForm(prev => ({ ...prev, studentName: name, studentPhone: '', group: '', lastTheoryModule: null, lastTheoryDate: null }))}
-                      />
-                    )}
-                  </div>
-                  {carBulkForm.isExtraHours && (
-                    <div>
-                      <Label>Phone Number</Label>
-                      <Input
-                        value={carBulkForm.studentPhone}
-                        onChange={(e) => setCarBulkForm(prev => ({ ...prev, studentPhone: e.target.value }))}
-                        placeholder="e.g. 15145551234"
-                      />
-                    </div>
-                  )}
-                </div>
-
-                {/* Extra Hours + Notes */}
-                <div className="flex items-center gap-3">
-                  <Button
-                    type="button"
-                    variant={carBulkForm.isExtraHours ? 'default' : 'outline'}
-                    size="sm"
-                    onClick={() => setCarBulkForm(prev => ({ ...prev, isExtraHours: !prev.isExtraHours, isPaid: false }))}
-                    className={carBulkForm.isExtraHours ? 'bg-amber-600 hover:bg-amber-700' : ''}
-                  >
-                    <Clock4 className="h-4 w-4 mr-1" />Extra Hours
-                  </Button>
-                  {carBulkForm.isExtraHours && (
-                    <Button
-                      type="button"
-                      variant={carBulkForm.isPaid ? 'default' : 'outline'}
-                      size="sm"
-                      onClick={() => setCarBulkForm(prev => ({ ...prev, isPaid: !prev.isPaid }))}
-                      className={carBulkForm.isPaid ? 'bg-green-600 hover:bg-green-700' : 'border-red-300 text-red-600 hover:bg-red-50'}
-                    >
-                      <DollarSign className="h-4 w-4 mr-1" />{carBulkForm.isPaid ? 'Paid' : 'Not Paid'}
-                    </Button>
-                  )}
-                </div>
-
-                {/* Class Rows */}
-                <div>
-                  <div className="flex items-center justify-between mb-2">
-                    <Label className="text-base font-semibold">Classes ({carBulkForm.classes.length})</Label>
-                    <Button type="button" size="sm" variant="outline" onClick={addCarClass}>
-                      <Plus className="h-3 w-3 mr-1" />Add Class
-                    </Button>
-                  </div>
-
-                  <div className="space-y-2 max-h-[400px] overflow-y-auto pr-1">
-                    {carBulkForm.classes.map((cls, idx) => (
-                      <div key={idx} className="p-3 rounded-lg border border-border bg-muted/30">
-                        <div className="flex items-center gap-2 mb-2">
-                          <span className="text-xs font-bold px-2 py-0.5 rounded bg-blue-100 text-blue-700">
-                            #{idx + 1}
-                          </span>
-                          {carBulkForm.classes.length > 1 && (
-                            <Button
-                              type="button"
-                              variant="ghost"
-                              size="sm"
-                              className="h-6 w-6 p-0 ml-auto text-muted-foreground hover:text-red-600"
-                              onClick={() => removeCarClass(idx)}
-                            >
-                              <X className="h-3 w-3" />
-                            </Button>
-                          )}
-                        </div>
-                        <div className="grid grid-cols-2 sm:grid-cols-5 gap-2">
-                          <div>
-                            <Select
-                              value={cls.subcalendarId}
-                              onValueChange={(val) => updateCarClass(idx, { subcalendarId: val })}
-                            >
-                              <SelectTrigger className="text-xs h-8">
-                                <SelectValue placeholder="Teacher" />
-                              </SelectTrigger>
-                              <SelectContent>
-                                {activeTeachers.map(t => (
-                                  <SelectItem key={t.id} value={t.id.toString()}>
-                                    <div className="flex items-center gap-1">
-                                      <div className="w-2 h-2 rounded-full flex-shrink-0" style={{ backgroundColor: getColor(t.color) }} />
-                                      <span className="text-xs">{t.name}</span>
-                                    </div>
-                                  </SelectItem>
-                                ))}
-                              </SelectContent>
-                            </Select>
-                          </div>
-                          <div>
-                            <Select
-                              value={cls.module}
-                              onValueChange={(val) => updateCarClass(idx, { module: val })}
-                            >
-                              <SelectTrigger className="text-xs h-8">
-                                <SelectValue placeholder="Session" />
-                              </SelectTrigger>
-                              <SelectContent>
-                                {MODULE_OPTIONS.map(opt => (
-                                  <SelectItem key={opt.value} value={opt.value}>
-                                    <span className="text-xs">{opt.label.replace(' (In-Car)', '')}</span>
-                                  </SelectItem>
-                                ))}
-                              </SelectContent>
-                            </Select>
-                          </div>
-                          <div>
-                            <Input
-                              type="date"
-                              value={cls.date}
-                              onChange={(e) => updateCarClass(idx, { date: e.target.value })}
-                              className="text-xs h-8"
-                            />
-                          </div>
-                          <div>
-                            <Input
-                              type="time"
-                              value={cls.startTime}
-                              onChange={(e) => updateCarClass(idx, { startTime: e.target.value })}
-                              className="text-xs h-8"
-                            />
-                          </div>
-                          <div>
-                            <Input
-                              type="time"
-                              value={cls.endTime}
-                              onChange={(e) => updateCarClass(idx, { endTime: e.target.value })}
-                              className="text-xs h-8"
-                            />
-                          </div>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-
-                {/* Notes */}
-                <div>
-                  <Label>Notes (optional)</Label>
-                  <textarea
-                    className="flex w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 min-h-[50px] resize-y"
-                    value={carBulkForm.customNotes}
-                    onChange={(e) => setCarBulkForm(prev => ({ ...prev, customNotes: e.target.value }))}
-                    placeholder="Add notes..."
-                    rows={2}
-                  />
-                </div>
-              </div>
-
-              <DialogFooter>
-                <Button variant="outline" onClick={() => setShowCarBulkDialog(false)}>Cancel</Button>
-                <Button
-                  onClick={() => setCarBulkStep('preview')}
-                  disabled={!carBulkForm.studentName || carBulkForm.classes.some(c => !c.date || !c.subcalendarId)}
-                  className="bg-blue-600 hover:bg-blue-700"
-                >
-                  Review Schedule
-                  <ChevronRight className="h-4 w-4 ml-1" />
-                </Button>
-              </DialogFooter>
-            </>
-          ) : (
-            <>
-              <DialogHeader>
-                <DialogTitle className="flex items-center gap-2">
-                  <FileText className="h-5 w-5 text-blue-600" />
-                  Schedule Preview
-                </DialogTitle>
-                <DialogDescription>Review the schedule before creating classes.</DialogDescription>
-              </DialogHeader>
-
-              <div className="space-y-4">
-                {/* Student Info Summary */}
-                <div className="flex items-center gap-4 p-3 rounded-lg bg-blue-50 border border-blue-200">
-                  <div>
-                    <p className="text-sm text-muted-foreground">Student</p>
-                    <p className="font-semibold">{carBulkForm.studentName}</p>
-                  </div>
-                  {carBulkForm.group && (
-                    <div>
-                      <p className="text-sm text-muted-foreground">Group</p>
-                      <p className="font-medium">{carBulkForm.group}</p>
-                    </div>
-                  )}
-                  {carBulkForm.studentPhone && (
-                    <div className="ml-auto">
-                      <p className="text-sm text-muted-foreground">Phone</p>
-                      <p className="font-medium">+{carBulkForm.studentPhone}</p>
-                    </div>
-                  )}
-                </div>
-
-                {carBulkForm.isExtraHours && (
-                  <div className={`flex items-center gap-2 p-2 rounded-lg border ${carBulkForm.isPaid ? 'bg-amber-50 border-amber-300' : 'bg-red-50 border-red-300'}`}>
-                    <Clock4 className="h-4 w-4" />
-                    <span className="text-sm font-medium">Extra Hours</span>
-                    <span className={`ml-auto text-xs font-medium px-2 py-0.5 rounded ${carBulkForm.isPaid ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'}`}>
-                      {carBulkForm.isPaid ? 'Paid' : 'Not Paid'}
-                    </span>
-                  </div>
-                )}
-
-                {/* Schedule Table */}
-                <div className="rounded-lg border overflow-hidden">
-                  <table className="w-full text-sm">
-                    <thead>
-                      <tr className="bg-blue-600 text-white">
-                        <th className="text-left px-3 py-2 font-medium">#</th>
-                        <th className="text-left px-3 py-2 font-medium">Date</th>
-                        <th className="text-left px-3 py-2 font-medium">Time</th>
-                        <th className="text-left px-3 py-2 font-medium">Session</th>
-                        <th className="text-left px-3 py-2 font-medium">Teacher</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {carBulkForm.classes.map((cls, idx) => {
-                        const teacher = activeTeachers.find(t => t.id.toString() === cls.subcalendarId)
-                        const moduleOpt = MODULE_OPTIONS.find(o => o.value === cls.module)
-                        return (
-                          <tr key={idx} className={`border-t ${idx % 2 === 1 ? 'bg-blue-50/50' : ''}`}>
-                            <td className="px-3 py-2">
-                              <span className="text-xs font-bold px-1.5 py-0.5 rounded bg-blue-100 text-blue-700">#{idx + 1}</span>
-                            </td>
-                            <td className="px-3 py-2 font-medium">{formatDateNice(cls.date)}</td>
-                            <td className="px-3 py-2">{formatTimeDisplay12h(cls.startTime)} – {formatTimeDisplay12h(cls.endTime)}</td>
-                            <td className="px-3 py-2 text-blue-700 font-medium">{moduleOpt ? moduleOpt.label.replace(' (In-Car)', '') : cls.module || '—'}</td>
-                            <td className="px-3 py-2">
-                              {teacher ? (
-                                <div className="flex items-center gap-1">
-                                  <div className="w-2 h-2 rounded-full" style={{ backgroundColor: getColor(teacher.color) }} />
-                                  <span className="text-xs">{teacher.name}</span>
-                                </div>
-                              ) : '—'}
-                            </td>
-                          </tr>
-                        )
-                      })}
-                    </tbody>
-                  </table>
-                </div>
-
-                {/* Summary */}
-                <div className="flex items-center gap-4 text-sm text-muted-foreground">
-                  <span>{carBulkForm.classes.length} class{carBulkForm.classes.length !== 1 ? 'es' : ''}</span>
-                  <span>•</span>
-                  <span>Reminders 1h before each class</span>
-                </div>
-              </div>
-
-              <DialogFooter className="flex flex-col-reverse sm:flex-row gap-2">
-                <Button variant="outline" onClick={() => setCarBulkStep('form')} className="sm:mr-auto">
-                  <ArrowLeft className="h-4 w-4 mr-1" />Back
-                </Button>
-                <Button
-                  onClick={handleCarBulkSubmit}
-                  disabled={carBulkCreating}
-                  className="bg-blue-600 hover:bg-blue-700"
-                >
-                  {carBulkCreating ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : <Check className="h-4 w-4 mr-2" />}
-                  Create All ({carBulkForm.classes.length})
                 </Button>
               </DialogFooter>
             </>
