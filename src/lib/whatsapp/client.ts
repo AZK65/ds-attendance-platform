@@ -1272,6 +1272,66 @@ export async function searchContacts(searchTerm: string): Promise<ParticipantInf
         isSuperAdmin: false
       }))
 
+    // Enrich contacts that have no name/pushName with data from local database
+    // The Contact table gets populated with better data from getGroupParticipants()
+    // which uses getContactById() per contact (more reliable for names)
+    const unknownContacts = results.filter(c => !c.name && !c.pushName)
+    if (unknownContacts.length > 0) {
+      try {
+        const dbContacts = await prisma.contact.findMany({
+          where: {
+            id: { in: unknownContacts.map(c => c.id) }
+          },
+          select: { id: true, name: true, pushName: true }
+        })
+        const dbMap = new Map(dbContacts.map(c => [c.id, c]))
+        for (const contact of results) {
+          if (!contact.name && !contact.pushName) {
+            const db = dbMap.get(contact.id)
+            if (db) {
+              contact.name = db.name || null
+              contact.pushName = db.pushName || null
+            }
+          }
+        }
+      } catch {
+        // DB lookup failed, continue with what we have
+      }
+    }
+
+    // Also search the local database for contacts not found in WhatsApp's getContacts()
+    // This catches contacts that WhatsApp Web hasn't loaded into memory yet
+    if (searchTerm.length >= 2) {
+      try {
+        const existingIds = new Set(results.map(r => r.id))
+        const dbResults = await prisma.contact.findMany({
+          where: {
+            OR: [
+              { name: { contains: searchTerm } },
+              { pushName: { contains: searchTerm } },
+              { phone: { contains: searchTerm } },
+            ],
+            NOT: { id: { in: [...existingIds] } }
+          },
+          take: 20
+        })
+        for (const db of dbResults) {
+          if (!existingIds.has(db.id)) {
+            results.push({
+              id: db.id,
+              phone: db.phone,
+              name: db.name || null,
+              pushName: db.pushName || null,
+              isAdmin: false,
+              isSuperAdmin: false
+            })
+          }
+        }
+      } catch {
+        // DB search failed, continue with WhatsApp results only
+      }
+    }
+
     return results
   } catch (error) {
     console.error('Error searching contacts:', error)
