@@ -684,10 +684,26 @@ export default function SchedulingPage() {
         }),
       })
       if (!res.ok) throw new Error('Failed to update event')
+
+      // Also update the local contact database so the name shows correctly in search
+      if (newPhone) {
+        const jid = newPhone + '@c.us'
+        try {
+          await fetch('/api/contacts/update', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ id: jid, phone: newPhone, name }),
+          })
+        } catch {
+          // Non-critical, continue
+        }
+      }
+
       return res.json()
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['scheduling-events'] })
+      queryClient.invalidateQueries({ queryKey: ['contact-search'] })
       setEditingStudentInfo(false)
       setShowEventDetail(false)
       setSelectedEvent(null)
