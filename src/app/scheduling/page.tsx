@@ -603,8 +603,11 @@ export default function SchedulingPage() {
 
   // Update event mutation
   const updateMutation = useMutation({
-    mutationFn: async ({ eventId, data, originalNotes }: { eventId: string; data: EventFormData; originalNotes?: string }) => {
-      const title = buildTitle(data)
+    mutationFn: async ({ eventId, data, originalNotes, originalTitle }: { eventId: string; data: EventFormData; originalNotes?: string; originalTitle?: string }) => {
+      // For truck classes, preserve the original title (Truck Class X (Auto) - Name)
+      // since buildTitle() generates car-class format which mangles truck titles
+      const isTruck = originalNotes && /TruckClass:\s*yes/i.test(originalNotes.replace(/<[^>]+>/g, ''))
+      const title = isTruck && originalTitle ? originalTitle : buildTitle(data)
       const subCalId = parseInt(data.subcalendarId)
       const res = await fetch(`/api/scheduling/events/${eventId}`, {
         method: 'PUT',
@@ -1306,7 +1309,7 @@ export default function SchedulingPage() {
     if (!data.subcalendarId && editingEvent.subcalendar_ids[0]) {
       data.subcalendarId = editingEvent.subcalendar_ids[0].toString()
     }
-    updateMutation.mutate({ eventId: editingEvent.id, data, originalNotes: editingEvent.notes })
+    updateMutation.mutate({ eventId: editingEvent.id, data, originalNotes: editingEvent.notes, originalTitle: editingEvent.title })
   }
 
   const handleDelete = () => {
