@@ -299,11 +299,13 @@ export default function SchedulingPage() {
   type ExportView = 'day' | 'week' | 'month'
   type ExportMode = 'schedule' | 'attendance'
   type ExportFormat = 'pdf' | 'csv'
+  type ExportClassType = 'all' | 'car' | 'truck'
   const [showExportDialog, setShowExportDialog] = useState(false)
   const [exportTeacher, setExportTeacher] = useState<string>('all')
   const [exportView, setExportView] = useState<ExportView>('day')
   const [exportMode, setExportMode] = useState<ExportMode>('schedule')
   const [exportFormat, setExportFormat] = useState<ExportFormat>('pdf')
+  const [exportClassType, setExportClassType] = useState<ExportClassType>('all')
   const [exportDate, setExportDate] = useState('')
 
   // Inline student info edit (in event detail)
@@ -1355,6 +1357,13 @@ export default function SchedulingPage() {
       filteredEvents = filteredEvents.filter(ev => ev.subcalendar_ids.includes(teacherId))
     }
 
+    // Filter by class type (car vs truck)
+    if (exportClassType === 'truck') {
+      filteredEvents = filteredEvents.filter(ev => isTruckClass(ev))
+    } else if (exportClassType === 'car') {
+      filteredEvents = filteredEvents.filter(ev => !isTruckClass(ev))
+    }
+
     filteredEvents.sort((a, b) => a.start_dt.localeCompare(b.start_dt))
 
     const teacherLabel = exportTeacher === 'all' ? 'All Teachers' : (activeTeachers.find(t => t.id === parseInt(exportTeacher))?.name || 'Teacher')
@@ -1424,6 +1433,8 @@ export default function SchedulingPage() {
     const { filteredEvents, teacherLabel, teacherFilename, filenameDatePart, dateRangeLabel } = getExportData()
     const { headers, rows, summary } = buildExportRows(filteredEvents)
     const prefix = exportMode === 'attendance' ? 'attendance' : 'schedule'
+    const classTypeSuffix = exportClassType === 'all' ? '' : `-${exportClassType}`
+    const classTypeLabel = exportClassType === 'car' ? ' (Car Classes)' : exportClassType === 'truck' ? ' (Truck Classes)' : ''
 
     if (exportFormat === 'csv') {
       const csvRows: string[][] = [headers, ...rows]
@@ -1435,12 +1446,12 @@ export default function SchedulingPage() {
         csvRows.push(['Absent', summary.absentCount.toString()])
         csvRows.push(['Attendance Rate', summary.rate])
       }
-      downloadCSV(csvRows, `${prefix}-${teacherFilename}-${filenameDatePart}.csv`)
+      downloadCSV(csvRows, `${prefix}${classTypeSuffix}-${teacherFilename}-${filenameDatePart}.csv`)
     } else {
       await downloadPDF(headers, rows, summary, {
-        title: exportMode === 'attendance' ? 'Attendance Summary' : 'Class Schedule',
+        title: (exportMode === 'attendance' ? 'Attendance Summary' : 'Class Schedule') + classTypeLabel,
         subtitle: `${teacherLabel} — ${dateRangeLabel}`,
-        filename: `${prefix}-${teacherFilename}-${filenameDatePart}`,
+        filename: `${prefix}${classTypeSuffix}-${teacherFilename}-${filenameDatePart}`,
       })
     }
 
@@ -2046,6 +2057,7 @@ export default function SchedulingPage() {
               setExportTeacher(selectedTeacher ? selectedTeacher.toString() : 'all')
               setExportMode('schedule')
               setExportFormat('pdf')
+              setExportClassType('all')
               setShowExportDialog(true)
             }}>
               <Download className="h-4 w-4 mr-1" />
@@ -3168,6 +3180,26 @@ export default function SchedulingPage() {
                   ))}
                 </SelectContent>
               </Select>
+            </div>
+
+            {/* Class Type Selection */}
+            <div>
+              <Label>Class Type</Label>
+              <div className="flex gap-2 mt-1.5">
+                {(['all', 'car', 'truck'] as ExportClassType[]).map(t => (
+                  <button
+                    key={t}
+                    onClick={() => setExportClassType(t)}
+                    className={`flex-1 px-3 py-2 text-sm font-medium rounded-md border transition-colors ${
+                      exportClassType === t
+                        ? 'bg-primary text-primary-foreground border-primary'
+                        : 'bg-background hover:bg-muted border-input'
+                    }`}
+                  >
+                    {t === 'all' ? 'All' : t === 'car' ? 'Car' : 'Truck'}
+                  </button>
+                ))}
+              </div>
             </div>
 
             {/* View Selection */}
