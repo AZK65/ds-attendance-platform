@@ -11,6 +11,7 @@ interface TruckClassInput {
   endTime: string    // "10:00"
   isExam: boolean
   examLocation: string | null // "Laval" | "Joliette" | "Saint-Jérôme"
+  classNumber: number | null  // Per-row class number (null for exams)
 }
 
 function formatTimeDisplay(time: string): string {
@@ -28,11 +29,10 @@ function formatDateDisplay(dateStr: string): string {
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json()
-    const { studentName, studentPhone, transmission, startingClassNumber, classes } = body as {
+    const { studentName, studentPhone, transmission, classes } = body as {
       studentName: string
       studentPhone: string
       transmission?: 'auto' | 'manual'
-      startingClassNumber?: number
       classes: TruckClassInput[]
     }
 
@@ -110,24 +110,21 @@ export async function POST(request: NextRequest) {
     let remindersScheduled = 0
     const errors: string[] = []
 
-    // Number regular classes (exams don't get a class number)
-    let classNumber = (startingClassNumber || 1) - 1
-
-    // Create each event on Teamup
+    // Create each event on Teamup (class numbers come from each row)
     for (const cls of classes) {
-      if (!cls.isExam) classNumber++
+      const classNumber = cls.classNumber
 
       const transTag = transmission === 'auto' ? ' (Auto)' : ' (Manual)'
       const title = cls.isExam
         ? `Truck Exam${transTag} - ${studentName}${cls.examLocation ? ` - ${cls.examLocation}` : ''}`
-        : `Truck Class ${classNumber}${transTag} - ${studentName}`
+        : `Truck Class ${classNumber ?? '?'}${transTag} - ${studentName}`
 
       const transmissionLabel = transmission === 'auto' ? 'Automatic' : 'Manual'
       const noteLines = ['TruckClass: yes', `Student: ${studentName}`, `Phone: ${studentPhone}`, `Transmission: ${transmissionLabel}`]
       if (cls.isExam) {
         noteLines.push(`Exam: ${cls.examLocation || 'TBD'}`)
       } else {
-        noteLines.push(`ClassNumber: ${classNumber}`)
+        noteLines.push(`ClassNumber: ${classNumber ?? '?'}`)
       }
 
       try {
@@ -169,7 +166,7 @@ export async function POST(request: NextRequest) {
           if (cls.isExam) {
             reminderMessage = `Reminder: You have your Truck Exam today at ${timeDisplay}${cls.examLocation ? ` in ${cls.examLocation}` : ''}. Good luck! 🍀`
           } else {
-            reminderMessage = `Reminder: You have Truck Class ${classNumber} today at ${timeDisplay}. See you there!`
+            reminderMessage = `Reminder: You have Truck Class ${classNumber ?? ''} today at ${timeDisplay}. See you there!`
           }
 
           await prisma.scheduledMessage.create({
@@ -203,13 +200,11 @@ export async function POST(request: NextRequest) {
 
         if (regularClasses.length > 0) {
           message += `📋 Classes:\n`
-          let num = 0
           for (const cls of regularClasses) {
-            num++
             const dateStr = formatDateDisplay(cls.date)
             const startStr = formatTimeDisplay(cls.startTime)
             const endStr = formatTimeDisplay(cls.endTime)
-            message += `${num}. ${dateStr} — ${startStr} to ${endStr}\n`
+            message += `${cls.classNumber ?? '?'}. ${dateStr} — ${startStr} to ${endStr}\n`
           }
         }
 
@@ -260,15 +255,13 @@ export async function POST(request: NextRequest) {
 
           if (upcomingClasses.length > 0) {
             let teacherMsg = `📅 New truck classes added for ${studentName}:\n\n`
-            let num = 0
             for (const cls of classes) {
-              if (!cls.isExam) num++
               const dateStr = formatDateDisplay(cls.date)
               const timeStr = `${formatTimeDisplay(cls.startTime)} - ${formatTimeDisplay(cls.endTime)}`
               if (cls.isExam) {
                 teacherMsg += `🎯 Exam: ${dateStr} ${timeStr}${cls.examLocation ? ` (${cls.examLocation})` : ''}\n`
               } else {
-                teacherMsg += `${num}. ${dateStr} ${timeStr}\n`
+                teacherMsg += `${cls.classNumber ?? '?'}. ${dateStr} ${timeStr}\n`
               }
             }
             await sendPrivateMessage(teacherPhone.phone, teacherMsg)

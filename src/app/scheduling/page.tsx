@@ -116,23 +116,24 @@ interface TruckClassRow {
   endTime: string
   isExam: boolean
   examLocation: string
+  classNumber: number | null
 }
 
 const EXAM_LOCATIONS = ['Laval', 'Joliette', 'Saint-Jérôme', 'Longueuil']
 
-const emptyTruckRow = (): TruckClassRow => ({
+const emptyTruckRow = (classNumber: number | null = null): TruckClassRow => ({
   date: '',
   startTime: '09:00',
   endTime: '10:00',
   isExam: false,
   examLocation: '',
+  classNumber,
 })
 
 interface TruckFormData {
   studentName: string
   studentPhone: string
   transmission: 'auto' | 'manual'
-  startingClassNumber: number
   classes: TruckClassRow[]
 }
 
@@ -269,8 +270,7 @@ export default function SchedulingPage() {
     studentName: '',
     studentPhone: '',
     transmission: 'manual',
-    startingClassNumber: 1,
-    classes: [emptyTruckRow()],
+    classes: [emptyTruckRow(1)],
   })
   const [truckCreating, setTruckCreating] = useState(false)
   const [truckNotifyStatus, setTruckNotifyStatus] = useState<null | 'sending' | 'sent' | 'failed'>(null)
@@ -875,6 +875,8 @@ export default function SchedulingPage() {
   const addTruckClass = () => {
     setTruckForm(prev => {
       const lastClass = prev.classes[prev.classes.length - 1]
+      // Find the highest class number to auto-increment
+      const lastNum = prev.classes.filter(c => !c.isExam && c.classNumber != null).reduce((max, c) => Math.max(max, c.classNumber!), 0)
       const newRow: TruckClassRow = {
         date: lastClass ? (() => {
           if (!lastClass.date) return ''
@@ -886,6 +888,7 @@ export default function SchedulingPage() {
         endTime: lastClass?.endTime || '10:00',
         isExam: false,
         examLocation: '',
+        classNumber: lastNum + 1,
       }
       return { ...prev, classes: [...prev.classes, newRow] }
     })
@@ -1020,13 +1023,13 @@ export default function SchedulingPage() {
           studentName: truckForm.studentName,
           studentPhone: truckForm.studentPhone,
           transmission: truckForm.transmission,
-          startingClassNumber: truckForm.startingClassNumber,
           classes: truckForm.classes.map(c => ({
             date: c.date,
             startTime: c.startTime,
             endTime: c.endTime,
             isExam: c.isExam,
             examLocation: c.isExam ? c.examLocation : null,
+            classNumber: c.isExam ? null : c.classNumber,
           })),
         }),
       })
@@ -1036,7 +1039,7 @@ export default function SchedulingPage() {
         queryClient.invalidateQueries({ queryKey: ['scheduling-events'] })
         setShowTruckDialog(false)
         setTruckStep('form')
-        setTruckForm({ studentName: '', studentPhone: '', transmission: 'manual', startingClassNumber: 1, classes: [emptyTruckRow()] })
+        setTruckForm({ studentName: '', studentPhone: '', transmission: 'manual', classes: [emptyTruckRow(1)] })
         setTruckNotifyStatus('sent')
         console.log(`Truck classes created: ${result.eventsCreated}, reminders: ${result.remindersScheduled}`)
       } else if (res.status === 409) {
@@ -1103,14 +1106,16 @@ export default function SchedulingPage() {
         const endDt = new Date(ev.end_dt)
         const isExam = isTruckExam(ev)
         const examLoc = parseExamLocationFromNotes(ev.notes)
+        const classNum = parseTruckClassNumberFromNotes(ev.notes)
         return {
           date: formatDate(startDt),
           startTime: startDt.toTimeString().slice(0, 5),
           endTime: endDt.toTimeString().slice(0, 5),
           isExam,
           examLocation: examLoc,
+          classNumber: isExam ? null : classNum,
         }
-    })
+      })
 
       setTruckScheduleData({ studentName, studentPhone, classes: scheduleClasses })
       setShowEventDetail(false)
@@ -1127,12 +1132,14 @@ export default function SchedulingPage() {
         const endDt = new Date(ev.end_dt)
         const isExam = isTruckExam(ev)
         const examLoc = parseExamLocationFromNotes(ev.notes)
+        const classNum = parseTruckClassNumberFromNotes(ev.notes)
         return {
           date: formatDate(startDt),
           startTime: startDt.toTimeString().slice(0, 5),
           endTime: endDt.toTimeString().slice(0, 5),
           isExam,
           examLocation: examLoc,
+          classNumber: isExam ? null : classNum,
         }
       })
 
@@ -2005,7 +2012,7 @@ export default function SchedulingPage() {
             <Button size="sm" variant="outline" onClick={() => {
               // Only reset truck form if no student data entered (preserve data on accidental close)
               if (!truckForm.studentName && !truckForm.studentPhone) {
-                setTruckForm({ studentName: '', studentPhone: '', transmission: 'manual', startingClassNumber: 1, classes: [emptyTruckRow()] })
+                setTruckForm({ studentName: '', studentPhone: '', transmission: 'manual', classes: [emptyTruckRow(1)] })
               }
               setTruckStep('form')
               setShowTruckDialog(true)
@@ -2409,7 +2416,7 @@ export default function SchedulingPage() {
 
               <div className="space-y-4">
                 {/* Student Info */}
-                <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
                   <div>
                     <Label>Student Name</Label>
                     <Input
@@ -2449,16 +2456,6 @@ export default function SchedulingPage() {
                       </Button>
                     </div>
                   </div>
-                  <div>
-                    <Label>Start at Class #</Label>
-                    <Input
-                      type="number"
-                      min={1}
-                      value={truckForm.startingClassNumber}
-                      onChange={(e) => setTruckForm(prev => ({ ...prev, startingClassNumber: Math.max(1, parseInt(e.target.value) || 1) }))}
-                      className="mt-1"
-                    />
-                  </div>
                 </div>
 
                 {/* Class Rows */}
@@ -2472,21 +2469,35 @@ export default function SchedulingPage() {
 
                   <div className="space-y-2 max-h-[400px] overflow-y-auto pr-1">
                     {truckForm.classes.map((cls, idx) => {
-                      const classNum = cls.isExam ? null : truckForm.classes.slice(0, idx + 1).filter(c => !c.isExam).length + (truckForm.startingClassNumber - 1)
                       return (
                         <div key={idx} className={`p-3 rounded-lg border ${cls.isExam ? 'border-red-200 bg-red-50/50' : 'border-border bg-muted/30'}`}>
                           <div className="flex items-center gap-2 mb-2">
-                            <span className={`text-xs font-bold px-2 py-0.5 rounded ${cls.isExam ? 'bg-red-100 text-red-700' : 'bg-emerald-100 text-emerald-700'}`}>
-                              {cls.isExam ? 'EXAM' : `#${classNum}`}
-                            </span>
+                            {cls.isExam ? (
+                              <span className="text-xs font-bold px-2 py-0.5 rounded bg-red-100 text-red-700">EXAM</span>
+                            ) : (
+                              <div className="flex items-center gap-1">
+                                <span className="text-xs font-bold text-emerald-700">#</span>
+                                <input
+                                  type="number"
+                                  min={1}
+                                  value={cls.classNumber ?? ''}
+                                  onChange={(e) => updateTruckClass(idx, { classNumber: parseInt(e.target.value) || null })}
+                                  className="w-10 h-6 text-xs font-bold text-center rounded bg-emerald-100 text-emerald-700 border-0 focus:ring-1 focus:ring-emerald-400 [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                                />
+                              </div>
+                            )}
                             <div className="flex items-center gap-2 ml-auto">
                               <label className="flex items-center gap-1.5 text-xs cursor-pointer">
                                 <Checkbox
                                   checked={cls.isExam}
-                                  onCheckedChange={(checked) => updateTruckClass(idx, {
-                                    isExam: !!checked,
-                                    examLocation: checked ? cls.examLocation || '' : '',
-                                  })}
+                                  onCheckedChange={(checked) => {
+                                    if (checked) {
+                                      updateTruckClass(idx, { isExam: true, examLocation: cls.examLocation || '', classNumber: null })
+                                    } else {
+                                      const lastNum = truckForm.classes.filter((c, i) => i !== idx && !c.isExam && c.classNumber != null).reduce((max, c) => Math.max(max, c.classNumber!), 0)
+                                      updateTruckClass(idx, { isExam: false, examLocation: '', classNumber: lastNum + 1 })
+                                    }
+                                  }}
                                 />
                                 Exam
                               </label>
@@ -2606,17 +2617,13 @@ export default function SchedulingPage() {
                       </tr>
                     </thead>
                     <tbody>
-                      {(() => {
-                        let num = truckForm.startingClassNumber - 1
-                        return truckForm.classes.map((cls, idx) => {
-                          if (!cls.isExam) num++
-                          return (
+                      {truckForm.classes.map((cls, idx) => (
                             <tr key={idx} className={`border-t ${cls.isExam ? 'bg-red-50' : idx % 2 === 1 ? 'bg-emerald-50/50' : ''}`}>
                               <td className="px-3 py-2">
                                 {cls.isExam ? (
                                   <span className="text-xs font-bold px-1.5 py-0.5 rounded bg-red-100 text-red-700">EXAM</span>
                                 ) : (
-                                  <span className="text-xs font-bold px-1.5 py-0.5 rounded bg-emerald-100 text-emerald-700">#{num}</span>
+                                  <span className="text-xs font-bold px-1.5 py-0.5 rounded bg-emerald-100 text-emerald-700">#{cls.classNumber ?? '?'}</span>
                                 )}
                               </td>
                               <td className="px-3 py-2 font-medium">{formatDateNice(cls.date)}</td>
@@ -2628,9 +2635,7 @@ export default function SchedulingPage() {
                               </td>
                               <td className="px-3 py-2 text-muted-foreground">{cls.isExam && cls.examLocation ? cls.examLocation : '—'}</td>
                             </tr>
-                          )
-                        })
-                      })()}
+                          ))}
                     </tbody>
                   </table>
                 </div>
