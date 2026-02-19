@@ -7,9 +7,11 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Badge } from '@/components/ui/badge'
-import { Upload, FileText, Download, Loader2, Camera, ArrowLeft, ArrowRight, CheckCircle2, Edit3, Settings, Plus } from 'lucide-react'
+import { Upload, FileText, Download, Loader2, Camera, ArrowLeft, ArrowRight, CheckCircle2, Edit3, Settings, Plus, Smartphone } from 'lucide-react'
 import { motion, AnimatePresence } from 'motion/react'
 import Link from 'next/link'
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog'
+import { PhoneCameraUpload } from '@/components/PhoneCameraUpload'
 
 interface ExtractedData {
   // From licence
@@ -148,6 +150,7 @@ export default function CertificatePage() {
   const [combinedImage, setCombinedImage] = useState<string | null>(null)
   const [formData, setFormData] = useState<CertificateFormData>(initialFormData)
   const [isProcessing, setIsProcessing] = useState(false)
+  const [phoneCameraTarget, setPhoneCameraTarget] = useState<'combined' | 'licence' | 'attendance' | null>(null)
 
   // Check if blank template exists
   const { data: templateStatus, isLoading: isLoadingTemplate } = useQuery({
@@ -304,6 +307,18 @@ export default function CertificatePage() {
         }
       }
       reader.readAsDataURL(file)
+    }
+  }
+
+  const handlePhoneCameraCapture = (base64: string) => {
+    if (!phoneCameraTarget) return
+    // The base64 comes from the phone already as JPEG, set it directly
+    if (phoneCameraTarget === 'licence') {
+      setLicenceImage(base64)
+    } else if (phoneCameraTarget === 'attendance') {
+      setAttendanceImage(base64)
+    } else {
+      setCombinedImage(base64)
     }
   }
 
@@ -601,7 +616,7 @@ export default function CertificatePage() {
                       Upload a single photo containing both the driver&apos;s licence and attendance sheet
                     </CardDescription>
                   </CardHeader>
-                  <CardContent>
+                  <CardContent className="space-y-3">
                     <div className="border-2 border-dashed rounded-lg p-8 text-center hover:border-primary transition-colors">
                       <input
                         type="file"
@@ -632,6 +647,14 @@ export default function CertificatePage() {
                         )}
                       </label>
                     </div>
+                    <Button
+                      variant="outline"
+                      className="w-full"
+                      onClick={() => setPhoneCameraTarget('combined')}
+                    >
+                      <Smartphone className="h-4 w-4 mr-2" />
+                      Use Phone Camera
+                    </Button>
                   </CardContent>
                 </Card>
               ) : (
@@ -648,7 +671,7 @@ export default function CertificatePage() {
                         Upload photo or scan of the licence
                       </CardDescription>
                     </CardHeader>
-                    <CardContent>
+                    <CardContent className="space-y-3">
                       <div className="border-2 border-dashed rounded-lg p-6 text-center hover:border-primary transition-colors">
                         <input
                           type="file"
@@ -679,6 +702,15 @@ export default function CertificatePage() {
                           )}
                         </label>
                       </div>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="w-full"
+                        onClick={() => setPhoneCameraTarget('licence')}
+                      >
+                        <Smartphone className="h-3.5 w-3.5 mr-1.5" />
+                        Phone Camera
+                      </Button>
                     </CardContent>
                   </Card>
 
@@ -693,7 +725,7 @@ export default function CertificatePage() {
                         Upload the Qazi attendance sheet with all dates
                       </CardDescription>
                     </CardHeader>
-                    <CardContent>
+                    <CardContent className="space-y-3">
                       <div className="border-2 border-dashed rounded-lg p-6 text-center hover:border-primary transition-colors">
                         <input
                           type="file"
@@ -724,6 +756,15 @@ export default function CertificatePage() {
                           )}
                         </label>
                       </div>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="w-full"
+                        onClick={() => setPhoneCameraTarget('attendance')}
+                      >
+                        <Smartphone className="h-3.5 w-3.5 mr-1.5" />
+                        Phone Camera
+                      </Button>
                     </CardContent>
                   </Card>
                 </div>
@@ -1121,6 +1162,27 @@ export default function CertificatePage() {
           )}
         </div>
       </main>
+
+      {/* Phone Camera Dialog */}
+      <Dialog open={phoneCameraTarget !== null} onOpenChange={(open) => { if (!open) setPhoneCameraTarget(null) }}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Smartphone className="h-5 w-5" />
+              Phone Camera
+            </DialogTitle>
+            <DialogDescription>
+              Scan the QR code with your phone to take a photo directly
+            </DialogDescription>
+          </DialogHeader>
+          {phoneCameraTarget && (
+            <PhoneCameraUpload
+              onCapture={handlePhoneCameraCapture}
+              onClose={() => setPhoneCameraTarget(null)}
+            />
+          )}
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }
