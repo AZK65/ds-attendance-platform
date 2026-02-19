@@ -2069,14 +2069,12 @@ function SchedulingPage() {
           </div>
           <div className="flex items-center gap-2">
             <Button size="sm" onClick={() => {
-              // Only reset form if no student data entered (preserve data on accidental close)
-              if (!formData.studentName && !formData.module) {
-                setFormData({
-                  ...initialFormData,
-                  date: formatDate(currentDate),
-                  subcalendarId: selectedTeacher ? selectedTeacher.toString() : '',
-                })
-              }
+              setFormData({
+                ...initialFormData,
+                date: formatDate(currentDate),
+                subcalendarId: selectedTeacher ? selectedTeacher.toString() : '',
+              })
+              setEditingEvent(null)
               setDuplicateError(null)
               setShowCreateDialog(true)
             }}>
@@ -2126,7 +2124,7 @@ function SchedulingPage() {
       {/* Create Event Dialog */}
       <Dialog open={showCreateDialog} onOpenChange={(open) => {
         setShowCreateDialog(open)
-        if (!open) { setCarBulkStep('form'); setCreateMode('single') }
+        if (!open) { setCarBulkStep('form'); setCreateMode('single'); setFormData(initialFormData) }
       }}>
         <DialogContent className={`w-[95vw] ${createMode === 'bulk' ? 'sm:max-w-2xl' : 'sm:max-w-lg'} max-h-[90vh] overflow-y-auto`}>
           {/* Single/Bulk Toggle */}
@@ -2467,7 +2465,7 @@ function SchedulingPage() {
       </Dialog>
 
       {/* Edit Event Dialog */}
-      <Dialog open={showEditDialog} onOpenChange={(open) => { if (!open) { setShowEditDialog(false); setEditingEvent(null) } }}>
+      <Dialog open={showEditDialog} onOpenChange={(open) => { if (!open) { setShowEditDialog(false); setEditingEvent(null); setFormData(initialFormData) } }}>
         <DialogContent className="w-[95vw] sm:max-w-lg">
           <DialogHeader>
             <DialogTitle>Edit Class</DialogTitle>
