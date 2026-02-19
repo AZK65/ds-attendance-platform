@@ -200,7 +200,7 @@ export default function GroupsPage() {
   const handleSelectPerson = useCallback((participant: ParticipantWithGroup) => {
     setOpen(false)
     setSearch('')
-    router.push(`/groups/${encodeURIComponent(participant.groupId)}`)
+    router.push(`/groups/${encodeURIComponent(participant.groupId)}/student/${encodeURIComponent(participant.id)}`)
   }, [router])
 
   // Helper to get phase from module number
@@ -427,9 +427,24 @@ export default function GroupsPage() {
                           </p>
                         </div>
                       </div>
-                      <span className="text-xs text-muted-foreground">
-                        {groupMatch ? groupMatch.groupName : 'Book Class →'}
-                      </span>
+                      <div className="text-right">
+                        {groupMatch ? (
+                          <>
+                            <div className="flex items-center gap-1 text-xs text-muted-foreground">
+                              <Users className="h-3 w-3" />
+                              <span className="max-w-[120px] truncate">{groupMatch.groupName}</span>
+                            </div>
+                            {groupMatch.moduleNumber && (
+                              <div className="flex items-center gap-1 text-xs text-blue-600 mt-0.5">
+                                <BookOpen className="h-3 w-3" />
+                                Module {groupMatch.moduleNumber}
+                              </div>
+                            )}
+                          </>
+                        ) : (
+                          <span className="text-xs text-muted-foreground">Book Class →</span>
+                        )}
+                      </div>
                     </div>
                   )
                 })}
