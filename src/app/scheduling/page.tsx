@@ -1,6 +1,7 @@
 'use client'
 
-import { useState, useMemo, useEffect } from 'react'
+import { useState, useMemo, useEffect, useRef, Suspense } from 'react'
+import { useSearchParams } from 'next/navigation'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
@@ -249,8 +250,18 @@ const HOUR_START = 7
 const HOUR_END = 21
 const HOUR_HEIGHT = 60 // px per hour
 
-export default function SchedulingPage() {
+export default function SchedulingPageWrapper() {
+  return (
+    <Suspense>
+      <SchedulingPage />
+    </Suspense>
+  )
+}
+
+function SchedulingPage() {
   const queryClient = useQueryClient()
+  const searchParams = useSearchParams()
+  const bookForHandled = useRef(false)
   const [viewMode, setViewMode] = useState<ViewMode>('week')
   const [currentDate, setCurrentDate] = useState(() => new Date())
   const [selectedTeacher, setSelectedTeacher] = useState<number | null>(null)
@@ -277,6 +288,24 @@ export default function SchedulingPage() {
   const [truckNotifyStatus, setTruckNotifyStatus] = useState<null | 'sending' | 'sent' | 'failed'>(null)
   const [truckStep, setTruckStep] = useState<'form' | 'preview'>('form')
   const [truckDuplicateError, setTruckDuplicateError] = useState<string[] | null>(null)
+
+  // Auto-open create dialog when navigated with bookFor param (from student detail page)
+  useEffect(() => {
+    if (bookForHandled.current) return
+    const bookFor = searchParams.get('bookFor')
+    const phone = searchParams.get('phone')
+    if (bookFor) {
+      bookForHandled.current = true
+      setFormData(prev => ({
+        ...prev,
+        studentName: bookFor,
+        studentPhone: phone || '',
+      }))
+      setShowCreateDialog(true)
+      // Clean up URL params without triggering navigation
+      window.history.replaceState({}, '', '/scheduling')
+    }
+  }, [searchParams])
 
   // Truck schedule viewer (from event detail)
   const [showTruckSchedule, setShowTruckSchedule] = useState(false)

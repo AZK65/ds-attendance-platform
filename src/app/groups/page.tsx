@@ -13,7 +13,7 @@ import {
   CommandList,
 } from '@/components/ui/command'
 import { motion, AnimatePresence } from 'motion/react'
-import { Loader2, RefreshCw, Link as LinkIcon, Search, User, Users, BookOpen } from 'lucide-react'
+import { Loader2, RefreshCw, Link as LinkIcon, Search, User, Users, BookOpen, Phone } from 'lucide-react'
 import Link from 'next/link'
 import Image from 'next/image'
 import { useRouter } from 'next/navigation'
@@ -43,11 +43,25 @@ interface ParticipantWithGroup {
   moduleNumber: number | null
 }
 
+interface ContactResult {
+  id: string
+  phone: string
+  name: string | null
+  pushName: string | null
+}
+
 export default function GroupsPage() {
   const [open, setOpen] = useState(false)
   const [search, setSearch] = useState('')
+  const [debouncedSearch, setDebouncedSearch] = useState('')
   const router = useRouter()
   const queryClient = useQueryClient()
+
+  // Debounce search for contact API calls
+  useEffect(() => {
+    const timer = setTimeout(() => setDebouncedSearch(search.trim()), 300)
+    return () => clearTimeout(timer)
+  }, [search])
 
   const {
     data,
@@ -98,6 +112,30 @@ export default function GroupsPage() {
     },
     staleTime: 5 * 60 * 1000, // Cache for 5 minutes
   })
+
+  // Fetch WhatsApp contacts based on search (same API as scheduling page)
+  const { data: contactsData, isLoading: isLoadingContacts } = useQuery({
+    queryKey: ['contact-search', debouncedSearch],
+    queryFn: async () => {
+      const params = new URLSearchParams({ search: debouncedSearch })
+      const res = await fetch(`/api/contacts?${params}`)
+      if (!res.ok) return { contacts: [] }
+      return res.json() as Promise<{ contacts: ContactResult[] }>
+    },
+    enabled: debouncedSearch.length >= 2,
+    staleTime: 30 * 1000,
+  })
+
+  // Filter contacts to exclude those already shown as group participants
+  const filteredContacts = useMemo(() => {
+    if (!contactsData?.contacts || !search.trim()) return []
+    const participantPhones = new Set(
+      (participantsData?.participants || []).map((p: ParticipantWithGroup) => p.phone)
+    )
+    return contactsData.contacts
+      .filter(c => !participantPhones.has(c.phone))
+      .slice(0, 10)
+  }, [contactsData?.contacts, search, participantsData?.participants])
 
   // Keyboard shortcut to open search
   useEffect(() => {
@@ -277,7 +315,7 @@ export default function GroupsPage() {
               </div>
             )}
             {/* Only show empty state when there are truly no results */}
-            {search.trim() && filteredGroups.length === 0 && filteredParticipants.length === 0 && !isLoadingParticipants && (
+            {search.trim() && filteredGroups.length === 0 && filteredParticipants.length === 0 && filteredContacts.length === 0 && !isLoadingParticipants && !isLoadingContacts && (
               <div className="py-6 text-center text-sm text-muted-foreground">
                 No results found for &quot;{search}&quot;
               </div>
@@ -317,11 +355,11 @@ export default function GroupsPage() {
               </div>
             )}
 
-            {/* People Section */}
+            {/* People Section (Group Members) */}
             {filteredParticipants.length > 0 && (
               <div className="p-2" key={`people-section-${search}`}>
                 <div className="px-2 py-1.5 text-xs font-medium text-muted-foreground">
-                  People ({filteredParticipants.length} matching &quot;{search}&quot;)
+                  Group Members ({filteredParticipants.length} matching &quot;{search}&quot;)
                 </div>
                 {filteredParticipants.map((participant, index) => (
                   <div
@@ -354,6 +392,40 @@ export default function GroupsPage() {
                     </div>
                   </div>
                 ))}
+              </div>
+            )}
+
+            {/* WhatsApp Contacts Section (not in any group) */}
+            {filteredContacts.length > 0 && (
+              <div className="p-2" key={`contacts-section-${debouncedSearch}`}>
+                <div className="px-2 py-1.5 text-xs font-medium text-muted-foreground">
+                  WhatsApp Contacts ({filteredContacts.length})
+                </div>
+                {filteredContacts.map((contact, index) => (
+                  <div
+                    key={`contact-${index}-${contact.phone}`}
+                    className="flex items-center justify-between py-3 px-2 rounded-sm"
+                  >
+                    <div className="flex items-center gap-2">
+                      <Phone className="h-4 w-4 text-muted-foreground" />
+                      <div>
+                        <p className="font-medium">
+                          {contact.name || contact.pushName || 'Unknown'}
+                        </p>
+                        <p className="text-xs text-muted-foreground">
+                          +{contact.phone}
+                        </p>
+                      </div>
+                    </div>
+                    <span className="text-xs text-muted-foreground">Contact</span>
+                  </div>
+                ))}
+              </div>
+            )}
+            {isLoadingContacts && debouncedSearch.length >= 2 && filteredParticipants.length === 0 && (
+              <div className="py-3 px-4 text-center text-sm text-muted-foreground">
+                <Loader2 className="h-4 w-4 animate-spin inline mr-2" />
+                Searching contacts...
               </div>
             )}
           </div>

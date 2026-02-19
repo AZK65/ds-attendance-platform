@@ -4,16 +4,14 @@ import Link from 'next/link'
 import Image from 'next/image'
 import { usePathname } from 'next/navigation'
 import { motion } from 'motion/react'
-import { Home, Users, Award, CalendarDays, Link as LinkIcon } from 'lucide-react'
+import { Home, Users, Award } from 'lucide-react'
 import { ConnectionStatus } from './ConnectionStatus'
 import { NotificationBell } from './NotificationBell'
 
 const NAV_ITEMS = [
-  { href: '/', label: 'Home', icon: Home },
-  { href: '/connect', label: 'Connect', icon: LinkIcon },
+  { href: '/scheduling', label: 'Home', icon: Home },
   { href: '/groups', label: 'Groups', icon: Users },
   { href: '/certificate', label: 'Certificates', icon: Award },
-  { href: '/scheduling', label: 'Scheduling', icon: CalendarDays },
 ]
 
 export function Navbar() {

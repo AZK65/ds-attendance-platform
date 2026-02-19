@@ -18,7 +18,6 @@ export async function GET(request: NextRequest) {
       )
     }
 
-    // Search events using Teamup search API with student name as query
     // Use a wide date range to get all past and future events
     const today = new Date()
     const startDate = new Date(today)
@@ -28,48 +27,73 @@ export async function GET(request: NextRequest) {
 
     const formatDate = (d: Date) => d.toISOString().split('T')[0]
 
-    let url = `${BASE_URL}/${calendarKey}/events?startDate=${formatDate(startDate)}&endDate=${formatDate(endDate)}`
-    if (studentName) {
-      url += `&query=${encodeURIComponent(studentName)}`
-    }
+    // Strategy: if we have a phone number, search by phone (more reliable)
+    // Also search by name as a fallback to catch events without phone in notes
+    const allEvents: Array<{ id: string; title?: string; notes?: string; start_dt: string; end_dt: string; subcalendar_ids: number[] }> = []
+    const seenIds = new Set<string>()
 
-    const res = await fetch(url, {
-      headers: {
-        'Teamup-Token': apiKey,
-      },
-    })
-
-    if (!res.ok) {
-      const text = await res.text()
-      return NextResponse.json(
-        { error: `Teamup API error: ${res.status} ${text}` },
-        { status: res.status }
-      )
-    }
-
-    const data = await res.json()
-    let events = data.events || []
-
-    // Filter by phone in notes if provided (more precise match)
+    // Search by phone number if provided (catches events regardless of name typos)
     if (phone) {
-      events = events.filter((event: { notes?: string; title?: string }) => {
-        const notes = event.notes || ''
-        const phoneMatch = notes.match(/Phone:\s*(\d+)/)
-        if (phoneMatch) {
-          return phoneMatch[1] === phone
-        }
-        // If no phone in notes but studentName matches in title, still include
-        if (studentName && event.title?.includes(studentName)) {
-          return true
-        }
-        return false
+      const phoneUrl = `${BASE_URL}/${calendarKey}/events?startDate=${formatDate(startDate)}&endDate=${formatDate(endDate)}&query=${encodeURIComponent(phone)}`
+      const phoneRes = await fetch(phoneUrl, {
+        headers: { 'Teamup-Token': apiKey },
       })
+      if (phoneRes.ok) {
+        const phoneData = await phoneRes.json()
+        for (const ev of (phoneData.events || [])) {
+          if (!seenIds.has(ev.id)) {
+            seenIds.add(ev.id)
+            allEvents.push(ev)
+          }
+        }
+      }
     }
 
-    // Sort by date - upcoming first, then past
-    events.sort((a: { start_dt: string }, b: { start_dt: string }) => {
-      return new Date(a.start_dt).getTime() - new Date(b.start_dt).getTime()
+    // Also search by name to catch events that might not have phone in notes
+    if (studentName) {
+      const nameUrl = `${BASE_URL}/${calendarKey}/events?startDate=${formatDate(startDate)}&endDate=${formatDate(endDate)}&query=${encodeURIComponent(studentName)}`
+      const nameRes = await fetch(nameUrl, {
+        headers: { 'Teamup-Token': apiKey },
+      })
+      if (nameRes.ok) {
+        const nameData = await nameRes.json()
+        for (const ev of (nameData.events || [])) {
+          if (!seenIds.has(ev.id)) {
+            seenIds.add(ev.id)
+            allEvents.push(ev)
+          }
+        }
+      }
+    }
+
+    // Now filter to only events that actually belong to this student
+    // Match by phone in notes (most reliable) or by name in title/notes
+    let events = allEvents.filter((event) => {
+      const notes = event.notes || ''
+      const title = event.title || ''
+
+      // Check phone match in notes
+      const phoneInNotes = notes.match(/Phone:\s*(\d+)/)
+      if (phoneInNotes && phone) {
+        return phoneInNotes[1] === phone
+      }
+
+      // Check student name match in notes
+      const studentInNotes = notes.match(/Student:\s*(.+)/)
+      if (studentInNotes && studentName) {
+        return studentInNotes[1].trim().toLowerCase() === studentName.toLowerCase()
+      }
+
+      // Check name in title
+      if (studentName && title.toLowerCase().includes(studentName.toLowerCase())) {
+        return true
+      }
+
+      return false
     })
+
+    // Sort by date ascending
+    events.sort((a, b) => new Date(a.start_dt).getTime() - new Date(b.start_dt).getTime())
 
     return NextResponse.json(events)
   } catch (error) {

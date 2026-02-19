@@ -378,10 +378,18 @@ export default function StudentDetailPage() {
             )}
           </div>
           {!loadingGroup && participant && (
-            <Button variant="outline" size="sm" onClick={startEditing}>
-              <Edit3 className="h-4 w-4 mr-1" />
-              Edit
-            </Button>
+            <div className="flex gap-2">
+              <Button variant="default" size="sm" asChild>
+                <Link href={`/scheduling?bookFor=${encodeURIComponent(displayName)}&phone=${encodeURIComponent(phone)}`}>
+                  <CalendarDays className="h-4 w-4 mr-1" />
+                  Book Class
+                </Link>
+              </Button>
+              <Button variant="outline" size="sm" onClick={startEditing}>
+                <Edit3 className="h-4 w-4 mr-1" />
+                Edit
+              </Button>
+            </div>
           )}
         </div>
       </motion.div>
