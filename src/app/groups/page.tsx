@@ -404,7 +404,13 @@ export default function GroupsPage() {
                 {filteredContacts.map((contact, index) => (
                   <div
                     key={`contact-${index}-${contact.phone}`}
-                    className="flex items-center justify-between py-3 px-2 rounded-sm"
+                    onClick={() => {
+                      setOpen(false)
+                      setSearch('')
+                      const name = contact.name || contact.pushName || ''
+                      router.push(`/scheduling?bookFor=${encodeURIComponent(name)}&phone=${encodeURIComponent(contact.phone)}`)
+                    }}
+                    className="flex items-center justify-between py-3 px-2 rounded-sm cursor-pointer hover:bg-accent"
                   >
                     <div className="flex items-center gap-2">
                       <Phone className="h-4 w-4 text-muted-foreground" />
@@ -417,7 +423,7 @@ export default function GroupsPage() {
                         </p>
                       </div>
                     </div>
-                    <span className="text-xs text-muted-foreground">Contact</span>
+                    <span className="text-xs text-muted-foreground">Book Class →</span>
                   </div>
                 ))}
               </div>
