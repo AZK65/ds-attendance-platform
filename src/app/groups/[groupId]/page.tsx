@@ -2,7 +2,7 @@
 
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { useParams } from 'next/navigation'
-import { useState } from 'react'
+import { useState, useMemo } from 'react'
 import { ContactSearchModal } from '@/components/ContactSearchModal'
 import { ConnectionStatus } from '@/components/ConnectionStatus'
 import { Button } from '@/components/ui/button'
@@ -207,6 +207,56 @@ export default function GroupDetailPage() {
   const participants: Participant[] = groupData?.participants || []
   const currentModuleNumber = groupData?.moduleNumber || 0
   const lastModuleMessageDate = groupData?.lastModuleMessageDate ? new Date(groupData.lastModuleMessageDate) : null
+
+  // Fetch last/next class for all participants
+  const participantPhones = useMemo(() => participants.map(p => p.phone), [participants])
+
+  const { data: batchClassesData } = useQuery({
+    queryKey: ['batch-classes', groupId, participantPhones],
+    queryFn: async () => {
+      const res = await fetch('/api/scheduling/batch-classes', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ phones: participantPhones }),
+      })
+      if (!res.ok) return { results: {} }
+      return res.json() as Promise<{
+        results: Record<string, {
+          lastClass: { date: string; title: string } | null
+          nextClass: { date: string; title: string } | null
+        }>
+      }>
+    },
+    enabled: participantPhones.length > 0,
+    staleTime: 60 * 1000,
+  })
+
+  const getClassInfo = (phone: string) => {
+    return batchClassesData?.results?.[phone] || { lastClass: null, nextClass: null }
+  }
+
+  const formatRelativeDate = (dateStr: string) => {
+    const date = new Date(dateStr)
+    const now = new Date()
+    const diffMs = now.getTime() - date.getTime()
+    const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24))
+
+    if (diffDays < 0) {
+      // Future
+      const absDays = Math.abs(diffDays)
+      if (absDays === 0) return 'Today'
+      if (absDays === 1) return 'Tomorrow'
+      if (absDays < 7) return `In ${absDays}d`
+      if (absDays < 30) return `In ${Math.floor(absDays / 7)}w`
+      return `In ${Math.floor(absDays / 30)}mo`
+    } else {
+      if (diffDays === 0) return 'Today'
+      if (diffDays === 1) return '1d ago'
+      if (diffDays < 7) return `${diffDays}d ago`
+      if (diffDays < 30) return `${Math.floor(diffDays / 7)}w ago`
+      return `${Math.floor(diffDays / 30)}mo ago`
+    }
+  }
 
   const getDisplayName = (p: Participant) => {
     return p.name || p.pushName || null
@@ -639,11 +689,13 @@ export default function GroupDetailPage() {
           </div>
         ) : (
           <div className="border rounded-lg overflow-x-auto">
-            <Table className="min-w-[500px]">
+            <Table className="min-w-[700px]">
               <TableHeader>
                 <TableRow>
                   <TableHead className="w-[50px]">#</TableHead>
                   <TableHead>Name / Phone</TableHead>
+                  <TableHead className="w-[120px]">Last Class</TableHead>
+                  <TableHead className="w-[120px]">Next Class</TableHead>
                   <TableHead className="w-[100px]">Role</TableHead>
                   <TableHead className="w-[80px]">Actions</TableHead>
                 </TableRow>
@@ -672,6 +724,39 @@ export default function GroupDetailPage() {
                           <p className="font-medium">{formatPhone(participant.phone)}</p>
                         )}
                       </Link>
+                    </TableCell>
+                    <TableCell>
+                      {(() => {
+                        const { lastClass } = getClassInfo(participant.phone)
+                        if (!lastClass) return <span className="text-muted-foreground text-xs">—</span>
+                        const relative = formatRelativeDate(lastClass.date)
+                        const dateObj = new Date(lastClass.date)
+                        const formatted = dateObj.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
+                        // Color code: red if > 14 days ago, yellow if > 7 days
+                        const diffDays = Math.floor((Date.now() - dateObj.getTime()) / (1000 * 60 * 60 * 24))
+                        const color = diffDays > 14 ? 'text-red-600' : diffDays > 7 ? 'text-yellow-600' : 'text-muted-foreground'
+                        return (
+                          <div className="text-xs">
+                            <p className="font-medium">{formatted}</p>
+                            <p className={color}>{relative}</p>
+                          </div>
+                        )
+                      })()}
+                    </TableCell>
+                    <TableCell>
+                      {(() => {
+                        const { nextClass } = getClassInfo(participant.phone)
+                        if (!nextClass) return <span className="text-muted-foreground text-xs">—</span>
+                        const relative = formatRelativeDate(nextClass.date)
+                        const dateObj = new Date(nextClass.date)
+                        const formatted = dateObj.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
+                        return (
+                          <div className="text-xs">
+                            <p className="font-medium">{formatted}</p>
+                            <p className="text-green-600">{relative}</p>
+                          </div>
+                        )
+                      })()}
                     </TableCell>
                     <TableCell>
                       {participant.isSuperAdmin ? (
