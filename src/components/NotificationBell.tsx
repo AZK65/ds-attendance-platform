@@ -1,9 +1,9 @@
 'use client'
 
 import { useState, useRef, useEffect } from 'react'
-import { useQuery } from '@tanstack/react-query'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { motion, AnimatePresence } from 'motion/react'
-import { Bell, CheckCircle2, AlertCircle, Clock, Send, Loader2, CalendarPlus, Truck, Users, MessageSquare, Image } from 'lucide-react'
+import { Bell, CheckCircle2, AlertCircle, Clock, Send, Loader2, CalendarPlus, Truck, Users, MessageSquare, Image, X } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
 
 interface MessageLog {
@@ -80,7 +80,23 @@ function formatScheduledTime(dateStr: string) {
 export function NotificationBell() {
   const [open, setOpen] = useState(false)
   const [tab, setTab] = useState<Tab>('sent')
+  const [cancellingId, setCancellingId] = useState<string | null>(null)
   const panelRef = useRef<HTMLDivElement>(null)
+  const queryClient = useQueryClient()
+
+  const cancelMessage = async (id: string) => {
+    setCancellingId(id)
+    try {
+      const res = await fetch(`/api/scheduled-messages/${id}`, { method: 'DELETE' })
+      if (res.ok) {
+        queryClient.invalidateQueries({ queryKey: ['message-log', 'queue'] })
+      }
+    } catch {
+      // ignore
+    } finally {
+      setCancellingId(null)
+    }
+  }
 
   // Close on outside click
   useEffect(() => {
@@ -264,7 +280,7 @@ export function NotificationBell() {
                     ) : (
                       <div className="divide-y">
                         {queueMessages.map(msg => (
-                          <div key={msg.id} className="px-3 py-2.5 hover:bg-muted/50 transition-colors">
+                          <div key={msg.id} className="px-3 py-2.5 hover:bg-muted/50 transition-colors group">
                             <div className="flex items-start gap-2">
                               <div className="mt-0.5 flex-shrink-0">
                                 <Clock className="h-3.5 w-3.5 text-orange-500" />
@@ -281,11 +297,23 @@ export function NotificationBell() {
                                       <span className="text-xs font-medium">Module {msg.moduleNumber}</span>
                                     )}
                                   </div>
-                                  <div className="flex items-center gap-1">
+                                  <div className="flex items-center gap-1.5">
                                     <Clock className="h-3 w-3 text-muted-foreground" />
                                     <span className="text-xs font-medium text-orange-600">
                                       {formatScheduledTime(msg.scheduledAt)}
                                     </span>
+                                    <button
+                                      onClick={(e) => { e.stopPropagation(); cancelMessage(msg.id) }}
+                                      disabled={cancellingId === msg.id}
+                                      className="opacity-0 group-hover:opacity-100 transition-opacity ml-0.5 p-0.5 rounded hover:bg-red-100 text-muted-foreground hover:text-red-600"
+                                      title="Cancel this reminder"
+                                    >
+                                      {cancellingId === msg.id ? (
+                                        <Loader2 className="h-3 w-3 animate-spin" />
+                                      ) : (
+                                        <X className="h-3 w-3" />
+                                      )}
+                                    </button>
                                   </div>
                                 </div>
                                 <p className="text-xs text-muted-foreground mt-0.5 line-clamp-2">{msg.message}</p>
