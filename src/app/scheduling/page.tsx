@@ -125,7 +125,7 @@ const EXAM_LOCATIONS = ['Laval', 'Joliette', 'Saint-Jérôme', 'Longueuil']
 const emptyTruckRow = (classNumber: number | null = null): TruckClassRow => ({
   date: '',
   startTime: '09:00',
-  endTime: '10:00',
+  endTime: '11:00',
   isExam: false,
   examLocation: '',
   classNumber,
@@ -675,6 +675,36 @@ function SchedulingPage() {
       queryClient.invalidateQueries({ queryKey: ['scheduling-events'] })
       setShowEditDialog(false)
       if (data.subcalendarId) notifyTeacher(data.subcalendarId, 'updated', data)
+      // Cancel old reminder and reschedule with updated teacher/time info
+      if (data.studentPhone && data.date) {
+        fetch('/api/scheduling/cancel-reminder', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ phone: data.studentPhone, classDateISO: data.date }),
+        }).then(() => {
+          // Reschedule a fresh reminder (reminderOnly = don't re-send the booking confirmation)
+          const teacher = activeTeachers.find(t => t.id.toString() === data.subcalendarId)
+          const moduleLabel = getModuleLabel(data.module)
+          const [year, month, day] = data.date.split('-').map(Number)
+          const dateObj = new Date(year, month - 1, day)
+          const dateStr = dateObj.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' })
+          fetch('/api/scheduling/notify', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              phone: data.studentPhone,
+              studentName: data.studentName,
+              module: moduleLabel,
+              teacherName: teacher?.name?.split(' ')[0] || '',
+              date: dateStr,
+              classDateISO: data.date,
+              startTime: data.startTime,
+              endTime: data.endTime,
+              reminderOnly: true,
+            }),
+          }).catch(() => {})
+        }).catch(() => {})
+      }
       setEditingEvent(null)
       setFormData(initialFormData)
     },
@@ -691,6 +721,14 @@ function SchedulingPage() {
       queryClient.invalidateQueries({ queryKey: ['scheduling-events'] })
       setShowEditDialog(false)
       if (data.subcalendarId) notifyTeacher(data.subcalendarId, 'deleted', data)
+      // Cancel any pending reminders for this deleted class
+      if (data.studentPhone && data.date) {
+        fetch('/api/scheduling/cancel-reminder', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ phone: data.studentPhone, classDateISO: data.date }),
+        }).catch(() => {})
+      }
       setEditingEvent(null)
     },
   })

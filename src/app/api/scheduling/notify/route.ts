@@ -19,7 +19,7 @@ export async function POST(request: NextRequest) {
     const body = await request.json()
     phone = body.phone || 'unknown'
     studentName = body.studentName || ''
-    const { module, teacherName, date, classDateISO, startTime, endTime } = body
+    const { module, teacherName, date, classDateISO, startTime, endTime, reminderOnly } = body
 
     if (!phone || phone === 'unknown' || !studentName) {
       return NextResponse.json(
@@ -45,14 +45,17 @@ export async function POST(request: NextRequest) {
 
     const message = `Hi ${cleanName}! Your ${moduleStr} class has been scheduled${teacherStr} on ${dateStr} ${timeStr}. See you there!`.trim()
 
-    console.log(`[notify] Sending class notification to ${phone} (${studentName})`)
-    await sendPrivateMessage(phone, message)
-    console.log(`[notify] Class notification sent to ${phone}`)
+    // Only send the instant WhatsApp message if not reminderOnly (edit/reschedule only needs the reminder)
+    if (!reminderOnly) {
+      console.log(`[notify] Sending class notification to ${phone} (${studentName})`)
+      await sendPrivateMessage(phone, message)
+      console.log(`[notify] Class notification sent to ${phone}`)
 
-    // Log the sent message
-    await prisma.messageLog.create({
-      data: { type: 'class-scheduled', to: phone, toName: studentName, message: message.slice(0, 500), status: 'sent' },
-    }).catch(() => {})
+      // Log the sent message
+      await prisma.messageLog.create({
+        data: { type: 'class-scheduled', to: phone, toName: studentName, message: message.slice(0, 500), status: 'sent' },
+      }).catch(() => {})
+    }
 
     // Schedule a 1-hour-before reminder
     let reminderScheduled = false
