@@ -304,7 +304,11 @@ export default function StudentDetailPage() {
     const isExtraHours = parseExtraHoursFromNotes(event.notes)
 
     return (
-      <div key={event.id} className="flex items-center gap-4 p-3 border rounded-lg">
+      <div
+        key={event.id}
+        onClick={() => router.push(`/scheduling?eventId=${encodeURIComponent(event.id)}`)}
+        className="flex items-center gap-4 p-3 border rounded-lg cursor-pointer hover:bg-accent/50 transition-colors"
+      >
         <div className="flex-shrink-0 text-center">
           <p className="text-xs text-muted-foreground">
             {new Date(event.start_dt).toLocaleDateString('en-US', { weekday: 'short' })}

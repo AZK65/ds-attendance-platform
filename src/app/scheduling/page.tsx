@@ -289,11 +289,13 @@ function SchedulingPage() {
   const [truckStep, setTruckStep] = useState<'form' | 'preview'>('form')
   const [truckDuplicateError, setTruckDuplicateError] = useState<string[] | null>(null)
 
-  // Auto-open create dialog when navigated with bookFor param (from student detail page)
+  // Auto-open create dialog or event detail when navigated with URL params
   useEffect(() => {
     if (bookForHandled.current) return
     const bookFor = searchParams.get('bookFor')
     const phone = searchParams.get('phone')
+    const eventId = searchParams.get('eventId')
+
     if (bookFor) {
       bookForHandled.current = true
       setFormData(prev => ({
@@ -302,7 +304,19 @@ function SchedulingPage() {
         studentPhone: phone || '',
       }))
       setShowCreateDialog(true)
-      // Clean up URL params without triggering navigation
+      window.history.replaceState({}, '', '/scheduling')
+    } else if (eventId) {
+      bookForHandled.current = true
+      // Fetch the event and open its detail modal
+      fetch(`/api/scheduling/event/${encodeURIComponent(eventId)}`)
+        .then(res => res.ok ? res.json() : null)
+        .then(event => {
+          if (event) {
+            setSelectedEvent(event)
+            setShowEventDetail(true)
+          }
+        })
+        .catch(() => {})
       window.history.replaceState({}, '', '/scheduling')
     }
   }, [searchParams])
