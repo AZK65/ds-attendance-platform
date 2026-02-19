@@ -1275,6 +1275,7 @@ function SchedulingPage() {
     if (!selectedEvent) return
     fillFormFromEvent(selectedEvent)
     setEditingEvent(selectedEvent)
+    setDuplicateError(null)
     setShowEventDetail(false)
     setShowEditDialog(true)
   }
@@ -1314,10 +1315,12 @@ function SchedulingPage() {
     return date.toDateString() === today.toDateString()
   }
 
-  // Check for duplicate
-  const checkDuplicate = (data: EventFormData): string | null => {
+  // Check for duplicate (excludeEventId is used when editing to skip the event being edited)
+  const checkDuplicate = (data: EventFormData, excludeEventId?: string): string | null => {
     if (!data.studentName || !data.date || !data.subcalendarId) return null
     const duplicate = events.find(ev => {
+      // Skip the event being edited
+      if (excludeEventId && ev.id === excludeEventId) return false
       const evDate = ev.start_dt.split('T')[0]
       const evTime = ev.start_dt.slice(11, 16)
       const evTeacher = ev.subcalendar_ids[0]?.toString()
@@ -1354,6 +1357,10 @@ function SchedulingPage() {
     if (!data.subcalendarId && editingEvent.subcalendar_ids[0]) {
       data.subcalendarId = editingEvent.subcalendar_ids[0].toString()
     }
+    // Check for duplicate (exclude the event being edited)
+    setDuplicateError(null)
+    const dup = checkDuplicate(data, editingEvent.id)
+    if (dup) { setDuplicateError(dup); return }
     updateMutation.mutate({ eventId: editingEvent.id, data, originalNotes: editingEvent.notes, originalTitle: editingEvent.title })
   }
 
@@ -2472,6 +2479,12 @@ function SchedulingPage() {
             <DialogDescription>Modify or delete this class.</DialogDescription>
           </DialogHeader>
           {eventForm}
+          {duplicateError && (
+            <div className="bg-red-50 border border-red-200 rounded-lg p-3 text-sm text-red-800 flex items-start gap-2">
+              <AlertCircle className="h-4 w-4 flex-shrink-0 mt-0.5" />
+              <span>{duplicateError}</span>
+            </div>
+          )}
           <DialogFooter className="flex flex-col-reverse sm:flex-row sm:justify-between gap-2">
             <Button variant="destructive" onClick={handleDelete} disabled={deleteMutation.isPending}>
               {deleteMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : <Trash2 className="h-4 w-4 mr-2" />}
