@@ -126,16 +126,11 @@ export default function GroupsPage() {
     staleTime: 30 * 1000,
   })
 
-  // Filter contacts to exclude those already shown as group participants
+  // Filter contacts (keep all — some may also be group members)
   const filteredContacts = useMemo(() => {
     if (!contactsData?.contacts || !search.trim()) return []
-    const participantPhones = new Set(
-      (participantsData?.participants || []).map((p: ParticipantWithGroup) => p.phone)
-    )
-    return contactsData.contacts
-      .filter(c => !participantPhones.has(c.phone))
-      .slice(0, 10)
-  }, [contactsData?.contacts, search, participantsData?.participants])
+    return contactsData.contacts.slice(0, 10)
+  }, [contactsData?.contacts, search])
 
   // Keyboard shortcut to open search
   useEffect(() => {
@@ -401,31 +396,43 @@ export default function GroupsPage() {
                 <div className="px-2 py-1.5 text-xs font-medium text-muted-foreground">
                   WhatsApp Contacts ({filteredContacts.length})
                 </div>
-                {filteredContacts.map((contact, index) => (
-                  <div
-                    key={`contact-${index}-${contact.phone}`}
-                    onClick={() => {
-                      setOpen(false)
-                      setSearch('')
-                      const name = contact.name || contact.pushName || ''
-                      router.push(`/scheduling?bookFor=${encodeURIComponent(name)}&phone=${encodeURIComponent(contact.phone)}`)
-                    }}
-                    className="flex items-center justify-between py-3 px-2 rounded-sm cursor-pointer hover:bg-accent"
-                  >
-                    <div className="flex items-center gap-2">
-                      <Phone className="h-4 w-4 text-muted-foreground" />
-                      <div>
-                        <p className="font-medium">
-                          {contact.name || contact.pushName || 'Unknown'}
-                        </p>
-                        <p className="text-xs text-muted-foreground">
-                          +{contact.phone}
-                        </p>
+                {filteredContacts.map((contact, index) => {
+                  // Check if this contact is in any group
+                  const groupMatch = (participantsData?.participants || []).find(
+                    (p: ParticipantWithGroup) => p.phone === contact.phone
+                  )
+                  return (
+                    <div
+                      key={`contact-${index}-${contact.phone}`}
+                      onClick={() => {
+                        setOpen(false)
+                        setSearch('')
+                        if (groupMatch) {
+                          router.push(`/groups/${encodeURIComponent(groupMatch.groupId)}/student/${encodeURIComponent(contact.id)}`)
+                        } else {
+                          const name = contact.name || contact.pushName || ''
+                          router.push(`/scheduling?bookFor=${encodeURIComponent(name)}&phone=${encodeURIComponent(contact.phone)}`)
+                        }
+                      }}
+                      className="flex items-center justify-between py-3 px-2 rounded-sm cursor-pointer hover:bg-accent"
+                    >
+                      <div className="flex items-center gap-2">
+                        <Phone className="h-4 w-4 text-muted-foreground" />
+                        <div>
+                          <p className="font-medium">
+                            {contact.name || contact.pushName || 'Unknown'}
+                          </p>
+                          <p className="text-xs text-muted-foreground">
+                            +{contact.phone}
+                          </p>
+                        </div>
                       </div>
+                      <span className="text-xs text-muted-foreground">
+                        {groupMatch ? groupMatch.groupName : 'Book Class →'}
+                      </span>
                     </div>
-                    <span className="text-xs text-muted-foreground">Book Class →</span>
-                  </div>
-                ))}
+                  )
+                })}
               </div>
             )}
             {isLoadingContacts && debouncedSearch.length >= 2 && filteredParticipants.length === 0 && (
