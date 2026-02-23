@@ -649,9 +649,17 @@ export default function GroupDetailPage() {
               </Button>
             </motion.div>
             <motion.div variants={fadeSlideUp}>
+              <Link href={`/groups/${encodeURIComponent(groupId)}/attendance`}>
+                <Button variant="default">
+                  <Video className="mr-2 h-4 w-4" />
+                  Live Attendance
+                </Button>
+              </Link>
+            </motion.div>
+            <motion.div variants={fadeSlideUp}>
               <Button
                 onClick={() => setShowZoomAttendance(true)}
-                variant="default"
+                variant="outline"
               >
                 <Video className="mr-2 h-4 w-4" />
                 Process Attendance

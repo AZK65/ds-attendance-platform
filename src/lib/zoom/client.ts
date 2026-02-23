@@ -91,6 +91,35 @@ async function getAccessToken(): Promise<string> {
   return data.access_token
 }
 
+export async function getMeetingDetails(meetingId: string): Promise<{
+  id: number
+  topic: string
+  status: string // "waiting" | "started" | "finished"
+  start_time?: string
+  duration?: number
+  timezone?: string
+}> {
+  const token = await getAccessToken()
+
+  const response = await fetch(
+    `https://api.zoom.us/v2/meetings/${meetingId}`,
+    {
+      headers: {
+        'Authorization': `Bearer ${token}`,
+        'Content-Type': 'application/json'
+      }
+    }
+  )
+
+  if (!response.ok) {
+    const error = await response.text()
+    console.error('Zoom meeting details error:', error)
+    throw new Error(`Failed to get meeting details: ${response.status}`)
+  }
+
+  return response.json()
+}
+
 export async function getZoomMeetingParticipants(meetingId: string): Promise<ZoomParticipant[]> {
   const token = await getAccessToken()
 
