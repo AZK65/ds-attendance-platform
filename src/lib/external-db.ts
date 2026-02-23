@@ -1,11 +1,12 @@
 import mysql from 'mysql2/promise'
-import { Client as SSHClient } from 'ssh2'
-import fs from 'fs'
 import net from 'net'
 
 // External MySQL database connection (driving_school_v2)
 // In production (Docker on DO server): connects directly via host network
 // In development (local Mac): connects via SSH tunnel
+
+// NOTE: ssh2 is only imported dynamically in development to avoid
+// native module compilation issues in the production Docker container
 
 interface ExternalDBConfig {
   mysql: {
@@ -58,8 +59,9 @@ function getConfig(): ExternalDBConfig {
   }
 }
 
-// SSH tunnel management
-let sshTunnel: { server: net.Server; client: SSHClient } | null = null
+// SSH tunnel management (dev only)
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+let sshTunnel: { server: net.Server; client: any } | null = null
 let tunnelReady = false
 
 async function ensureSSHTunnel(): Promise<void> {
@@ -67,6 +69,10 @@ async function ensureSSHTunnel(): Promise<void> {
 
   const config = getConfig()
   if (!config.ssh) return // No SSH needed in production
+
+  // Dynamic import of ssh2 — only needed in development
+  const { Client: SSHClient } = await import('ssh2')
+  const fs = await import('fs')
 
   return new Promise((resolve, reject) => {
     const sshClient = new SSHClient()
@@ -86,7 +92,7 @@ async function ensureSSHTunnel(): Promise<void> {
         sock.remotePort || 0,
         '127.0.0.1',
         3306,
-        (err, stream) => {
+        (err: Error | undefined, stream: net.Socket) => {
           if (err) {
             sock.end()
             return
@@ -102,8 +108,6 @@ async function ensureSSHTunnel(): Promise<void> {
         port: config.ssh!.port,
         username: config.ssh!.username,
         privateKey,
-        // If key has passphrase, it needs to be loaded in ssh-agent beforehand
-        // or set EXTERNAL_DB_SSH_PASSPHRASE env var
         passphrase: process.env.EXTERNAL_DB_SSH_PASSPHRASE,
       })
     })
@@ -115,7 +119,7 @@ async function ensureSSHTunnel(): Promise<void> {
       resolve()
     })
 
-    sshClient.on('error', (err) => {
+    sshClient.on('error', (err: Error) => {
       console.error('[ExternalDB] SSH connection error:', err.message)
       tunnelReady = false
       sshTunnel = null
@@ -137,12 +141,13 @@ let pool: mysql.Pool | null = null
 async function getPool(): Promise<mysql.Pool> {
   const config = getConfig()
 
-  // Set up SSH tunnel for development
+  // Set up SSH tunnel for development only
   if (config.ssh) {
     await ensureSSHTunnel()
   }
 
   if (!pool) {
+    console.log(`[ExternalDB] Creating MySQL pool to ${config.mysql.host}:${config.mysql.port} db=${config.mysql.database}`)
     pool = mysql.createPool({
       host: config.mysql.host,
       port: config.mysql.port,
@@ -154,7 +159,7 @@ async function getPool(): Promise<mysql.Pool> {
       queueLimit: 0,
       connectTimeout: 10000,
     })
-    console.log(`[ExternalDB] MySQL pool created (${config.mysql.host}:${config.mysql.port})`)
+    console.log(`[ExternalDB] MySQL pool created successfully`)
   }
 
   return pool

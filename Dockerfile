@@ -1,6 +1,6 @@
 FROM node:20-slim
 
-# Install Chromium, git, and dependencies for whatsapp-web.js
+# Install Chromium, git, build tools, and dependencies
 RUN apt-get update && apt-get install -y \
     chromium \
     git \
@@ -11,6 +11,8 @@ RUN apt-get update && apt-get install -y \
     fonts-thai-tlwg \
     fonts-kacst \
     fonts-freefont-ttf \
+    build-essential \
+    python3 \
     --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
