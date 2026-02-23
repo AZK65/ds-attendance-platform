@@ -8,7 +8,7 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Badge } from '@/components/ui/badge'
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs'
-import { Upload, FileText, Download, Loader2, Camera, ArrowLeft, ArrowRight, CheckCircle2, Edit3, Settings, Plus, Smartphone, X, Users, User, AlertCircle, Archive } from 'lucide-react'
+import { Upload, FileText, Download, Loader2, Camera, ArrowLeft, ArrowRight, CheckCircle2, Edit3, Settings, Plus, Smartphone, X, Users, User, AlertCircle, Archive, Search, Database } from 'lucide-react'
 import { motion, AnimatePresence } from 'motion/react'
 import Link from 'next/link'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog'
@@ -117,10 +117,25 @@ const initialFormData: CertificateFormData = {
   certificateType: 'full'
 }
 
+interface DBStudent {
+  student_id: number
+  full_name: string
+  permit_number: string
+  full_address: string
+  city: string
+  postal_code: string
+  phone_number: string
+  email: string
+  contract_number: number
+  dob: string
+  status: string
+  user_defined_contract_number: number | null
+}
+
 type Step = 'upload-pdf' | 'upload-docs' | 'review' | 'download'
 type UploadMode = 'separate' | 'combined'
 type TemplateMode = 'new' | 'upload'
-type PageMode = 'single' | 'bulk'
+type PageMode = 'single' | 'bulk' | 'database'
 type BulkStep = 'upload' | 'processing' | 'review' | 'download'
 
 interface BulkImage {
@@ -357,6 +372,14 @@ export default function CertificatePage() {
   const [activeTab, setActiveTab] = useState('0')
   const [isGenerating, setIsGenerating] = useState(false)
   const [generateIndex, setGenerateIndex] = useState(0)
+
+  // ─── Database Mode State ────────────────────────────────────────────────
+  const [dbSearchQuery, setDbSearchQuery] = useState('')
+  const [dbSearchResults, setDbSearchResults] = useState<DBStudent[]>([])
+  const [dbSearching, setDbSearching] = useState(false)
+  const [dbSelectedStudent, setDbSelectedStudent] = useState<DBStudent | null>(null)
+  const [dbStep, setDbStep] = useState<'search' | 'review' | 'download'>('search')
+  const [dbFormData, setDbFormData] = useState<CertificateFormData>(initialFormData)
 
   // ─── Shared Queries ─────────────────────────────────────────────────────
   const { data: templateStatus, isLoading: isLoadingTemplate } = useQuery({
@@ -665,6 +688,87 @@ export default function CertificatePage() {
     URL.revokeObjectURL(url)
   }
 
+  // ─── Database Mode Handlers ──────────────────────────────────────────────
+
+  const handleDbSearch = useCallback(async () => {
+    if (dbSearchQuery.length < 2) return
+    setDbSearching(true)
+    try {
+      const res = await fetch(`/api/students/search?q=${encodeURIComponent(dbSearchQuery)}`)
+      if (!res.ok) throw new Error('Search failed')
+      const data = await res.json()
+      setDbSearchResults(data.students || [])
+    } catch (err) {
+      console.error('Student search error:', err)
+      setDbSearchResults([])
+    } finally {
+      setDbSearching(false)
+    }
+  }, [dbSearchQuery])
+
+  const handleDbSelectStudent = (student: DBStudent) => {
+    setDbSelectedStudent(student)
+    // Parse the name: database has "First Last" format, certificate needs "Last, First"
+    const nameParts = student.full_name.trim().split(/\s+/)
+    let formattedName = student.full_name
+    if (nameParts.length >= 2) {
+      const lastName = nameParts[0]
+      const firstName = nameParts.slice(1).join(' ')
+      formattedName = `${lastName}, ${firstName}`
+    }
+
+    // contract_number in DB = attestation number (barcode)
+    // user_defined_contract_number in DB = contract number (school's internal #)
+    const attestationRaw = String(student.contract_number || '')
+    const formattedAttestation = attestationRaw ? attestationRaw.split('').join('  ') : ''
+
+    setDbFormData({
+      ...initialFormData,
+      name: formattedName,
+      licenceNumber: student.permit_number || '',
+      address: student.full_address || '',
+      municipality: student.city || 'Montreal',
+      province: 'QC',
+      postalCode: student.postal_code || '',
+      phone: student.phone_number || '',
+      contractNumber: String(student.user_defined_contract_number || ''),
+      attestationNumber: formattedAttestation,
+    })
+    setDbStep('review')
+  }
+
+  const handleDbGeneratePDF = async () => {
+    if (!templateStatus?.template) return
+    let finalFormData = { ...dbFormData }
+
+    // For database mode, attestation + contract numbers come from the DB
+    // We only need school info from settings (don't auto-increment numbers)
+    try {
+      const res = await fetch('/api/certificate/settings')
+      if (res.ok) {
+        const settings = await res.json()
+        finalFormData = {
+          ...finalFormData,
+          schoolName: settings.schoolName || '',
+          schoolAddress: settings.schoolAddress || '',
+          schoolCity: settings.schoolCity || '',
+          schoolProvince: settings.schoolProvince || '',
+          schoolPostalCode: settings.schoolPostalCode || '',
+          schoolNumber: settings.schoolNumber || '',
+        }
+      }
+    } catch (error) {
+      console.error('Error fetching school settings:', error)
+    }
+
+    pdfMutation.mutate({ ...finalFormData, templatePdf: templateStatus.template })
+    setDbStep('download')
+  }
+
+  const handleDbInputChange = (field: keyof CertificateFormData, value: string) => {
+    setDbFormData(prev => ({ ...prev, [field]: value }))
+  }
+
   const isStudentDataComplete = (fd: CertificateFormData) => !!(fd.name && fd.licenceNumber && fd.module1Date)
   const successCount = bulkResults.filter(r => r.pdfBlob).length
 
@@ -679,6 +783,9 @@ export default function CertificatePage() {
             <div className="flex gap-1 bg-muted rounded-lg p-1">
               <Button variant={pageMode === 'single' ? 'default' : 'ghost'} size="sm" onClick={() => setPageMode('single')} className="gap-1.5">
                 <User className="h-3.5 w-3.5" /> Single
+              </Button>
+              <Button variant={pageMode === 'database' ? 'default' : 'ghost'} size="sm" onClick={() => setPageMode('database')} className="gap-1.5">
+                <Database className="h-3.5 w-3.5" /> Database
               </Button>
               <Button variant={pageMode === 'bulk' ? 'default' : 'ghost'} size="sm" onClick={() => setPageMode('bulk')} className="gap-1.5">
                 <Users className="h-3.5 w-3.5" /> Bulk
@@ -904,6 +1011,139 @@ export default function CertificatePage() {
                 </motion.div>
               )}
               </AnimatePresence>
+
+              {pdfMutation.isError && <p className="text-destructive text-sm text-center mt-4">Failed to generate PDF. Please try again.</p>}
+            </>
+          )}
+
+          {/* ═══════════════════ DATABASE MODE ═══════════════════ */}
+          {pageMode === 'database' && (
+            <>
+              {/* Database Progress Steps */}
+              <div className="flex items-center justify-center mb-8">
+                {[
+                  { key: 'search', label: 'Search', num: 1 },
+                  { key: 'review', label: 'Review', num: 2 },
+                  { key: 'download', label: 'Done', num: 3 },
+                ].map((s, idx) => (
+                  <div key={s.key} className="flex items-center">
+                    {idx > 0 && <div className="w-4 sm:w-12 h-0.5 bg-muted mx-1 sm:mx-2" />}
+                    <div className="flex items-center gap-1 sm:gap-2">
+                      <div className={`flex items-center justify-center w-8 h-8 sm:w-10 sm:h-10 rounded-full font-bold text-sm sm:text-base ${dbStep === s.key ? 'bg-primary text-primary-foreground' : 'bg-muted text-muted-foreground'}`}>{s.num}</div>
+                      <span className={`hidden sm:inline ${dbStep === s.key ? 'font-medium' : 'text-muted-foreground'}`}>{s.label}</span>
+                    </div>
+                  </div>
+                ))}
+              </div>
+
+              {/* DB Step 1: Search */}
+              {dbStep === 'search' && (
+                <div className="space-y-6">
+                  <div className="text-center mb-6">
+                    <h2 className="text-2xl font-bold mb-2">Search Student</h2>
+                    <p className="text-muted-foreground">Search by name, phone, permit or contract number</p>
+                  </div>
+
+                  {!templateStatus?.exists && (
+                    <div className="border-2 border-dashed rounded-lg p-6 text-center border-amber-300 bg-amber-50">
+                      <AlertCircle className="h-8 w-8 mx-auto text-amber-600 mb-2" />
+                      <p className="font-medium text-amber-800">Blank template required</p>
+                      <p className="text-sm text-muted-foreground mt-1">Go to <Link href="/certificate/settings" className="underline">Settings</Link> to upload a blank template first</p>
+                    </div>
+                  )}
+
+                  <Card>
+                    <CardHeader>
+                      <CardTitle className="flex items-center gap-2"><Search className="h-5 w-5" /> Student Search</CardTitle>
+                      <CardDescription>Search the driving school database for a student</CardDescription>
+                    </CardHeader>
+                    <CardContent className="space-y-4">
+                      <div className="flex gap-2">
+                        <Input
+                          value={dbSearchQuery}
+                          onChange={(e) => setDbSearchQuery(e.target.value)}
+                          placeholder="Type a name, phone number, or permit..."
+                          onKeyDown={(e) => { if (e.key === 'Enter') handleDbSearch() }}
+                          className="flex-1"
+                        />
+                        <Button onClick={handleDbSearch} disabled={dbSearching || dbSearchQuery.length < 2}>
+                          {dbSearching ? <Loader2 className="h-4 w-4 animate-spin" /> : <Search className="h-4 w-4" />}
+                        </Button>
+                      </div>
+
+                      {/* Search Results */}
+                      {dbSearchResults.length > 0 && (
+                        <div className="space-y-2 max-h-[400px] overflow-y-auto">
+                          {dbSearchResults.map((student) => (
+                            <button
+                              key={student.student_id}
+                              onClick={() => handleDbSelectStudent(student)}
+                              className="w-full text-left p-3 rounded-lg border hover:border-primary hover:bg-accent transition-colors"
+                            >
+                              <div className="flex items-center justify-between">
+                                <div>
+                                  <p className="font-medium">{student.full_name}</p>
+                                  <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted-foreground mt-1">
+                                    {student.phone_number && <span>📞 {student.phone_number}</span>}
+                                    {student.permit_number && <span className="font-mono">🪪 {student.permit_number}</span>}
+                                    {student.contract_number && <span className="font-mono">🔖 Att: {student.contract_number}</span>}
+                                    {student.user_defined_contract_number && <span>📄 Contract: {student.user_defined_contract_number}</span>}
+                                  </div>
+                                  {student.full_address && (
+                                    <p className="text-xs text-muted-foreground mt-0.5">📍 {student.full_address}, {student.city} {student.postal_code}</p>
+                                  )}
+                                </div>
+                                <ArrowRight className="h-4 w-4 text-muted-foreground shrink-0" />
+                              </div>
+                            </button>
+                          ))}
+                        </div>
+                      )}
+
+                      {dbSearchResults.length === 0 && dbSearchQuery.length >= 2 && !dbSearching && (
+                        <p className="text-sm text-muted-foreground text-center py-4">No students found. Try a different search.</p>
+                      )}
+                    </CardContent>
+                  </Card>
+                </div>
+              )}
+
+              {/* DB Step 2: Review */}
+              {dbStep === 'review' && (
+                <div className="space-y-6">
+                  <div className="text-center mb-6">
+                    <h2 className="text-2xl font-bold mb-2">Review & Edit</h2>
+                    <p className="text-muted-foreground">
+                      {dbSelectedStudent && <span className="font-medium text-foreground">{dbSelectedStudent.full_name}</span>}
+                      {' — '}Verify info and add module dates, then generate
+                    </p>
+                  </div>
+
+                  <ReviewForm formData={dbFormData} onChange={handleDbInputChange} />
+
+                  <div className="flex justify-between">
+                    <Button variant="outline" onClick={() => setDbStep('search')}><ArrowLeft className="h-4 w-4 mr-2" /> Back to Search</Button>
+                    <Button size="lg" onClick={handleDbGeneratePDF} disabled={pdfMutation.isPending || !dbFormData.name || !templateStatus?.exists}>
+                      {pdfMutation.isPending ? <><Loader2 className="h-4 w-4 mr-2 animate-spin" /> Generating...</> : <>Generate Certificate <ArrowRight className="h-4 w-4 ml-2" /></>}
+                    </Button>
+                  </div>
+                </div>
+              )}
+
+              {/* DB Step 3: Download */}
+              {dbStep === 'download' && (
+                <div className="space-y-6">
+                  <div className="text-center">
+                    <div className="flex items-center justify-center w-20 h-20 rounded-full bg-green-100 mx-auto mb-4"><CheckCircle2 className="h-10 w-10 text-green-600" /></div>
+                    <h2 className="text-2xl font-bold mb-2">Certificate Generated!</h2>
+                    <p className="text-muted-foreground mb-6">Certificate for <span className="font-medium text-foreground">{dbSelectedStudent?.full_name}</span> has been downloaded.</p>
+                    <div className="flex justify-center gap-4">
+                      <Button variant="outline" onClick={() => templateStatus?.template && pdfMutation.mutate({ ...dbFormData, templatePdf: templateStatus.template })}><Download className="h-4 w-4 mr-2" /> Download Again</Button>
+                      <Button onClick={() => { setDbStep('search'); setDbSelectedStudent(null); setDbFormData(initialFormData); setDbSearchQuery(''); setDbSearchResults([]) }}>Search Another</Button>
+                    </div>
+                  </div>
+                </div>
+              )}
 
               {pdfMutation.isError && <p className="text-destructive text-sm text-center mt-4">Failed to generate PDF. Please try again.</p>}
             </>

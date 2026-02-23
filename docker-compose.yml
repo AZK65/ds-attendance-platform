@@ -21,6 +21,11 @@ services:
       - TEAMUP_CALENDAR_KEY=${TEAMUP_CALENDAR_KEY}
       - NODE_ENV=production
       - TZ=America/Montreal
+      - EXTERNAL_DB_HOST=172.17.0.1
+      - EXTERNAL_DB_PORT=3306
+      - EXTERNAL_DB_USER=root
+      - EXTERNAL_DB_PASSWORD=driving123
+      - EXTERNAL_DB_NAME=driving_school_v2
     restart: unless-stopped
 
 volumes:
