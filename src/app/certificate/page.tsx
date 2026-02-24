@@ -1082,7 +1082,7 @@ export default function CertificatePage() {
                           onKeyDown={(e) => { if (e.key === 'Enter') handleDbSearch() }}
                           className="flex-1"
                         />
-                        <Button onClick={handleDbSearch} disabled={dbSearching || dbSearchQuery.length < 2}>
+                        <Button onClick={() => handleDbSearch()} disabled={dbSearching || dbSearchQuery.length < 2}>
                           {dbSearching ? <Loader2 className="h-4 w-4 animate-spin" /> : <Search className="h-4 w-4" />}
                         </Button>
                       </div>
