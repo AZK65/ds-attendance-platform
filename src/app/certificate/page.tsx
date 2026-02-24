@@ -378,8 +378,14 @@ export default function CertificatePage() {
   const [dbSearchResults, setDbSearchResults] = useState<DBStudent[]>([])
   const [dbSearching, setDbSearching] = useState(false)
   const [dbSelectedStudent, setDbSelectedStudent] = useState<DBStudent | null>(null)
-  const [dbStep, setDbStep] = useState<'search' | 'review' | 'download'>('search')
+  const [dbStep, setDbStep] = useState<'search' | 'scan' | 'review' | 'download'>('search')
   const [dbFormData, setDbFormData] = useState<CertificateFormData>(initialFormData)
+  const [dbUploadMode, setDbUploadMode] = useState<UploadMode>('combined')
+  const [dbLicenceImage, setDbLicenceImage] = useState<string | null>(null)
+  const [dbAttendanceImage, setDbAttendanceImage] = useState<string | null>(null)
+  const [dbCombinedImage, setDbCombinedImage] = useState<string | null>(null)
+  const [dbProcessing, setDbProcessing] = useState(false)
+  const [dbPhoneCameraTarget, setDbPhoneCameraTarget] = useState<'combined' | 'licence' | 'attendance' | null>(null)
 
   // ─── Shared Queries ─────────────────────────────────────────────────────
   const { data: templateStatus, isLoading: isLoadingTemplate } = useQuery({
@@ -750,7 +756,11 @@ export default function CertificatePage() {
       contractNumber: String(student.user_defined_contract_number || ''),
       attestationNumber: formattedAttestation,
     })
-    setDbStep('review')
+    // Clear previous scan images
+    setDbLicenceImage(null)
+    setDbAttendanceImage(null)
+    setDbCombinedImage(null)
+    setDbStep('scan')
   }
 
   const handleDbGeneratePDF = async () => {
@@ -784,6 +794,97 @@ export default function CertificatePage() {
   const handleDbInputChange = (field: keyof CertificateFormData, value: string) => {
     setDbFormData(prev => ({ ...prev, [field]: value }))
   }
+
+  const handleDbImageUpload = (type: 'licence' | 'attendance' | 'combined') => async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    if (!file) return
+    try {
+      const compressedBase64 = await compressImage(file, 2500, 0.85)
+      if (type === 'licence') setDbLicenceImage(compressedBase64)
+      else if (type === 'attendance') setDbAttendanceImage(compressedBase64)
+      else setDbCombinedImage(compressedBase64)
+    } catch (error) {
+      console.error('Image compression failed:', error)
+      const reader = new FileReader()
+      reader.onload = (event) => {
+        const base64 = event.target?.result as string
+        if (type === 'licence') setDbLicenceImage(base64)
+        else if (type === 'attendance') setDbAttendanceImage(base64)
+        else setDbCombinedImage(base64)
+      }
+      reader.readAsDataURL(file)
+    }
+  }
+
+  const handleDbPhoneCameraCapture = (base64: string) => {
+    if (!dbPhoneCameraTarget) return
+    if (dbPhoneCameraTarget === 'licence') setDbLicenceImage(base64)
+    else if (dbPhoneCameraTarget === 'attendance') setDbAttendanceImage(base64)
+    else setDbCombinedImage(base64)
+  }
+
+  const handleDbProcessImages = async () => {
+    setDbProcessing(true)
+    try {
+      const payload = dbUploadMode === 'combined'
+        ? { licenceImage: null, attendanceImage: null, combinedImage: dbCombinedImage }
+        : { licenceImage: dbLicenceImage, attendanceImage: dbAttendanceImage, combinedImage: null }
+
+      const res = await fetch('/api/ocr', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      })
+      if (!res.ok) {
+        const errorData = await res.json().catch(() => ({ error: 'Unknown error' }))
+        throw new Error(errorData.error || errorData.details || 'OCR failed')
+      }
+      const ocrData: ExtractedData = await res.json()
+
+      // Merge OCR dates into DB form data (keep student info from database, take dates from OCR)
+      setDbFormData(prev => ({
+        ...prev,
+        // Only override dates and fields that OCR provides — keep DB student data
+        module1Date: ocrData.module1Date || prev.module1Date,
+        module2Date: ocrData.module2Date || prev.module2Date,
+        module3Date: ocrData.module3Date || prev.module3Date,
+        module4Date: ocrData.module4Date || prev.module4Date,
+        module5Date: ocrData.module5Date || prev.module5Date,
+        module6Date: ocrData.module6Date || prev.module6Date,
+        sortie1Date: ocrData.sortie1Date || prev.sortie1Date,
+        sortie2Date: ocrData.sortie2Date || prev.sortie2Date,
+        module7Date: ocrData.module7Date || prev.module7Date,
+        sortie3Date: ocrData.sortie3Date || prev.sortie3Date,
+        sortie4Date: ocrData.sortie4Date || prev.sortie4Date,
+        module8Date: ocrData.module8Date || prev.module8Date,
+        sortie5Date: ocrData.sortie5Date || prev.sortie5Date,
+        sortie6Date: ocrData.sortie6Date || prev.sortie6Date,
+        module9Date: ocrData.module9Date || prev.module9Date,
+        sortie7Date: ocrData.sortie7Date || prev.sortie7Date,
+        sortie8Date: ocrData.sortie8Date || prev.sortie8Date,
+        module10Date: ocrData.module10Date || prev.module10Date,
+        sortie9Date: ocrData.sortie9Date || prev.sortie9Date,
+        sortie10Date: ocrData.sortie10Date || prev.sortie10Date,
+        module11Date: ocrData.module11Date || prev.module11Date,
+        sortie11Date: ocrData.sortie11Date || prev.sortie11Date,
+        sortie12Date: ocrData.sortie12Date || prev.sortie12Date,
+        sortie13Date: ocrData.sortie13Date || prev.sortie13Date,
+        module12Date: ocrData.module12Date || prev.module12Date,
+        sortie14Date: ocrData.sortie14Date || prev.sortie14Date,
+        sortie15Date: ocrData.sortie15Date || prev.sortie15Date,
+        registrationDate: ocrData.registrationDate || prev.registrationDate,
+        expiryDate: ocrData.expiryDate || prev.expiryDate,
+      }))
+      setDbStep('review')
+    } catch (error) {
+      console.error('DB scan OCR error:', error)
+      alert(error instanceof Error ? error.message : 'Failed to process images')
+    } finally {
+      setDbProcessing(false)
+    }
+  }
+
+  const dbCanProcessScan = dbUploadMode === 'combined' ? !!dbCombinedImage : !!(dbLicenceImage || dbAttendanceImage)
 
   const isStudentDataComplete = (fd: CertificateFormData) => !!(fd.name && fd.licenceNumber && fd.module1Date)
   const successCount = bulkResults.filter(r => r.pdfBlob).length
@@ -1039,8 +1140,9 @@ export default function CertificatePage() {
               <div className="flex items-center justify-center mb-8">
                 {[
                   { key: 'search', label: 'Search', num: 1 },
-                  { key: 'review', label: 'Review', num: 2 },
-                  { key: 'download', label: 'Done', num: 3 },
+                  { key: 'scan', label: 'Scan', num: 2 },
+                  { key: 'review', label: 'Review', num: 3 },
+                  { key: 'download', label: 'Done', num: 4 },
                 ].map((s, idx) => (
                   <div key={s.key} className="flex items-center">
                     {idx > 0 && <div className="w-4 sm:w-12 h-0.5 bg-muted mx-1 sm:mx-2" />}
@@ -1124,7 +1226,114 @@ export default function CertificatePage() {
                 </div>
               )}
 
-              {/* DB Step 2: Review */}
+              {/* DB Step 2: Scan Documents */}
+              {dbStep === 'scan' && (
+                <div className="space-y-6">
+                  <div className="text-center mb-6">
+                    <h2 className="text-2xl font-bold mb-2">Scan Documents</h2>
+                    <p className="text-muted-foreground">
+                      Upload licence & attendance for <span className="font-medium text-foreground">{dbSelectedStudent?.full_name}</span> to auto-fill dates
+                    </p>
+                  </div>
+
+                  <div className="flex justify-center gap-2 mb-4">
+                    <Button variant={dbUploadMode === 'combined' ? 'default' : 'outline'} onClick={() => setDbUploadMode('combined')} size="sm">Single Photo (Both)</Button>
+                    <Button variant={dbUploadMode === 'separate' ? 'default' : 'outline'} onClick={() => setDbUploadMode('separate')} size="sm">Separate Photos</Button>
+                  </div>
+
+                  {dbUploadMode === 'combined' ? (
+                    <Card>
+                      <CardHeader>
+                        <CardTitle className="flex items-center gap-2"><Camera className="h-5 w-5" /> Combined Photo</CardTitle>
+                        <CardDescription>Upload a single photo containing both the driver&apos;s licence and attendance sheet</CardDescription>
+                      </CardHeader>
+                      <CardContent className="space-y-3">
+                        <div className="border-2 border-dashed rounded-lg p-8 text-center hover:border-primary transition-colors">
+                          <input type="file" accept="image/*" onChange={handleDbImageUpload('combined')} className="hidden" id="db-combined-upload" />
+                          <label htmlFor="db-combined-upload" className="cursor-pointer">
+                            {dbCombinedImage ? (
+                              <div className="space-y-2">
+                                <img src={dbCombinedImage} alt="Uploaded documents" className="max-h-60 mx-auto rounded-lg" />
+                                <div className="flex items-center justify-center gap-1 text-green-600"><CheckCircle2 className="h-4 w-4" /><span className="text-sm">Uploaded</span></div>
+                              </div>
+                            ) : (
+                              <div className="space-y-2">
+                                <Upload className="h-10 w-10 mx-auto text-muted-foreground" />
+                                <p className="font-medium">Click to upload</p>
+                                <p className="text-sm text-muted-foreground">Photo with licence + attendance sheet</p>
+                              </div>
+                            )}
+                          </label>
+                        </div>
+                        <Button variant="outline" className="w-full" onClick={() => setDbPhoneCameraTarget('combined')}><Smartphone className="h-4 w-4 mr-2" /> Use Phone Camera</Button>
+                      </CardContent>
+                    </Card>
+                  ) : (
+                    <div className="grid gap-6 md:grid-cols-2">
+                      <Card>
+                        <CardHeader><CardTitle className="flex items-center gap-2"><Camera className="h-5 w-5" /> Driver&apos;s Licence</CardTitle><CardDescription>Upload photo of the licence</CardDescription></CardHeader>
+                        <CardContent className="space-y-3">
+                          <div className="border-2 border-dashed rounded-lg p-6 text-center hover:border-primary transition-colors">
+                            <input type="file" accept="image/*" onChange={handleDbImageUpload('licence')} className="hidden" id="db-licence-upload" />
+                            <label htmlFor="db-licence-upload" className="cursor-pointer">
+                              {dbLicenceImage ? (
+                                <div className="space-y-2"><img src={dbLicenceImage} alt="Uploaded licence" className="max-h-40 mx-auto rounded-lg" /><div className="flex items-center justify-center gap-1 text-green-600"><CheckCircle2 className="h-4 w-4" /><span className="text-sm">Uploaded</span></div></div>
+                              ) : (
+                                <div className="space-y-2"><Upload className="h-10 w-10 mx-auto text-muted-foreground" /><p className="font-medium">Click to upload</p><p className="text-sm text-muted-foreground">PNG, JPG</p></div>
+                              )}
+                            </label>
+                          </div>
+                          <Button variant="outline" size="sm" className="w-full" onClick={() => setDbPhoneCameraTarget('licence')}><Smartphone className="h-3.5 w-3.5 mr-1.5" /> Phone Camera</Button>
+                        </CardContent>
+                      </Card>
+                      <Card>
+                        <CardHeader><CardTitle className="flex items-center gap-2"><FileText className="h-5 w-5" /> Attendance Sheet</CardTitle><CardDescription>Upload the attendance sheet with all dates</CardDescription></CardHeader>
+                        <CardContent className="space-y-3">
+                          <div className="border-2 border-dashed rounded-lg p-6 text-center hover:border-primary transition-colors">
+                            <input type="file" accept="image/*" onChange={handleDbImageUpload('attendance')} className="hidden" id="db-attendance-upload" />
+                            <label htmlFor="db-attendance-upload" className="cursor-pointer">
+                              {dbAttendanceImage ? (
+                                <div className="space-y-2"><img src={dbAttendanceImage} alt="Uploaded attendance" className="max-h-40 mx-auto rounded-lg" /><div className="flex items-center justify-center gap-1 text-green-600"><CheckCircle2 className="h-4 w-4" /><span className="text-sm">Uploaded</span></div></div>
+                              ) : (
+                                <div className="space-y-2"><Upload className="h-10 w-10 mx-auto text-muted-foreground" /><p className="font-medium">Click to upload</p><p className="text-sm text-muted-foreground">PNG, JPG</p></div>
+                              )}
+                            </label>
+                          </div>
+                          <Button variant="outline" size="sm" className="w-full" onClick={() => setDbPhoneCameraTarget('attendance')}><Smartphone className="h-3.5 w-3.5 mr-1.5" /> Phone Camera</Button>
+                        </CardContent>
+                      </Card>
+                    </div>
+                  )}
+
+                  <div className="flex justify-between">
+                    <Button variant="outline" onClick={() => setDbStep('search')}><ArrowLeft className="h-4 w-4 mr-2" /> Back to Search</Button>
+                    <div className="flex gap-2">
+                      <Button variant="outline" onClick={() => setDbStep('review')}>Skip Scan <ArrowRight className="h-4 w-4 ml-2" /></Button>
+                      <Button size="lg" onClick={handleDbProcessImages} disabled={!dbCanProcessScan || dbProcessing}>
+                        {dbProcessing ? <><Loader2 className="h-4 w-4 mr-2 animate-spin" /> Processing with AI...</> : <>Process & Continue <ArrowRight className="h-4 w-4 ml-2" /></>}
+                      </Button>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* DB Phone Camera Dialog */}
+              {dbPhoneCameraTarget && (
+                <Dialog open={!!dbPhoneCameraTarget} onOpenChange={() => setDbPhoneCameraTarget(null)}>
+                  <DialogContent className="max-w-lg">
+                    <DialogHeader>
+                      <DialogTitle>Phone Camera Upload</DialogTitle>
+                      <DialogDescription>Scan the QR code with your phone to take a photo</DialogDescription>
+                    </DialogHeader>
+                    <PhoneCameraUpload
+                      onCapture={(base64) => { handleDbPhoneCameraCapture(base64); setDbPhoneCameraTarget(null) }}
+                      onClose={() => setDbPhoneCameraTarget(null)}
+                    />
+                  </DialogContent>
+                </Dialog>
+              )}
+
+              {/* DB Step 3: Review */}
               {dbStep === 'review' && (
                 <div className="space-y-6">
                   <div className="text-center mb-6">
@@ -1138,7 +1347,7 @@ export default function CertificatePage() {
                   <ReviewForm formData={dbFormData} onChange={handleDbInputChange} />
 
                   <div className="flex justify-between">
-                    <Button variant="outline" onClick={() => setDbStep('search')}><ArrowLeft className="h-4 w-4 mr-2" /> Back to Search</Button>
+                    <Button variant="outline" onClick={() => setDbStep('scan')}><ArrowLeft className="h-4 w-4 mr-2" /> Back to Scan</Button>
                     <Button size="lg" onClick={handleDbGeneratePDF} disabled={pdfMutation.isPending || !dbFormData.name || !templateStatus?.exists}>
                       {pdfMutation.isPending ? <><Loader2 className="h-4 w-4 mr-2 animate-spin" /> Generating...</> : <>Generate Certificate <ArrowRight className="h-4 w-4 ml-2" /></>}
                     </Button>
@@ -1146,7 +1355,7 @@ export default function CertificatePage() {
                 </div>
               )}
 
-              {/* DB Step 3: Download */}
+              {/* DB Step 4: Download */}
               {dbStep === 'download' && (
                 <div className="space-y-6">
                   <div className="text-center">
