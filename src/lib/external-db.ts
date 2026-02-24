@@ -92,7 +92,8 @@ async function ensureSSHTunnel(): Promise<void> {
         sock.remotePort || 0,
         '127.0.0.1',
         3306,
-        (err: Error | undefined, stream: net.Socket) => {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        (err: any, stream: any) => {
           if (err) {
             sock.end()
             return
