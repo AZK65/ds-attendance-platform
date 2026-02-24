@@ -690,11 +690,15 @@ export default function CertificatePage() {
 
   // ─── Database Mode Handlers ──────────────────────────────────────────────
 
-  const handleDbSearch = useCallback(async () => {
-    if (dbSearchQuery.length < 2) return
+  const handleDbSearch = useCallback(async (query?: string) => {
+    const searchTerm = query ?? dbSearchQuery
+    if (searchTerm.length < 2) {
+      setDbSearchResults([])
+      return
+    }
     setDbSearching(true)
     try {
-      const res = await fetch(`/api/students/search?q=${encodeURIComponent(dbSearchQuery)}`)
+      const res = await fetch(`/api/students/search?q=${encodeURIComponent(searchTerm)}`)
       if (!res.ok) throw new Error('Search failed')
       const data = await res.json()
       setDbSearchResults(data.students || [])
@@ -705,6 +709,18 @@ export default function CertificatePage() {
       setDbSearching(false)
     }
   }, [dbSearchQuery])
+
+  // Auto-search as user types (debounced)
+  useEffect(() => {
+    if (dbSearchQuery.length < 2) {
+      setDbSearchResults([])
+      return
+    }
+    const timer = setTimeout(() => {
+      handleDbSearch(dbSearchQuery)
+    }, 300)
+    return () => clearTimeout(timer)
+  }, [dbSearchQuery]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const handleDbSelectStudent = (student: DBStudent) => {
     setDbSelectedStudent(student)
