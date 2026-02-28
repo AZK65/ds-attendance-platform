@@ -72,20 +72,25 @@ export async function GET(request: NextRequest) {
       const notes = event.notes || ''
       const title = event.title || ''
 
-      // Check phone match in notes
+      // Check phone match in notes (most reliable)
       const phoneInNotes = notes.match(/Phone:\s*(\d+)/)
       if (phoneInNotes && phone) {
         return phoneInNotes[1] === phone
       }
 
-      // Check student name match in notes
-      const studentInNotes = notes.match(/Student:\s*(.+)/)
+      // Check student name match in notes (contains match, not exact)
+      const studentInNotes = notes.match(/Student:\s*(.+?)(?:<|$)/)
       if (studentInNotes && studentName) {
-        return studentInNotes[1].trim().toLowerCase() === studentName.toLowerCase()
+        const noteNameClean = studentInNotes[1].trim().toLowerCase()
+        const searchNameClean = studentName.trim().toLowerCase()
+        // Match if either contains the other (handles "DAYA" matching "DAYA NAND")
+        if (noteNameClean.includes(searchNameClean) || searchNameClean.includes(noteNameClean)) {
+          return true
+        }
       }
 
       // Check name in title
-      if (studentName && title.toLowerCase().includes(studentName.toLowerCase())) {
+      if (studentName && title.toLowerCase().includes(studentName.trim().toLowerCase())) {
         return true
       }
 

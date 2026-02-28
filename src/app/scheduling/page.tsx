@@ -1196,7 +1196,9 @@ function SchedulingPage() {
 
     // Fetch all truck events for this student from Teamup (not just loaded view)
     try {
-      const res = await fetch(`/api/scheduling/student-events?studentName=${encodeURIComponent(studentName)}`)
+      const params = new URLSearchParams({ studentName })
+      if (studentPhone) params.set('phone', studentPhone)
+      const res = await fetch(`/api/scheduling/student-events?${params}`)
       if (!res.ok) throw new Error('Failed to fetch')
       const allEvents: TeamupEvent[] = await res.json()
 
