@@ -224,3 +224,29 @@ export async function testConnection(): Promise<{ success: boolean; message: str
     return { success: false, message: err instanceof Error ? err.message : 'Unknown error' }
   }
 }
+
+export async function countStudentsByDateRange(startDate: string, endDate: string): Promise<mysql.RowDataPacket[]> {
+  const db = await getPool()
+  const [rows] = await db.execute<mysql.RowDataPacket[]>(
+    `SELECT COUNT(*) as total,
+            MIN(creation_date) as earliest,
+            MAX(creation_date) as latest
+     FROM student
+     WHERE creation_date >= ? AND creation_date < ?`,
+    [startDate, endDate]
+  )
+  return rows
+}
+
+export async function monthlyBreakdown(startDate: string, endDate: string): Promise<mysql.RowDataPacket[]> {
+  const db = await getPool()
+  const [rows] = await db.execute<mysql.RowDataPacket[]>(
+    `SELECT DATE_FORMAT(creation_date, '%Y-%m') as month, COUNT(*) as count
+     FROM student
+     WHERE creation_date >= ? AND creation_date < ?
+     GROUP BY month
+     ORDER BY month`,
+    [startDate, endDate]
+  )
+  return rows
+}
