@@ -4,7 +4,7 @@ import { useState, useEffect, useRef, useMemo } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { Input } from '@/components/ui/input'
 import { Badge } from '@/components/ui/badge'
-import { Loader2, Phone, User, Users, BookOpen } from 'lucide-react'
+import { Loader2, Phone, User, Users, BookOpen, WifiOff } from 'lucide-react'
 
 interface Contact {
   id: string
@@ -98,6 +98,7 @@ export function ContactSearchAutocomplete({
   })
 
   const contacts: Contact[] = contactsData?.contacts || []
+  const isDisconnected = contactsData?.disconnected === true
   const groupParticipants = participantsData?.participants || []
 
   // Build a phone → groups map for quick lookup
@@ -110,6 +111,35 @@ export function ContactSearchAutocomplete({
     }
     return map
   }, [groupParticipants])
+
+  // Fallback: when WhatsApp is disconnected, search group participants locally
+  const fallbackContacts: Contact[] = useMemo(() => {
+    if (!isDisconnected || debouncedSearch.length < 2) return []
+    const searchLower = debouncedSearch.toLowerCase()
+    const seen = new Set<string>()
+    return groupParticipants
+      .filter(p => {
+        if (seen.has(p.phone)) return false
+        const nameMatch = p.name?.toLowerCase().includes(searchLower)
+        const pushMatch = p.pushName?.toLowerCase().includes(searchLower)
+        const phoneMatch = p.phone.includes(debouncedSearch)
+        if (nameMatch || pushMatch || phoneMatch) {
+          seen.add(p.phone)
+          return true
+        }
+        return false
+      })
+      .slice(0, 30)
+      .map(p => ({
+        id: p.id,
+        phone: p.phone,
+        name: p.name,
+        pushName: p.pushName,
+      }))
+  }, [isDisconnected, debouncedSearch, groupParticipants])
+
+  // Use WhatsApp contacts if available, otherwise fall back to group participants
+  const displayContacts = isDisconnected ? fallbackContacts : contacts
 
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     onChange(e.target.value)
@@ -164,6 +194,14 @@ export function ContactSearchAutocomplete({
         )}
       </div>
 
+      {/* WhatsApp disconnected warning */}
+      {isDisconnected && debouncedSearch.length >= 2 && (
+        <div className="flex items-center gap-2 mt-1 px-2 py-1.5 bg-red-50 border border-red-200 rounded text-xs text-red-700">
+          <WifiOff className="h-3.5 w-3.5 flex-shrink-0" />
+          <span>WhatsApp disconnected — showing group contacts only. Reconnect on the dashboard for full search.</span>
+        </div>
+      )}
+
       {/* Selected info indicators */}
       {(phone || group) && (
         <div className="flex flex-wrap items-center gap-2 mt-1">
@@ -183,9 +221,9 @@ export function ContactSearchAutocomplete({
       )}
 
       {/* Dropdown */}
-      {showDropdown && contacts.length > 0 && (
+      {showDropdown && displayContacts.length > 0 && (
         <div className="absolute z-50 w-full mt-1 bg-background border rounded-md shadow-lg max-h-[250px] overflow-y-auto">
-          {contacts.map((contact) => {
+          {displayContacts.map((contact) => {
             const groups = getContactGroups(contact.phone)
             const theoryGroups = groups.filter(g => g.moduleNumber)
             const latestTheory = theoryGroups.sort((a, b) => (b.moduleNumber || 0) - (a.moduleNumber || 0))[0]

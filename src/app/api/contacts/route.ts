@@ -9,7 +9,7 @@ export async function GET(request: NextRequest) {
   try {
     const state = getWhatsAppState()
     if (!state.isConnected) {
-      return NextResponse.json({ contacts: [] })
+      return NextResponse.json({ contacts: [], disconnected: true })
     }
 
     // Get contacts from WhatsApp
