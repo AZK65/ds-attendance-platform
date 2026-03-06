@@ -633,6 +633,33 @@ export default function StudentDetailPage() {
         </motion.div>
       )}
 
+      {/* Add to Database prompt (when no DB match found) */}
+      {!loadingProfile && profileData && !profileData.dbStudent && (
+        <motion.div
+          initial={{ opacity: 0, y: 10 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ delay: 0.15, duration: 0.25 }}
+        >
+          <Card className="border-dashed">
+            <CardContent className="flex items-center justify-between py-4">
+              <div className="flex items-center gap-3">
+                <Database className="h-5 w-5 text-muted-foreground" />
+                <div>
+                  <p className="text-sm font-medium">Not in database</p>
+                  <p className="text-xs text-muted-foreground">This student hasn&apos;t been added to the external database yet</p>
+                </div>
+              </div>
+              <Button variant="outline" size="sm" asChild>
+                <Link href={`/students?prefill=true&name=${encodeURIComponent(displayName)}&phone=${encodeURIComponent(phone)}`}>
+                  <Plus className="h-4 w-4 mr-1" />
+                  Add to Database
+                </Link>
+              </Button>
+            </CardContent>
+          </Card>
+        </motion.div>
+      )}
+
       {/* Upcoming Classes */}
       <motion.div
         initial={{ opacity: 0, y: 10 }}

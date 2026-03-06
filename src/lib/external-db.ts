@@ -250,3 +250,50 @@ export async function monthlyBreakdown(startDate: string, endDate: string): Prom
   )
   return rows
 }
+
+// Write operations
+
+export interface CreateStudentData {
+  full_name: string
+  phone_number: string
+  permit_number: string
+  full_address: string
+  city: string
+  postal_code: string
+  dob: string
+  email: string
+}
+
+export async function createStudent(data: CreateStudentData): Promise<{ insertId: number }> {
+  const db = await getPool()
+  const [result] = await db.execute<mysql.ResultSetHeader>(
+    `INSERT INTO student (full_name, phone_number, permit_number, full_address, city, postal_code, dob, email)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+    [data.full_name, data.phone_number, data.permit_number, data.full_address, data.city, data.postal_code, data.dob, data.email]
+  )
+  return { insertId: result.insertId }
+}
+
+export async function updateStudent(id: number, data: Partial<CreateStudentData>): Promise<void> {
+  const db = await getPool()
+
+  // Build dynamic SET clause from provided fields only
+  const allowedFields = ['full_name', 'phone_number', 'permit_number', 'full_address', 'city', 'postal_code', 'dob', 'email']
+  const setClauses: string[] = []
+  const values: (string | number)[] = []
+
+  for (const field of allowedFields) {
+    if (field in data && data[field as keyof CreateStudentData] !== undefined) {
+      setClauses.push(`${field} = ?`)
+      values.push(data[field as keyof CreateStudentData] as string)
+    }
+  }
+
+  if (setClauses.length === 0) return
+
+  values.push(id)
+  await db.execute(
+    `UPDATE student SET ${setClauses.join(', ')} WHERE student_id = ?`,
+    values
+  )
+}
