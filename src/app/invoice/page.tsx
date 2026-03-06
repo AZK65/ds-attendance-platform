@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useMemo, useEffect } from 'react'
+import { useState, useMemo, useEffect, Suspense } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
@@ -55,7 +55,15 @@ function formatDateForInput(date: Date): string {
   return date.toISOString().split('T')[0]
 }
 
-export default function InvoicePage() {
+export default function InvoicePageWrapper() {
+  return (
+    <Suspense>
+      <InvoicePage />
+    </Suspense>
+  )
+}
+
+function InvoicePage() {
   const queryClient = useQueryClient()
   const today = formatDateForInput(new Date())
   const thirtyDaysLater = formatDateForInput(new Date(Date.now() + 30 * 24 * 60 * 60 * 1000))

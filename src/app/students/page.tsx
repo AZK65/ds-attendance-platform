@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, Suspense } from 'react'
 import { useSearchParams } from 'next/navigation'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import Image from 'next/image'
@@ -117,7 +117,15 @@ const EMPTY_FORM: StudentFormData = {
   email: '',
 }
 
-export default function StudentsPage() {
+export default function StudentsPageWrapper() {
+  return (
+    <Suspense>
+      <StudentsPage />
+    </Suspense>
+  )
+}
+
+function StudentsPage() {
   const searchParams = useSearchParams()
   const queryClient = useQueryClient()
 
