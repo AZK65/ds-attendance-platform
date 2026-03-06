@@ -251,6 +251,33 @@ export async function monthlyBreakdown(startDate: string, endDate: string): Prom
   return rows
 }
 
+export async function searchStudentsByPhones(phones: string[]): Promise<StudentRecord[]> {
+  if (phones.length === 0) return []
+  const db = await getPool()
+
+  // Build WHERE clause: match last 10 digits of phone
+  const conditions = phones
+    .map(p => p.replace(/\D/g, '').slice(-10))
+    .filter(p => p.length >= 7)
+
+  if (conditions.length === 0) return []
+
+  // Use LIKE for each phone to match flexibly
+  const whereClauses = conditions.map(() => `phone_number LIKE ?`)
+  const params = conditions.map(p => `%${p}%`)
+
+  const [rows] = await db.execute<mysql.RowDataPacket[]>(
+    `SELECT student_id, full_name, permit_number, full_address, city, postal_code,
+            phone_number, email, contract_number, dob, status, user_defined_contract_number
+     FROM student
+     WHERE ${whereClauses.join(' OR ')}
+     LIMIT 500`,
+    params
+  )
+
+  return rows as StudentRecord[]
+}
+
 // Write operations
 
 export interface CreateStudentData {

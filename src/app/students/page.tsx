@@ -50,6 +50,7 @@ import {
   Eye,
   Trash2,
   Users,
+  Database,
 } from 'lucide-react'
 import { motion } from 'motion/react'
 import { AddressAutocomplete } from '@/components/AddressAutocomplete'
@@ -288,6 +289,26 @@ function StudentsPage() {
   })
 
   const classResults = classesData?.results || {}
+
+  // Fetch MySQL matches for active students
+  const { data: matchesData, isLoading: isLoadingMatches } = useQuery<{
+    matches: Record<string, StudentRecord>
+  }>({
+    queryKey: ['batch-match', phoneList],
+    queryFn: async () => {
+      const res = await fetch('/api/students/batch-match', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ phones: phoneList }),
+      })
+      if (!res.ok) throw new Error('Failed to fetch')
+      return res.json()
+    },
+    enabled: phoneList.length > 0,
+    staleTime: 60000,
+  })
+
+  const dbMatches = matchesData?.matches || {}
 
   // Search handler
   const handleSearch = async () => {
@@ -668,16 +689,22 @@ function StudentsPage() {
                       <TableHead>Module</TableHead>
                       <TableHead>Last Class</TableHead>
                       <TableHead>Next Class</TableHead>
+                      <TableHead>DB</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
                     {activeStudents.map(student => {
                       const phase = getPhaseInfo(student.moduleNumber)
                       const classes = classResults[student.phone]
+                      const dbStudent = dbMatches[student.phone]
                       return (
-                        <TableRow key={student.phone}>
+                        <TableRow
+                          key={student.phone}
+                          className={dbStudent ? 'cursor-pointer hover:bg-accent/50' : ''}
+                          onClick={() => { if (dbStudent) openEditForm(dbStudent) }}
+                        >
                           <TableCell className="font-medium">
-                            {student.name || student.pushName || '-'}
+                            {dbStudent?.full_name || student.name || student.pushName || '-'}
                           </TableCell>
                           <TableCell className="text-sm">{student.phone}</TableCell>
                           <TableCell className="text-sm text-muted-foreground">{student.groupName}</TableCell>
@@ -713,6 +740,18 @@ function StudentsPage() {
                               </span>
                             ) : (
                               <span className="text-muted-foreground">-</span>
+                            )}
+                          </TableCell>
+                          <TableCell>
+                            {isLoadingMatches ? (
+                              <Loader2 className="h-3 w-3 animate-spin text-muted-foreground" />
+                            ) : dbStudent ? (
+                              <Badge variant="secondary" className="text-xs bg-green-100 text-green-800">
+                                <Database className="h-3 w-3 mr-1" />
+                                In DB
+                              </Badge>
+                            ) : (
+                              <span className="text-xs text-muted-foreground">-</span>
                             )}
                           </TableCell>
                         </TableRow>
