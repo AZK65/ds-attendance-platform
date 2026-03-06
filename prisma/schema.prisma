@@ -227,6 +227,7 @@ model InvoiceSettings {
   gstNumber         String   @default("")  // TPS/GST registration number
   qstNumber         String   @default("")  // TVQ/QST registration number
   taxesEnabled      Boolean  @default(true)
+  senderEmail       String   @default("")  // "from" email for sending invoices via Resend
   notes             String   @default("Merci pour votre confiance! / Thank you for your business!")
   createdAt         DateTime @default(now())
   updatedAt         DateTime @updatedAt
@@ -263,9 +264,10 @@ model InvoiceService {
   id          String   @id @default(cuid())
   name        String                     // e.g. "Cours complet (Auto)"
   description String?                    // optional longer description
-  price       Float                      // default price
-  vehicleType String   @default("both")  // "car", "truck", or "both"
-  sortOrder   Int      @default(0)       // for display ordering
+  price        Float                      // default price
+  vehicleType  String   @default("both")  // "car", "truck", or "both"
+  taxInclusive Boolean  @default(true)    // true = price includes taxes, false = taxes added on top
+  sortOrder    Int      @default(0)       // for display ordering
   isActive    Boolean  @default(true)    // soft delete
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt

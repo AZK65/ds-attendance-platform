@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useMemo, useEffect, Suspense } from 'react'
+import { useState, useMemo, useEffect, useRef, Suspense } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
@@ -11,7 +11,7 @@ import { Textarea } from '@/components/ui/textarea'
 import { Checkbox } from '@/components/ui/checkbox'
 import {
   Receipt, Plus, Trash2, Download, Loader2, Settings, CheckCircle2,
-  Car, Truck, ArrowLeft, ArrowRight, FileText, Package,
+  Car, Truck, ArrowLeft, ArrowRight, FileText, Package, Mail, MessageCircle, Send,
 } from 'lucide-react'
 import Link from 'next/link'
 import { useSearchParams } from 'next/navigation'
@@ -23,6 +23,7 @@ interface LineItem {
   description: string
   quantity: number
   unitPrice: number
+  taxInclusive: boolean
 }
 
 interface InvoiceFormData {
@@ -43,6 +44,7 @@ interface InvoiceService {
   name: string
   price: number
   vehicleType: string
+  taxInclusive: boolean
 }
 
 type Step = 'student' | 'review' | 'done'
@@ -73,6 +75,11 @@ function InvoicePage() {
   const [vehicleType, setVehicleType] = useState<'car' | 'truck' | null>(null)
   const [selectedStudent, setSelectedStudent] = useState(false)
 
+  // PDF blob for sending after generation
+  const pdfBase64Ref = useRef<string | null>(null)
+  const [emailSent, setEmailSent] = useState(false)
+  const [whatsappSent, setWhatsappSent] = useState(false)
+
   // Form state
   const [formData, setFormData] = useState<InvoiceFormData>({
     studentName: '',
@@ -88,7 +95,7 @@ function InvoicePage() {
   })
 
   const [lineItems, setLineItems] = useState<LineItem[]>([
-    { id: generateId(), description: '', quantity: 1, unitPrice: 0 },
+    { id: generateId(), description: '', quantity: 1, unitPrice: 0, taxInclusive: true },
   ])
 
   const [taxesEnabled, setTaxesEnabled] = useState(true)
@@ -164,18 +171,47 @@ function InvoicePage() {
   const gstRate = settings?.defaultGstRate ?? 5.0
   const qstRate = settings?.defaultQstRate ?? 9.975
 
-  // Computed totals
+  // Computed totals — handles tax-inclusive and tax-exclusive items
   const { subtotal, gstAmount, qstAmount, total } = useMemo(() => {
-    const sub = lineItems.reduce((sum, item) => {
-      return sum + Math.round(item.quantity * item.unitPrice * 100) / 100
-    }, 0)
-    const gst = taxesEnabled ? Math.round(sub * gstRate) / 100 : 0
-    const qst = taxesEnabled ? Math.round(sub * qstRate * 10) / 1000 : 0
+    const taxMultiplier = 1 + gstRate / 100 + qstRate / 100
+
+    let totalBeforeTax = 0
+    let totalGst = 0
+    let totalQst = 0
+    let totalAmount = 0
+
+    for (const item of lineItems) {
+      const lineTotal = Math.round(item.quantity * item.unitPrice * 100) / 100
+
+      if (taxesEnabled && item.taxInclusive) {
+        // Tax-inclusive: price already contains taxes, extract them
+        const beforeTax = lineTotal / taxMultiplier
+        const gst = beforeTax * gstRate / 100
+        const qst = beforeTax * qstRate / 100
+        totalBeforeTax += beforeTax
+        totalGst += gst
+        totalQst += qst
+        totalAmount += lineTotal // total stays the same as entered
+      } else if (taxesEnabled) {
+        // Tax-exclusive: add taxes on top
+        const gst = lineTotal * gstRate / 100
+        const qst = lineTotal * qstRate / 100
+        totalBeforeTax += lineTotal
+        totalGst += gst
+        totalQst += qst
+        totalAmount += lineTotal + gst + qst
+      } else {
+        // No taxes
+        totalBeforeTax += lineTotal
+        totalAmount += lineTotal
+      }
+    }
+
     return {
-      subtotal: Math.round(sub * 100) / 100,
-      gstAmount: Math.round(gst * 100) / 100,
-      qstAmount: Math.round(qst * 100) / 100,
-      total: Math.round((sub + gst + qst) * 100) / 100,
+      subtotal: Math.round(totalBeforeTax * 100) / 100,
+      gstAmount: Math.round(totalGst * 100) / 100,
+      qstAmount: Math.round(totalQst * 100) / 100,
+      total: Math.round(totalAmount * 100) / 100,
     }
   }, [lineItems, taxesEnabled, gstRate, qstRate])
 
@@ -187,6 +223,7 @@ function InvoicePage() {
         description: s.name,
         quantity: 1,
         unitPrice: s.price,
+        taxInclusive: s.taxInclusive,
       }))
       if (newItems.length > 0) {
         setLineItems(newItems)
@@ -240,7 +277,17 @@ function InvoicePage() {
 
       return res.blob()
     },
-    onSuccess: (blob) => {
+    onSuccess: async (blob) => {
+      // Store base64 for email/WhatsApp sending
+      const arrayBuffer = await blob.arrayBuffer()
+      const bytes = new Uint8Array(arrayBuffer)
+      let binary = ''
+      for (let i = 0; i < bytes.length; i++) {
+        binary += String.fromCharCode(bytes[i])
+      }
+      pdfBase64Ref.current = btoa(binary)
+
+      // Download the PDF
       const url = URL.createObjectURL(blob)
       const a = document.createElement('a')
       a.href = url
@@ -250,6 +297,8 @@ function InvoicePage() {
       document.body.removeChild(a)
       URL.revokeObjectURL(url)
 
+      setEmailSent(false)
+      setWhatsappSent(false)
       setStep('done')
       saveMutation.mutate()
     },
@@ -285,6 +334,58 @@ function InvoicePage() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['invoice-settings'] })
+    },
+  })
+
+  // Email send mutation
+  const emailMutation = useMutation({
+    mutationFn: async () => {
+      if (!pdfBase64Ref.current) throw new Error('No PDF generated')
+      if (!formData.studentEmail) throw new Error('No student email address')
+      const res = await fetch('/api/invoice/send-email', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          to: formData.studentEmail,
+          studentName: formData.studentName,
+          invoiceNumber,
+          pdfBase64: pdfBase64Ref.current,
+        }),
+      })
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}))
+        throw new Error(data.error || 'Failed to send email')
+      }
+      return res.json()
+    },
+    onSuccess: () => {
+      setEmailSent(true)
+    },
+  })
+
+  // WhatsApp send mutation
+  const whatsappMutation = useMutation({
+    mutationFn: async () => {
+      if (!pdfBase64Ref.current) throw new Error('No PDF generated')
+      if (!formData.studentPhone) throw new Error('No student phone number')
+      const res = await fetch('/api/invoice/send-whatsapp', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          phone: formData.studentPhone,
+          studentName: formData.studentName,
+          invoiceNumber,
+          pdfBase64: pdfBase64Ref.current,
+        }),
+      })
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}))
+        throw new Error(data.error || 'Failed to send via WhatsApp')
+      }
+      return res.json()
+    },
+    onSuccess: () => {
+      setWhatsappSent(true)
     },
   })
 
@@ -327,19 +428,19 @@ function InvoicePage() {
   }
 
   const handleSkipToCustom = () => {
-    setLineItems([{ id: generateId(), description: '', quantity: 1, unitPrice: 0 }])
+    setLineItems([{ id: generateId(), description: '', quantity: 1, unitPrice: 0, taxInclusive: true }])
     setStep('review')
   }
 
   const addLineItem = () => {
-    setLineItems(prev => [...prev, { id: generateId(), description: '', quantity: 1, unitPrice: 0 }])
+    setLineItems(prev => [...prev, { id: generateId(), description: '', quantity: 1, unitPrice: 0, taxInclusive: true }])
   }
 
   const addServiceAsItem = (service: InvoiceService) => {
-    setLineItems(prev => [...prev, { id: generateId(), description: service.name, quantity: 1, unitPrice: service.price }])
+    setLineItems(prev => [...prev, { id: generateId(), description: service.name, quantity: 1, unitPrice: service.price, taxInclusive: service.taxInclusive }])
   }
 
-  const updateLineItem = (id: string, field: keyof LineItem, value: string | number) => {
+  const updateLineItem = (id: string, field: keyof LineItem, value: string | number | boolean) => {
     setLineItems(prev =>
       prev.map(item =>
         item.id === id ? { ...item, [field]: value } : item
@@ -364,9 +465,12 @@ function InvoicePage() {
       dueDate: thirtyDaysLater,
       notes: settings?.notes || '',
     })
-    setLineItems([{ id: generateId(), description: '', quantity: 1, unitPrice: 0 }])
+    setLineItems([{ id: generateId(), description: '', quantity: 1, unitPrice: 0, taxInclusive: true }])
     setSelectedStudent(false)
     setVehicleType(null)
+    pdfBase64Ref.current = null
+    setEmailSent(false)
+    setWhatsappSent(false)
     setStep('student')
   }
 
@@ -661,23 +765,24 @@ function InvoicePage() {
 
                   {/* Column headers */}
                   <div className="hidden md:grid grid-cols-12 gap-2 text-xs text-muted-foreground font-medium px-1">
-                    <div className="col-span-6">Description</div>
-                    <div className="col-span-2 text-center">Quantity</div>
+                    <div className="col-span-5">Description</div>
+                    <div className="col-span-1 text-center">Qty</div>
                     <div className="col-span-3 text-right">Unit Price ($)</div>
+                    <div className="col-span-2 text-center">Tax</div>
                     <div className="col-span-1"></div>
                   </div>
 
                   {/* Line item rows */}
                   {lineItems.map((item) => (
                     <div key={item.id} className="grid grid-cols-12 gap-2 items-center">
-                      <div className="col-span-12 md:col-span-6">
+                      <div className="col-span-12 md:col-span-5">
                         <Input
                           value={item.description}
                           onChange={(e) => updateLineItem(item.id, 'description', e.target.value)}
                           placeholder="Description"
                         />
                       </div>
-                      <div className="col-span-4 md:col-span-2">
+                      <div className="col-span-3 md:col-span-1">
                         <Input
                           type="number"
                           min="1"
@@ -686,7 +791,7 @@ function InvoicePage() {
                           className="text-center"
                         />
                       </div>
-                      <div className="col-span-6 md:col-span-3">
+                      <div className="col-span-5 md:col-span-3">
                         <Input
                           type="number"
                           min="0"
@@ -696,6 +801,16 @@ function InvoicePage() {
                           placeholder="0.00"
                           className="text-right"
                         />
+                      </div>
+                      <div className="col-span-2 md:col-span-2 flex items-center justify-center gap-1">
+                        <Checkbox
+                          id={`tax-incl-${item.id}`}
+                          checked={item.taxInclusive}
+                          onCheckedChange={(checked) => updateLineItem(item.id, 'taxInclusive', checked === true)}
+                        />
+                        <Label htmlFor={`tax-incl-${item.id}`} className="text-[10px] text-muted-foreground cursor-pointer whitespace-nowrap">
+                          {item.taxInclusive ? 'Incl.' : '+Tax'}
+                        </Label>
                       </div>
                       <div className="col-span-2 md:col-span-1 flex justify-center">
                         <Button
@@ -807,23 +922,118 @@ function InvoicePage() {
 
           {/* ========== STEP 3: DONE ========== */}
           {step === 'done' && (
-            <Card>
-              <CardContent className="pt-8 pb-8 text-center space-y-4">
-                <CheckCircle2 className="h-16 w-16 text-green-500 mx-auto" />
-                <h3 className="text-xl font-bold">Invoice Generated!</h3>
-                <p className="text-muted-foreground">
-                  Invoice <span className="font-mono font-bold">{invoiceNumber}</span> for{' '}
-                  <span className="font-bold">{formData.studentName}</span> has been downloaded.
-                </p>
-                <p className="text-lg font-bold">${total.toFixed(2)}</p>
-                <div className="flex gap-3 justify-center mt-4">
-                  <Button onClick={resetForm}>
-                    <Plus className="h-4 w-4 mr-1" />
-                    Create Another
-                  </Button>
-                </div>
-              </CardContent>
-            </Card>
+            <div className="space-y-6">
+              <Card>
+                <CardContent className="pt-8 pb-8 text-center space-y-4">
+                  <CheckCircle2 className="h-16 w-16 text-green-500 mx-auto" />
+                  <h3 className="text-xl font-bold">Invoice Generated!</h3>
+                  <p className="text-muted-foreground">
+                    Invoice <span className="font-mono font-bold">{invoiceNumber}</span> for{' '}
+                    <span className="font-bold">{formData.studentName}</span> has been downloaded.
+                  </p>
+                  <p className="text-lg font-bold">${total.toFixed(2)}</p>
+                </CardContent>
+              </Card>
+
+              {/* Send Options */}
+              <Card>
+                <CardHeader>
+                  <CardTitle className="text-lg flex items-center gap-2">
+                    <Send className="h-5 w-5" />
+                    Send Invoice
+                  </CardTitle>
+                  <CardDescription>Send the invoice directly to the student</CardDescription>
+                </CardHeader>
+                <CardContent className="space-y-4">
+                  {/* Email */}
+                  <div className="flex items-center gap-3 p-3 rounded-lg border">
+                    <Mail className="h-5 w-5 text-blue-500 shrink-0" />
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm font-medium">Send via Email</p>
+                      {formData.studentEmail ? (
+                        <p className="text-xs text-muted-foreground truncate">{formData.studentEmail}</p>
+                      ) : (
+                        <p className="text-xs text-amber-600">No email address on file</p>
+                      )}
+                    </div>
+                    {emailSent ? (
+                      <Badge className="bg-green-100 text-green-700 border-green-200 shrink-0">
+                        <CheckCircle2 className="h-3 w-3 mr-1" />
+                        Sent
+                      </Badge>
+                    ) : (
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={() => emailMutation.mutate()}
+                        disabled={!formData.studentEmail || emailMutation.isPending}
+                      >
+                        {emailMutation.isPending ? (
+                          <Loader2 className="h-4 w-4 animate-spin" />
+                        ) : (
+                          <>
+                            <Mail className="h-4 w-4 mr-1" />
+                            Send
+                          </>
+                        )}
+                      </Button>
+                    )}
+                  </div>
+                  {emailMutation.isError && (
+                    <p className="text-xs text-destructive ml-8">
+                      {emailMutation.error?.message || 'Failed to send email'}
+                    </p>
+                  )}
+
+                  {/* WhatsApp */}
+                  <div className="flex items-center gap-3 p-3 rounded-lg border">
+                    <MessageCircle className="h-5 w-5 text-green-500 shrink-0" />
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm font-medium">Send via WhatsApp</p>
+                      {formData.studentPhone ? (
+                        <p className="text-xs text-muted-foreground truncate">{formData.studentPhone}</p>
+                      ) : (
+                        <p className="text-xs text-amber-600">No phone number on file</p>
+                      )}
+                    </div>
+                    {whatsappSent ? (
+                      <Badge className="bg-green-100 text-green-700 border-green-200 shrink-0">
+                        <CheckCircle2 className="h-3 w-3 mr-1" />
+                        Sent
+                      </Badge>
+                    ) : (
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={() => whatsappMutation.mutate()}
+                        disabled={!formData.studentPhone || whatsappMutation.isPending}
+                      >
+                        {whatsappMutation.isPending ? (
+                          <Loader2 className="h-4 w-4 animate-spin" />
+                        ) : (
+                          <>
+                            <MessageCircle className="h-4 w-4 mr-1" />
+                            Send
+                          </>
+                        )}
+                      </Button>
+                    )}
+                  </div>
+                  {whatsappMutation.isError && (
+                    <p className="text-xs text-destructive ml-8">
+                      {whatsappMutation.error?.message || 'Failed to send via WhatsApp'}
+                    </p>
+                  )}
+                </CardContent>
+              </Card>
+
+              <div className="flex gap-3 justify-center">
+                <Button onClick={resetForm}>
+                  <Plus className="h-4 w-4 mr-1" />
+                  Create Another
+                </Button>
+              </div>
+            </div>
           )}
         </div>
       </main>

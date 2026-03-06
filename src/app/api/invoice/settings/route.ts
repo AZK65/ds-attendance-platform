@@ -59,6 +59,7 @@ export async function PUT(request: NextRequest) {
         gstNumber: body.gstNumber,
         qstNumber: body.qstNumber,
         taxesEnabled: body.taxesEnabled,
+        senderEmail: body.senderEmail,
         notes: body.notes,
       },
       create: {
@@ -70,6 +71,7 @@ export async function PUT(request: NextRequest) {
         gstNumber: body.gstNumber || '',
         qstNumber: body.qstNumber || '',
         taxesEnabled: body.taxesEnabled ?? true,
+        senderEmail: body.senderEmail || '',
         notes: body.notes || 'Merci pour votre confiance! / Thank you for your business!',
       }
     })

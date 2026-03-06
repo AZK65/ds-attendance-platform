@@ -1443,6 +1443,50 @@ export async function checkWhatsAppNumber(phone: string): Promise<{ registered: 
   return { registered: false }
 }
 
+/**
+ * Send a document (e.g. PDF) to a contact via WhatsApp
+ * @param phone Phone number
+ * @param base64Data Base64-encoded file data (without data URI prefix)
+ * @param filename Filename for the document
+ * @param mimetype MIME type (e.g. 'application/pdf')
+ * @param caption Optional text caption to send with the document
+ */
+export async function sendDocumentToContact(
+  phone: string,
+  base64Data: string,
+  filename: string,
+  mimetype: string,
+  caption?: string
+): Promise<void> {
+  if (!state.client || !state.isConnected) {
+    throw new Error('WhatsApp not connected')
+  }
+
+  const chatId = phoneToJid(phone)
+
+  // Import MessageMedia from whatsapp-web.js
+  const { MessageMedia } = await import('whatsapp-web.js')
+  const media = new MessageMedia(mimetype, base64Data, filename)
+
+  const client = state.client as {
+    sendMessage: (chatId: string, content: unknown, options?: Record<string, unknown>) => Promise<unknown>
+  }
+
+  console.log(`[WhatsApp] Sending document "${filename}" to ${chatId}`)
+
+  try {
+    await client.sendMessage(chatId, media, {
+      caption: caption || undefined,
+      sendMediaAsDocument: true,
+    })
+    console.log(`[WhatsApp] Document "${filename}" sent to ${chatId}`)
+  } catch (error) {
+    const errMsg = error instanceof Error ? error.message : String(error)
+    console.error(`[WhatsApp] Failed to send document to ${chatId}:`, errMsg)
+    throw new Error(`Failed to send document: ${errMsg}`)
+  }
+}
+
 export function phoneToJid(phone: string): string {
   const cleaned = phone.replace(/[^0-9]/g, '')
   return `${cleaned}@c.us`

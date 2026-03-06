@@ -7,6 +7,7 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Badge } from '@/components/ui/badge'
+import { Checkbox } from '@/components/ui/checkbox'
 import {
   ArrowLeft, Save, Loader2, Plus, Trash2, Pencil, X, Car, Truck, Package,
 } from 'lucide-react'
@@ -18,6 +19,7 @@ interface InvoiceService {
   description: string | null
   price: number
   vehicleType: 'car' | 'truck' | 'both'
+  taxInclusive: boolean
   sortOrder: number
   isActive: boolean
 }
@@ -25,9 +27,10 @@ interface InvoiceService {
 interface NewServiceForm {
   name: string
   price: string
+  taxInclusive: boolean
 }
 
-const EMPTY_FORM: NewServiceForm = { name: '', price: '' }
+const EMPTY_FORM: NewServiceForm = { name: '', price: '', taxInclusive: true }
 
 function ServiceSection({
   title,
@@ -44,8 +47,8 @@ function ServiceSection({
   icon: React.ElementType
   vehicleType: 'car' | 'truck' | 'both'
   services: InvoiceService[]
-  onAdd: (name: string, price: number, vehicleType: string) => void
-  onUpdate: (id: string, name: string, price: number) => void
+  onAdd: (name: string, price: number, vehicleType: string, taxInclusive: boolean) => void
+  onUpdate: (id: string, name: string, price: number, taxInclusive: boolean) => void
   onDelete: (id: string) => void
   isAdding: boolean
   isMutating: boolean
@@ -57,20 +60,20 @@ function ServiceSection({
 
   const handleAdd = () => {
     if (!newForm.name.trim() || !newForm.price) return
-    onAdd(newForm.name.trim(), parseFloat(newForm.price) || 0, vehicleType)
+    onAdd(newForm.name.trim(), parseFloat(newForm.price) || 0, vehicleType, newForm.taxInclusive)
     setNewForm(EMPTY_FORM)
     setShowAddForm(false)
   }
 
   const handleUpdate = (id: string) => {
     if (!editForm.name.trim() || !editForm.price) return
-    onUpdate(id, editForm.name.trim(), parseFloat(editForm.price) || 0)
+    onUpdate(id, editForm.name.trim(), parseFloat(editForm.price) || 0, editForm.taxInclusive)
     setEditingId(null)
   }
 
   const startEdit = (service: InvoiceService) => {
     setEditingId(service.id)
-    setEditForm({ name: service.name, price: String(service.price) })
+    setEditForm({ name: service.name, price: String(service.price), taxInclusive: service.taxInclusive })
   }
 
   const badgeColor = vehicleType === 'car'
@@ -121,6 +124,16 @@ function ServiceSection({
                     className="text-right"
                   />
                 </div>
+                <div className="flex items-center gap-1" title="Tax included in price">
+                  <Checkbox
+                    id={`edit-tax-${service.id}`}
+                    checked={editForm.taxInclusive}
+                    onCheckedChange={(checked) => setEditForm(prev => ({ ...prev, taxInclusive: checked === true }))}
+                  />
+                  <Label htmlFor={`edit-tax-${service.id}`} className="text-[10px] text-muted-foreground cursor-pointer whitespace-nowrap">
+                    Tax incl.
+                  </Label>
+                </div>
                 <Button size="sm" onClick={() => handleUpdate(service.id)} disabled={isMutating}>
                   <Save className="h-3 w-3" />
                 </Button>
@@ -136,6 +149,9 @@ function ServiceSection({
                     {vehicleType === 'car' ? 'Auto' : vehicleType === 'truck' ? 'Camion' : 'Both'}
                   </Badge>
                   <span className="font-medium text-sm">{service.name}</span>
+                  {!service.taxInclusive && (
+                    <Badge variant="outline" className="text-[10px] text-amber-600 border-amber-200">+tax</Badge>
+                  )}
                 </div>
                 <div className="flex items-center gap-2">
                   <span className="font-mono text-sm font-medium">${service.price.toFixed(2)}</span>
@@ -186,6 +202,16 @@ function ServiceSection({
                 onKeyDown={(e) => e.key === 'Enter' && handleAdd()}
               />
             </div>
+            <div className="flex items-center gap-1" title="Tax included in price">
+              <Checkbox
+                id={`new-tax-${vehicleType}`}
+                checked={newForm.taxInclusive}
+                onCheckedChange={(checked) => setNewForm(prev => ({ ...prev, taxInclusive: checked === true }))}
+              />
+              <Label htmlFor={`new-tax-${vehicleType}`} className="text-[10px] text-muted-foreground cursor-pointer whitespace-nowrap">
+                Tax incl.
+              </Label>
+            </div>
             <Button size="sm" onClick={handleAdd} disabled={isAdding || !newForm.name.trim() || !newForm.price}>
               {isAdding ? <Loader2 className="h-3 w-3 animate-spin" /> : <Save className="h-3 w-3" />}
             </Button>
@@ -229,11 +255,11 @@ export default function InvoiceServicesPage() {
 
   // Create mutation
   const createMutation = useMutation({
-    mutationFn: async ({ name, price, vehicleType }: { name: string; price: number; vehicleType: string }) => {
+    mutationFn: async ({ name, price, vehicleType, taxInclusive }: { name: string; price: number; vehicleType: string; taxInclusive: boolean }) => {
       const res = await fetch('/api/invoice/services', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name, price, vehicleType }),
+        body: JSON.stringify({ name, price, vehicleType, taxInclusive }),
       })
       if (!res.ok) throw new Error('Failed to create service')
       return res.json()
@@ -245,11 +271,11 @@ export default function InvoiceServicesPage() {
 
   // Update mutation
   const updateMutation = useMutation({
-    mutationFn: async ({ id, name, price }: { id: string; name: string; price: number }) => {
+    mutationFn: async ({ id, name, price, taxInclusive }: { id: string; name: string; price: number; taxInclusive: boolean }) => {
       const res = await fetch('/api/invoice/services', {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ id, name, price }),
+        body: JSON.stringify({ id, name, price, taxInclusive }),
       })
       if (!res.ok) throw new Error('Failed to update service')
       return res.json()
@@ -275,12 +301,12 @@ export default function InvoiceServicesPage() {
     },
   })
 
-  const handleAdd = (name: string, price: number, vehicleType: string) => {
-    createMutation.mutate({ name, price, vehicleType })
+  const handleAdd = (name: string, price: number, vehicleType: string, taxInclusive: boolean) => {
+    createMutation.mutate({ name, price, vehicleType, taxInclusive })
   }
 
-  const handleUpdate = (id: string, name: string, price: number) => {
-    updateMutation.mutate({ id, name, price })
+  const handleUpdate = (id: string, name: string, price: number, taxInclusive: boolean) => {
+    updateMutation.mutate({ id, name, price, taxInclusive })
   }
 
   const handleDelete = (id: string) => {

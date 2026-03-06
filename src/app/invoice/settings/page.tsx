@@ -8,7 +8,7 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Textarea } from '@/components/ui/textarea'
 import { Checkbox } from '@/components/ui/checkbox'
-import { ArrowLeft, Save, Loader2, Settings, Hash, Receipt, Package, ArrowRight } from 'lucide-react'
+import { ArrowLeft, Save, Loader2, Settings, Hash, Receipt, Package, ArrowRight, Mail } from 'lucide-react'
 import Link from 'next/link'
 
 interface InvoiceSettingsData {
@@ -20,6 +20,7 @@ interface InvoiceSettingsData {
   gstNumber: string
   qstNumber: string
   taxesEnabled: boolean
+  senderEmail: string
   notes: string
 }
 
@@ -33,6 +34,7 @@ export default function InvoiceSettingsPage() {
     gstNumber: '',
     qstNumber: '',
     taxesEnabled: true,
+    senderEmail: '',
     notes: 'Merci pour votre confiance! / Thank you for your business!',
   })
 
@@ -57,6 +59,7 @@ export default function InvoiceSettingsPage() {
         gstNumber: settings.gstNumber || '',
         qstNumber: settings.qstNumber || '',
         taxesEnabled: settings.taxesEnabled,
+        senderEmail: settings.senderEmail || '',
         notes: settings.notes,
       })
     }
@@ -214,6 +217,35 @@ export default function InvoiceSettingsPage() {
                     placeholder="1234567890 TQ0001"
                   />
                 </div>
+              </div>
+            </CardContent>
+          </Card>
+
+          {/* Email Settings */}
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <Mail className="h-5 w-5" />
+                Email Delivery
+              </CardTitle>
+              <CardDescription>
+                Configure the sender email address for sending invoices via email.
+                This must be a verified domain/email in your Resend account.
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div>
+                <Label htmlFor="senderEmail">Sender Email (From address)</Label>
+                <Input
+                  id="senderEmail"
+                  type="email"
+                  value={formData.senderEmail || ''}
+                  onChange={(e) => handleInputChange('senderEmail', e.target.value)}
+                  placeholder="invoices@yourdomain.com"
+                />
+                <p className="text-xs text-muted-foreground mt-1">
+                  Must be a verified email/domain in Resend. Use onboarding@resend.dev for testing.
+                </p>
               </div>
             </CardContent>
           </Card>

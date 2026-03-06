@@ -32,7 +32,7 @@ export async function GET(request: NextRequest) {
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json()
-    const { name, description, price, vehicleType } = body
+    const { name, description, price, vehicleType, taxInclusive } = body
 
     if (!name || price === undefined) {
       return NextResponse.json(
@@ -53,6 +53,7 @@ export async function POST(request: NextRequest) {
         description: description || null,
         price: parseFloat(price) || 0,
         vehicleType: vehicleType || 'both',
+        taxInclusive: taxInclusive ?? true,
         sortOrder: (maxSort._max.sortOrder ?? 0) + 1,
       },
     })
@@ -85,6 +86,7 @@ export async function PUT(request: NextRequest) {
     if (updates.description !== undefined) data.description = updates.description
     if (updates.price !== undefined) data.price = parseFloat(updates.price) || 0
     if (updates.vehicleType !== undefined) data.vehicleType = updates.vehicleType
+    if (updates.taxInclusive !== undefined) data.taxInclusive = updates.taxInclusive
     if (updates.sortOrder !== undefined) data.sortOrder = updates.sortOrder
     if (updates.isActive !== undefined) data.isActive = updates.isActive
 
