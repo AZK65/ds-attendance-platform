@@ -56,6 +56,8 @@ export async function PUT(request: NextRequest) {
         invoicePrefix: body.invoicePrefix,
         defaultGstRate: body.defaultGstRate,
         defaultQstRate: body.defaultQstRate,
+        gstNumber: body.gstNumber,
+        qstNumber: body.qstNumber,
         taxesEnabled: body.taxesEnabled,
         notes: body.notes,
       },
@@ -65,6 +67,8 @@ export async function PUT(request: NextRequest) {
         invoicePrefix: body.invoicePrefix || 'INV',
         defaultGstRate: body.defaultGstRate ?? 5.0,
         defaultQstRate: body.defaultQstRate ?? 9.975,
+        gstNumber: body.gstNumber || '',
+        qstNumber: body.qstNumber || '',
         taxesEnabled: body.taxesEnabled ?? true,
         notes: body.notes || 'Merci pour votre confiance! / Thank you for your business!',
       }

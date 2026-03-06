@@ -174,6 +174,8 @@ export default function InvoicePage() {
         schoolCity: settings?.schoolCity || '',
         schoolProvince: settings?.schoolProvince || 'QC',
         schoolPostalCode: settings?.schoolPostalCode || '',
+        gstNumber: settings?.gstNumber || '',
+        qstNumber: settings?.qstNumber || '',
         studentName: formData.studentName,
         studentAddress: formData.studentAddress,
         studentCity: formData.studentCity,

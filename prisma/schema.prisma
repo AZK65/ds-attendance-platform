@@ -224,6 +224,8 @@ model InvoiceSettings {
   invoicePrefix     String   @default("INV")
   defaultGstRate    Float    @default(5.0)
   defaultQstRate    Float    @default(9.975)
+  gstNumber         String   @default("")  // TPS/GST registration number
+  qstNumber         String   @default("")  // TVQ/QST registration number
   taxesEnabled      Boolean  @default(true)
   notes             String   @default("Merci pour votre confiance! / Thank you for your business!")
   createdAt         DateTime @default(now())

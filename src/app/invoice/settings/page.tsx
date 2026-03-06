@@ -17,6 +17,8 @@ interface InvoiceSettingsData {
   invoicePrefix: string
   defaultGstRate: number
   defaultQstRate: number
+  gstNumber: string
+  qstNumber: string
   taxesEnabled: boolean
   notes: string
 }
@@ -28,6 +30,8 @@ export default function InvoiceSettingsPage() {
     invoicePrefix: 'INV',
     defaultGstRate: 5.0,
     defaultQstRate: 9.975,
+    gstNumber: '',
+    qstNumber: '',
     taxesEnabled: true,
     notes: 'Merci pour votre confiance! / Thank you for your business!',
   })
@@ -50,6 +54,8 @@ export default function InvoiceSettingsPage() {
         invoicePrefix: settings.invoicePrefix,
         defaultGstRate: settings.defaultGstRate,
         defaultQstRate: settings.defaultQstRate,
+        gstNumber: settings.gstNumber || '',
+        qstNumber: settings.qstNumber || '',
         taxesEnabled: settings.taxesEnabled,
         notes: settings.notes,
       })
@@ -188,6 +194,24 @@ export default function InvoiceSettingsPage() {
                     min={0}
                     value={formData.defaultQstRate ?? ''}
                     onChange={(e) => handleInputChange('defaultQstRate', parseFloat(e.target.value) || 0)}
+                  />
+                </div>
+                <div>
+                  <Label htmlFor="gstNumber">GST/TPS Number</Label>
+                  <Input
+                    id="gstNumber"
+                    value={formData.gstNumber || ''}
+                    onChange={(e) => handleInputChange('gstNumber', e.target.value)}
+                    placeholder="123456789 RT0001"
+                  />
+                </div>
+                <div>
+                  <Label htmlFor="qstNumber">QST/TVQ Number</Label>
+                  <Input
+                    id="qstNumber"
+                    value={formData.qstNumber || ''}
+                    onChange={(e) => handleInputChange('qstNumber', e.target.value)}
+                    placeholder="1234567890 TQ0001"
                   />
                 </div>
               </div>

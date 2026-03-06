@@ -18,6 +18,9 @@ interface InvoiceData {
   schoolCity: string
   schoolProvince: string
   schoolPostalCode: string
+  // Tax registration numbers
+  gstNumber: string
+  qstNumber: string
   // Student
   studentName: string
   studentAddress: string
@@ -271,6 +274,8 @@ function InvoiceDocument({ data, logoSrc }: { data: InvoiceData; logoSrc: string
           React.createElement(Text, { style: { fontWeight: 'bold', fontSize: 11, marginBottom: 3, color: '#333' } }, data.schoolName),
           React.createElement(Text, null, data.schoolAddress),
           React.createElement(Text, null, `${data.schoolCity}, ${data.schoolProvince} ${data.schoolPostalCode}`),
+          data.gstNumber ? React.createElement(Text, { style: { marginTop: 4 } }, `TPS/GST: ${data.gstNumber}`) : null,
+          data.qstNumber ? React.createElement(Text, null, `TVQ/QST: ${data.qstNumber}`) : null,
         ),
         // Invoice info (right)
         React.createElement(View, { style: styles.invoiceInfo },
