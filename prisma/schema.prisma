@@ -145,6 +145,132 @@ model ClassAttendance {
   updatedAt DateTime @updatedAt
 }
 
+// Student records - persists all student data from certificate generation
+model Student {
+  id               String        @id @default(cuid())
+  licenceNumber    String?       @unique
+  name             String
+  phone            String?
+  phoneAlt         String?
+  address          String?
+  municipality     String?
+  province         String?
+  postalCode       String?
+  registrationDate String?
+  expiryDate       String?
+
+  // Phase 1 - Theory Modules
+  module1Date      String?
+  module2Date      String?
+  module3Date      String?
+  module4Date      String?
+  module5Date      String?
+
+  // Phase 2
+  module6Date      String?
+  sortie1Date      String?
+  sortie2Date      String?
+  module7Date      String?
+  sortie3Date      String?
+  sortie4Date      String?
+
+  // Phase 3
+  module8Date      String?
+  sortie5Date      String?
+  sortie6Date      String?
+  module9Date      String?
+  sortie7Date      String?
+  sortie8Date      String?
+  module10Date     String?
+  sortie9Date      String?
+  sortie10Date     String?
+
+  // Phase 4
+  module11Date     String?
+  sortie11Date     String?
+  sortie12Date     String?
+  sortie13Date     String?
+  module12Date     String?
+  sortie14Date     String?
+  sortie15Date     String?
+
+  certificates     Certificate[]
+  createdAt        DateTime      @default(now())
+  updatedAt        DateTime      @updatedAt
+
+  @@index([name])
+  @@index([phone])
+}
+
+// Certificate records - tracks each generated certificate linked to a student
+model Certificate {
+  id                 String   @id @default(cuid())
+  studentId          String
+  student            Student  @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  certificateType    String   // "phase1" or "full"
+  contractNumber     String?
+  attestationNumber  String?
+  generatedAt        DateTime @default(now())
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+
+  @@index([studentId])
+}
+
+// Invoice settings - stores configuration for invoice numbering and defaults
+model InvoiceSettings {
+  id                String   @id @default("default")
+  nextInvoiceNumber Int      @default(1)
+  invoicePrefix     String   @default("INV")
+  defaultGstRate    Float    @default(5.0)
+  defaultQstRate    Float    @default(9.975)
+  taxesEnabled      Boolean  @default(true)
+  notes             String   @default("Merci pour votre confiance! / Thank you for your business!")
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+}
+
+// Invoice records - tracks each generated invoice
+model Invoice {
+  id                String   @id @default(cuid())
+  invoiceNumber     String   @unique
+  studentName       String
+  studentAddress    String?
+  studentCity       String?
+  studentProvince   String?
+  studentPostalCode String?
+  studentPhone      String?
+  studentEmail      String?
+  invoiceDate       String
+  dueDate           String?
+  lineItems         String   // JSON: [{description, quantity, unitPrice}]
+  subtotal          Float
+  gstAmount         Float    @default(0)
+  qstAmount         Float    @default(0)
+  total             Float
+  notes             String?
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  @@index([studentName])
+  @@index([invoiceNumber])
+}
+
+// Invoice services - reusable line items for car/truck invoices
+model InvoiceService {
+  id          String   @id @default(cuid())
+  name        String                     // e.g. "Cours complet (Auto)"
+  description String?                    // optional longer description
+  price       Float                      // default price
+  vehicleType String   @default("both")  // "car", "truck", or "both"
+  sortOrder   Int      @default(0)       // for display ordering
+  isActive    Boolean  @default(true)    // soft delete
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([vehicleType])
+}
+
 // Scheduled messages for sending reminders at a specific time
 model ScheduledMessage {
   id            String   @id @default(cuid())

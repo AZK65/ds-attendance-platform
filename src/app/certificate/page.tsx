@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import { useMutation, useQuery } from '@tanstack/react-query'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
@@ -13,6 +13,7 @@ import { motion, AnimatePresence } from 'motion/react'
 import Link from 'next/link'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog'
 import { PhoneCameraUpload } from '@/components/PhoneCameraUpload'
+import { StudentSearchAutocomplete, DBStudent } from '@/components/StudentSearchAutocomplete'
 
 // ─── Shared Types ────────────────────────────────────────────────────────────
 
@@ -115,21 +116,6 @@ const initialFormData: CertificateFormData = {
   sortie14Date: '',
   sortie15Date: '',
   certificateType: 'full'
-}
-
-interface DBStudent {
-  student_id: number
-  full_name: string
-  permit_number: string
-  full_address: string
-  city: string
-  postal_code: string
-  phone_number: string
-  email: string
-  contract_number: number
-  dob: string
-  status: string
-  user_defined_contract_number: number | null
 }
 
 type Step = 'upload-pdf' | 'upload-docs' | 'review' | 'download'
@@ -362,6 +348,8 @@ export default function CertificatePage() {
   const [formData, setFormData] = useState<CertificateFormData>(initialFormData)
   const [isProcessing, setIsProcessing] = useState(false)
   const [phoneCameraTarget, setPhoneCameraTarget] = useState<'combined' | 'licence' | 'attendance' | null>(null)
+  const [selectedStudentId, setSelectedStudentId] = useState<string | null>(null)
+  const finalFormDataRef = useRef<CertificateFormData>(initialFormData)
 
   // ─── Bulk Mode State ────────────────────────────────────────────────────
   const [bulkStep, setBulkStep] = useState<BulkStep>('upload')
@@ -431,6 +419,22 @@ export default function CertificatePage() {
     }
   })
 
+  // Save student mutation (fire-and-forget after PDF generation)
+  const saveStudentMutation = useMutation({
+    mutationFn: async (data: CertificateFormData) => {
+      const res = await fetch('/api/students', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(data),
+      })
+      if (!res.ok) {
+        console.error('Failed to save student data')
+      }
+      return res.json()
+    },
+  })
+
+  // PDF generation mutation
   const pdfMutation = useMutation({
     mutationFn: async (data: CertificateFormData & { templatePdf: string }) => {
       const res = await fetch('/api/certificate/generate', {
@@ -450,6 +454,9 @@ export default function CertificatePage() {
       a.click()
       document.body.removeChild(a)
       URL.revokeObjectURL(url)
+
+      // Save student + certificate record to database (non-blocking)
+      saveStudentMutation.mutate(finalFormDataRef.current)
     }
   })
 
@@ -545,6 +552,8 @@ export default function CertificatePage() {
       }
     }
 
+    // Capture final form data in ref for the save mutation (avoids React state timing issues)
+    finalFormDataRef.current = finalFormData
     pdfMutation.mutate({ ...finalFormData, templatePdf })
     navigateStep('download')
   }
@@ -1122,7 +1131,7 @@ export default function CertificatePage() {
                     <p className="text-muted-foreground mb-6">Your certificate has been downloaded automatically.</p>
                     <div className="flex justify-center gap-4">
                       <Button variant="outline" onClick={() => templatePdf && pdfMutation.mutate({ ...formData, templatePdf })}><Download className="h-4 w-4 mr-2" /> Download Again</Button>
-                      <Button onClick={() => { navigateStep('upload-pdf'); setTemplatePdf(null); setTemplatePdfName(''); setLicenceImage(null); setAttendanceImage(null); setCombinedImage(null); setFormData(initialFormData) }}>Create Another</Button>
+                      <Button onClick={() => { navigateStep('upload-pdf'); setTemplatePdf(null); setTemplatePdfName(''); setLicenceImage(null); setAttendanceImage(null); setCombinedImage(null); setFormData(initialFormData); setSelectedStudentId(null) }}>Create Another</Button>
                     </div>
                   </div>
                 </motion.div>
