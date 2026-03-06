@@ -61,7 +61,6 @@ import {
   Award,
   Receipt,
   CalendarDays,
-  User,
 } from 'lucide-react'
 import { useRouter } from 'next/navigation'
 import { motion } from 'motion/react'
@@ -202,9 +201,6 @@ function StudentsPage() {
   const searchParams = useSearchParams()
   const queryClient = useQueryClient()
   const router = useRouter()
-
-  // Student detail dialog
-  const [selectedStudent, setSelectedStudent] = useState<ParticipantWithGroup | null>(null)
 
   // Search state
   const [searchQuery, setSearchQuery] = useState('')
@@ -842,7 +838,7 @@ function StudentsPage() {
                         <TableRow
                           key={student.phone}
                           className="cursor-pointer hover:bg-accent/50"
-                          onClick={() => setSelectedStudent(student)}
+                          onClick={() => router.push(`/groups/${encodeURIComponent(student.groupId)}/student/${encodeURIComponent(student.id)}`)}
                         >
                           <TableCell className="font-medium">{displayName}</TableCell>
                           <TableCell className="text-sm">{formatPhoneNumber(student.phone)}</TableCell>
@@ -1397,130 +1393,6 @@ function StudentsPage() {
         </DialogContent>
       </Dialog>
 
-      {/* Student Detail Dialog */}
-      <Dialog open={!!selectedStudent} onOpenChange={(open) => { if (!open) setSelectedStudent(null) }}>
-        <DialogContent className="sm:max-w-lg">
-          {selectedStudent && (() => {
-            const dbStudent = dbMatches[selectedStudent.phone]
-            const classes = classResults[selectedStudent.phone]
-            const phase = getPhaseInfo(selectedStudent.moduleNumber)
-            const displayName = dbStudent?.full_name || cleanName(selectedStudent.name) || cleanName(selectedStudent.pushName) || '-'
-            return (
-              <>
-                <DialogHeader>
-                  <DialogTitle className="flex items-center gap-2">
-                    <User className="h-5 w-5" />
-                    {displayName}
-                  </DialogTitle>
-                  <DialogDescription>
-                    {selectedStudent.groupName}
-                    {phase && (
-                      <Badge variant="secondary" className={`ml-2 text-xs ${phase.color}`}>
-                        {phase.label} &middot; M{selectedStudent.moduleNumber}
-                      </Badge>
-                    )}
-                  </DialogDescription>
-                </DialogHeader>
-
-                <div className="space-y-3 py-2">
-                  <div className="flex items-center gap-2 text-sm">
-                    <Phone className="h-4 w-4 text-muted-foreground" />
-                    <span>{formatPhoneNumber(selectedStudent.phone)}</span>
-                  </div>
-                  {dbStudent?.email && (
-                    <div className="flex items-center gap-2 text-sm">
-                      <Mail className="h-4 w-4 text-muted-foreground" />
-                      <span>{dbStudent.email}</span>
-                    </div>
-                  )}
-                  {dbStudent?.full_address && (
-                    <div className="flex items-center gap-2 text-sm">
-                      <MapPin className="h-4 w-4 text-muted-foreground" />
-                      <span>{dbStudent.full_address}, {dbStudent.city}</span>
-                    </div>
-                  )}
-                  {dbStudent?.permit_number && (
-                    <div className="flex items-center gap-2 text-sm">
-                      <CreditCard className="h-4 w-4 text-muted-foreground" />
-                      <span className="font-mono">{dbStudent.permit_number}</span>
-                    </div>
-                  )}
-
-                  {/* Class info */}
-                  <div className="flex gap-4 pt-1">
-                    <div className="text-sm">
-                      <span className="text-muted-foreground">Last Class: </span>
-                      {classes?.lastClass ? (
-                        <span title={classes.lastClass.title}>{formatRelativeDate(classes.lastClass.date)}</span>
-                      ) : <span className="text-muted-foreground">-</span>}
-                    </div>
-                    <div className="text-sm">
-                      <span className="text-muted-foreground">Next Class: </span>
-                      {classes?.nextClass ? (
-                        <span className="text-green-700" title={classes.nextClass.title}>{formatRelativeDate(classes.nextClass.date)}</span>
-                      ) : <span className="text-muted-foreground">-</span>}
-                    </div>
-                  </div>
-
-                  {dbStudent && (
-                    <Badge variant="secondary" className="text-xs bg-green-100 text-green-800">
-                      <Database className="h-3 w-3 mr-1" />
-                      In Database (ID: {dbStudent.student_id})
-                    </Badge>
-                  )}
-                </div>
-
-                {/* Action buttons */}
-                <div className="grid grid-cols-2 gap-2 pt-2">
-                  {dbStudent && (
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={() => { setSelectedStudent(null); openEditForm(dbStudent) }}
-                    >
-                      <Edit3 className="h-4 w-4 mr-2" />
-                      Edit
-                    </Button>
-                  )}
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={() => {
-                      setSelectedStudent(null)
-                      router.push(`/certificate?studentName=${encodeURIComponent(displayName)}&studentPhone=${encodeURIComponent(selectedStudent.phone)}`)
-                    }}
-                  >
-                    <Award className="h-4 w-4 mr-2" />
-                    Certificate
-                  </Button>
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={() => {
-                      setSelectedStudent(null)
-                      router.push(`/invoice?studentName=${encodeURIComponent(displayName)}&studentPhone=${encodeURIComponent(selectedStudent.phone)}`)
-                    }}
-                  >
-                    <Receipt className="h-4 w-4 mr-2" />
-                    Invoice
-                  </Button>
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={() => {
-                      setSelectedStudent(null)
-                      router.push(`/scheduling?bookFor=${encodeURIComponent(displayName)}&phone=${encodeURIComponent(selectedStudent.phone)}`)
-                    }}
-                  >
-                    <CalendarDays className="h-4 w-4 mr-2" />
-                    Schedule Class
-                  </Button>
-                </div>
-              </>
-            )
-          })()}
-        </DialogContent>
-      </Dialog>
     </main>
   )
 }

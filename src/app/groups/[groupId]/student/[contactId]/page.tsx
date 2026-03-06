@@ -48,6 +48,7 @@ import {
   ChevronDown,
   ChevronUp,
   Plus,
+  Award,
 } from 'lucide-react'
 import Link from 'next/link'
 import { motion } from 'motion/react'
@@ -448,11 +449,23 @@ export default function StudentDetailPage() {
             )}
           </div>
           {!loadingGroup && participant && (
-            <div className="flex gap-2">
+            <div className="flex gap-2 flex-wrap">
               <Button variant="default" size="sm" asChild>
                 <Link href={`/scheduling?bookFor=${encodeURIComponent(displayName)}&phone=${encodeURIComponent(phone)}`}>
                   <CalendarDays className="h-4 w-4 mr-1" />
                   Book Class
+                </Link>
+              </Button>
+              <Button variant="outline" size="sm" asChild>
+                <Link href={`/certificate?studentName=${encodeURIComponent(displayName)}&studentPhone=${encodeURIComponent(phone)}`}>
+                  <Award className="h-4 w-4 mr-1" />
+                  Certificate
+                </Link>
+              </Button>
+              <Button variant="outline" size="sm" asChild>
+                <Link href={`/invoice?studentName=${encodeURIComponent(displayName)}&studentPhone=${encodeURIComponent(phone)}`}>
+                  <Receipt className="h-4 w-4 mr-1" />
+                  Invoice
                 </Link>
               </Button>
               <Button variant="outline" size="sm" onClick={startEditing}>
