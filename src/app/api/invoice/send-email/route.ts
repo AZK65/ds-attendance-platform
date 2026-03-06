@@ -1,6 +1,32 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/db'
 
+// Use Resend REST API directly to avoid SDK build-time instantiation issues
+async function sendEmailViaResend(apiKey: string, payload: {
+  from: string
+  to: string[]
+  subject: string
+  html: string
+  attachments: { filename: string; content: string }[]
+}) {
+  const res = await fetch('https://api.resend.com/emails', {
+    method: 'POST',
+    headers: {
+      'Authorization': `Bearer ${apiKey}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify(payload),
+  })
+
+  const data = await res.json()
+
+  if (!res.ok) {
+    throw new Error(data.message || data.error || 'Resend API error')
+  }
+
+  return data
+}
+
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json()
@@ -40,14 +66,7 @@ export async function POST(request: NextRequest) {
     })
     const schoolName = schoolInfo?.schoolName || 'École de Conduite Qazi'
 
-    // Convert base64 to buffer
-    const pdfBuffer = Buffer.from(pdfBase64, 'base64')
-
-    // Dynamic import to avoid build-time instantiation error
-    const { Resend } = await import('resend')
-    const resend = new Resend(apiKey)
-
-    const { data, error } = await resend.emails.send({
+    const data = await sendEmailViaResend(apiKey, {
       from: `${schoolName} <${senderEmail}>`,
       to: [to],
       subject: `Invoice ${invoiceNumber} - ${schoolName}`,
@@ -65,18 +84,10 @@ export async function POST(request: NextRequest) {
       attachments: [
         {
           filename: `invoice-${invoiceNumber}.pdf`,
-          content: pdfBuffer,
+          content: pdfBase64,
         },
       ],
     })
-
-    if (error) {
-      console.error('[Invoice Email] Resend error:', error)
-      return NextResponse.json(
-        { error: error.message || 'Failed to send email' },
-        { status: 500 }
-      )
-    }
 
     console.log(`[Invoice Email] Sent ${invoiceNumber} to ${to}, id: ${data?.id}`)
 
