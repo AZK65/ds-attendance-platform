@@ -31,6 +31,12 @@ import {
   TableRow,
 } from '@/components/ui/table'
 import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu'
+import {
   Search,
   Plus,
   Loader2,
@@ -51,7 +57,13 @@ import {
   Trash2,
   Users,
   Database,
+  MoreVertical,
+  Award,
+  Receipt,
+  CalendarDays,
+  User,
 } from 'lucide-react'
+import { useRouter } from 'next/navigation'
 import { motion } from 'motion/react'
 import { AddressAutocomplete } from '@/components/AddressAutocomplete'
 
@@ -135,6 +147,24 @@ function getPhaseInfo(moduleNumber: number | null): { phase: number; label: stri
   return null
 }
 
+function formatPhoneNumber(phone: string): string {
+  const digits = phone.replace(/\D/g, '')
+  if (digits.length === 11 && digits[0] === '1') {
+    // 1XXXXXXXXXX -> (XXX) XXX-XXXX
+    return `(${digits.slice(1, 4)}) ${digits.slice(4, 7)}-${digits.slice(7)}`
+  }
+  if (digits.length === 10) {
+    return `(${digits.slice(0, 3)}) ${digits.slice(3, 6)}-${digits.slice(6)}`
+  }
+  return phone
+}
+
+function cleanName(name: string | null): string | null {
+  if (!name) return null
+  // Remove leading # and any number sequence (e.g. "#123 John" -> "John")
+  return name.replace(/^#\d*\s*/, '').trim() || null
+}
+
 function formatRelativeDate(dateStr: string): string {
   const date = new Date(dateStr)
   const now = new Date()
@@ -171,6 +201,10 @@ export default function StudentsPageWrapper() {
 function StudentsPage() {
   const searchParams = useSearchParams()
   const queryClient = useQueryClient()
+  const router = useRouter()
+
+  // Student detail dialog
+  const [selectedStudent, setSelectedStudent] = useState<ParticipantWithGroup | null>(null)
 
   // Search state
   const [searchQuery, setSearchQuery] = useState('')
@@ -795,6 +829,7 @@ function StudentsPage() {
                       <TableHead>Last Class</TableHead>
                       <TableHead>Next Class</TableHead>
                       <TableHead>DB</TableHead>
+                      <TableHead className="w-[40px]"></TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
@@ -802,16 +837,15 @@ function StudentsPage() {
                       const phase = getPhaseInfo(student.moduleNumber)
                       const classes = classResults[student.phone]
                       const dbStudent = dbMatches[student.phone]
+                      const displayName = dbStudent?.full_name || cleanName(student.name) || cleanName(student.pushName) || '-'
                       return (
                         <TableRow
                           key={student.phone}
-                          className={dbStudent ? 'cursor-pointer hover:bg-accent/50' : ''}
-                          onClick={() => { if (dbStudent) openEditForm(dbStudent) }}
+                          className="cursor-pointer hover:bg-accent/50"
+                          onClick={() => setSelectedStudent(student)}
                         >
-                          <TableCell className="font-medium">
-                            {dbStudent?.full_name || student.name || student.pushName || '-'}
-                          </TableCell>
-                          <TableCell className="text-sm">{student.phone}</TableCell>
+                          <TableCell className="font-medium">{displayName}</TableCell>
+                          <TableCell className="text-sm">{formatPhoneNumber(student.phone)}</TableCell>
                           <TableCell className="text-sm text-muted-foreground">{student.groupName}</TableCell>
                           <TableCell>
                             {phase ? (
@@ -858,6 +892,44 @@ function StudentsPage() {
                             ) : (
                               <span className="text-xs text-muted-foreground">-</span>
                             )}
+                          </TableCell>
+                          <TableCell>
+                            <DropdownMenu>
+                              <DropdownMenuTrigger asChild onClick={(e) => e.stopPropagation()}>
+                                <Button variant="ghost" size="sm" className="h-8 w-8 p-0">
+                                  <MoreVertical className="h-4 w-4" />
+                                </Button>
+                              </DropdownMenuTrigger>
+                              <DropdownMenuContent align="end" onClick={(e) => e.stopPropagation()}>
+                                {dbStudent && (
+                                  <DropdownMenuItem onClick={() => openEditForm(dbStudent)}>
+                                    <Edit3 className="h-4 w-4 mr-2" />
+                                    Edit
+                                  </DropdownMenuItem>
+                                )}
+                                <DropdownMenuItem onClick={() => {
+                                  const name = dbStudent?.full_name || cleanName(student.name) || cleanName(student.pushName) || ''
+                                  router.push(`/certificate?studentName=${encodeURIComponent(name)}&studentPhone=${encodeURIComponent(student.phone)}`)
+                                }}>
+                                  <Award className="h-4 w-4 mr-2" />
+                                  Make Certificate
+                                </DropdownMenuItem>
+                                <DropdownMenuItem onClick={() => {
+                                  const name = dbStudent?.full_name || cleanName(student.name) || cleanName(student.pushName) || ''
+                                  router.push(`/invoice?studentName=${encodeURIComponent(name)}&studentPhone=${encodeURIComponent(student.phone)}`)
+                                }}>
+                                  <Receipt className="h-4 w-4 mr-2" />
+                                  Make Invoice
+                                </DropdownMenuItem>
+                                <DropdownMenuItem onClick={() => {
+                                  const name = dbStudent?.full_name || cleanName(student.name) || cleanName(student.pushName) || ''
+                                  router.push(`/scheduling?bookFor=${encodeURIComponent(name)}&phone=${encodeURIComponent(student.phone)}`)
+                                }}>
+                                  <CalendarDays className="h-4 w-4 mr-2" />
+                                  Schedule Class
+                                </DropdownMenuItem>
+                              </DropdownMenuContent>
+                            </DropdownMenu>
                           </TableCell>
                         </TableRow>
                       )
@@ -1322,6 +1394,131 @@ function StudentsPage() {
               </DialogFooter>
             </>
           )}
+        </DialogContent>
+      </Dialog>
+
+      {/* Student Detail Dialog */}
+      <Dialog open={!!selectedStudent} onOpenChange={(open) => { if (!open) setSelectedStudent(null) }}>
+        <DialogContent className="sm:max-w-lg">
+          {selectedStudent && (() => {
+            const dbStudent = dbMatches[selectedStudent.phone]
+            const classes = classResults[selectedStudent.phone]
+            const phase = getPhaseInfo(selectedStudent.moduleNumber)
+            const displayName = dbStudent?.full_name || cleanName(selectedStudent.name) || cleanName(selectedStudent.pushName) || '-'
+            return (
+              <>
+                <DialogHeader>
+                  <DialogTitle className="flex items-center gap-2">
+                    <User className="h-5 w-5" />
+                    {displayName}
+                  </DialogTitle>
+                  <DialogDescription>
+                    {selectedStudent.groupName}
+                    {phase && (
+                      <Badge variant="secondary" className={`ml-2 text-xs ${phase.color}`}>
+                        {phase.label} &middot; M{selectedStudent.moduleNumber}
+                      </Badge>
+                    )}
+                  </DialogDescription>
+                </DialogHeader>
+
+                <div className="space-y-3 py-2">
+                  <div className="flex items-center gap-2 text-sm">
+                    <Phone className="h-4 w-4 text-muted-foreground" />
+                    <span>{formatPhoneNumber(selectedStudent.phone)}</span>
+                  </div>
+                  {dbStudent?.email && (
+                    <div className="flex items-center gap-2 text-sm">
+                      <Mail className="h-4 w-4 text-muted-foreground" />
+                      <span>{dbStudent.email}</span>
+                    </div>
+                  )}
+                  {dbStudent?.full_address && (
+                    <div className="flex items-center gap-2 text-sm">
+                      <MapPin className="h-4 w-4 text-muted-foreground" />
+                      <span>{dbStudent.full_address}, {dbStudent.city}</span>
+                    </div>
+                  )}
+                  {dbStudent?.permit_number && (
+                    <div className="flex items-center gap-2 text-sm">
+                      <CreditCard className="h-4 w-4 text-muted-foreground" />
+                      <span className="font-mono">{dbStudent.permit_number}</span>
+                    </div>
+                  )}
+
+                  {/* Class info */}
+                  <div className="flex gap-4 pt-1">
+                    <div className="text-sm">
+                      <span className="text-muted-foreground">Last Class: </span>
+                      {classes?.lastClass ? (
+                        <span title={classes.lastClass.title}>{formatRelativeDate(classes.lastClass.date)}</span>
+                      ) : <span className="text-muted-foreground">-</span>}
+                    </div>
+                    <div className="text-sm">
+                      <span className="text-muted-foreground">Next Class: </span>
+                      {classes?.nextClass ? (
+                        <span className="text-green-700" title={classes.nextClass.title}>{formatRelativeDate(classes.nextClass.date)}</span>
+                      ) : <span className="text-muted-foreground">-</span>}
+                    </div>
+                  </div>
+
+                  {dbStudent && (
+                    <Badge variant="secondary" className="text-xs bg-green-100 text-green-800">
+                      <Database className="h-3 w-3 mr-1" />
+                      In Database (ID: {dbStudent.student_id})
+                    </Badge>
+                  )}
+                </div>
+
+                {/* Action buttons */}
+                <div className="grid grid-cols-2 gap-2 pt-2">
+                  {dbStudent && (
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => { setSelectedStudent(null); openEditForm(dbStudent) }}
+                    >
+                      <Edit3 className="h-4 w-4 mr-2" />
+                      Edit
+                    </Button>
+                  )}
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => {
+                      setSelectedStudent(null)
+                      router.push(`/certificate?studentName=${encodeURIComponent(displayName)}&studentPhone=${encodeURIComponent(selectedStudent.phone)}`)
+                    }}
+                  >
+                    <Award className="h-4 w-4 mr-2" />
+                    Certificate
+                  </Button>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => {
+                      setSelectedStudent(null)
+                      router.push(`/invoice?studentName=${encodeURIComponent(displayName)}&studentPhone=${encodeURIComponent(selectedStudent.phone)}`)
+                    }}
+                  >
+                    <Receipt className="h-4 w-4 mr-2" />
+                    Invoice
+                  </Button>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => {
+                      setSelectedStudent(null)
+                      router.push(`/scheduling?bookFor=${encodeURIComponent(displayName)}&phone=${encodeURIComponent(selectedStudent.phone)}`)
+                    }}
+                  >
+                    <CalendarDays className="h-4 w-4 mr-2" />
+                    Schedule Class
+                  </Button>
+                </div>
+              </>
+            )
+          })()}
         </DialogContent>
       </Dialog>
     </main>
