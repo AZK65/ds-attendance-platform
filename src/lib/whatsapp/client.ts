@@ -1418,6 +1418,31 @@ export async function sendPrivateMessage(phone: string, message: string): Promis
   }
 }
 
+// Check if a phone number is registered on WhatsApp
+export async function checkWhatsAppNumber(phone: string): Promise<{ registered: boolean; jid?: string }> {
+  if (!state.isConnected || !state.client) {
+    throw new Error('WhatsApp not connected')
+  }
+  const client = state.client as { getNumberId: (number: string) => Promise<{ _serialized: string } | null> }
+  const cleaned = phone.replace(/[^0-9]/g, '')
+  // Try with country code as-is, and also with +1 prefix for North American numbers
+  const numbersToTry = [cleaned]
+  if (cleaned.length === 10) {
+    numbersToTry.push(`1${cleaned}`)
+  }
+  for (const num of numbersToTry) {
+    try {
+      const result = await client.getNumberId(num)
+      if (result) {
+        return { registered: true, jid: result._serialized }
+      }
+    } catch {
+      // Try next format
+    }
+  }
+  return { registered: false }
+}
+
 export function phoneToJid(phone: string): string {
   const cleaned = phone.replace(/[^0-9]/g, '')
   return `${cleaned}@c.us`

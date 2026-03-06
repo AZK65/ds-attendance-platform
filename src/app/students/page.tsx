@@ -43,13 +43,16 @@ import {
   Calendar,
   CheckCircle,
   X,
+  XCircle,
   QrCode,
   Copy,
   Clock,
   Eye,
   Trash2,
+  MessageCircle,
 } from 'lucide-react'
 import { motion } from 'motion/react'
+import { AddressAutocomplete } from '@/components/AddressAutocomplete'
 
 interface StudentRecord {
   student_id: number
@@ -140,6 +143,10 @@ function StudentsPage() {
   const [formData, setFormData] = useState<StudentFormData>(EMPTY_FORM)
   const [editingStudent, setEditingStudent] = useState<StudentRecord | null>(null)
   const [successMessage, setSuccessMessage] = useState('')
+
+  // WhatsApp check state
+  const [whatsappStatus, setWhatsappStatus] = useState<'idle' | 'checking' | 'valid' | 'invalid' | 'error'>('idle')
+  const [reviewWhatsappStatus, setReviewWhatsappStatus] = useState<'idle' | 'checking' | 'valid' | 'invalid' | 'error'>('idle')
 
   // New student choice dialog state
   const [showNewStudentChoice, setShowNewStudentChoice] = useState(false)
@@ -344,6 +351,7 @@ function StudentsPage() {
     setShowForm(false)
     setEditingStudent(null)
     setFormData(EMPTY_FORM)
+    setWhatsappStatus('idle')
     createMutation.reset()
     updateMutation.reset()
   }
@@ -360,6 +368,7 @@ function StudentsPage() {
       dob: reg.dob || '',
       email: reg.email || '',
     })
+    setReviewWhatsappStatus('idle')
     confirmMutation.reset()
   }
 
@@ -376,10 +385,28 @@ function StudentsPage() {
 
   const updateField = (field: keyof StudentFormData, value: string) => {
     setFormData(prev => ({ ...prev, [field]: value }))
+    if (field === 'phone_number') setWhatsappStatus('idle')
   }
 
   const updateReviewField = (field: keyof ReviewFormData, value: string) => {
     setReviewFormData(prev => ({ ...prev, [field]: value }))
+  }
+
+  const checkWhatsApp = async (phone: string, setStatus: (s: 'idle' | 'checking' | 'valid' | 'invalid' | 'error') => void) => {
+    const cleaned = phone.replace(/[^0-9]/g, '')
+    if (cleaned.length < 10) return
+    setStatus('checking')
+    try {
+      const res = await fetch(`/api/whatsapp/check-number?phone=${encodeURIComponent(cleaned)}`)
+      if (!res.ok) {
+        setStatus('error')
+        return
+      }
+      const data = await res.json()
+      setStatus(data.registered ? 'valid' : 'invalid')
+    } catch {
+      setStatus('error')
+    }
   }
 
   return (
@@ -673,12 +700,49 @@ function StudentsPage() {
                 <Phone className="h-3.5 w-3.5" />
                 Phone Number <span className="text-destructive">*</span>
               </Label>
-              <Input
-                id="phone_number"
-                placeholder="514-555-1234"
-                value={formData.phone_number}
-                onChange={e => updateField('phone_number', e.target.value)}
-              />
+              <div className="flex gap-2">
+                <Input
+                  id="phone_number"
+                  placeholder="514-555-1234"
+                  value={formData.phone_number}
+                  onChange={e => updateField('phone_number', e.target.value)}
+                  className="flex-1"
+                />
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  className="flex-shrink-0 h-9 px-2.5"
+                  onClick={() => checkWhatsApp(formData.phone_number, setWhatsappStatus)}
+                  disabled={whatsappStatus === 'checking' || formData.phone_number.replace(/[^0-9]/g, '').length < 10}
+                  title="Check WhatsApp"
+                >
+                  {whatsappStatus === 'checking' ? (
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                  ) : whatsappStatus === 'valid' ? (
+                    <MessageCircle className="h-4 w-4 text-green-600" />
+                  ) : whatsappStatus === 'invalid' ? (
+                    <MessageCircle className="h-4 w-4 text-red-500" />
+                  ) : (
+                    <MessageCircle className="h-4 w-4" />
+                  )}
+                </Button>
+              </div>
+              {whatsappStatus === 'valid' && (
+                <p className="text-xs text-green-600 mt-1 flex items-center gap-1">
+                  <CheckCircle className="h-3 w-3" /> This number is on WhatsApp
+                </p>
+              )}
+              {whatsappStatus === 'invalid' && (
+                <p className="text-xs text-red-500 mt-1 flex items-center gap-1">
+                  <XCircle className="h-3 w-3" /> This number is not on WhatsApp
+                </p>
+              )}
+              {whatsappStatus === 'error' && (
+                <p className="text-xs text-muted-foreground mt-1">
+                  Could not check — WhatsApp may not be connected
+                </p>
+              )}
             </div>
             <div>
               <Label htmlFor="email" className="text-sm font-medium flex items-center gap-1.5 mb-1.5">
@@ -722,11 +786,15 @@ function StudentsPage() {
                 <MapPin className="h-3.5 w-3.5" />
                 Address <span className="text-destructive">*</span>
               </Label>
-              <Input
+              <AddressAutocomplete
                 id="full_address"
-                placeholder="123 Main Street, Apt 4"
                 value={formData.full_address}
-                onChange={e => updateField('full_address', e.target.value)}
+                onChange={val => updateField('full_address', val)}
+                onAddressSelect={result => {
+                  if (result.city) updateField('city', result.city)
+                  if (result.postalCode) updateField('postal_code', result.postalCode)
+                }}
+                placeholder="123 Main Street, Apt 4"
               />
             </div>
             <div>
@@ -879,10 +947,47 @@ function StudentsPage() {
                   <Label className="text-sm font-medium flex items-center gap-1.5 mb-1.5">
                     <Phone className="h-3.5 w-3.5" /> Phone Number
                   </Label>
-                  <Input
-                    value={reviewFormData.phoneNumber}
-                    onChange={e => updateReviewField('phoneNumber', e.target.value)}
-                  />
+                  <div className="flex gap-2">
+                    <Input
+                      value={reviewFormData.phoneNumber}
+                      onChange={e => { updateReviewField('phoneNumber', e.target.value); setReviewWhatsappStatus('idle') }}
+                      className="flex-1"
+                    />
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      className="flex-shrink-0 h-9 px-2.5"
+                      onClick={() => checkWhatsApp(reviewFormData.phoneNumber, setReviewWhatsappStatus)}
+                      disabled={reviewWhatsappStatus === 'checking' || (reviewFormData.phoneNumber?.replace(/[^0-9]/g, '').length || 0) < 10}
+                      title="Check WhatsApp"
+                    >
+                      {reviewWhatsappStatus === 'checking' ? (
+                        <Loader2 className="h-4 w-4 animate-spin" />
+                      ) : reviewWhatsappStatus === 'valid' ? (
+                        <MessageCircle className="h-4 w-4 text-green-600" />
+                      ) : reviewWhatsappStatus === 'invalid' ? (
+                        <MessageCircle className="h-4 w-4 text-red-500" />
+                      ) : (
+                        <MessageCircle className="h-4 w-4" />
+                      )}
+                    </Button>
+                  </div>
+                  {reviewWhatsappStatus === 'valid' && (
+                    <p className="text-xs text-green-600 mt-1 flex items-center gap-1">
+                      <CheckCircle className="h-3 w-3" /> This number is on WhatsApp
+                    </p>
+                  )}
+                  {reviewWhatsappStatus === 'invalid' && (
+                    <p className="text-xs text-red-500 mt-1 flex items-center gap-1">
+                      <XCircle className="h-3 w-3" /> This number is not on WhatsApp
+                    </p>
+                  )}
+                  {reviewWhatsappStatus === 'error' && (
+                    <p className="text-xs text-muted-foreground mt-1">
+                      Could not check — WhatsApp may not be connected
+                    </p>
+                  )}
                 </div>
                 <div>
                   <Label className="text-sm font-medium flex items-center gap-1.5 mb-1.5">
@@ -916,9 +1021,14 @@ function StudentsPage() {
                   <Label className="text-sm font-medium flex items-center gap-1.5 mb-1.5">
                     <MapPin className="h-3.5 w-3.5" /> Address
                   </Label>
-                  <Input
+                  <AddressAutocomplete
                     value={reviewFormData.fullAddress}
-                    onChange={e => updateReviewField('fullAddress', e.target.value)}
+                    onChange={val => updateReviewField('fullAddress', val)}
+                    onAddressSelect={result => {
+                      if (result.city) updateReviewField('city', result.city)
+                      if (result.postalCode) updateReviewField('postalCode', result.postalCode)
+                    }}
+                    placeholder="Start typing address..."
                   />
                 </div>
                 <div>

@@ -40,6 +40,10 @@ RUN npx prisma generate
 # Copy the rest of the app
 COPY . .
 
+# Build args for NEXT_PUBLIC_ env vars (inlined at build time)
+ARG NEXT_PUBLIC_GOOGLE_MAPS_KEY
+ENV NEXT_PUBLIC_GOOGLE_MAPS_KEY=$NEXT_PUBLIC_GOOGLE_MAPS_KEY
+
 # Build the Next.js app
 RUN npm run build
 
