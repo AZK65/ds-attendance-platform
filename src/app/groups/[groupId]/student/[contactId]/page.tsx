@@ -38,6 +38,16 @@ import {
   Save,
   X,
   GraduationCap,
+  Receipt,
+  DollarSign,
+  Database,
+  MapPin,
+  Mail,
+  CreditCard,
+  FileText,
+  ChevronDown,
+  ChevronUp,
+  Plus,
 } from 'lucide-react'
 import Link from 'next/link'
 import { motion } from 'motion/react'
@@ -78,6 +88,46 @@ interface AttendanceRecord {
       id: string
       name: string
     }
+  }
+}
+
+interface DBStudentRecord {
+  student_id: number
+  full_name: string
+  permit_number: string
+  full_address: string
+  city: string
+  postal_code: string
+  phone_number: string
+  email: string
+  contract_number: number
+  dob: string
+  status: string
+  user_defined_contract_number: number | null
+}
+
+interface InvoiceRecord {
+  id: string
+  invoiceNumber: string
+  invoiceDate: string
+  dueDate: string | null
+  studentName: string
+  lineItems: string
+  subtotal: number
+  gstAmount: number
+  qstAmount: number
+  total: number
+  notes: string | null
+  createdAt: string
+}
+
+interface StudentProfileData {
+  dbStudent: DBStudentRecord | null
+  invoices: InvoiceRecord[]
+  summary: {
+    totalInvoiced: number
+    invoiceCount: number
+    lastInvoiceDate: string | null
   }
 }
 
@@ -226,6 +276,22 @@ export default function StudentDetailPage() {
       return res.json()
     },
   })
+
+  // Fetch hybrid student profile (external DB match + local invoices)
+  const { data: profileData, isLoading: loadingProfile } = useQuery<StudentProfileData>({
+    queryKey: ['student-profile', phone, displayName],
+    queryFn: async () => {
+      const params = new URLSearchParams()
+      params.set('phone', phone)
+      if (displayName && displayName !== phone) params.set('name', displayName)
+      const res = await fetch(`/api/students/profile?${params}`)
+      if (!res.ok) throw new Error('Failed to fetch profile')
+      return res.json()
+    },
+    enabled: !!phone,
+  })
+
+  const [expandedInvoice, setExpandedInvoice] = useState<string | null>(null)
 
   // Split events into upcoming and past
   const { upcomingEvents, pastEvents } = useMemo(() => {
@@ -446,7 +512,7 @@ export default function StudentDetailPage() {
           initial={{ opacity: 0, y: 10 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ delay: 0.1, duration: 0.25 }}
-          className="grid grid-cols-2 sm:grid-cols-4 gap-3"
+          className="grid grid-cols-2 sm:grid-cols-5 gap-3"
         >
           <div className="p-3 border rounded-lg text-center">
             <Users className="h-5 w-5 mx-auto text-muted-foreground mb-1" />
@@ -470,6 +536,100 @@ export default function StudentDetailPage() {
             <p className="text-xs text-muted-foreground">Attendance</p>
             <p className="font-medium text-sm">{attendanceStats.rate}%</p>
           </div>
+          <div className="p-3 border rounded-lg text-center">
+            <DollarSign className="h-5 w-5 mx-auto text-muted-foreground mb-1" />
+            <p className="text-xs text-muted-foreground">Invoiced</p>
+            <p className="font-medium text-sm">
+              {loadingProfile ? '...' : `$${(profileData?.summary?.totalInvoiced || 0).toFixed(2)}`}
+            </p>
+          </div>
+        </motion.div>
+      )}
+
+      {/* Database Profile Card */}
+      {profileData?.dbStudent && (
+        <motion.div
+          initial={{ opacity: 0, y: 10 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ delay: 0.15, duration: 0.25 }}
+        >
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2 text-lg">
+                <Database className="h-5 w-5" />
+                Student Profile
+                <Badge variant="outline" className="ml-auto text-xs text-blue-600 border-blue-200">
+                  Matched from DB
+                </Badge>
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div className="space-y-3">
+                  <div>
+                    <p className="text-xs text-muted-foreground">Full Name</p>
+                    <p className="font-medium">{profileData.dbStudent.full_name}</p>
+                  </div>
+                  {profileData.dbStudent.permit_number && (
+                    <div className="flex items-center gap-2">
+                      <CreditCard className="h-4 w-4 text-muted-foreground" />
+                      <div>
+                        <p className="text-xs text-muted-foreground">Permit Number</p>
+                        <p className="text-sm">{profileData.dbStudent.permit_number}</p>
+                      </div>
+                    </div>
+                  )}
+                  {profileData.dbStudent.contract_number && (
+                    <div className="flex items-center gap-2">
+                      <FileText className="h-4 w-4 text-muted-foreground" />
+                      <div>
+                        <p className="text-xs text-muted-foreground">Contract #</p>
+                        <p className="text-sm">
+                          {profileData.dbStudent.user_defined_contract_number || profileData.dbStudent.contract_number}
+                        </p>
+                      </div>
+                    </div>
+                  )}
+                  {profileData.dbStudent.dob && (
+                    <div>
+                      <p className="text-xs text-muted-foreground">Date of Birth</p>
+                      <p className="text-sm">{new Date(profileData.dbStudent.dob).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })}</p>
+                    </div>
+                  )}
+                </div>
+                <div className="space-y-3">
+                  {profileData.dbStudent.email && (
+                    <div className="flex items-center gap-2">
+                      <Mail className="h-4 w-4 text-muted-foreground" />
+                      <div>
+                        <p className="text-xs text-muted-foreground">Email</p>
+                        <p className="text-sm">{profileData.dbStudent.email}</p>
+                      </div>
+                    </div>
+                  )}
+                  {(profileData.dbStudent.full_address || profileData.dbStudent.city) && (
+                    <div className="flex items-center gap-2">
+                      <MapPin className="h-4 w-4 text-muted-foreground flex-shrink-0" />
+                      <div>
+                        <p className="text-xs text-muted-foreground">Address</p>
+                        <p className="text-sm">
+                          {[profileData.dbStudent.full_address, profileData.dbStudent.city, profileData.dbStudent.postal_code].filter(Boolean).join(', ')}
+                        </p>
+                      </div>
+                    </div>
+                  )}
+                  {profileData.dbStudent.status && (
+                    <div>
+                      <p className="text-xs text-muted-foreground">Status</p>
+                      <Badge variant="secondary" className="text-xs mt-0.5">
+                        {profileData.dbStudent.status}
+                      </Badge>
+                    </div>
+                  )}
+                </div>
+              </div>
+            </CardContent>
+          </Card>
         </motion.div>
       )}
 
@@ -614,6 +774,133 @@ export default function StudentDetailPage() {
                     ))}
                   </TableBody>
                 </Table>
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      </motion.div>
+      {/* Invoice History */}
+      <motion.div
+        initial={{ opacity: 0, y: 10 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ delay: 0.5, duration: 0.25 }}
+      >
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2 text-lg">
+              <Receipt className="h-5 w-5" />
+              Invoice History
+              {(profileData?.summary?.invoiceCount || 0) > 0 && (
+                <Badge variant="secondary" className="ml-auto">{profileData?.summary?.invoiceCount}</Badge>
+              )}
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            {loadingProfile ? (
+              <div className="flex items-center justify-center py-8">
+                <Loader2 className="h-5 w-5 animate-spin mr-2" />
+                <span className="text-muted-foreground">Loading invoices...</span>
+              </div>
+            ) : !profileData?.invoices?.length ? (
+              <div className="text-center py-6">
+                <p className="text-muted-foreground mb-3">No invoices found</p>
+                <Button variant="outline" size="sm" asChild>
+                  <Link href={`/invoice?studentName=${encodeURIComponent(displayName)}&studentPhone=${encodeURIComponent(phone)}`}>
+                    <Plus className="h-4 w-4 mr-1" />
+                    Create Invoice
+                  </Link>
+                </Button>
+              </div>
+            ) : (
+              <div className="space-y-4">
+                {/* Summary */}
+                <div className="flex items-center justify-between p-3 bg-muted/50 rounded-lg">
+                  <div>
+                    <p className="text-sm text-muted-foreground">Total Invoiced</p>
+                    <p className="text-xl font-bold">${profileData.summary.totalInvoiced.toFixed(2)}</p>
+                  </div>
+                  {profileData.summary.lastInvoiceDate && (
+                    <div className="text-right">
+                      <p className="text-sm text-muted-foreground">Last Invoice</p>
+                      <p className="text-sm font-medium">
+                        {new Date(profileData.summary.lastInvoiceDate).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
+                      </p>
+                    </div>
+                  )}
+                </div>
+
+                {/* Invoice List */}
+                <div className="border rounded-lg overflow-hidden">
+                  {profileData.invoices.map((invoice) => {
+                    const isExpanded = expandedInvoice === invoice.id
+                    let lineItems: { description: string; quantity: number; unitPrice: number }[] = []
+                    try {
+                      lineItems = typeof invoice.lineItems === 'string' ? JSON.parse(invoice.lineItems) : invoice.lineItems
+                    } catch { /* ignore parse errors */ }
+
+                    return (
+                      <div key={invoice.id} className="border-b last:border-b-0">
+                        <button
+                          type="button"
+                          onClick={() => setExpandedInvoice(isExpanded ? null : invoice.id)}
+                          className="w-full flex items-center justify-between p-3 hover:bg-accent/30 transition-colors text-left"
+                        >
+                          <div className="flex items-center gap-3">
+                            <div>
+                              <p className="font-mono text-sm font-medium">{invoice.invoiceNumber}</p>
+                              <p className="text-xs text-muted-foreground">
+                                {new Date(invoice.invoiceDate).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
+                              </p>
+                            </div>
+                          </div>
+                          <div className="flex items-center gap-2">
+                            <span className="font-medium">${invoice.total.toFixed(2)}</span>
+                            {isExpanded ? <ChevronUp className="h-4 w-4 text-muted-foreground" /> : <ChevronDown className="h-4 w-4 text-muted-foreground" />}
+                          </div>
+                        </button>
+                        {isExpanded && lineItems.length > 0 && (
+                          <div className="px-3 pb-3 border-t bg-muted/20">
+                            <table className="w-full text-sm mt-2">
+                              <thead>
+                                <tr className="text-xs text-muted-foreground">
+                                  <th className="text-left py-1">Item</th>
+                                  <th className="text-center py-1">Qty</th>
+                                  <th className="text-right py-1">Price</th>
+                                  <th className="text-right py-1">Total</th>
+                                </tr>
+                              </thead>
+                              <tbody>
+                                {lineItems.map((item, idx) => (
+                                  <tr key={idx} className="border-t border-muted">
+                                    <td className="py-1">{item.description}</td>
+                                    <td className="text-center py-1">{item.quantity}</td>
+                                    <td className="text-right py-1">${item.unitPrice.toFixed(2)}</td>
+                                    <td className="text-right py-1">${(item.quantity * item.unitPrice).toFixed(2)}</td>
+                                  </tr>
+                                ))}
+                              </tbody>
+                            </table>
+                            <div className="flex justify-end mt-2 pt-2 border-t border-muted text-xs text-muted-foreground space-x-4">
+                              <span>Subtotal: ${invoice.subtotal.toFixed(2)}</span>
+                              {invoice.gstAmount > 0 && <span>GST: ${invoice.gstAmount.toFixed(2)}</span>}
+                              {invoice.qstAmount > 0 && <span>QST: ${invoice.qstAmount.toFixed(2)}</span>}
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    )
+                  })}
+                </div>
+
+                {/* Create Invoice Button */}
+                <div className="flex justify-center">
+                  <Button variant="outline" size="sm" asChild>
+                    <Link href={`/invoice?studentName=${encodeURIComponent(profileData?.dbStudent?.full_name || displayName)}&studentPhone=${encodeURIComponent(phone)}${profileData?.dbStudent ? `&studentAddress=${encodeURIComponent(profileData.dbStudent.full_address || '')}&studentCity=${encodeURIComponent(profileData.dbStudent.city || '')}&studentPostalCode=${encodeURIComponent(profileData.dbStudent.postal_code || '')}&studentEmail=${encodeURIComponent(profileData.dbStudent.email || '')}` : ''}`}>
+                      <Plus className="h-4 w-4 mr-1" />
+                      Create Invoice
+                    </Link>
+                  </Button>
+                </div>
               </div>
             )}
           </CardContent>

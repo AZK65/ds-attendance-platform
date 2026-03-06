@@ -14,6 +14,7 @@ import {
   Car, Truck, ArrowLeft, ArrowRight, FileText, Package,
 } from 'lucide-react'
 import Link from 'next/link'
+import { useSearchParams } from 'next/navigation'
 import { StudentSearchAutocomplete, type StudentResult, type DBStudent } from '@/components/StudentSearchAutocomplete'
 
 // Types
@@ -103,6 +104,27 @@ export default function InvoicePage() {
       setDefaultsApplied(true)
     }
   }, [settings, defaultsApplied])
+
+  // Pre-fill from URL query params (e.g. from student detail page "Create Invoice" button)
+  const searchParams = useSearchParams()
+  const [urlPrefilled, setUrlPrefilled] = useState(false)
+  useEffect(() => {
+    if (urlPrefilled) return
+    const studentName = searchParams.get('studentName')
+    if (studentName) {
+      setFormData(prev => ({
+        ...prev,
+        studentName,
+        studentPhone: searchParams.get('studentPhone') || prev.studentPhone,
+        studentAddress: searchParams.get('studentAddress') || prev.studentAddress,
+        studentCity: searchParams.get('studentCity') || prev.studentCity,
+        studentPostalCode: searchParams.get('studentPostalCode') || prev.studentPostalCode,
+        studentEmail: searchParams.get('studentEmail') || prev.studentEmail,
+      }))
+      setSelectedStudent(true)
+      setUrlPrefilled(true)
+    }
+  }, [searchParams, urlPrefilled])
 
   // Load services for vehicle type selection (for quick-add in review step)
   const { data: allServicesData } = useQuery({

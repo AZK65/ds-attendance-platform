@@ -66,6 +66,58 @@ export async function POST(request: NextRequest) {
       }
     })
 
+    // Auto-save student to local Student table for future autocomplete
+    // This ensures every invoiced student appears in future searches
+    try {
+      if (studentName) {
+        const phoneDigits = (studentPhone || '').replace(/\D/g, '')
+        let existing = null
+
+        // Try to find by phone first
+        if (phoneDigits.length >= 7) {
+          existing = await prisma.student.findFirst({
+            where: { phone: { contains: phoneDigits.slice(-10) } },
+          })
+        }
+
+        // Fallback: try by name
+        if (!existing) {
+          existing = await prisma.student.findFirst({
+            where: { name: studentName },
+          })
+        }
+
+        if (existing) {
+          // Update any empty fields on existing student
+          await prisma.student.update({
+            where: { id: existing.id },
+            data: {
+              phone: existing.phone || studentPhone || null,
+              address: existing.address || studentAddress || null,
+              municipality: existing.municipality || studentCity || null,
+              province: existing.province || studentProvince || null,
+              postalCode: existing.postalCode || studentPostalCode || null,
+            },
+          })
+        } else {
+          // Create a new student record
+          await prisma.student.create({
+            data: {
+              name: studentName,
+              phone: studentPhone || null,
+              address: studentAddress || null,
+              municipality: studentCity || null,
+              province: studentProvince || 'QC',
+              postalCode: studentPostalCode || null,
+            },
+          })
+        }
+      }
+    } catch (studentError) {
+      // Don't fail the invoice save if student save fails
+      console.error('Auto-save student error (non-fatal):', studentError)
+    }
+
     return NextResponse.json({ invoice })
   } catch (error) {
     console.error('Error saving invoice:', error)
