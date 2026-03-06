@@ -38,7 +38,6 @@ import {
 } from '@/components/ui/dropdown-menu'
 import {
   Search,
-  Plus,
   Loader2,
   UserPlus,
   Edit3,
@@ -202,11 +201,8 @@ function StudentsPage() {
   const queryClient = useQueryClient()
   const router = useRouter()
 
-  // Search state
+  // Search/filter state
   const [searchQuery, setSearchQuery] = useState('')
-  const [searchResults, setSearchResults] = useState<StudentRecord[]>([])
-  const [isSearching, setIsSearching] = useState(false)
-  const [hasSearched, setHasSearched] = useState(false)
 
   // Form state (manual add/edit)
   const [showForm, setShowForm] = useState(false)
@@ -343,23 +339,18 @@ function StudentsPage() {
 
   const dbMatches = matchesData?.matches || {}
 
-  // Search handler
-  const handleSearch = async () => {
-    if (!searchQuery.trim()) return
-    setIsSearching(true)
-    setHasSearched(true)
-    try {
-      const res = await fetch(`/api/students/search?q=${encodeURIComponent(searchQuery.trim())}`)
-      if (!res.ok) throw new Error('Search failed')
-      const data = await res.json()
-      setSearchResults(data.students || [])
-    } catch (error) {
-      console.error('Search error:', error)
-      setSearchResults([])
-    } finally {
-      setIsSearching(false)
-    }
-  }
+  // Filter active students by search query (client-side)
+  const filteredStudents = useMemo(() => {
+    const q = searchQuery.trim().toLowerCase()
+    if (!q) return activeStudents
+    return activeStudents.filter(s => {
+      const dbStudent = dbMatches[s.phone]
+      const name = (dbStudent?.full_name || cleanName(s.name) || cleanName(s.pushName) || '').toLowerCase()
+      const phone = s.phone.toLowerCase()
+      const group = (s.groupName || '').toLowerCase()
+      return name.includes(q) || phone.includes(q) || group.includes(q)
+    })
+  }, [activeStudents, dbMatches, searchQuery])
 
   // Create mutation
   const createMutation = useMutation({
@@ -379,7 +370,6 @@ function StudentsPage() {
       setSuccessMessage(`Student created successfully (ID: ${data.studentId})`)
       setShowForm(false)
       setFormData(EMPTY_FORM)
-      if (searchQuery.trim()) handleSearch()
     },
   })
 
@@ -402,7 +392,6 @@ function StudentsPage() {
       setShowForm(false)
       setFormData(EMPTY_FORM)
       setEditingStudent(null)
-      if (searchQuery.trim()) handleSearch()
     },
   })
 
@@ -680,123 +669,32 @@ function StudentsPage() {
         </motion.div>
       )}
 
-      {/* Search */}
+      {/* Active Students */}
       <motion.div
         initial={{ opacity: 0, y: 10 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ delay: 0.1, duration: 0.25 }}
       >
         <Card>
-          <CardContent className="pt-6">
-            <div className="flex gap-2">
-              <div className="relative flex-1">
+          <CardHeader>
+            <div className="flex items-center justify-between gap-4">
+              <CardTitle className="flex items-center gap-2 text-lg flex-shrink-0">
+                <Users className="h-5 w-5" />
+                Active Students
+                <Badge variant="secondary">
+                  {searchQuery.trim() ? `${filteredStudents.length}/${activeStudents.length}` : activeStudents.length}
+                </Badge>
+              </CardTitle>
+              <div className="relative flex-1 max-w-sm">
                 <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
                 <Input
-                  placeholder="Search by name, phone, permit number, or contract number..."
+                  placeholder="Filter by name, phone, or group..."
                   value={searchQuery}
                   onChange={e => setSearchQuery(e.target.value)}
-                  onKeyDown={e => e.key === 'Enter' && handleSearch()}
-                  className="pl-10"
+                  className="pl-10 h-9"
                 />
               </div>
-              <Button onClick={handleSearch} disabled={isSearching || !searchQuery.trim()}>
-                {isSearching ? <Loader2 className="h-4 w-4 animate-spin" /> : 'Search'}
-              </Button>
             </div>
-          </CardContent>
-        </Card>
-      </motion.div>
-
-      {/* Search Results */}
-      {hasSearched && (
-        <motion.div
-          initial={{ opacity: 0, y: 10 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ delay: 0.15, duration: 0.25 }}
-        >
-          <Card>
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2 text-lg">
-                Search Results
-                {searchResults.length > 0 && (
-                  <Badge variant="secondary">{searchResults.length}</Badge>
-                )}
-              </CardTitle>
-            </CardHeader>
-            <CardContent>
-              {isSearching ? (
-                <div className="flex items-center justify-center py-8">
-                  <Loader2 className="h-5 w-5 animate-spin mr-2" />
-                  <span className="text-muted-foreground">Searching...</span>
-                </div>
-              ) : searchResults.length === 0 ? (
-                <div className="text-center py-8">
-                  <p className="text-muted-foreground mb-3">No students found</p>
-                  <Button variant="outline" size="sm" onClick={() => setShowNewStudentChoice(true)}>
-                    <Plus className="h-4 w-4 mr-1" />
-                    Add New Student
-                  </Button>
-                </div>
-              ) : (
-                <div className="border rounded-lg overflow-x-auto">
-                  <Table>
-                    <TableHeader>
-                      <TableRow>
-                        <TableHead>Name</TableHead>
-                        <TableHead>Phone</TableHead>
-                        <TableHead>Permit #</TableHead>
-                        <TableHead>City</TableHead>
-                        <TableHead>Status</TableHead>
-                        <TableHead className="w-[80px]"></TableHead>
-                      </TableRow>
-                    </TableHeader>
-                    <TableBody>
-                      {searchResults.map(student => (
-                        <TableRow key={student.student_id} className="cursor-pointer hover:bg-accent/50">
-                          <TableCell className="font-medium">{student.full_name}</TableCell>
-                          <TableCell className="text-sm">{student.phone_number}</TableCell>
-                          <TableCell className="text-sm font-mono">{student.permit_number}</TableCell>
-                          <TableCell className="text-sm">{student.city}</TableCell>
-                          <TableCell>
-                            {student.status && (
-                              <Badge variant="secondary" className="text-xs">{student.status}</Badge>
-                            )}
-                          </TableCell>
-                          <TableCell>
-                            <Button
-                              variant="ghost"
-                              size="sm"
-                              onClick={() => openEditForm(student)}
-                            >
-                              <Edit3 className="h-4 w-4" />
-                            </Button>
-                          </TableCell>
-                        </TableRow>
-                      ))}
-                    </TableBody>
-                  </Table>
-                </div>
-              )}
-            </CardContent>
-          </Card>
-        </motion.div>
-      )}
-
-      {/* Active Students */}
-      <motion.div
-        initial={{ opacity: 0, y: 10 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ delay: 0.2, duration: 0.25 }}
-      >
-        <Card>
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2 text-lg">
-              <Users className="h-5 w-5" />
-              Active Students
-              {activeStudents.length > 0 && (
-                <Badge variant="secondary">{activeStudents.length}</Badge>
-              )}
-            </CardTitle>
           </CardHeader>
           <CardContent>
             {isLoadingParticipants ? (
@@ -811,6 +709,10 @@ function StudentsPage() {
             ) : activeStudents.length === 0 ? (
               <div className="text-center py-8">
                 <p className="text-muted-foreground">No active students found in WhatsApp groups.</p>
+              </div>
+            ) : filteredStudents.length === 0 ? (
+              <div className="text-center py-8">
+                <p className="text-muted-foreground">No students match &ldquo;{searchQuery}&rdquo;</p>
               </div>
             ) : (
               <div className="border rounded-lg overflow-x-auto">
@@ -829,7 +731,7 @@ function StudentsPage() {
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {activeStudents.map(student => {
+                    {filteredStudents.map(student => {
                       const phase = getPhaseInfo(student.moduleNumber)
                       const classes = classResults[student.phone]
                       const dbStudent = dbMatches[student.phone]
