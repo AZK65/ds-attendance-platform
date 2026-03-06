@@ -1,8 +1,7 @@
 'use client'
 
 import { useEffect, useRef, useState, useCallback } from 'react'
-import { Input } from '@/components/ui/input'
-import { MapPin } from 'lucide-react'
+import { cn } from '@/lib/utils'
 
 interface AddressResult {
   street: string
@@ -59,6 +58,10 @@ function loadGoogleMaps(): Promise<void> {
   })
 }
 
+// Match shadcn Input styling
+const inputClasses =
+  'file:text-foreground placeholder:text-muted-foreground selection:bg-primary selection:text-primary-foreground dark:bg-input/30 border-input h-9 w-full min-w-0 rounded-md border bg-transparent px-3 py-1 text-base shadow-xs transition-[color,box-shadow] outline-none file:inline-flex file:h-7 file:border-0 file:bg-transparent file:text-sm file:font-medium disabled:pointer-events-none disabled:cursor-not-allowed disabled:opacity-50 md:text-sm focus-visible:border-ring focus-visible:ring-ring/50 focus-visible:ring-[3px]'
+
 export function AddressAutocomplete({
   value,
   onChange,
@@ -70,6 +73,7 @@ export function AddressAutocomplete({
   const inputRef = useRef<HTMLInputElement>(null)
   const autocompleteRef = useRef<google.maps.places.Autocomplete | null>(null)
   const [ready, setReady] = useState(false)
+  const isSelectingRef = useRef(false)
 
   const handlePlaceChanged = useCallback(() => {
     const autocomplete = autocompleteRef.current
@@ -99,8 +103,19 @@ export function AddressAutocomplete({
     }
 
     const street = streetNumber ? `${streetNumber} ${route}` : route
+
+    // Flag that we're selecting so we don't overwrite the input
+    isSelectingRef.current = true
     onChange(street)
     onAddressSelect?.({ street, city, postalCode })
+
+    // Set input value directly (Google Places has set its own value already)
+    if (inputRef.current) {
+      inputRef.current.value = street
+    }
+
+    // Reset flag after a tick
+    setTimeout(() => { isSelectingRef.current = false }, 50)
   }, [onChange, onAddressSelect])
 
   useEffect(() => {
@@ -129,22 +144,28 @@ export function AddressAutocomplete({
     }
   }, [ready, handlePlaceChanged])
 
+  // Sync value prop to the uncontrolled input (for external updates like form reset)
+  useEffect(() => {
+    if (isSelectingRef.current) return
+    if (inputRef.current && inputRef.current.value !== value) {
+      inputRef.current.value = value
+    }
+  }, [value])
+
   return (
-    <div className="relative">
-      <Input
-        ref={inputRef}
-        id={id}
-        placeholder={placeholder}
-        value={value}
-        onChange={e => onChange(e.target.value)}
-        className={className}
-        autoComplete="off"
-      />
-      {!ready && value.length >= 3 && (
-        <div className="absolute right-2 top-1/2 -translate-y-1/2">
-          <MapPin className="h-4 w-4 text-muted-foreground animate-pulse" />
-        </div>
-      )}
-    </div>
+    <input
+      ref={inputRef}
+      id={id}
+      type="text"
+      placeholder={placeholder}
+      defaultValue={value}
+      onChange={e => {
+        if (!isSelectingRef.current) {
+          onChange(e.target.value)
+        }
+      }}
+      className={cn(inputClasses, className)}
+      autoComplete="off"
+    />
   )
 }
