@@ -1,8 +1,24 @@
 services:
+  caddy:
+    image: caddy:2
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile
+      - caddy-data:/data
+      - caddy-config:/config
+    depends_on:
+      - app
+    networks:
+      - default
+    restart: unless-stopped
+
   app:
     build: .
-    ports:
-      - "3000:3000"
+    expose:
+      - "3000"
     shm_size: '1gb'
     volumes:
       # Persist SQLite database
@@ -12,6 +28,7 @@ services:
       - whatsapp-cache:/app/.wwebjs_cache
     environment:
       - DATABASE_URL=file:/app/data/prod.db
+      - NEXT_PUBLIC_APP_URL=https://qazidrivingschool.ca
       - ZOOM_ACCOUNT_ID=${ZOOM_ACCOUNT_ID}
       - ZOOM_CLIENT_ID=${ZOOM_CLIENT_ID}
       - ZOOM_CLIENT_SECRET=${ZOOM_CLIENT_SECRET}
@@ -35,6 +52,8 @@ volumes:
   app-data:
   whatsapp-auth:
   whatsapp-cache:
+  caddy-data:
+  caddy-config:
 
 networks:
   drivingschoolapi_default:

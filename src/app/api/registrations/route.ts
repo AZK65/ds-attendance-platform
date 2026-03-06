@@ -12,12 +12,13 @@ export async function POST(request: NextRequest) {
       },
     })
 
-    // Build the enrollment URL
-    const origin = request.headers.get('origin')
-      || request.headers.get('x-forwarded-host')
-        ? `https://${request.headers.get('x-forwarded-host')}`
-        : process.env.NEXT_PUBLIC_APP_URL
-        || 'http://localhost:3000'
+    // Build the enrollment URL — prefer NEXT_PUBLIC_APP_URL for consistent QR links
+    const forwardedHost = request.headers.get('x-forwarded-host')
+    const origin =
+      process.env.NEXT_PUBLIC_APP_URL
+      || (forwardedHost ? `https://${forwardedHost}` : null)
+      || request.headers.get('origin')
+      || 'http://localhost:3000'
     const enrollUrl = `${origin}/enroll/${registration.id}`
 
     // Generate QR code data URL (same pattern as /api/whatsapp/qr/route.ts)
