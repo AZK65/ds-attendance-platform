@@ -1,8 +1,7 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef, useCallback } from 'react'
 import { useParams } from 'next/navigation'
-import Image from 'next/image'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -39,6 +38,13 @@ interface FormData {
   email: string
 }
 
+interface AddressSuggestion {
+  display: string
+  street: string
+  city: string
+  postalCode: string
+}
+
 const EMPTY_FORM: FormData = {
   fullName: '',
   phoneNumber: '',
@@ -58,6 +64,24 @@ export default function EnrollPage() {
   const [formData, setFormData] = useState<FormData>(EMPTY_FORM)
   const [error, setError] = useState('')
   const [fieldErrors, setFieldErrors] = useState<Partial<Record<keyof FormData, boolean>>>({})
+
+  // Address autocomplete state
+  const [addressQuery, setAddressQuery] = useState('')
+  const [suggestions, setSuggestions] = useState<AddressSuggestion[]>([])
+  const [showSuggestions, setShowSuggestions] = useState(false)
+  const debounceRef = useRef<NodeJS.Timeout | null>(null)
+  const suggestionsRef = useRef<HTMLDivElement>(null)
+
+  // Close suggestions when clicking outside
+  useEffect(() => {
+    function handleClickOutside(e: MouseEvent) {
+      if (suggestionsRef.current && !suggestionsRef.current.contains(e.target as Node)) {
+        setShowSuggestions(false)
+      }
+    }
+    document.addEventListener('mousedown', handleClickOutside)
+    return () => document.removeEventListener('mousedown', handleClickOutside)
+  }, [])
 
   // Check token status on load
   useEffect(() => {
@@ -97,6 +121,68 @@ export default function EnrollPage() {
   const updateField = (field: keyof FormData, value: string) => {
     setFormData(prev => ({ ...prev, [field]: value }))
     setFieldErrors(prev => ({ ...prev, [field]: false }))
+  }
+
+  // Fetch address suggestions from Nominatim (OpenStreetMap) — free, no API key
+  const fetchSuggestions = useCallback(async (query: string) => {
+    if (query.length < 3) {
+      setSuggestions([])
+      return
+    }
+    try {
+      const res = await fetch(
+        `https://nominatim.openstreetmap.org/search?` +
+        `format=json&addressdetails=1&countrycodes=ca&limit=5&q=${encodeURIComponent(query)}`
+      )
+      if (!res.ok) return
+      const data = await res.json()
+      const results: AddressSuggestion[] = data
+        .filter((item: { address?: { road?: string } }) => item.address?.road)
+        .map((item: {
+          address: {
+            house_number?: string
+            road?: string
+            city?: string
+            town?: string
+            village?: string
+            municipality?: string
+            postcode?: string
+          }
+        }) => {
+          const addr = item.address
+          const houseNum = addr.house_number || ''
+          const road = addr.road || ''
+          const street = houseNum ? `${houseNum} ${road}` : road
+          const city = addr.city || addr.town || addr.village || addr.municipality || ''
+          const postalCode = addr.postcode || ''
+          return {
+            display: `${street}, ${city}${postalCode ? `, ${postalCode}` : ''}`,
+            street,
+            city,
+            postalCode,
+          }
+        })
+      setSuggestions(results)
+      if (results.length > 0) setShowSuggestions(true)
+    } catch {
+      // Silently fail — user can still type manually
+    }
+  }, [])
+
+  const handleAddressInput = (value: string) => {
+    setAddressQuery(value)
+    updateField('fullAddress', value)
+    if (debounceRef.current) clearTimeout(debounceRef.current)
+    debounceRef.current = setTimeout(() => fetchSuggestions(value), 300)
+  }
+
+  const selectSuggestion = (suggestion: AddressSuggestion) => {
+    setAddressQuery(suggestion.street)
+    updateField('fullAddress', suggestion.street)
+    if (suggestion.city) updateField('city', suggestion.city)
+    if (suggestion.postalCode) updateField('postalCode', suggestion.postalCode)
+    setShowSuggestions(false)
+    setSuggestions([])
   }
 
   const handleSubmit = async () => {
@@ -195,6 +281,12 @@ export default function EnrollPage() {
       <div className="min-h-screen flex items-center justify-center p-4 bg-gray-50">
         <Card className="w-full max-w-md">
           <CardContent className="pt-8 pb-8 text-center">
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img
+              src="/qazi-logo.png"
+              alt="Qazi Driving School"
+              className="h-10 w-auto mx-auto mb-4"
+            />
             <CheckCircle className="h-12 w-12 mx-auto text-green-600 mb-4" />
             <h2 className="text-xl font-semibold mb-2">Registration Submitted!</h2>
             <p className="text-muted-foreground">
@@ -215,11 +307,10 @@ export default function EnrollPage() {
       <div className="max-w-lg mx-auto space-y-6">
         {/* Header with logo */}
         <div className="text-center">
-          <Image
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img
             src="/qazi-logo.png"
             alt="Qazi Driving School"
-            width={160}
-            height={55}
             className="h-12 w-auto mx-auto mb-3"
           />
           <h1 className="text-xl font-bold">Student Registration</h1>
@@ -319,21 +410,39 @@ export default function EnrollPage() {
               {fieldErrors.dob && <p className="text-xs text-destructive mt-1">Date of birth is required</p>}
             </div>
 
-            {/* Address */}
-            <div>
+            {/* Address with autocomplete */}
+            <div className="relative" ref={suggestionsRef}>
               <Label htmlFor="fullAddress" className="text-sm font-medium flex items-center gap-1.5 mb-1.5">
                 <MapPin className="h-3.5 w-3.5" />
                 Address
               </Label>
               <Input
                 id="fullAddress"
-                placeholder="123 Main Street, Apt 4"
-                value={formData.fullAddress}
-                onChange={e => updateField('fullAddress', e.target.value)}
+                placeholder="Start typing your address..."
+                value={addressQuery || formData.fullAddress}
+                onChange={e => handleAddressInput(e.target.value)}
+                onFocus={() => { if (suggestions.length > 0) setShowSuggestions(true) }}
                 className={fieldErrors.fullAddress ? 'border-destructive' : ''}
-                autoComplete="street-address"
+                autoComplete="off"
               />
               {fieldErrors.fullAddress && <p className="text-xs text-destructive mt-1">Address is required</p>}
+
+              {/* Address suggestions dropdown */}
+              {showSuggestions && suggestions.length > 0 && (
+                <div className="absolute z-50 w-full mt-1 bg-white border border-gray-200 rounded-lg shadow-lg max-h-48 overflow-y-auto">
+                  {suggestions.map((s, i) => (
+                    <button
+                      key={i}
+                      type="button"
+                      className="w-full text-left px-3 py-2.5 text-sm hover:bg-gray-50 border-b border-gray-100 last:border-0 flex items-start gap-2"
+                      onClick={() => selectSuggestion(s)}
+                    >
+                      <MapPin className="h-3.5 w-3.5 mt-0.5 flex-shrink-0 text-muted-foreground" />
+                      <span>{s.display}</span>
+                    </button>
+                  ))}
+                </div>
+              )}
             </div>
 
             {/* City + Postal Code side by side */}
