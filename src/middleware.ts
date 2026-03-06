@@ -2,12 +2,16 @@ import { NextRequest, NextResponse } from 'next/server'
 
 const PUBLIC_PATHS = ['/login', '/api/auth', '/camera', '/enroll', '/api/enroll']
 const IGNORED_PREFIXES = ['/_next', '/favicon.ico']
+const PUBLIC_FILE_EXTENSIONS = ['.png', '.jpg', '.jpeg', '.svg', '.ico', '.webp', '.gif']
 
 export function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl
 
   // Skip middleware for static assets and public paths
   if (IGNORED_PREFIXES.some(prefix => pathname.startsWith(prefix))) {
+    return NextResponse.next()
+  }
+  if (PUBLIC_FILE_EXTENSIONS.some(ext => pathname.endsWith(ext))) {
     return NextResponse.next()
   }
   if (PUBLIC_PATHS.some(path => pathname.startsWith(path))) {
