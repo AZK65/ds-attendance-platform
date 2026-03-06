@@ -39,6 +39,7 @@ services:
       - OPENROUTER_API_KEY=${OPENROUTER_API_KEY}
       - TEAMUP_API_KEY=${TEAMUP_API_KEY}
       - TEAMUP_CALENDAR_KEY=${TEAMUP_CALENDAR_KEY}
+      - RESEND_API_KEY=${RESEND_API_KEY}
       - NODE_ENV=production
       - TZ=America/Montreal
       - EXTERNAL_DB_HOST=mysqldb
