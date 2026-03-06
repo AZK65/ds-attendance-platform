@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect, useRef, useCallback, Suspense } from 'react'
+import { useState, useEffect, useRef, useCallback, useMemo, Suspense } from 'react'
 import { useSearchParams } from 'next/navigation'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import Image from 'next/image'
@@ -49,6 +49,7 @@ import {
   Clock,
   Eye,
   Trash2,
+  Users,
 } from 'lucide-react'
 import { motion } from 'motion/react'
 import { AddressAutocomplete } from '@/components/AddressAutocomplete'
@@ -106,6 +107,45 @@ interface ReviewFormData {
   postalCode: string
   dob: string
   email: string
+}
+
+interface ParticipantWithGroup {
+  id: string
+  phone: string
+  name: string | null
+  pushName: string | null
+  groupId: string
+  groupName: string
+  moduleNumber: number | null
+  lastMessageDate: string | null
+}
+
+interface ClassInfo {
+  lastClass: { date: string; title: string } | null
+  nextClass: { date: string; title: string } | null
+}
+
+function getPhaseInfo(moduleNumber: number | null): { phase: number; label: string; color: string } | null {
+  if (moduleNumber == null) return null
+  if (moduleNumber >= 1 && moduleNumber <= 5) return { phase: 1, label: 'Phase 1', color: 'bg-yellow-100 text-yellow-800' }
+  if (moduleNumber >= 6 && moduleNumber <= 7) return { phase: 2, label: 'Phase 2', color: 'bg-green-100 text-green-800' }
+  if (moduleNumber >= 8 && moduleNumber <= 10) return { phase: 3, label: 'Phase 3', color: 'bg-blue-100 text-blue-800' }
+  if (moduleNumber >= 11 && moduleNumber <= 12) return { phase: 4, label: 'Phase 4', color: 'bg-purple-100 text-purple-800' }
+  return null
+}
+
+function formatRelativeDate(dateStr: string): string {
+  const date = new Date(dateStr)
+  const now = new Date()
+  const diffMs = now.getTime() - date.getTime()
+  const diffDays = Math.round(diffMs / (1000 * 60 * 60 * 24))
+
+  if (diffDays === 0) return 'Today'
+  if (diffDays === 1) return 'Yesterday'
+  if (diffDays === -1) return 'Tomorrow'
+  if (diffDays > 1 && diffDays <= 30) return `${diffDays}d ago`
+  if (diffDays < -1 && diffDays >= -30) return `in ${Math.abs(diffDays)}d`
+  return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
 }
 
 const EMPTY_FORM: StudentFormData = {
@@ -190,6 +230,64 @@ function StudentsPage() {
   })
 
   const pendingRegistrations = pendingData?.registrations || []
+
+  // Fetch active students from WhatsApp groups
+  const { data: participantsData, isLoading: isLoadingParticipants } = useQuery<{
+    participants: ParticipantWithGroup[]
+    isConnected: boolean
+  }>({
+    queryKey: ['groups', 'participants'],
+    queryFn: async () => {
+      const res = await fetch('/api/groups/participants')
+      if (!res.ok) throw new Error('Failed to fetch')
+      return res.json()
+    },
+    staleTime: 60000,
+  })
+
+  // Deduplicate participants by phone (keep the one with highest module number)
+  const activeStudents = useMemo(() => {
+    const participants = participantsData?.participants || []
+    const byPhone = new Map<string, ParticipantWithGroup>()
+    for (const p of participants) {
+      if (!p.phone) continue
+      const existing = byPhone.get(p.phone)
+      if (!existing || (p.moduleNumber ?? 0) > (existing.moduleNumber ?? 0)) {
+        byPhone.set(p.phone, p)
+      }
+    }
+    const deduped = Array.from(byPhone.values())
+    // Sort by phase ascending, then module ascending
+    deduped.sort((a, b) => {
+      const phaseA = getPhaseInfo(a.moduleNumber)?.phase ?? 99
+      const phaseB = getPhaseInfo(b.moduleNumber)?.phase ?? 99
+      if (phaseA !== phaseB) return phaseA - phaseB
+      return (a.moduleNumber ?? 0) - (b.moduleNumber ?? 0)
+    })
+    return deduped
+  }, [participantsData])
+
+  // Fetch last/next class info for all active student phones
+  const phoneList = useMemo(() => activeStudents.map(s => s.phone), [activeStudents])
+
+  const { data: classesData, isLoading: isLoadingClasses } = useQuery<{
+    results: Record<string, ClassInfo>
+  }>({
+    queryKey: ['batch-classes', phoneList],
+    queryFn: async () => {
+      const res = await fetch('/api/scheduling/batch-classes', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ phones: phoneList }),
+      })
+      if (!res.ok) throw new Error('Failed to fetch')
+      return res.json()
+    },
+    enabled: phoneList.length > 0,
+    staleTime: 60000,
+  })
+
+  const classResults = classesData?.results || {}
 
   // Search handler
   const handleSearch = async () => {
@@ -528,11 +626,111 @@ function StudentsPage() {
         </motion.div>
       )}
 
-      {/* Search */}
+      {/* Active Students */}
       <motion.div
         initial={{ opacity: 0, y: 10 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ delay: 0.1, duration: 0.25 }}
+      >
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2 text-lg">
+              <Users className="h-5 w-5" />
+              Active Students
+              {activeStudents.length > 0 && (
+                <Badge variant="secondary">{activeStudents.length}</Badge>
+              )}
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            {isLoadingParticipants ? (
+              <div className="flex items-center justify-center py-8">
+                <Loader2 className="h-5 w-5 animate-spin mr-2" />
+                <span className="text-muted-foreground">Loading students...</span>
+              </div>
+            ) : participantsData && !participantsData.isConnected ? (
+              <div className="text-center py-8">
+                <p className="text-muted-foreground">WhatsApp is not connected. Connect WhatsApp to see active students.</p>
+              </div>
+            ) : activeStudents.length === 0 ? (
+              <div className="text-center py-8">
+                <p className="text-muted-foreground">No active students found in WhatsApp groups.</p>
+              </div>
+            ) : (
+              <div className="border rounded-lg overflow-x-auto">
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Name</TableHead>
+                      <TableHead>Phone</TableHead>
+                      <TableHead>Group</TableHead>
+                      <TableHead>Phase</TableHead>
+                      <TableHead>Module</TableHead>
+                      <TableHead>Last Class</TableHead>
+                      <TableHead>Next Class</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {activeStudents.map(student => {
+                      const phase = getPhaseInfo(student.moduleNumber)
+                      const classes = classResults[student.phone]
+                      return (
+                        <TableRow key={student.phone}>
+                          <TableCell className="font-medium">
+                            {student.name || student.pushName || '-'}
+                          </TableCell>
+                          <TableCell className="text-sm">{student.phone}</TableCell>
+                          <TableCell className="text-sm text-muted-foreground">{student.groupName}</TableCell>
+                          <TableCell>
+                            {phase ? (
+                              <Badge variant="secondary" className={`text-xs ${phase.color}`}>
+                                {phase.label}
+                              </Badge>
+                            ) : (
+                              <span className="text-xs text-muted-foreground">-</span>
+                            )}
+                          </TableCell>
+                          <TableCell className="text-sm font-mono">
+                            {student.moduleNumber ? `M${student.moduleNumber}` : '-'}
+                          </TableCell>
+                          <TableCell className="text-sm">
+                            {isLoadingClasses ? (
+                              <Loader2 className="h-3 w-3 animate-spin text-muted-foreground" />
+                            ) : classes?.lastClass ? (
+                              <span title={classes.lastClass.title}>
+                                {formatRelativeDate(classes.lastClass.date)}
+                              </span>
+                            ) : (
+                              <span className="text-muted-foreground">-</span>
+                            )}
+                          </TableCell>
+                          <TableCell className="text-sm">
+                            {isLoadingClasses ? (
+                              <Loader2 className="h-3 w-3 animate-spin text-muted-foreground" />
+                            ) : classes?.nextClass ? (
+                              <span className="text-green-700" title={classes.nextClass.title}>
+                                {formatRelativeDate(classes.nextClass.date)}
+                              </span>
+                            ) : (
+                              <span className="text-muted-foreground">-</span>
+                            )}
+                          </TableCell>
+                        </TableRow>
+                      )
+                    })}
+                  </TableBody>
+                </Table>
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      </motion.div>
+
+      {/* Search */}
+      <motion.div
+        initial={{ opacity: 0, y: 10 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ delay: 0.15, duration: 0.25 }}
       >
         <Card>
           <CardContent className="pt-6">
@@ -560,7 +758,7 @@ function StudentsPage() {
         <motion.div
           initial={{ opacity: 0, y: 10 }}
           animate={{ opacity: 1, y: 0 }}
-          transition={{ delay: 0.15, duration: 0.25 }}
+          transition={{ delay: 0.2, duration: 0.25 }}
         >
           <Card>
             <CardHeader>
