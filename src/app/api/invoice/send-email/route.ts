@@ -1,17 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { Resend } from 'resend'
 import { prisma } from '@/lib/db'
-
-// Lazy-init to avoid build-time error when env var isn't set
-let _resend: Resend | null = null
-function getResend() {
-  if (!_resend) {
-    const key = process.env.RESEND_API_KEY
-    if (!key) throw new Error('RESEND_API_KEY environment variable is not set')
-    _resend = new Resend(key)
-  }
-  return _resend
-}
 
 export async function POST(request: NextRequest) {
   try {
@@ -22,6 +10,14 @@ export async function POST(request: NextRequest) {
       return NextResponse.json(
         { error: 'Missing required fields: to, pdfBase64, invoiceNumber' },
         { status: 400 }
+      )
+    }
+
+    const apiKey = process.env.RESEND_API_KEY
+    if (!apiKey) {
+      return NextResponse.json(
+        { error: 'RESEND_API_KEY environment variable is not set' },
+        { status: 500 }
       )
     }
 
@@ -47,7 +43,10 @@ export async function POST(request: NextRequest) {
     // Convert base64 to buffer
     const pdfBuffer = Buffer.from(pdfBase64, 'base64')
 
-    const resend = getResend()
+    // Dynamic import to avoid build-time instantiation error
+    const { Resend } = await import('resend')
+    const resend = new Resend(apiKey)
+
     const { data, error } = await resend.emails.send({
       from: `${schoolName} <${senderEmail}>`,
       to: [to],
