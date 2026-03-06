@@ -232,7 +232,7 @@ function StudentsPage() {
 
   const pendingRegistrations = pendingData?.registrations || []
 
-  // Fetch active students from WhatsApp groups
+  // Fetch active students from WhatsApp groups (cached for 5 min, kept for 10 min)
   const { data: participantsData, isLoading: isLoadingParticipants } = useQuery<{
     participants: ParticipantWithGroup[]
     isConnected: boolean
@@ -243,7 +243,8 @@ function StudentsPage() {
       if (!res.ok) throw new Error('Failed to fetch')
       return res.json()
     },
-    staleTime: 60000,
+    staleTime: 5 * 60 * 1000,
+    gcTime: 10 * 60 * 1000,
   })
 
   // Deduplicate participants by phone (keep the one with highest module number)
@@ -285,7 +286,8 @@ function StudentsPage() {
       return res.json()
     },
     enabled: phoneList.length > 0,
-    staleTime: 60000,
+    staleTime: 5 * 60 * 1000,
+    gcTime: 10 * 60 * 1000,
   })
 
   const classResults = classesData?.results || {}
@@ -305,7 +307,8 @@ function StudentsPage() {
       return res.json()
     },
     enabled: phoneList.length > 0,
-    staleTime: 60000,
+    staleTime: 5 * 60 * 1000,
+    gcTime: 10 * 60 * 1000,
   })
 
   const dbMatches = matchesData?.matches || {}
@@ -647,11 +650,113 @@ function StudentsPage() {
         </motion.div>
       )}
 
-      {/* Active Students */}
+      {/* Search */}
       <motion.div
         initial={{ opacity: 0, y: 10 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ delay: 0.1, duration: 0.25 }}
+      >
+        <Card>
+          <CardContent className="pt-6">
+            <div className="flex gap-2">
+              <div className="relative flex-1">
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                <Input
+                  placeholder="Search by name, phone, permit number, or contract number..."
+                  value={searchQuery}
+                  onChange={e => setSearchQuery(e.target.value)}
+                  onKeyDown={e => e.key === 'Enter' && handleSearch()}
+                  className="pl-10"
+                />
+              </div>
+              <Button onClick={handleSearch} disabled={isSearching || !searchQuery.trim()}>
+                {isSearching ? <Loader2 className="h-4 w-4 animate-spin" /> : 'Search'}
+              </Button>
+            </div>
+          </CardContent>
+        </Card>
+      </motion.div>
+
+      {/* Search Results */}
+      {hasSearched && (
+        <motion.div
+          initial={{ opacity: 0, y: 10 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ delay: 0.15, duration: 0.25 }}
+        >
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2 text-lg">
+                Search Results
+                {searchResults.length > 0 && (
+                  <Badge variant="secondary">{searchResults.length}</Badge>
+                )}
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              {isSearching ? (
+                <div className="flex items-center justify-center py-8">
+                  <Loader2 className="h-5 w-5 animate-spin mr-2" />
+                  <span className="text-muted-foreground">Searching...</span>
+                </div>
+              ) : searchResults.length === 0 ? (
+                <div className="text-center py-8">
+                  <p className="text-muted-foreground mb-3">No students found</p>
+                  <Button variant="outline" size="sm" onClick={() => setShowNewStudentChoice(true)}>
+                    <Plus className="h-4 w-4 mr-1" />
+                    Add New Student
+                  </Button>
+                </div>
+              ) : (
+                <div className="border rounded-lg overflow-x-auto">
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead>Name</TableHead>
+                        <TableHead>Phone</TableHead>
+                        <TableHead>Permit #</TableHead>
+                        <TableHead>City</TableHead>
+                        <TableHead>Status</TableHead>
+                        <TableHead className="w-[80px]"></TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {searchResults.map(student => (
+                        <TableRow key={student.student_id} className="cursor-pointer hover:bg-accent/50">
+                          <TableCell className="font-medium">{student.full_name}</TableCell>
+                          <TableCell className="text-sm">{student.phone_number}</TableCell>
+                          <TableCell className="text-sm font-mono">{student.permit_number}</TableCell>
+                          <TableCell className="text-sm">{student.city}</TableCell>
+                          <TableCell>
+                            {student.status && (
+                              <Badge variant="secondary" className="text-xs">{student.status}</Badge>
+                            )}
+                          </TableCell>
+                          <TableCell>
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              onClick={() => openEditForm(student)}
+                            >
+                              <Edit3 className="h-4 w-4" />
+                            </Button>
+                          </TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        </motion.div>
+      )}
+
+      {/* Active Students */}
+      <motion.div
+        initial={{ opacity: 0, y: 10 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ delay: 0.2, duration: 0.25 }}
       >
         <Card>
           <CardHeader>
@@ -764,108 +869,6 @@ function StudentsPage() {
           </CardContent>
         </Card>
       </motion.div>
-
-      {/* Search */}
-      <motion.div
-        initial={{ opacity: 0, y: 10 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ delay: 0.15, duration: 0.25 }}
-      >
-        <Card>
-          <CardContent className="pt-6">
-            <div className="flex gap-2">
-              <div className="relative flex-1">
-                <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-                <Input
-                  placeholder="Search by name, phone, permit number, or contract number..."
-                  value={searchQuery}
-                  onChange={e => setSearchQuery(e.target.value)}
-                  onKeyDown={e => e.key === 'Enter' && handleSearch()}
-                  className="pl-10"
-                />
-              </div>
-              <Button onClick={handleSearch} disabled={isSearching || !searchQuery.trim()}>
-                {isSearching ? <Loader2 className="h-4 w-4 animate-spin" /> : 'Search'}
-              </Button>
-            </div>
-          </CardContent>
-        </Card>
-      </motion.div>
-
-      {/* Search Results */}
-      {hasSearched && (
-        <motion.div
-          initial={{ opacity: 0, y: 10 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ delay: 0.2, duration: 0.25 }}
-        >
-          <Card>
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2 text-lg">
-                Search Results
-                {searchResults.length > 0 && (
-                  <Badge variant="secondary">{searchResults.length}</Badge>
-                )}
-              </CardTitle>
-            </CardHeader>
-            <CardContent>
-              {isSearching ? (
-                <div className="flex items-center justify-center py-8">
-                  <Loader2 className="h-5 w-5 animate-spin mr-2" />
-                  <span className="text-muted-foreground">Searching...</span>
-                </div>
-              ) : searchResults.length === 0 ? (
-                <div className="text-center py-8">
-                  <p className="text-muted-foreground mb-3">No students found</p>
-                  <Button variant="outline" size="sm" onClick={() => setShowNewStudentChoice(true)}>
-                    <Plus className="h-4 w-4 mr-1" />
-                    Add New Student
-                  </Button>
-                </div>
-              ) : (
-                <div className="border rounded-lg overflow-x-auto">
-                  <Table>
-                    <TableHeader>
-                      <TableRow>
-                        <TableHead>Name</TableHead>
-                        <TableHead>Phone</TableHead>
-                        <TableHead>Permit #</TableHead>
-                        <TableHead>City</TableHead>
-                        <TableHead>Status</TableHead>
-                        <TableHead className="w-[80px]"></TableHead>
-                      </TableRow>
-                    </TableHeader>
-                    <TableBody>
-                      {searchResults.map(student => (
-                        <TableRow key={student.student_id} className="cursor-pointer hover:bg-accent/50">
-                          <TableCell className="font-medium">{student.full_name}</TableCell>
-                          <TableCell className="text-sm">{student.phone_number}</TableCell>
-                          <TableCell className="text-sm font-mono">{student.permit_number}</TableCell>
-                          <TableCell className="text-sm">{student.city}</TableCell>
-                          <TableCell>
-                            {student.status && (
-                              <Badge variant="secondary" className="text-xs">{student.status}</Badge>
-                            )}
-                          </TableCell>
-                          <TableCell>
-                            <Button
-                              variant="ghost"
-                              size="sm"
-                              onClick={() => openEditForm(student)}
-                            >
-                              <Edit3 className="h-4 w-4" />
-                            </Button>
-                          </TableCell>
-                        </TableRow>
-                      ))}
-                    </TableBody>
-                  </Table>
-                </div>
-              )}
-            </CardContent>
-          </Card>
-        </motion.div>
-      )}
 
       {/* New Student Choice Dialog */}
       <Dialog open={showNewStudentChoice} onOpenChange={setShowNewStudentChoice}>
