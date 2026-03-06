@@ -133,6 +133,9 @@ export default function StudentsPage() {
   const [editingStudent, setEditingStudent] = useState<StudentRecord | null>(null)
   const [successMessage, setSuccessMessage] = useState('')
 
+  // New student choice dialog state
+  const [showNewStudentChoice, setShowNewStudentChoice] = useState(false)
+
   // QR state
   const [showQR, setShowQR] = useState(false)
   const [qrData, setQrData] = useState<{ enrollUrl: string; qrDataUrl: string; expiresAt: string } | null>(null)
@@ -253,6 +256,7 @@ export default function StudentsPage() {
         qrDataUrl: data.qrDataUrl,
         expiresAt: data.expiresAt,
       })
+      setShowNewStudentChoice(false)
       setShowQR(true)
     },
   })
@@ -324,6 +328,7 @@ export default function StudentsPage() {
   const openAddForm = () => {
     setEditingStudent(null)
     setFormData(EMPTY_FORM)
+    setShowNewStudentChoice(false)
     setShowForm(true)
   }
 
@@ -384,20 +389,10 @@ export default function StudentsPage() {
             Search, add, and edit students in the database
           </p>
         </div>
-        <div className="flex gap-2">
-          <Button variant="outline" onClick={() => generateQRMutation.mutate()} disabled={generateQRMutation.isPending}>
-            {generateQRMutation.isPending ? (
-              <Loader2 className="h-4 w-4 animate-spin mr-2" />
-            ) : (
-              <QrCode className="h-4 w-4 mr-2" />
-            )}
-            Generate QR
-          </Button>
-          <Button onClick={openAddForm}>
-            <UserPlus className="h-4 w-4 mr-2" />
-            Add Student
-          </Button>
-        </div>
+        <Button onClick={() => setShowNewStudentChoice(true)}>
+          <UserPlus className="h-4 w-4 mr-2" />
+          New Student
+        </Button>
       </motion.div>
 
       {/* Success Message */}
@@ -529,7 +524,7 @@ export default function StudentsPage() {
               ) : searchResults.length === 0 ? (
                 <div className="text-center py-8">
                   <p className="text-muted-foreground mb-3">No students found</p>
-                  <Button variant="outline" size="sm" onClick={openAddForm}>
+                  <Button variant="outline" size="sm" onClick={() => setShowNewStudentChoice(true)}>
                     <Plus className="h-4 w-4 mr-1" />
                     Add New Student
                   </Button>
@@ -578,6 +573,56 @@ export default function StudentsPage() {
           </Card>
         </motion.div>
       )}
+
+      {/* New Student Choice Dialog */}
+      <Dialog open={showNewStudentChoice} onOpenChange={setShowNewStudentChoice}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <UserPlus className="h-5 w-5" />
+              New Student
+            </DialogTitle>
+            <DialogDescription>
+              How would you like to add this student?
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="grid grid-cols-1 gap-3 py-4">
+            <button
+              type="button"
+              onClick={openAddForm}
+              className="flex items-center gap-4 p-4 border rounded-lg hover:bg-accent/50 transition-colors text-left"
+            >
+              <div className="flex-shrink-0 h-10 w-10 rounded-full bg-primary/10 flex items-center justify-center">
+                <Edit3 className="h-5 w-5 text-primary" />
+              </div>
+              <div>
+                <p className="font-medium">Add Manually</p>
+                <p className="text-sm text-muted-foreground">Fill in the student&apos;s information yourself</p>
+              </div>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => generateQRMutation.mutate()}
+              disabled={generateQRMutation.isPending}
+              className="flex items-center gap-4 p-4 border rounded-lg hover:bg-accent/50 transition-colors text-left disabled:opacity-50"
+            >
+              <div className="flex-shrink-0 h-10 w-10 rounded-full bg-primary/10 flex items-center justify-center">
+                {generateQRMutation.isPending ? (
+                  <Loader2 className="h-5 w-5 text-primary animate-spin" />
+                ) : (
+                  <QrCode className="h-5 w-5 text-primary" />
+                )}
+              </div>
+              <div>
+                <p className="font-medium">Let Student Fill Information</p>
+                <p className="text-sm text-muted-foreground">Generate a QR code for the student to scan and fill out</p>
+              </div>
+            </button>
+          </div>
+        </DialogContent>
+      </Dialog>
 
       {/* Add/Edit Student Dialog */}
       <Dialog open={showForm} onOpenChange={(open) => { if (!open) closeForm() }}>
