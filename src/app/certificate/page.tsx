@@ -8,7 +8,7 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Badge } from '@/components/ui/badge'
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs'
-import { Upload, FileText, Download, Loader2, Camera, ArrowLeft, ArrowRight, CheckCircle2, Edit3, Settings, Plus, Smartphone, X, Users, User, AlertCircle, Archive, Search, Database, MessageCircle, CheckCircle, XCircle } from 'lucide-react'
+import { Upload, FileText, Download, Loader2, Camera, ArrowLeft, ArrowRight, CheckCircle2, Edit3, Settings, Plus, Smartphone, X, Users, User, AlertCircle, Archive, Search, Database, CheckCircle, XCircle } from 'lucide-react'
 import { motion, AnimatePresence } from 'motion/react'
 import Link from 'next/link'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog'
@@ -182,9 +182,9 @@ function ReviewForm({
 }) {
   const [waStatus, setWaStatus] = useState<'idle' | 'checking' | 'valid' | 'invalid' | 'error'>('idle')
 
-  const checkWhatsApp = async (phone: string) => {
+  const checkWhatsApp = useCallback(async (phone: string) => {
     const cleaned = phone.replace(/[^0-9]/g, '')
-    if (cleaned.length < 10) return
+    if (cleaned.length < 10) { setWaStatus('idle'); return }
     setWaStatus('checking')
     try {
       const res = await fetch(`/api/whatsapp/check-number?phone=${encodeURIComponent(cleaned)}`)
@@ -192,7 +192,19 @@ function ReviewForm({
       const data = await res.json()
       setWaStatus(data.registered ? 'valid' : 'invalid')
     } catch { setWaStatus('error') }
-  }
+  }, [])
+
+  // Auto-check WhatsApp when phone number changes (debounced)
+  const waDebounceRef = useRef<NodeJS.Timeout | null>(null)
+  useEffect(() => {
+    const cleaned = formData.phone.replace(/[^0-9]/g, '')
+    if (cleaned.length < 10) { setWaStatus('idle'); return }
+    if (waDebounceRef.current) clearTimeout(waDebounceRef.current)
+    waDebounceRef.current = setTimeout(() => {
+      checkWhatsApp(formData.phone)
+    }, 600)
+    return () => { if (waDebounceRef.current) clearTimeout(waDebounceRef.current) }
+  }, [formData.phone, checkWhatsApp])
 
   return (
     <div className="space-y-6">
@@ -254,32 +266,15 @@ function ReviewForm({
             </div>
             <div>
               <Label>Phone</Label>
-              <div className="flex gap-2">
-                <Input
-                  value={formData.phone}
-                  onChange={(e) => { onChange('phone', e.target.value); setWaStatus('idle') }}
-                  className="flex-1"
-                />
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  className="flex-shrink-0 h-9 px-2.5"
-                  onClick={() => checkWhatsApp(formData.phone)}
-                  disabled={waStatus === 'checking' || formData.phone.replace(/[^0-9]/g, '').length < 10}
-                  title="Check WhatsApp"
-                >
-                  {waStatus === 'checking' ? (
-                    <Loader2 className="h-4 w-4 animate-spin" />
-                  ) : waStatus === 'valid' ? (
-                    <MessageCircle className="h-4 w-4 text-green-600" />
-                  ) : waStatus === 'invalid' ? (
-                    <MessageCircle className="h-4 w-4 text-red-500" />
-                  ) : (
-                    <MessageCircle className="h-4 w-4" />
-                  )}
-                </Button>
-              </div>
+              <Input
+                value={formData.phone}
+                onChange={(e) => onChange('phone', e.target.value)}
+              />
+              {waStatus === 'checking' && (
+                <p className="text-xs text-muted-foreground mt-1 flex items-center gap-1">
+                  <Loader2 className="h-3 w-3 animate-spin" /> Checking WhatsApp...
+                </p>
+              )}
               {waStatus === 'valid' && (
                 <p className="text-xs text-green-600 mt-1 flex items-center gap-1">
                   <CheckCircle className="h-3 w-3" /> On WhatsApp

@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect, Suspense } from 'react'
+import { useState, useEffect, useRef, useCallback, Suspense } from 'react'
 import { useSearchParams } from 'next/navigation'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import Image from 'next/image'
@@ -49,7 +49,6 @@ import {
   Clock,
   Eye,
   Trash2,
-  MessageCircle,
 } from 'lucide-react'
 import { motion } from 'motion/react'
 import { AddressAutocomplete } from '@/components/AddressAutocomplete'
@@ -385,16 +384,15 @@ function StudentsPage() {
 
   const updateField = (field: keyof StudentFormData, value: string) => {
     setFormData(prev => ({ ...prev, [field]: value }))
-    if (field === 'phone_number') setWhatsappStatus('idle')
   }
 
   const updateReviewField = (field: keyof ReviewFormData, value: string) => {
     setReviewFormData(prev => ({ ...prev, [field]: value }))
   }
 
-  const checkWhatsApp = async (phone: string, setStatus: (s: 'idle' | 'checking' | 'valid' | 'invalid' | 'error') => void) => {
+  const checkWhatsApp = useCallback(async (phone: string, setStatus: (s: 'idle' | 'checking' | 'valid' | 'invalid' | 'error') => void) => {
     const cleaned = phone.replace(/[^0-9]/g, '')
-    if (cleaned.length < 10) return
+    if (cleaned.length < 10) { setStatus('idle'); return }
     setStatus('checking')
     try {
       const res = await fetch(`/api/whatsapp/check-number?phone=${encodeURIComponent(cleaned)}`)
@@ -407,7 +405,30 @@ function StudentsPage() {
     } catch {
       setStatus('error')
     }
-  }
+  }, [])
+
+  // Auto-check WhatsApp when phone number changes (debounced)
+  const waDebounceRef = useRef<NodeJS.Timeout | null>(null)
+  useEffect(() => {
+    const cleaned = formData.phone_number.replace(/[^0-9]/g, '')
+    if (cleaned.length < 10) { setWhatsappStatus('idle'); return }
+    if (waDebounceRef.current) clearTimeout(waDebounceRef.current)
+    waDebounceRef.current = setTimeout(() => {
+      checkWhatsApp(formData.phone_number, setWhatsappStatus)
+    }, 600)
+    return () => { if (waDebounceRef.current) clearTimeout(waDebounceRef.current) }
+  }, [formData.phone_number, checkWhatsApp])
+
+  const reviewWaDebounceRef = useRef<NodeJS.Timeout | null>(null)
+  useEffect(() => {
+    const cleaned = (reviewFormData.phoneNumber || '').replace(/[^0-9]/g, '')
+    if (cleaned.length < 10) { setReviewWhatsappStatus('idle'); return }
+    if (reviewWaDebounceRef.current) clearTimeout(reviewWaDebounceRef.current)
+    reviewWaDebounceRef.current = setTimeout(() => {
+      checkWhatsApp(reviewFormData.phoneNumber, setReviewWhatsappStatus)
+    }, 600)
+    return () => { if (reviewWaDebounceRef.current) clearTimeout(reviewWaDebounceRef.current) }
+  }, [reviewFormData.phoneNumber, checkWhatsApp])
 
   return (
     <main className="max-w-5xl mx-auto p-4 sm:p-6 space-y-6">
@@ -700,34 +721,17 @@ function StudentsPage() {
                 <Phone className="h-3.5 w-3.5" />
                 Phone Number <span className="text-destructive">*</span>
               </Label>
-              <div className="flex gap-2">
-                <Input
-                  id="phone_number"
-                  placeholder="514-555-1234"
-                  value={formData.phone_number}
-                  onChange={e => updateField('phone_number', e.target.value)}
-                  className="flex-1"
-                />
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  className="flex-shrink-0 h-9 px-2.5"
-                  onClick={() => checkWhatsApp(formData.phone_number, setWhatsappStatus)}
-                  disabled={whatsappStatus === 'checking' || formData.phone_number.replace(/[^0-9]/g, '').length < 10}
-                  title="Check WhatsApp"
-                >
-                  {whatsappStatus === 'checking' ? (
-                    <Loader2 className="h-4 w-4 animate-spin" />
-                  ) : whatsappStatus === 'valid' ? (
-                    <MessageCircle className="h-4 w-4 text-green-600" />
-                  ) : whatsappStatus === 'invalid' ? (
-                    <MessageCircle className="h-4 w-4 text-red-500" />
-                  ) : (
-                    <MessageCircle className="h-4 w-4" />
-                  )}
-                </Button>
-              </div>
+              <Input
+                id="phone_number"
+                placeholder="514-555-1234"
+                value={formData.phone_number}
+                onChange={e => updateField('phone_number', e.target.value)}
+              />
+              {whatsappStatus === 'checking' && (
+                <p className="text-xs text-muted-foreground mt-1 flex items-center gap-1">
+                  <Loader2 className="h-3 w-3 animate-spin" /> Checking WhatsApp...
+                </p>
+              )}
               {whatsappStatus === 'valid' && (
                 <p className="text-xs text-green-600 mt-1 flex items-center gap-1">
                   <CheckCircle className="h-3 w-3" /> This number is on WhatsApp
@@ -947,32 +951,15 @@ function StudentsPage() {
                   <Label className="text-sm font-medium flex items-center gap-1.5 mb-1.5">
                     <Phone className="h-3.5 w-3.5" /> Phone Number
                   </Label>
-                  <div className="flex gap-2">
-                    <Input
-                      value={reviewFormData.phoneNumber}
-                      onChange={e => { updateReviewField('phoneNumber', e.target.value); setReviewWhatsappStatus('idle') }}
-                      className="flex-1"
-                    />
-                    <Button
-                      type="button"
-                      variant="outline"
-                      size="sm"
-                      className="flex-shrink-0 h-9 px-2.5"
-                      onClick={() => checkWhatsApp(reviewFormData.phoneNumber, setReviewWhatsappStatus)}
-                      disabled={reviewWhatsappStatus === 'checking' || (reviewFormData.phoneNumber?.replace(/[^0-9]/g, '').length || 0) < 10}
-                      title="Check WhatsApp"
-                    >
-                      {reviewWhatsappStatus === 'checking' ? (
-                        <Loader2 className="h-4 w-4 animate-spin" />
-                      ) : reviewWhatsappStatus === 'valid' ? (
-                        <MessageCircle className="h-4 w-4 text-green-600" />
-                      ) : reviewWhatsappStatus === 'invalid' ? (
-                        <MessageCircle className="h-4 w-4 text-red-500" />
-                      ) : (
-                        <MessageCircle className="h-4 w-4" />
-                      )}
-                    </Button>
-                  </div>
+                  <Input
+                    value={reviewFormData.phoneNumber}
+                    onChange={e => updateReviewField('phoneNumber', e.target.value)}
+                  />
+                  {reviewWhatsappStatus === 'checking' && (
+                    <p className="text-xs text-muted-foreground mt-1 flex items-center gap-1">
+                      <Loader2 className="h-3 w-3 animate-spin" /> Checking WhatsApp...
+                    </p>
+                  )}
                   {reviewWhatsappStatus === 'valid' && (
                     <p className="text-xs text-green-600 mt-1 flex items-center gap-1">
                       <CheckCircle className="h-3 w-3" /> This number is on WhatsApp

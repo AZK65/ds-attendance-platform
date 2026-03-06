@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef, useCallback } from 'react'
 import { useParams } from 'next/navigation'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -23,6 +23,7 @@ import {
   MapPin,
   CreditCard,
   Calendar,
+  XCircle,
 } from 'lucide-react'
 import { AddressAutocomplete } from '@/components/AddressAutocomplete'
 
@@ -58,6 +59,31 @@ export default function EnrollPage() {
   const [formData, setFormData] = useState<FormData>(EMPTY_FORM)
   const [error, setError] = useState('')
   const [fieldErrors, setFieldErrors] = useState<Partial<Record<keyof FormData, boolean>>>({})
+  const [whatsappStatus, setWhatsappStatus] = useState<'idle' | 'checking' | 'valid' | 'invalid' | 'error'>('idle')
+
+  const checkWhatsApp = useCallback(async (phone: string) => {
+    const cleaned = phone.replace(/[^0-9]/g, '')
+    if (cleaned.length < 10) { setWhatsappStatus('idle'); return }
+    setWhatsappStatus('checking')
+    try {
+      const res = await fetch(`/api/enroll/check-whatsapp?phone=${encodeURIComponent(cleaned)}`)
+      if (!res.ok) { setWhatsappStatus('error'); return }
+      const data = await res.json()
+      setWhatsappStatus(data.registered ? 'valid' : 'invalid')
+    } catch { setWhatsappStatus('error') }
+  }, [])
+
+  // Auto-check WhatsApp when phone number changes (debounced)
+  const waDebounceRef = useRef<NodeJS.Timeout | null>(null)
+  useEffect(() => {
+    const cleaned = formData.phoneNumber.replace(/[^0-9]/g, '')
+    if (cleaned.length < 10) { setWhatsappStatus('idle'); return }
+    if (waDebounceRef.current) clearTimeout(waDebounceRef.current)
+    waDebounceRef.current = setTimeout(() => {
+      checkWhatsApp(formData.phoneNumber)
+    }, 600)
+    return () => { if (waDebounceRef.current) clearTimeout(waDebounceRef.current) }
+  }, [formData.phoneNumber, checkWhatsApp])
 
   // Check token status on load
   useEffect(() => {
@@ -272,6 +298,21 @@ export default function EnrollPage() {
                 autoComplete="tel"
               />
               {fieldErrors.phoneNumber && <p className="text-xs text-destructive mt-1">Phone number is required</p>}
+              {whatsappStatus === 'checking' && (
+                <p className="text-xs text-muted-foreground mt-1 flex items-center gap-1">
+                  <Loader2 className="h-3 w-3 animate-spin" /> Checking WhatsApp...
+                </p>
+              )}
+              {whatsappStatus === 'valid' && (
+                <p className="text-xs text-green-600 mt-1 flex items-center gap-1">
+                  <CheckCircle className="h-3 w-3" /> This number is on WhatsApp
+                </p>
+              )}
+              {whatsappStatus === 'invalid' && (
+                <p className="text-xs text-red-500 mt-1 flex items-center gap-1">
+                  <XCircle className="h-3 w-3" /> This number is not on WhatsApp
+                </p>
+              )}
             </div>
 
             {/* Email */}
