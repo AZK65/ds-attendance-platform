@@ -266,7 +266,7 @@ function StudentsPage() {
 
   const pendingRegistrations = pendingData?.registrations || []
 
-  // Fetch active students from WhatsApp groups (cached for 5 min, kept for 10 min)
+  // Fetch active students from WhatsApp groups (only course groups with module numbers)
   const { data: participantsData, isLoading: isLoadingParticipants } = useQuery<{
     participants: ParticipantWithGroup[]
     isConnected: boolean
@@ -277,8 +277,8 @@ function StudentsPage() {
       if (!res.ok) throw new Error('Failed to fetch')
       return res.json()
     },
-    staleTime: 5 * 60 * 1000,
-    gcTime: 10 * 60 * 1000,
+    staleTime: 30 * 60 * 1000,
+    gcTime: 60 * 60 * 1000,
   })
 
   // Deduplicate participants by phone (keep the one with highest module number)
@@ -320,8 +320,8 @@ function StudentsPage() {
       return res.json()
     },
     enabled: phoneList.length > 0,
-    staleTime: 5 * 60 * 1000,
-    gcTime: 10 * 60 * 1000,
+    staleTime: 30 * 60 * 1000,
+    gcTime: 60 * 60 * 1000,
   })
 
   const classResults = classesData?.results || {}
@@ -341,8 +341,8 @@ function StudentsPage() {
       return res.json()
     },
     enabled: phoneList.length > 0,
-    staleTime: 5 * 60 * 1000,
-    gcTime: 10 * 60 * 1000,
+    staleTime: 30 * 60 * 1000,
+    gcTime: 60 * 60 * 1000,
   })
 
   const dbMatches = matchesData?.matches || {}
