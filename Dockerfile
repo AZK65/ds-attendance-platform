@@ -30,8 +30,8 @@ WORKDIR /app
 # Copy package files
 COPY package.json package-lock.json* ./
 
-# Install dependencies
-RUN npm install
+# Install dependencies (ci for clean, reproducible installs)
+RUN npm ci
 
 # Copy prisma schema and generate client
 COPY prisma ./prisma/
@@ -39,6 +39,9 @@ RUN npx prisma generate
 
 # Copy the rest of the app
 COPY . .
+
+# Ensure node_modules matches current package.json (removes stale packages from cache)
+RUN npm prune
 
 # Build args for NEXT_PUBLIC_ env vars (inlined at build time)
 ARG NEXT_PUBLIC_GOOGLE_MAPS_KEY
