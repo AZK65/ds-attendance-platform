@@ -2,7 +2,16 @@ import { NextRequest, NextResponse } from 'next/server'
 import { Resend } from 'resend'
 import { prisma } from '@/lib/db'
 
-const resend = new Resend(process.env.RESEND_API_KEY)
+// Lazy-init to avoid build-time error when env var isn't set
+let _resend: Resend | null = null
+function getResend() {
+  if (!_resend) {
+    const key = process.env.RESEND_API_KEY
+    if (!key) throw new Error('RESEND_API_KEY environment variable is not set')
+    _resend = new Resend(key)
+  }
+  return _resend
+}
 
 export async function POST(request: NextRequest) {
   try {
@@ -38,6 +47,7 @@ export async function POST(request: NextRequest) {
     // Convert base64 to buffer
     const pdfBuffer = Buffer.from(pdfBase64, 'base64')
 
+    const resend = getResend()
     const { data, error } = await resend.emails.send({
       from: `${schoolName} <${senderEmail}>`,
       to: [to],
