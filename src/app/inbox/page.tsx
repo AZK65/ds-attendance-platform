@@ -62,6 +62,26 @@ function formatMessageTime(ts: number): string {
   })
 }
 
+function getDateKey(ts: number): string {
+  if (!ts) return ''
+  const d = new Date(ts * 1000)
+  return `${d.getFullYear()}-${d.getMonth()}-${d.getDate()}`
+}
+
+function formatDateSeparator(ts: number): string {
+  if (!ts) return ''
+  const d = new Date(ts * 1000)
+  const now = new Date()
+  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate())
+  const msgDay = new Date(d.getFullYear(), d.getMonth(), d.getDate())
+  const diffDays = Math.round((today.getTime() - msgDay.getTime()) / 86400000)
+
+  if (diffDays === 0) return 'Today'
+  if (diffDays === 1) return 'Yesterday'
+  if (diffDays < 7) return d.toLocaleDateString('en-CA', { weekday: 'long' })
+  return d.toLocaleDateString('en-CA', { month: 'long', day: 'numeric', year: now.getFullYear() !== d.getFullYear() ? 'numeric' : undefined })
+}
+
 function mediaPlaceholder(type: string): { icon: typeof ImageIcon; label: string } {
   switch (type) {
     case 'image': return { icon: ImageIcon, label: 'Photo' }
@@ -72,6 +92,18 @@ function mediaPlaceholder(type: string): { icon: typeof ImageIcon; label: string
     case 'sticker': return { icon: ImageIcon, label: 'Sticker' }
     default: return { icon: FileText, label: type }
   }
+}
+
+// ── Date separator ────────────────────────────────────────────
+
+function DateSeparator({ label }: { label: string }) {
+  return (
+    <div className="flex items-center justify-center my-3">
+      <div className="bg-muted/80 backdrop-blur-sm text-muted-foreground text-[11px] font-medium px-3 py-1 rounded-md shadow-sm">
+        {label}
+      </div>
+    </div>
+  )
 }
 
 // ── Chat list item ─────────────────────────────────────────────
@@ -470,13 +502,21 @@ export default function InboxPage() {
                 </div>
               ) : (
                 <>
-                  {messages.map(msg => (
-                    <MessageBubble
-                      key={msg.id}
-                      message={msg}
-                      isGroup={selectedChat?.isGroup || false}
-                    />
-                  ))}
+                  {messages.map((msg, idx) => {
+                    const prevMsg = idx > 0 ? messages[idx - 1] : null
+                    const showDate = !prevMsg || getDateKey(msg.timestamp) !== getDateKey(prevMsg.timestamp)
+                    return (
+                      <div key={msg.id}>
+                        {showDate && (
+                          <DateSeparator label={formatDateSeparator(msg.timestamp)} />
+                        )}
+                        <MessageBubble
+                          message={msg}
+                          isGroup={selectedChat?.isGroup || false}
+                        />
+                      </div>
+                    )
+                  })}
                   <div ref={messagesEndRef} />
                 </>
               )}
