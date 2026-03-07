@@ -11,8 +11,8 @@ import { Textarea } from '@/components/ui/textarea'
 import { Checkbox } from '@/components/ui/checkbox'
 import {
   Receipt, Plus, Trash2, Download, Loader2, Settings, CheckCircle2,
-  Car, Truck, ArrowLeft, ArrowRight, FileText, Package, Mail, MessageCircle, Send,
-  CreditCard, Copy, ExternalLink, Banknote, Globe,
+  Car, Truck, FileText, Package, Mail, MessageCircle, Send,
+  CreditCard, Copy, ExternalLink, Banknote, Globe, ChevronDown, ChevronUp,
 } from 'lucide-react'
 import Link from 'next/link'
 import { useSearchParams } from 'next/navigation'
@@ -64,7 +64,7 @@ interface InvoicePackage {
   instalments: PackageInstalment[]
 }
 
-type Step = 'student' | 'review' | 'payment' | 'done'
+type Step = 'form' | 'payment' | 'done'
 
 function generateId() {
   return Math.random().toString(36).substring(2, 9)
@@ -87,9 +87,10 @@ function InvoicePage() {
   const today = formatDateForInput(new Date())
   const thirtyDaysLater = formatDateForInput(new Date(Date.now() + 30 * 24 * 60 * 60 * 1000))
 
-  // Step state
-  const [step, setStep] = useState<Step>('student')
+  // Step state — simplified to just form | payment | done
+  const [step, setStep] = useState<Step>('form')
   const [vehicleType, setVehicleType] = useState<'car' | 'truck' | null>(null)
+  const [showStudentDetails, setShowStudentDetails] = useState(false)
   const [selectedStudent, setSelectedStudent] = useState(false)
 
   // PDF blob for sending after generation
@@ -162,7 +163,7 @@ function InvoicePage() {
     }
   }, [searchParams, urlPrefilled])
 
-  // Load services for vehicle type selection (for quick-add in review step)
+  // Load all services
   const { data: allServicesData } = useQuery({
     queryKey: ['invoice-services'],
     queryFn: async () => {
@@ -196,6 +197,7 @@ function InvoicePage() {
   })
 
   const allServices = allServicesData?.services || []
+  const packages = packagesData?.packages || []
 
   // Derived values
   const invoicePrefix = settings?.invoicePrefix || 'INV'
@@ -217,16 +219,14 @@ function InvoicePage() {
       const lineTotal = Math.round(item.quantity * item.unitPrice * 100) / 100
 
       if (taxesEnabled && item.taxInclusive) {
-        // Tax-inclusive: price already contains taxes, extract them
         const beforeTax = lineTotal / taxMultiplier
         const gst = beforeTax * gstRate / 100
         const qst = beforeTax * qstRate / 100
         totalBeforeTax += beforeTax
         totalGst += gst
         totalQst += qst
-        totalAmount += lineTotal // total stays the same as entered
+        totalAmount += lineTotal
       } else if (taxesEnabled) {
-        // Tax-exclusive: add taxes on top
         const gst = lineTotal * gstRate / 100
         const qst = lineTotal * qstRate / 100
         totalBeforeTax += lineTotal
@@ -234,7 +234,6 @@ function InvoicePage() {
         totalQst += qst
         totalAmount += lineTotal + gst + qst
       } else {
-        // No taxes
         totalBeforeTax += lineTotal
         totalAmount += lineTotal
       }
@@ -248,12 +247,11 @@ function InvoicePage() {
     }
   }, [lineItems, taxesEnabled, gstRate, qstRate])
 
-  // Auto-fill line items when vehicle type services load
-  // Only auto-advance to review if there are NO packages to show
+  // When vehicle type is selected and services load — auto-fill line items
+  // (only when there are no packages — otherwise user picks a package)
   useEffect(() => {
     if (vehicleServicesData?.services && vehicleType) {
-      // If packages exist for this vehicle type, don't auto-advance (let user pick)
-      const hasPackages = (packagesData?.packages || []).length > 0
+      const hasPackages = packages.length > 0
       if (hasPackages) return
 
       const newItems = vehicleServicesData.services.map((s: InvoiceService) => ({
@@ -266,9 +264,8 @@ function InvoicePage() {
       if (newItems.length > 0) {
         setLineItems(newItems)
       }
-      setStep('review')
     }
-  }, [vehicleServicesData, vehicleType, packagesData])
+  }, [vehicleServicesData, vehicleType, packages.length])
 
   // PDF generation mutation
   const generateMutation = useMutation({
@@ -283,7 +280,6 @@ function InvoicePage() {
           const balRes = await fetch(`/api/students/balance?${balanceParams}`)
           if (balRes.ok) {
             const balData = await balRes.json()
-            // Existing open balance + this new invoice total
             remainingBalance = (balData.openBalance || 0) + total
           }
         }
@@ -448,7 +444,7 @@ function InvoicePage() {
     },
   })
 
-  // Check if Clover is configured (server tells us via cloverConfigured flag)
+  // Check if Clover is configured
   const cloverConfigured = !!settings?.cloverConfigured
 
   const paymentLinkMutation = useMutation({
@@ -496,6 +492,7 @@ function InvoicePage() {
       studentEmail: '',
     }))
     setSelectedStudent(true)
+    setShowStudentDetails(false)
   }
 
   const handleDBStudentSelect = (student: DBStudent) => {
@@ -510,6 +507,7 @@ function InvoicePage() {
       studentEmail: student.email || '',
     }))
     setSelectedStudent(true)
+    setShowStudentDetails(false)
   }
 
   const handleWAContactSelect = (contact: WhatsAppContact) => {
@@ -524,17 +522,17 @@ function InvoicePage() {
       studentEmail: '',
     }))
     setSelectedStudent(true)
+    setShowStudentDetails(false)
   }
 
   const handleVehicleTypeSelect = (type: 'car' | 'truck') => {
+    if (vehicleType === type) {
+      // Deselect
+      setVehicleType(null)
+      setLineItems([{ id: generateId(), description: '', quantity: 1, unitPrice: 0, taxInclusive: true }])
+      return
+    }
     setVehicleType(type)
-    // If packages exist, we'll show them in the UI below
-    // Otherwise the useEffect will auto-fill services and advance to review
-  }
-
-  const handleSkipToCustom = () => {
-    setLineItems([{ id: generateId(), description: '', quantity: 1, unitPrice: 0, taxInclusive: true }])
-    setStep('review')
   }
 
   const handleSelectPackageFull = (pkg: InvoicePackage) => {
@@ -548,7 +546,6 @@ function InvoicePage() {
     if (items.length > 0) {
       setLineItems(items)
     }
-    setStep('review')
   }
 
   const handleSelectInstalment = (pkg: InvoicePackage, inst: PackageInstalment) => {
@@ -559,7 +556,6 @@ function InvoicePage() {
       unitPrice: inst.amount,
       taxInclusive: pkg.taxInclusive,
     }])
-    setStep('review')
   }
 
   const addLineItem = () => {
@@ -597,6 +593,7 @@ function InvoicePage() {
     })
     setLineItems([{ id: generateId(), description: '', quantity: 1, unitPrice: 0, taxInclusive: true }])
     setSelectedStudent(false)
+    setShowStudentDetails(false)
     setVehicleType(null)
     pdfBase64Ref.current = null
     setEmailSent(false)
@@ -605,17 +602,22 @@ function InvoicePage() {
     setPaymentLinkCopied(false)
     setPaymentMethod(null)
     setSavedInvoiceId(null)
-    setStep('student')
+    setStep('form')
   }
 
   const canGenerate = formData.studentName.trim() && lineItems.some(item => item.description.trim() && item.unitPrice > 0)
+
+  // Filtered services for quick-add
+  const filteredServices = allServices.filter(
+    s => !vehicleType || s.vehicleType === vehicleType || s.vehicleType === 'both'
+  )
 
   return (
     <div className="min-h-screen bg-background">
       <main className="container mx-auto px-4 py-8">
         <div className="max-w-4xl mx-auto">
           {/* Header */}
-          <div className="flex items-center justify-between mb-8">
+          <div className="flex items-center justify-between mb-6">
             <div>
               <h2 className="text-2xl font-bold flex items-center gap-2">
                 <Receipt className="h-6 w-6" />
@@ -653,35 +655,15 @@ function InvoicePage() {
             </div>
           </div>
 
-          {/* Step indicator */}
-          <div className="flex items-center justify-center gap-2 mb-8">
-            {(['student', 'review', 'done'] as const).map((s, i) => (
-              <div key={s} className="flex items-center gap-2">
-                {i > 0 && <div className={`w-8 h-0.5 ${step === s || (['review', 'done'].indexOf(step) >= i) ? 'bg-primary' : 'bg-muted'}`} />}
-                <div className={`w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold transition-colors ${
-                  step === s ? 'bg-primary text-primary-foreground'
-                    : (['review', 'done'].indexOf(step) > (['student', 'review', 'done'].indexOf(s)))
-                      ? 'bg-primary/20 text-primary'
-                      : 'bg-muted text-muted-foreground'
-                }`}>
-                  {i + 1}
-                </div>
-              </div>
-            ))}
-          </div>
-
-          {/* ========== STEP 1: SELECT STUDENT ========== */}
-          {step === 'student' && (
-            <div className="space-y-6">
-              {/* Student Search Card */}
+          {/* ========== MAIN FORM (single page) ========== */}
+          {step === 'form' && (
+            <div className="space-y-5">
+              {/* Student Search + Info */}
               <Card>
-                <CardHeader>
-                  <CardTitle className="text-lg">Student Information</CardTitle>
-                  <CardDescription>Search for an existing student or enter details manually</CardDescription>
-                </CardHeader>
-                <CardContent className="space-y-4">
+                <CardContent className="pt-5 space-y-4">
+                  {/* Search */}
                   <div>
-                    <Label className="text-xs text-muted-foreground mb-1 block">Search existing student</Label>
+                    <Label className="text-xs text-muted-foreground mb-1 block">Student</Label>
                     <StudentSearchAutocomplete
                       onSelect={handleStudentSelect}
                       onSelectDB={handleDBStudentSelect}
@@ -690,16 +672,10 @@ function InvoicePage() {
                     />
                   </div>
 
-                  {selectedStudent && (
-                    <div className="flex items-center gap-2 text-sm text-green-600">
-                      <CheckCircle2 className="h-4 w-4" />
-                      Student loaded — fields auto-filled
-                    </div>
-                  )}
-
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  {/* Student name + phone inline (always visible) */}
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
                     <div>
-                      <Label htmlFor="studentName">Name *</Label>
+                      <Label htmlFor="studentName" className="text-xs">Name *</Label>
                       <Input
                         id="studentName"
                         value={formData.studentName}
@@ -708,17 +684,7 @@ function InvoicePage() {
                       />
                     </div>
                     <div>
-                      <Label htmlFor="studentEmail">Email</Label>
-                      <Input
-                        id="studentEmail"
-                        type="email"
-                        value={formData.studentEmail}
-                        onChange={(e) => handleFieldChange('studentEmail', e.target.value)}
-                        placeholder="student@email.com"
-                      />
-                    </div>
-                    <div>
-                      <Label htmlFor="studentPhone">Phone</Label>
+                      <Label htmlFor="studentPhone" className="text-xs">Phone</Label>
                       <Input
                         id="studentPhone"
                         value={formData.studentPhone}
@@ -727,26 +693,52 @@ function InvoicePage() {
                       />
                     </div>
                     <div>
-                      <Label htmlFor="studentAddress">Address</Label>
+                      <Label htmlFor="studentEmail" className="text-xs">Email</Label>
                       <Input
-                        id="studentAddress"
-                        value={formData.studentAddress}
-                        onChange={(e) => handleFieldChange('studentAddress', e.target.value)}
-                        placeholder="123 Street"
+                        id="studentEmail"
+                        type="email"
+                        value={formData.studentEmail}
+                        onChange={(e) => handleFieldChange('studentEmail', e.target.value)}
+                        placeholder="student@email.com"
                       />
                     </div>
-                    <div>
-                      <Label htmlFor="studentCity">City</Label>
-                      <Input
-                        id="studentCity"
-                        value={formData.studentCity}
-                        onChange={(e) => handleFieldChange('studentCity', e.target.value)}
-                        placeholder="Montréal"
-                      />
-                    </div>
-                    <div className="grid grid-cols-2 gap-2">
+                  </div>
+
+                  {/* Collapsible address details */}
+                  <button
+                    type="button"
+                    onClick={() => setShowStudentDetails(!showStudentDetails)}
+                    className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground transition-colors"
+                  >
+                    {showStudentDetails ? <ChevronUp className="h-3 w-3" /> : <ChevronDown className="h-3 w-3" />}
+                    {showStudentDetails ? 'Hide' : 'Show'} address details
+                    {(formData.studentAddress || formData.studentCity) && !showStudentDetails && (
+                      <span className="text-green-600 ml-1">(filled)</span>
+                    )}
+                  </button>
+
+                  {showStudentDetails && (
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-3 pt-1">
                       <div>
-                        <Label htmlFor="studentProvince">Province</Label>
+                        <Label htmlFor="studentAddress" className="text-xs">Address</Label>
+                        <Input
+                          id="studentAddress"
+                          value={formData.studentAddress}
+                          onChange={(e) => handleFieldChange('studentAddress', e.target.value)}
+                          placeholder="123 Street"
+                        />
+                      </div>
+                      <div>
+                        <Label htmlFor="studentCity" className="text-xs">City</Label>
+                        <Input
+                          id="studentCity"
+                          value={formData.studentCity}
+                          onChange={(e) => handleFieldChange('studentCity', e.target.value)}
+                          placeholder="Montréal"
+                        />
+                      </div>
+                      <div>
+                        <Label htmlFor="studentProvince" className="text-xs">Province</Label>
                         <Input
                           id="studentProvince"
                           value={formData.studentProvince}
@@ -755,7 +747,7 @@ function InvoicePage() {
                         />
                       </div>
                       <div>
-                        <Label htmlFor="studentPostalCode">Postal Code</Label>
+                        <Label htmlFor="studentPostalCode" className="text-xs">Postal Code</Label>
                         <Input
                           id="studentPostalCode"
                           value={formData.studentPostalCode}
@@ -764,230 +756,136 @@ function InvoicePage() {
                         />
                       </div>
                     </div>
-                  </div>
+                  )}
+
+                  {selectedStudent && (
+                    <div className="flex items-center gap-2 text-xs text-green-600">
+                      <CheckCircle2 className="h-3.5 w-3.5" />
+                      Student info loaded
+                    </div>
+                  )}
                 </CardContent>
               </Card>
 
-              {/* Vehicle Type Selection */}
-              {formData.studentName.trim() && (
-                <Card>
-                  <CardHeader>
-                    <CardTitle className="text-lg">Course Type</CardTitle>
-                    <CardDescription>Select the vehicle type to auto-fill pricing</CardDescription>
-                  </CardHeader>
-                  <CardContent>
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              {/* Vehicle Type + Packages/Services (compact inline picker) */}
+              <Card>
+                <CardContent className="pt-5 space-y-4">
+                  {/* Vehicle type toggle */}
+                  <div>
+                    <Label className="text-xs text-muted-foreground mb-2 block">Course Type</Label>
+                    <div className="flex gap-3">
                       <button
                         onClick={() => handleVehicleTypeSelect('car')}
-                        className="flex flex-col items-center gap-3 p-6 border-2 rounded-xl hover:border-blue-500 hover:bg-blue-50/50 transition-all group"
+                        className={`flex items-center gap-2.5 px-4 py-2.5 border-2 rounded-lg transition-all ${
+                          vehicleType === 'car'
+                            ? 'border-blue-500 bg-blue-50 dark:bg-blue-950 shadow-sm'
+                            : 'border-muted hover:border-blue-300'
+                        }`}
                       >
-                        <div className="w-16 h-16 rounded-full bg-blue-100 flex items-center justify-center group-hover:bg-blue-200 transition-colors">
-                          <Car className="h-8 w-8 text-blue-600" />
+                        <div className={`w-9 h-9 rounded-full flex items-center justify-center transition-colors ${
+                          vehicleType === 'car' ? 'bg-blue-200 dark:bg-blue-800' : 'bg-blue-100 dark:bg-blue-900/50'
+                        }`}>
+                          <Car className="h-5 w-5 text-blue-600" />
                         </div>
-                        <div className="text-center">
-                          <h3 className="font-semibold text-lg">Car</h3>
-                          <p className="text-sm text-muted-foreground">Passenger vehicle course</p>
+                        <div className="text-left">
+                          <p className="font-medium text-sm">Car</p>
+                          <p className="text-[10px] text-muted-foreground">Passenger vehicle</p>
                         </div>
+                        {vehicleType === 'car' && <CheckCircle2 className="h-4 w-4 text-blue-500 ml-1" />}
                       </button>
 
                       <button
                         onClick={() => handleVehicleTypeSelect('truck')}
-                        className="flex flex-col items-center gap-3 p-6 border-2 rounded-xl hover:border-orange-500 hover:bg-orange-50/50 transition-all group"
+                        className={`flex items-center gap-2.5 px-4 py-2.5 border-2 rounded-lg transition-all ${
+                          vehicleType === 'truck'
+                            ? 'border-orange-500 bg-orange-50 dark:bg-orange-950 shadow-sm'
+                            : 'border-muted hover:border-orange-300'
+                        }`}
                       >
-                        <div className="w-16 h-16 rounded-full bg-orange-100 flex items-center justify-center group-hover:bg-orange-200 transition-colors">
-                          <Truck className="h-8 w-8 text-orange-600" />
+                        <div className={`w-9 h-9 rounded-full flex items-center justify-center transition-colors ${
+                          vehicleType === 'truck' ? 'bg-orange-200 dark:bg-orange-800' : 'bg-orange-100 dark:bg-orange-900/50'
+                        }`}>
+                          <Truck className="h-5 w-5 text-orange-600" />
                         </div>
-                        <div className="text-center">
-                          <h3 className="font-semibold text-lg">Truck</h3>
-                          <p className="text-sm text-muted-foreground">Commercial vehicle course</p>
+                        <div className="text-left">
+                          <p className="font-medium text-sm">Truck</p>
+                          <p className="text-[10px] text-muted-foreground">Commercial vehicle</p>
                         </div>
+                        {vehicleType === 'truck' && <CheckCircle2 className="h-4 w-4 text-orange-500 ml-1" />}
                       </button>
                     </div>
+                  </div>
 
-                    <div className="text-center mt-4">
-                      <Button variant="ghost" size="sm" onClick={handleSkipToCustom} className="text-muted-foreground">
-                        <FileText className="h-4 w-4 mr-1" />
-                        Skip — Custom Invoice
-                      </Button>
-                    </div>
-                  </CardContent>
-                </Card>
-              )}
-
-              {/* Package Selection — shown after vehicle type is chosen and packages exist */}
-              {vehicleType && (packagesData?.packages || []).length > 0 && (
-                <Card>
-                  <CardHeader>
-                    <CardTitle className="text-lg flex items-center gap-2">
-                      <Package className="h-5 w-5" />
-                      Select Package
-                    </CardTitle>
-                    <CardDescription>Choose a package or pick individual instalments</CardDescription>
-                  </CardHeader>
-                  <CardContent className="space-y-4">
-                    {packagesData!.packages.map(pkg => (
-                      <div key={pkg.id} className="border-2 rounded-xl p-4 space-y-3 hover:border-primary/30 transition-colors">
-                        <div className="flex items-center justify-between">
-                          <div>
-                            <h3 className="font-semibold">{pkg.name}</h3>
-                            <p className="text-sm text-muted-foreground">
-                              Total: <span className="font-mono font-medium">${pkg.totalPrice.toFixed(2)}</span>
-                              {pkg.taxInclusive ? ' (tax incl.)' : ' (+tax)'}
-                            </p>
-                          </div>
-                          <Button size="sm" onClick={() => handleSelectPackageFull(pkg)}>
-                            Full Package
-                          </Button>
-                        </div>
-
-                        {pkg.instalments.length > 0 && (
-                          <div className="space-y-1.5">
-                            <p className="text-xs text-muted-foreground font-medium uppercase tracking-wider">Instalments</p>
-                            {pkg.instalments.map(inst => (
-                              <button
-                                key={inst.id}
-                                onClick={() => handleSelectInstalment(pkg, inst)}
-                                className="w-full flex items-center justify-between px-3 py-2 rounded-lg border hover:bg-accent/50 hover:border-primary/30 transition-colors text-left"
-                              >
-                                <span className="text-sm">
-                                  <span className="text-muted-foreground mr-2">{inst.instalmentNumber}.</span>
-                                  {inst.name}
+                  {/* Packages — shown when vehicle type selected and packages exist */}
+                  {vehicleType && packages.length > 0 && (
+                    <div>
+                      <Label className="text-xs text-muted-foreground mb-2 block">Packages</Label>
+                      <div className="space-y-3">
+                        {packages.map(pkg => (
+                          <div key={pkg.id} className="border rounded-lg p-3 space-y-2">
+                            <div className="flex items-center justify-between">
+                              <div>
+                                <span className="font-medium text-sm">{pkg.name}</span>
+                                <span className="text-xs text-muted-foreground ml-2">
+                                  ${pkg.totalPrice.toFixed(2)} {pkg.taxInclusive ? '(tax incl.)' : '(+tax)'}
                                 </span>
-                                <span className="font-mono text-sm font-medium">${inst.amount.toFixed(2)}</span>
-                              </button>
-                            ))}
+                              </div>
+                              <Button size="sm" variant="outline" onClick={() => handleSelectPackageFull(pkg)} className="text-xs h-7">
+                                <Package className="h-3 w-3 mr-1" />
+                                Full Package
+                              </Button>
+                            </div>
+
+                            {pkg.instalments.length > 0 && (
+                              <div className="flex flex-wrap gap-1.5">
+                                {pkg.instalments.map(inst => (
+                                  <button
+                                    key={inst.id}
+                                    onClick={() => handleSelectInstalment(pkg, inst)}
+                                    className="flex items-center gap-2 px-2.5 py-1.5 rounded-md border text-xs hover:bg-accent/50 hover:border-primary/30 transition-colors"
+                                  >
+                                    <span className="text-muted-foreground">{inst.instalmentNumber}.</span>
+                                    <span>{inst.name}</span>
+                                    <span className="font-mono font-medium">${inst.amount.toFixed(2)}</span>
+                                  </button>
+                                ))}
+                              </div>
+                            )}
                           </div>
-                        )}
-                      </div>
-                    ))}
-
-                    {/* Option to use services instead */}
-                    <div className="flex flex-wrap gap-2 pt-2 border-t">
-                      <p className="w-full text-xs text-muted-foreground mb-1">Or use individual services:</p>
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        onClick={() => {
-                          // Use services auto-fill instead
-                          if (vehicleServicesData?.services) {
-                            const newItems = vehicleServicesData.services.map((s: InvoiceService) => ({
-                              id: generateId(),
-                              description: s.name,
-                              quantity: 1,
-                              unitPrice: s.price,
-                              taxInclusive: s.taxInclusive,
-                            }))
-                            if (newItems.length > 0) setLineItems(newItems)
-                          }
-                          setStep('review')
-                        }}
-                      >
-                        Use {vehicleType === 'car' ? 'Car' : 'Truck'} Services
-                      </Button>
-                      <Button variant="ghost" size="sm" onClick={handleSkipToCustom}>
-                        Custom Invoice
-                      </Button>
-                    </div>
-                  </CardContent>
-                </Card>
-              )}
-            </div>
-          )}
-
-          {/* ========== STEP 2: REVIEW & EDIT ========== */}
-          {step === 'review' && (
-            <div className="space-y-6">
-              {/* Student summary bar */}
-              <div className="flex items-center justify-between bg-muted/50 rounded-lg px-4 py-3">
-                <div className="flex items-center gap-3">
-                  <CheckCircle2 className="h-5 w-5 text-green-500" />
-                  <div>
-                    <p className="font-medium text-sm">{formData.studentName}</p>
-                    <p className="text-xs text-muted-foreground">
-                      {formData.studentPhone && `${formData.studentPhone} · `}
-                      {vehicleType ? (
-                        <Badge variant="outline" className={`text-[10px] ${vehicleType === 'car' ? 'text-blue-600 border-blue-200' : 'text-orange-600 border-orange-200'}`}>
-                          {vehicleType === 'car' ? 'Car' : 'Truck'}
-                        </Badge>
-                      ) : (
-                        <Badge variant="outline" className="text-[10px]">Custom</Badge>
-                      )}
-                    </p>
-                  </div>
-                </div>
-                <Button variant="ghost" size="sm" onClick={() => { setStep('student'); setVehicleType(null) }}>
-                  <ArrowLeft className="h-4 w-4 mr-1" />
-                  Change
-                </Button>
-              </div>
-
-              {/* Invoice Details */}
-              <Card>
-                <CardHeader>
-                  <CardTitle className="text-lg">Invoice Details</CardTitle>
-                </CardHeader>
-                <CardContent>
-                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                    <div>
-                      <Label htmlFor="invoiceNumber">Invoice #</Label>
-                      <Input
-                        id="invoiceNumber"
-                        value={invoiceNumber}
-                        disabled
-                        className="font-mono bg-muted"
-                      />
-                    </div>
-                    <div>
-                      <Label htmlFor="invoiceDate">Date</Label>
-                      <Input
-                        id="invoiceDate"
-                        type="date"
-                        value={formData.invoiceDate}
-                        onChange={(e) => handleFieldChange('invoiceDate', e.target.value)}
-                      />
-                    </div>
-                    <div>
-                      <Label htmlFor="dueDate">Due Date</Label>
-                      <Input
-                        id="dueDate"
-                        type="date"
-                        value={formData.dueDate}
-                        onChange={(e) => handleFieldChange('dueDate', e.target.value)}
-                      />
-                    </div>
-                  </div>
-                </CardContent>
-              </Card>
-
-              {/* Line Items */}
-              <Card>
-                <CardHeader>
-                  <CardTitle className="text-lg">Line Items</CardTitle>
-                </CardHeader>
-                <CardContent className="space-y-4">
-                  {/* Quick-add from services */}
-                  {allServices.length > 0 && (
-                    <div>
-                      <Label className="text-xs text-muted-foreground mb-2 block">Quick Add</Label>
-                      <div className="flex flex-wrap gap-2">
-                        {allServices
-                          .filter(s => !vehicleType || s.vehicleType === vehicleType || s.vehicleType === 'both')
-                          .map((service) => (
-                            <Button
-                              key={service.id}
-                              variant="secondary"
-                              size="sm"
-                              onClick={() => addServiceAsItem(service)}
-                              className="text-xs"
-                            >
-                              <Plus className="h-3 w-3 mr-1" />
-                              {service.name} (${service.price})
-                            </Button>
-                          ))}
+                        ))}
                       </div>
                     </div>
                   )}
 
+                  {/* Quick-add services */}
+                  {filteredServices.length > 0 && (
+                    <div>
+                      <Label className="text-xs text-muted-foreground mb-2 block">Quick Add Services</Label>
+                      <div className="flex flex-wrap gap-1.5">
+                        {filteredServices.map((service) => (
+                          <Button
+                            key={service.id}
+                            variant="secondary"
+                            size="sm"
+                            onClick={() => addServiceAsItem(service)}
+                            className="text-xs h-7"
+                          >
+                            <Plus className="h-3 w-3 mr-1" />
+                            {service.name} (${service.price})
+                          </Button>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </CardContent>
+              </Card>
+
+              {/* Line Items + Totals */}
+              <Card>
+                <CardHeader className="pb-3">
+                  <CardTitle className="text-base">Line Items</CardTitle>
+                </CardHeader>
+                <CardContent className="space-y-3">
                   {/* Column headers */}
                   <div className="hidden md:grid grid-cols-12 gap-2 text-xs text-muted-foreground font-medium px-1">
                     <div className="col-span-5">Description</div>
@@ -1058,7 +956,7 @@ function InvoicePage() {
 
                   {/* Totals */}
                   <div className="border-t pt-4 mt-4">
-                    <div className="flex items-center gap-2 mb-4">
+                    <div className="flex items-center gap-2 mb-3">
                       <Checkbox
                         id="taxesEnabled"
                         checked={taxesEnabled}
@@ -1095,46 +993,70 @@ function InvoicePage() {
                 </CardContent>
               </Card>
 
-              {/* Notes */}
+              {/* Invoice Details + Notes (compact row) */}
               <Card>
-                <CardHeader>
-                  <CardTitle className="text-lg">Notes</CardTitle>
-                </CardHeader>
-                <CardContent>
-                  <Textarea
-                    value={formData.notes}
-                    onChange={(e) => handleFieldChange('notes', e.target.value)}
-                    placeholder="Additional notes to display on the invoice..."
-                    rows={3}
-                  />
+                <CardContent className="pt-5 space-y-4">
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                    <div>
+                      <Label htmlFor="invoiceNumber" className="text-xs">Invoice #</Label>
+                      <Input
+                        id="invoiceNumber"
+                        value={invoiceNumber}
+                        disabled
+                        className="font-mono bg-muted"
+                      />
+                    </div>
+                    <div>
+                      <Label htmlFor="invoiceDate" className="text-xs">Date</Label>
+                      <Input
+                        id="invoiceDate"
+                        type="date"
+                        value={formData.invoiceDate}
+                        onChange={(e) => handleFieldChange('invoiceDate', e.target.value)}
+                      />
+                    </div>
+                    <div>
+                      <Label htmlFor="dueDate" className="text-xs">Due Date</Label>
+                      <Input
+                        id="dueDate"
+                        type="date"
+                        value={formData.dueDate}
+                        onChange={(e) => handleFieldChange('dueDate', e.target.value)}
+                      />
+                    </div>
+                  </div>
+                  <div>
+                    <Label htmlFor="notes" className="text-xs">Notes</Label>
+                    <Textarea
+                      id="notes"
+                      value={formData.notes}
+                      onChange={(e) => handleFieldChange('notes', e.target.value)}
+                      placeholder="Additional notes for the invoice..."
+                      rows={2}
+                    />
+                  </div>
                 </CardContent>
               </Card>
 
-              {/* Action Buttons */}
-              <div className="flex justify-between items-center">
-                <Button variant="outline" onClick={() => { setStep('student'); setVehicleType(null) }}>
-                  <ArrowLeft className="h-4 w-4 mr-1" />
-                  Back
-                </Button>
-                <div className="flex items-center gap-3">
-                  {!canGenerate && (
-                    <p className="text-xs text-muted-foreground">
-                      Add at least one line item with a price
-                    </p>
+              {/* Generate Button */}
+              <div className="flex justify-end items-center gap-3">
+                {!canGenerate && (
+                  <p className="text-xs text-muted-foreground">
+                    Enter a student name and at least one line item
+                  </p>
+                )}
+                <Button
+                  onClick={() => generateMutation.mutate()}
+                  disabled={!canGenerate || generateMutation.isPending}
+                  size="lg"
+                >
+                  {generateMutation.isPending ? (
+                    <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                  ) : (
+                    <Download className="h-4 w-4 mr-2" />
                   )}
-                  <Button
-                    onClick={() => generateMutation.mutate()}
-                    disabled={!canGenerate || generateMutation.isPending}
-                    size="lg"
-                  >
-                    {generateMutation.isPending ? (
-                      <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                    ) : (
-                      <Download className="h-4 w-4 mr-2" />
-                    )}
-                    Generate Invoice PDF
-                  </Button>
-                </div>
+                  Generate Invoice
+                </Button>
               </div>
 
               {generateMutation.isError && (
@@ -1145,7 +1067,7 @@ function InvoicePage() {
             </div>
           )}
 
-          {/* ========== STEP 3: PAYMENT METHOD ========== */}
+          {/* ========== PAYMENT & SEND ========== */}
           {step === 'payment' && (
             <div className="space-y-6">
               <Card>
@@ -1160,6 +1082,7 @@ function InvoicePage() {
                 </CardContent>
               </Card>
 
+              {/* Payment Method */}
               <Card>
                 <CardHeader>
                   <CardTitle className="text-lg flex items-center gap-2">
@@ -1170,7 +1093,6 @@ function InvoicePage() {
                 </CardHeader>
                 <CardContent>
                   <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-                    {/* Cash */}
                     <button
                       className={`flex flex-col items-center gap-3 p-6 rounded-xl border-2 transition-all hover:shadow-md ${
                         paymentMethod === 'cash'
@@ -1196,7 +1118,6 @@ function InvoicePage() {
                       </div>
                     </button>
 
-                    {/* Credit/Debit In-Person */}
                     <button
                       className={`flex flex-col items-center gap-3 p-6 rounded-xl border-2 transition-all hover:shadow-md ${
                         paymentMethod === 'card'
@@ -1222,7 +1143,6 @@ function InvoicePage() {
                       </div>
                     </button>
 
-                    {/* Online Payment */}
                     <button
                       className={`flex flex-col items-center gap-3 p-6 rounded-xl border-2 transition-all hover:shadow-md ${
                         paymentMethod === 'online'
@@ -1238,7 +1158,6 @@ function InvoicePage() {
                             body: JSON.stringify({ invoiceId: savedInvoiceId, paymentMethod: 'online', paymentStatus: 'unpaid' }),
                           })
                         }
-                        // Generate payment link if Clover is configured
                         if (cloverConfigured) {
                           paymentLinkMutation.mutate()
                         }
@@ -1263,7 +1182,7 @@ function InvoicePage() {
             </div>
           )}
 
-          {/* ========== STEP 4: DONE ========== */}
+          {/* ========== DONE ========== */}
           {step === 'done' && (
             <div className="space-y-6">
               <Card>
