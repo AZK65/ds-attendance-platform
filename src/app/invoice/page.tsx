@@ -12,7 +12,7 @@ import { Checkbox } from '@/components/ui/checkbox'
 import {
   Receipt, Plus, Trash2, Download, Loader2, Settings, CheckCircle2,
   Car, Truck, ArrowLeft, ArrowRight, FileText, Package, Mail, MessageCircle, Send,
-  CreditCard, Copy, ExternalLink,
+  CreditCard, Copy, ExternalLink, Banknote, Globe,
 } from 'lucide-react'
 import Link from 'next/link'
 import { useSearchParams } from 'next/navigation'
@@ -48,7 +48,7 @@ interface InvoiceService {
   taxInclusive: boolean
 }
 
-type Step = 'student' | 'review' | 'done'
+type Step = 'student' | 'review' | 'payment' | 'done'
 
 function generateId() {
   return Math.random().toString(36).substring(2, 9)
@@ -82,6 +82,8 @@ function InvoicePage() {
   const [whatsappSent, setWhatsappSent] = useState(false)
   const [paymentUrl, setPaymentUrl] = useState<string | null>(null)
   const [paymentLinkCopied, setPaymentLinkCopied] = useState(false)
+  const [paymentMethod, setPaymentMethod] = useState<'cash' | 'card' | 'online' | null>(null)
+  const [savedInvoiceId, setSavedInvoiceId] = useState<string | null>(null)
 
   // Form state
   const [formData, setFormData] = useState<InvoiceFormData>({
@@ -302,7 +304,8 @@ function InvoicePage() {
 
       setEmailSent(false)
       setWhatsappSent(false)
-      setStep('done')
+      setPaymentMethod(null)
+      setStep('payment')
       saveMutation.mutate()
     },
   })
@@ -335,8 +338,11 @@ function InvoicePage() {
       if (!res.ok) throw new Error('Failed to save invoice')
       return res.json()
     },
-    onSuccess: () => {
+    onSuccess: (data) => {
       queryClient.invalidateQueries({ queryKey: ['invoice-settings'] })
+      if (data?.invoice?.id) {
+        setSavedInvoiceId(data.invoice.id)
+      }
     },
   })
 
@@ -507,6 +513,8 @@ function InvoicePage() {
     setWhatsappSent(false)
     setPaymentUrl(null)
     setPaymentLinkCopied(false)
+    setPaymentMethod(null)
+    setSavedInvoiceId(null)
     setStep('student')
   }
 
@@ -962,8 +970,8 @@ function InvoicePage() {
             </div>
           )}
 
-          {/* ========== STEP 3: DONE ========== */}
-          {step === 'done' && (
+          {/* ========== STEP 3: PAYMENT METHOD ========== */}
+          {step === 'payment' && (
             <div className="space-y-6">
               <Card>
                 <CardContent className="pt-8 pb-8 text-center space-y-4">
@@ -972,6 +980,130 @@ function InvoicePage() {
                   <p className="text-muted-foreground">
                     Invoice <span className="font-mono font-bold">{invoiceNumber}</span> for{' '}
                     <span className="font-bold">{formData.studentName}</span> has been downloaded.
+                  </p>
+                  <p className="text-lg font-bold">${total.toFixed(2)}</p>
+                </CardContent>
+              </Card>
+
+              <Card>
+                <CardHeader>
+                  <CardTitle className="text-lg flex items-center gap-2">
+                    <CreditCard className="h-5 w-5" />
+                    Payment Method
+                  </CardTitle>
+                  <CardDescription>How will the student pay for this invoice?</CardDescription>
+                </CardHeader>
+                <CardContent>
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                    {/* Cash */}
+                    <button
+                      className={`flex flex-col items-center gap-3 p-6 rounded-xl border-2 transition-all hover:shadow-md ${
+                        paymentMethod === 'cash'
+                          ? 'border-green-500 bg-green-50 dark:bg-green-950'
+                          : 'border-muted hover:border-green-300'
+                      }`}
+                      onClick={async () => {
+                        setPaymentMethod('cash')
+                        if (savedInvoiceId) {
+                          await fetch('/api/invoice/update-payment', {
+                            method: 'PUT',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ invoiceId: savedInvoiceId, paymentMethod: 'cash', paymentStatus: 'paid' }),
+                          })
+                        }
+                        setStep('done')
+                      }}
+                    >
+                      <Banknote className="h-10 w-10 text-green-600" />
+                      <div className="text-center">
+                        <p className="font-semibold">Cash</p>
+                        <p className="text-xs text-muted-foreground">Paid in cash</p>
+                      </div>
+                    </button>
+
+                    {/* Credit/Debit In-Person */}
+                    <button
+                      className={`flex flex-col items-center gap-3 p-6 rounded-xl border-2 transition-all hover:shadow-md ${
+                        paymentMethod === 'card'
+                          ? 'border-blue-500 bg-blue-50 dark:bg-blue-950'
+                          : 'border-muted hover:border-blue-300'
+                      }`}
+                      onClick={async () => {
+                        setPaymentMethod('card')
+                        if (savedInvoiceId) {
+                          await fetch('/api/invoice/update-payment', {
+                            method: 'PUT',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ invoiceId: savedInvoiceId, paymentMethod: 'card', paymentStatus: 'paid' }),
+                          })
+                        }
+                        setStep('done')
+                      }}
+                    >
+                      <CreditCard className="h-10 w-10 text-blue-600" />
+                      <div className="text-center">
+                        <p className="font-semibold">Credit / Debit</p>
+                        <p className="text-xs text-muted-foreground">Paid at terminal</p>
+                      </div>
+                    </button>
+
+                    {/* Online Payment */}
+                    <button
+                      className={`flex flex-col items-center gap-3 p-6 rounded-xl border-2 transition-all hover:shadow-md ${
+                        paymentMethod === 'online'
+                          ? 'border-purple-500 bg-purple-50 dark:bg-purple-950'
+                          : 'border-muted hover:border-purple-300'
+                      }`}
+                      onClick={async () => {
+                        setPaymentMethod('online')
+                        if (savedInvoiceId) {
+                          await fetch('/api/invoice/update-payment', {
+                            method: 'PUT',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ invoiceId: savedInvoiceId, paymentMethod: 'online', paymentStatus: 'unpaid' }),
+                          })
+                        }
+                        // Generate payment link if Clover is configured
+                        if (cloverConfigured) {
+                          paymentLinkMutation.mutate()
+                        }
+                        setStep('done')
+                      }}
+                    >
+                      <Globe className="h-10 w-10 text-purple-600" />
+                      <div className="text-center">
+                        <p className="font-semibold">Online</p>
+                        <p className="text-xs text-muted-foreground">Send payment link</p>
+                      </div>
+                    </button>
+                  </div>
+                </CardContent>
+              </Card>
+
+              <div className="flex justify-center">
+                <Button variant="ghost" size="sm" onClick={() => setStep('done')}>
+                  Skip — decide later
+                </Button>
+              </div>
+            </div>
+          )}
+
+          {/* ========== STEP 4: DONE ========== */}
+          {step === 'done' && (
+            <div className="space-y-6">
+              <Card>
+                <CardContent className="pt-8 pb-8 text-center space-y-4">
+                  <CheckCircle2 className="h-16 w-16 text-green-500 mx-auto" />
+                  <h3 className="text-xl font-bold">
+                    {paymentMethod === 'cash' || paymentMethod === 'card' ? 'Invoice Paid!' : 'Invoice Generated!'}
+                  </h3>
+                  <p className="text-muted-foreground">
+                    Invoice <span className="font-mono font-bold">{invoiceNumber}</span> for{' '}
+                    <span className="font-bold">{formData.studentName}</span>
+                    {paymentMethod === 'cash' && ' — paid in cash'}
+                    {paymentMethod === 'card' && ' — paid by card'}
+                    {paymentMethod === 'online' && ' — payment link sent'}
+                    {!paymentMethod && ' has been downloaded'}
                   </p>
                   <p className="text-lg font-bold">${total.toFixed(2)}</p>
                 </CardContent>

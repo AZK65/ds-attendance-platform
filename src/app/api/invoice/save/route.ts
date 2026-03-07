@@ -23,6 +23,8 @@ export async function POST(request: NextRequest) {
       qstAmount,
       total,
       notes,
+      paymentMethod,
+      paymentStatus,
     } = body
 
     if (!invoiceNumber || !studentName) {
@@ -51,6 +53,8 @@ export async function POST(request: NextRequest) {
         qstAmount: qstAmount || 0,
         total: total || 0,
         notes: notes || null,
+        paymentMethod: paymentMethod || null,
+        paymentStatus: paymentStatus || 'unpaid',
       }
     })
 

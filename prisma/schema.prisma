@@ -252,6 +252,8 @@ model Invoice {
   qstAmount         Float    @default(0)
   total             Float
   notes             String?
+  paymentMethod     String?                  // "cash", "card", "online"
+  paymentStatus     String   @default("unpaid") // "unpaid", "paid"
   cloverOrderId     String?  // Linked Clover order ID
   cloverPaymentUrl  String?  // Clover Hosted Checkout link
   cloverPaid        Boolean  @default(false) // Payment completed via Clover

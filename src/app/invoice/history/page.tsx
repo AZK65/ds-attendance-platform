@@ -24,8 +24,10 @@ import {
 import {
   Search, Loader2, FileText, ArrowLeft, X, Calendar,
   CreditCard, Link2, Eye, Copy, ExternalLink, CheckCircle2,
+  Banknote, Globe,
 } from 'lucide-react'
 import Link from 'next/link'
+import { useRouter } from 'next/navigation'
 
 interface Invoice {
   id: string
@@ -43,6 +45,8 @@ interface Invoice {
   gstAmount: number
   qstAmount: number
   total: number
+  paymentMethod: string | null
+  paymentStatus: string
   cloverOrderId: string | null
   cloverPaymentUrl: string | null
   cloverPaid: boolean
@@ -109,6 +113,7 @@ const scoreColors: Record<string, string> = {
 }
 
 export default function InvoiceHistoryPage() {
+  const router = useRouter()
   const queryClient = useQueryClient()
   const [search, setSearch] = useState('')
   const [debouncedSearch, setDebouncedSearch] = useState('')
@@ -323,6 +328,7 @@ export default function InvoiceHistoryPage() {
                       <TableHead>Date</TableHead>
                       <TableHead>Items</TableHead>
                       <TableHead className="text-right">Total</TableHead>
+                      <TableHead>Payment</TableHead>
                       {cloverConfigured && <TableHead>Clover</TableHead>}
                       <TableHead className="w-[120px]">Actions</TableHead>
                     </TableRow>
@@ -332,7 +338,7 @@ export default function InvoiceHistoryPage() {
                       <TableRow
                         key={inv.id}
                         className="cursor-pointer hover:bg-muted/50 transition-colors"
-                        onClick={() => setViewDialogInvoice(inv)}
+                        onClick={() => router.push(`/invoice/${inv.id}`)}
                       >
                         <TableCell className="font-mono font-medium">
                           {inv.invoiceNumber}
@@ -353,6 +359,21 @@ export default function InvoiceHistoryPage() {
                         </TableCell>
                         <TableCell className="text-right font-semibold">
                           {formatCurrency(inv.total)}
+                        </TableCell>
+                        <TableCell>
+                          {inv.paymentStatus === 'paid' ? (
+                            <Badge className="bg-green-100 text-green-700 border-green-200 text-xs">
+                              {inv.paymentMethod === 'cash' && <Banknote className="h-3 w-3 mr-1" />}
+                              {inv.paymentMethod === 'card' && <CreditCard className="h-3 w-3 mr-1" />}
+                              {inv.paymentMethod === 'online' && <Globe className="h-3 w-3 mr-1" />}
+                              {inv.paymentMethod === 'cash' ? 'Cash' : inv.paymentMethod === 'card' ? 'Card' : inv.paymentMethod === 'online' ? 'Online' : 'Paid'}
+                            </Badge>
+                          ) : inv.paymentMethod === 'online' ? (
+                            <Badge variant="outline" className="text-orange-600 border-orange-200 text-xs">
+                              <Globe className="h-3 w-3 mr-1" />
+                              Pending
+                            </Badge>
+                          ) : null}
                         </TableCell>
                         {cloverConfigured && (
                           <TableCell>
@@ -416,13 +437,13 @@ export default function InvoiceHistoryPage() {
                                 </Button>
                               </>
                             )}
-                            {/* View details */}
+                            {/* View invoice */}
                             <Button
                               size="sm"
                               variant="ghost"
                               className="h-7 w-7 p-0"
-                              title="View invoice details"
-                              onClick={() => setViewDialogInvoice(inv)}
+                              title="View invoice"
+                              onClick={() => router.push(`/invoice/${inv.id}`)}
                             >
                               <Eye className="h-3.5 w-3.5" />
                             </Button>
