@@ -56,4 +56,4 @@ RUN mkdir -p /app/data
 EXPOSE 3000
 
 # Start the app
-CMD ["sh", "-c", "npx prisma db push --skip-generate && npm start"]
+CMD ["sh", "-c", "npx prisma db push --skip-generate --accept-data-loss && npm start"]
