@@ -459,6 +459,28 @@ function SchedulingPage() {
     staleTime: 5 * 60 * 1000,
   })
 
+  // Group participants (shared cache with ContactSearchAutocomplete) — used for View Profile link
+  const { data: groupParticipantsData } = useQuery<{ participants: { id: string; phone: string; groupId: string; groupName: string }[] }>({
+    queryKey: ['group-participants-all'],
+    queryFn: async () => {
+      const res = await fetch('/api/groups/participants')
+      if (!res.ok) return { participants: [] }
+      return res.json()
+    },
+    staleTime: 5 * 60 * 1000,
+  })
+
+  // Resolve phone → { groupId, contactId } from group participants
+  const getStudentProfileLink = (studentPhone: string | undefined): { groupId: string; contactId: string } | null => {
+    if (!studentPhone) return null
+    const participants = groupParticipantsData?.participants || []
+    const match = participants.find(p => p.phone === studentPhone)
+    if (match) {
+      return { groupId: match.groupId, contactId: match.id }
+    }
+    return null
+  }
+
   // Initialize teacher phones when data loads
   useEffect(() => {
     if (teacherPhoneData?.teachers) {
@@ -1329,11 +1351,9 @@ function SchedulingPage() {
       return
     }
 
-    const groupFromNotes = parseGroupFromNotes(selectedEvent.notes)
     const params = new URLSearchParams()
     if (phone) params.set('phone', phone)
     if (studentName) params.set('name', studentName)
-    if (groupFromNotes) params.set('groupName', groupFromNotes)
 
     fetch(`/api/students/balance?${params}`)
       .then(res => res.ok ? res.json() : null)
@@ -2733,25 +2753,28 @@ function SchedulingPage() {
                       </div>
                     ) : (
                       <>
-                        {studentName && (
-                          <div className="flex items-center gap-3 min-w-0">
-                            <User className="h-4 w-4 text-muted-foreground flex-shrink-0" />
-                            <div className="min-w-0">
-                              <p className="text-sm text-muted-foreground">Student</p>
-                              {studentBalance?.groupId && studentBalance?.contactId ? (
-                                <Link
-                                  href={`/groups/${encodeURIComponent(studentBalance.groupId)}/student/${encodeURIComponent(studentBalance.contactId)}`}
-                                  className="font-medium text-primary hover:underline truncate block"
-                                  onClick={() => setShowEventDetail(false)}
-                                >
-                                  {studentName}
-                                </Link>
-                              ) : (
-                                <p className="font-medium truncate">{studentName}</p>
-                              )}
+                        {studentName && (() => {
+                          const profileLink = getStudentProfileLink(phone)
+                          return (
+                            <div className="flex items-center gap-3 min-w-0">
+                              <User className="h-4 w-4 text-muted-foreground flex-shrink-0" />
+                              <div className="min-w-0">
+                                <p className="text-sm text-muted-foreground">Student</p>
+                                {profileLink ? (
+                                  <Link
+                                    href={`/groups/${encodeURIComponent(profileLink.groupId)}/student/${encodeURIComponent(profileLink.contactId)}`}
+                                    className="font-medium text-primary hover:underline truncate block"
+                                    onClick={() => setShowEventDetail(false)}
+                                  >
+                                    {studentName}
+                                  </Link>
+                                ) : (
+                                  <p className="font-medium truncate">{studentName}</p>
+                                )}
+                              </div>
                             </div>
-                          </div>
-                        )}
+                          )
+                        })()}
                         {phone && (
                           <div className="flex items-center gap-3 min-w-0">
                             <Phone className="h-4 w-4 text-muted-foreground flex-shrink-0" />
@@ -2879,14 +2902,19 @@ function SchedulingPage() {
                 </Button>
               )}
               {/* View Student Profile button */}
-              {studentBalance?.groupId && studentBalance?.contactId && (
-                <Link href={`/groups/${encodeURIComponent(studentBalance.groupId)}/student/${encodeURIComponent(studentBalance.contactId)}`}>
-                  <Button variant="outline" onClick={() => setShowEventDetail(false)}>
-                    <User className="h-4 w-4 mr-2" />
-                    View Profile
-                  </Button>
-                </Link>
-              )}
+              {selectedEvent && (() => {
+                const evPhone = parsePhoneFromNotes(selectedEvent.notes)
+                const profileLink = getStudentProfileLink(evPhone)
+                if (!profileLink) return null
+                return (
+                  <Link href={`/groups/${encodeURIComponent(profileLink.groupId)}/student/${encodeURIComponent(profileLink.contactId)}`}>
+                    <Button variant="outline" onClick={() => setShowEventDetail(false)}>
+                      <User className="h-4 w-4 mr-2" />
+                      View Profile
+                    </Button>
+                  </Link>
+                )
+              })()}
             </div>
             {/* Right side buttons */}
             <div className="flex gap-2">
