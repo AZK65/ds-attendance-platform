@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/db'
+import { searchStudents, createStudent } from '@/lib/external-db'
 
 // POST - save invoice record and increment invoice number
 export async function POST(request: NextRequest) {
@@ -120,6 +121,35 @@ export async function POST(request: NextRequest) {
     } catch (studentError) {
       // Don't fail the invoice save if student save fails
       console.error('Auto-save student error (non-fatal):', studentError)
+    }
+
+    // Also sync to external MySQL database (the main driving school DB)
+    try {
+      if (studentName && studentPhone) {
+        const phoneDigits = (studentPhone || '').replace(/\D/g, '').slice(-10)
+        // Check if student already exists in MySQL by phone
+        const existing = phoneDigits.length >= 7
+          ? await searchStudents(phoneDigits)
+          : []
+
+        if (existing.length === 0) {
+          // Not found in MySQL — create them
+          await createStudent({
+            full_name: studentName,
+            phone_number: studentPhone || '',
+            permit_number: '',
+            full_address: studentAddress || '',
+            city: studentCity || '',
+            postal_code: studentPostalCode || '',
+            dob: '',
+            email: studentEmail || '',
+          })
+          console.log(`[Invoice Save] Auto-created student "${studentName}" in external MySQL DB`)
+        }
+      }
+    } catch (externalDbError) {
+      // Don't fail invoice save if external DB sync fails
+      console.error('External DB student sync error (non-fatal):', externalDbError)
     }
 
     return NextResponse.json({ invoice })
