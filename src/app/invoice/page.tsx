@@ -12,6 +12,7 @@ import { Checkbox } from '@/components/ui/checkbox'
 import {
   Receipt, Plus, Trash2, Download, Loader2, Settings, CheckCircle2,
   Car, Truck, ArrowLeft, ArrowRight, FileText, Package, Mail, MessageCircle, Send,
+  CreditCard, Copy, ExternalLink,
 } from 'lucide-react'
 import Link from 'next/link'
 import { useSearchParams } from 'next/navigation'
@@ -79,6 +80,8 @@ function InvoicePage() {
   const pdfBase64Ref = useRef<string | null>(null)
   const [emailSent, setEmailSent] = useState(false)
   const [whatsappSent, setWhatsappSent] = useState(false)
+  const [paymentUrl, setPaymentUrl] = useState<string | null>(null)
+  const [paymentLinkCopied, setPaymentLinkCopied] = useState(false)
 
   // Form state
   const [formData, setFormData] = useState<InvoiceFormData>({
@@ -389,6 +392,37 @@ function InvoicePage() {
     },
   })
 
+  // Check if Clover is configured
+  const cloverConfigured = !!(settings?.cloverMerchantId && settings?.cloverApiToken)
+
+  const paymentLinkMutation = useMutation({
+    mutationFn: async () => {
+      const res = await fetch('/api/invoice/clover/payment-link', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          studentName: formData.studentName,
+          studentEmail: formData.studentEmail,
+          lineItems: lineItems.map(li => ({
+            description: li.description,
+            quantity: li.quantity,
+            unitPrice: li.unitPrice,
+          })),
+          total,
+          invoiceNumber,
+        }),
+      })
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}))
+        throw new Error(data.error || 'Failed to create payment link')
+      }
+      return res.json()
+    },
+    onSuccess: (data) => {
+      setPaymentUrl(data.paymentUrl)
+    },
+  })
+
   // Handlers
   const handleFieldChange = (field: keyof InvoiceFormData, value: string) => {
     setFormData(prev => ({ ...prev, [field]: value }))
@@ -471,6 +505,8 @@ function InvoicePage() {
     pdfBase64Ref.current = null
     setEmailSent(false)
     setWhatsappSent(false)
+    setPaymentUrl(null)
+    setPaymentLinkCopied(false)
     setStep('student')
   }
 
@@ -1029,6 +1065,70 @@ function InvoicePage() {
                     <p className="text-xs text-destructive ml-8">
                       {whatsappMutation.error?.message || 'Failed to send via WhatsApp'}
                     </p>
+                  )}
+
+                  {/* Clover Payment Link */}
+                  {cloverConfigured && (
+                    <>
+                      <div className="flex items-center gap-3 p-3 rounded-lg border">
+                        <CreditCard className="h-5 w-5 text-purple-500 shrink-0" />
+                        <div className="flex-1 min-w-0">
+                          <p className="text-sm font-medium">Clover Payment Link</p>
+                          {paymentUrl ? (
+                            <p className="text-xs text-muted-foreground truncate">{paymentUrl}</p>
+                          ) : (
+                            <p className="text-xs text-muted-foreground">Generate a payment link for the student</p>
+                          )}
+                        </div>
+                        {paymentUrl ? (
+                          <div className="flex gap-1 shrink-0">
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              onClick={() => {
+                                navigator.clipboard.writeText(paymentUrl)
+                                setPaymentLinkCopied(true)
+                                setTimeout(() => setPaymentLinkCopied(false), 2000)
+                              }}
+                            >
+                              {paymentLinkCopied ? (
+                                <CheckCircle2 className="h-4 w-4 text-green-500" />
+                              ) : (
+                                <Copy className="h-4 w-4" />
+                              )}
+                            </Button>
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              onClick={() => window.open(paymentUrl, '_blank')}
+                            >
+                              <ExternalLink className="h-4 w-4" />
+                            </Button>
+                          </div>
+                        ) : (
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            onClick={() => paymentLinkMutation.mutate()}
+                            disabled={paymentLinkMutation.isPending}
+                          >
+                            {paymentLinkMutation.isPending ? (
+                              <Loader2 className="h-4 w-4 animate-spin" />
+                            ) : (
+                              <>
+                                <CreditCard className="h-4 w-4 mr-1" />
+                                Generate
+                              </>
+                            )}
+                          </Button>
+                        )}
+                      </div>
+                      {paymentLinkMutation.isError && (
+                        <p className="text-xs text-destructive ml-8">
+                          {paymentLinkMutation.error?.message || 'Failed to create payment link'}
+                        </p>
+                      )}
+                    </>
                   )}
                 </CardContent>
               </Card>

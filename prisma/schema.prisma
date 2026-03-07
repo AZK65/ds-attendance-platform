@@ -228,6 +228,8 @@ model InvoiceSettings {
   qstNumber         String   @default("")  // TVQ/QST registration number
   taxesEnabled      Boolean  @default(true)
   senderEmail       String   @default("")  // "from" email for sending invoices via Resend
+  cloverMerchantId  String   @default("")  // Clover POS merchant ID
+  cloverApiToken    String   @default("")  // Clover POS API token
   notes             String   @default("Merci pour votre confiance! / Thank you for your business!")
   createdAt         DateTime @default(now())
   updatedAt         DateTime @updatedAt
@@ -252,6 +254,9 @@ model Invoice {
   qstAmount         Float    @default(0)
   total             Float
   notes             String?
+  cloverOrderId     String?  // Linked Clover order ID
+  cloverPaymentUrl  String?  // Clover Hosted Checkout link
+  cloverPaid        Boolean  @default(false) // Payment completed via Clover
   createdAt         DateTime @default(now())
   updatedAt         DateTime @updatedAt
 

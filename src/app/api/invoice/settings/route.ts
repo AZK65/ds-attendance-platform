@@ -60,6 +60,8 @@ export async function PUT(request: NextRequest) {
         qstNumber: body.qstNumber,
         taxesEnabled: body.taxesEnabled,
         senderEmail: body.senderEmail,
+        cloverMerchantId: body.cloverMerchantId,
+        cloverApiToken: body.cloverApiToken,
         notes: body.notes,
       },
       create: {
@@ -72,6 +74,8 @@ export async function PUT(request: NextRequest) {
         qstNumber: body.qstNumber || '',
         taxesEnabled: body.taxesEnabled ?? true,
         senderEmail: body.senderEmail || '',
+        cloverMerchantId: body.cloverMerchantId || '',
+        cloverApiToken: body.cloverApiToken || '',
         notes: body.notes || 'Merci pour votre confiance! / Thank you for your business!',
       }
     })
