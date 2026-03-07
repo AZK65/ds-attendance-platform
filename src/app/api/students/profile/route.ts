@@ -25,8 +25,11 @@ export async function GET(request: NextRequest) {
       findStudentInvoices(phone, name),
     ])
 
-    // Compute invoice summary
+    // Compute invoice summary with balance
     const totalInvoiced = invoices.reduce((sum, inv) => sum + inv.total, 0)
+    const totalPaid = invoices
+      .filter(inv => inv.paymentStatus === 'paid')
+      .reduce((sum, inv) => sum + inv.total, 0)
     const lastInvoice = invoices[0] || null // Already sorted desc
 
     return NextResponse.json({
@@ -43,10 +46,14 @@ export async function GET(request: NextRequest) {
         qstAmount: inv.qstAmount,
         total: inv.total,
         notes: inv.notes,
+        paymentStatus: inv.paymentStatus,
+        paymentMethod: inv.paymentMethod,
         createdAt: inv.createdAt,
       })),
       summary: {
         totalInvoiced: Math.round(totalInvoiced * 100) / 100,
+        totalPaid: Math.round(totalPaid * 100) / 100,
+        openBalance: Math.round((totalInvoiced - totalPaid) * 100) / 100,
         invoiceCount: invoices.length,
         lastInvoiceDate: lastInvoice?.invoiceDate || null,
       },

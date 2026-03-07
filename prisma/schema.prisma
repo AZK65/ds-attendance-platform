@@ -280,6 +280,35 @@ model InvoiceService {
   @@index([vehicleType])
 }
 
+// Invoice packages - pre-defined pricing packages with instalment plans
+model InvoicePackage {
+  id           String               @id @default(cuid())
+  name         String                     // e.g. "Car Complete Course"
+  vehicleType  String   @default("both")  // "car", "truck", "both"
+  totalPrice   Float                      // e.g. 1500.00
+  taxInclusive Boolean  @default(true)
+  isActive     Boolean  @default(true)
+  sortOrder    Int      @default(0)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+  instalments  PackageInstalment[]
+
+  @@index([vehicleType])
+}
+
+// Package instalments - named payment amounts within a package
+model PackageInstalment {
+  id               String         @id @default(cuid())
+  packageId        String
+  package          InvoicePackage @relation(fields: [packageId], references: [id], onDelete: Cascade)
+  instalmentNumber Int
+  name             String                // e.g. "Deposit", "Mid-Course Payment", "Final Payment"
+  amount           Float                 // e.g. 500.00
+  sortOrder        Int      @default(0)
+
+  @@index([packageId])
+}
+
 // Scheduled messages for sending reminders at a specific time
 model ScheduledMessage {
   id            String   @id @default(cuid())

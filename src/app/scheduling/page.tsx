@@ -275,6 +275,11 @@ function SchedulingPage() {
   const [notifyStatus, setNotifyStatus] = useState<null | 'sending' | 'sent' | 'failed'>(null)
   const [duplicateError, setDuplicateError] = useState<string | null>(null)
   const [theoryGroupId, setTheoryGroupId] = useState<string | null>(null)
+  const [studentBalance, setStudentBalance] = useState<{
+    openBalance: number
+    groupId: string | null
+    contactId: string | null
+  } | null>(null)
 
   // Truck class dialog state
   const [showTruckDialog, setShowTruckDialog] = useState(false)
@@ -1305,6 +1310,32 @@ function SchedulingPage() {
       .then(res => res.ok ? res.json() : null)
       .then(data => {
         if (data?.groupId) setTheoryGroupId(data.groupId)
+      })
+      .catch(() => {})
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [showEventDetail, selectedEvent])
+
+  // Fetch student balance + group link when event detail opens
+  useEffect(() => {
+    if (!showEventDetail || !selectedEvent) {
+      setStudentBalance(null)
+      return
+    }
+    const phone = parsePhoneFromNotes(selectedEvent.notes)
+    const studentName = parseStudentFromNotes(selectedEvent.notes) || parseModuleFromTitle(selectedEvent.title).studentName
+    if (!phone && !studentName) {
+      setStudentBalance(null)
+      return
+    }
+
+    const params = new URLSearchParams()
+    if (phone) params.set('phone', phone)
+    if (studentName) params.set('name', studentName)
+
+    fetch(`/api/students/balance?${params}`)
+      .then(res => res.ok ? res.json() : null)
+      .then(data => {
+        if (data) setStudentBalance(data)
       })
       .catch(() => {})
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -2702,7 +2733,17 @@ function SchedulingPage() {
                             <User className="h-4 w-4 text-muted-foreground flex-shrink-0" />
                             <div className="min-w-0">
                               <p className="text-sm text-muted-foreground">Student</p>
-                              <p className="font-medium truncate">{studentName}</p>
+                              {studentBalance?.groupId && studentBalance?.contactId ? (
+                                <Link
+                                  href={`/groups/${encodeURIComponent(studentBalance.groupId)}/student/${encodeURIComponent(studentBalance.contactId)}`}
+                                  className="font-medium text-primary hover:underline truncate block"
+                                  onClick={() => setShowEventDetail(false)}
+                                >
+                                  {studentName}
+                                </Link>
+                              ) : (
+                                <p className="font-medium truncate">{studentName}</p>
+                              )}
                             </div>
                           </div>
                         )}
@@ -2732,6 +2773,20 @@ function SchedulingPage() {
                               <p className="font-medium truncate">
                                 Module {lastTheory.module}
                                 {lastTheory.date && <span className="text-sm text-muted-foreground ml-1">— {lastTheory.date}</span>}
+                              </p>
+                            </div>
+                          </div>
+                        )}
+                        {/* Balance Badge */}
+                        {studentBalance && (studentBalance.openBalance > 0 || studentBalance.openBalance === 0) && (
+                          <div className="flex items-center gap-3 min-w-0">
+                            <DollarSign className={`h-4 w-4 flex-shrink-0 ${studentBalance.openBalance > 0 ? 'text-amber-500' : 'text-green-500'}`} />
+                            <div className="min-w-0">
+                              <p className="text-sm text-muted-foreground">Balance</p>
+                              <p className={`font-medium ${studentBalance.openBalance > 0 ? 'text-amber-600' : 'text-green-600'}`}>
+                                {studentBalance.openBalance > 0
+                                  ? `$${studentBalance.openBalance.toFixed(2)} owing`
+                                  : 'Paid up'}
                               </p>
                             </div>
                           </div>

@@ -119,6 +119,8 @@ interface InvoiceRecord {
   qstAmount: number
   total: number
   notes: string | null
+  paymentStatus: string | null
+  paymentMethod: string | null
   createdAt: string
 }
 
@@ -127,6 +129,8 @@ interface StudentProfileData {
   invoices: InvoiceRecord[]
   summary: {
     totalInvoiced: number
+    totalPaid: number
+    openBalance: number
     invoiceCount: number
     lastInvoiceDate: string | null
   }
@@ -525,7 +529,7 @@ export default function StudentDetailPage() {
           initial={{ opacity: 0, y: 10 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ delay: 0.1, duration: 0.25 }}
-          className="grid grid-cols-2 sm:grid-cols-5 gap-3"
+          className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3"
         >
           <div className="p-3 border rounded-lg text-center">
             <Users className="h-5 w-5 mx-auto text-muted-foreground mb-1" />
@@ -554,6 +558,27 @@ export default function StudentDetailPage() {
             <p className="text-xs text-muted-foreground">Invoiced</p>
             <p className="font-medium text-sm">
               {loadingProfile ? '...' : `$${(profileData?.summary?.totalInvoiced || 0).toFixed(2)}`}
+            </p>
+          </div>
+          <div className={`p-3 border rounded-lg text-center ${
+            !loadingProfile && (profileData?.summary?.openBalance || 0) > 0
+              ? 'border-amber-300 bg-amber-50 dark:bg-amber-950/30'
+              : ''
+          }`}>
+            <CreditCard className={`h-5 w-5 mx-auto mb-1 ${
+              !loadingProfile && (profileData?.summary?.openBalance || 0) > 0
+                ? 'text-amber-600'
+                : 'text-green-600'
+            }`} />
+            <p className="text-xs text-muted-foreground">Balance</p>
+            <p className={`font-medium text-sm ${
+              !loadingProfile && (profileData?.summary?.openBalance || 0) > 0
+                ? 'text-amber-700'
+                : 'text-green-700'
+            }`}>
+              {loadingProfile ? '...' : (profileData?.summary?.openBalance || 0) > 0
+                ? `$${(profileData?.summary?.openBalance || 0).toFixed(2)}`
+                : 'Paid up'}
             </p>
           </div>
         </motion.div>
@@ -854,19 +879,29 @@ export default function StudentDetailPage() {
             ) : (
               <div className="space-y-4">
                 {/* Summary */}
-                <div className="flex items-center justify-between p-3 bg-muted/50 rounded-lg">
-                  <div>
-                    <p className="text-sm text-muted-foreground">Total Invoiced</p>
-                    <p className="text-xl font-bold">${profileData.summary.totalInvoiced.toFixed(2)}</p>
+                <div className="grid grid-cols-3 gap-3">
+                  <div className="p-3 bg-muted/50 rounded-lg text-center">
+                    <p className="text-xs text-muted-foreground">Invoiced</p>
+                    <p className="text-lg font-bold">${profileData.summary.totalInvoiced.toFixed(2)}</p>
                   </div>
-                  {profileData.summary.lastInvoiceDate && (
-                    <div className="text-right">
-                      <p className="text-sm text-muted-foreground">Last Invoice</p>
-                      <p className="text-sm font-medium">
-                        {new Date(profileData.summary.lastInvoiceDate).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
-                      </p>
-                    </div>
-                  )}
+                  <div className="p-3 bg-green-50 dark:bg-green-950/30 rounded-lg text-center">
+                    <p className="text-xs text-muted-foreground">Paid</p>
+                    <p className="text-lg font-bold text-green-700">${(profileData.summary.totalPaid || 0).toFixed(2)}</p>
+                  </div>
+                  <div className={`p-3 rounded-lg text-center ${
+                    (profileData.summary.openBalance || 0) > 0
+                      ? 'bg-amber-50 dark:bg-amber-950/30'
+                      : 'bg-green-50 dark:bg-green-950/30'
+                  }`}>
+                    <p className="text-xs text-muted-foreground">Balance</p>
+                    <p className={`text-lg font-bold ${
+                      (profileData.summary.openBalance || 0) > 0 ? 'text-amber-700' : 'text-green-700'
+                    }`}>
+                      {(profileData.summary.openBalance || 0) > 0
+                        ? `$${profileData.summary.openBalance.toFixed(2)}`
+                        : 'Paid up'}
+                    </p>
+                  </div>
                 </div>
 
                 {/* Invoice List */}
@@ -894,6 +929,11 @@ export default function StudentDetailPage() {
                             </div>
                           </div>
                           <div className="flex items-center gap-2">
+                            {invoice.paymentStatus === 'paid' ? (
+                              <Badge className="bg-green-100 text-green-700 border-green-200 text-[10px]">Paid</Badge>
+                            ) : (
+                              <Badge variant="outline" className="text-amber-600 border-amber-200 text-[10px]">Unpaid</Badge>
+                            )}
                             <span className="font-medium">${invoice.total.toFixed(2)}</span>
                             {isExpanded ? <ChevronUp className="h-4 w-4 text-muted-foreground" /> : <ChevronDown className="h-4 w-4 text-muted-foreground" />}
                           </div>

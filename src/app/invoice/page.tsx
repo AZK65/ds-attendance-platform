@@ -48,6 +48,22 @@ interface InvoiceService {
   taxInclusive: boolean
 }
 
+interface PackageInstalment {
+  id: string
+  instalmentNumber: number
+  name: string
+  amount: number
+}
+
+interface InvoicePackage {
+  id: string
+  name: string
+  vehicleType: string
+  totalPrice: number
+  taxInclusive: boolean
+  instalments: PackageInstalment[]
+}
+
 type Step = 'student' | 'review' | 'payment' | 'done'
 
 function generateId() {
@@ -167,6 +183,18 @@ function InvoicePage() {
     enabled: !!vehicleType,
   })
 
+  // Load packages for vehicle type selection
+  const { data: packagesData } = useQuery({
+    queryKey: ['invoice-packages', vehicleType],
+    queryFn: async () => {
+      const params = vehicleType ? `?type=${vehicleType}` : ''
+      const res = await fetch(`/api/invoice/packages${params}`)
+      if (!res.ok) throw new Error('Failed')
+      return res.json() as Promise<{ packages: InvoicePackage[] }>
+    },
+    enabled: !!vehicleType,
+  })
+
   const allServices = allServicesData?.services || []
 
   // Derived values
@@ -221,8 +249,13 @@ function InvoicePage() {
   }, [lineItems, taxesEnabled, gstRate, qstRate])
 
   // Auto-fill line items when vehicle type services load
+  // Only auto-advance to review if there are NO packages to show
   useEffect(() => {
     if (vehicleServicesData?.services && vehicleType) {
+      // If packages exist for this vehicle type, don't auto-advance (let user pick)
+      const hasPackages = (packagesData?.packages || []).length > 0
+      if (hasPackages) return
+
       const newItems = vehicleServicesData.services.map((s: InvoiceService) => ({
         id: generateId(),
         description: s.name,
@@ -235,7 +268,7 @@ function InvoicePage() {
       }
       setStep('review')
     }
-  }, [vehicleServicesData, vehicleType])
+  }, [vehicleServicesData, vehicleType, packagesData])
 
   // PDF generation mutation
   const generateMutation = useMutation({
@@ -464,11 +497,37 @@ function InvoicePage() {
 
   const handleVehicleTypeSelect = (type: 'car' | 'truck') => {
     setVehicleType(type)
-    // The useEffect above will handle auto-filling and advancing to review
+    // If packages exist, we'll show them in the UI below
+    // Otherwise the useEffect will auto-fill services and advance to review
   }
 
   const handleSkipToCustom = () => {
     setLineItems([{ id: generateId(), description: '', quantity: 1, unitPrice: 0, taxInclusive: true }])
+    setStep('review')
+  }
+
+  const handleSelectPackageFull = (pkg: InvoicePackage) => {
+    const items = pkg.instalments.map(inst => ({
+      id: generateId(),
+      description: `${pkg.name} — ${inst.name}`,
+      quantity: 1,
+      unitPrice: inst.amount,
+      taxInclusive: pkg.taxInclusive,
+    }))
+    if (items.length > 0) {
+      setLineItems(items)
+    }
+    setStep('review')
+  }
+
+  const handleSelectInstalment = (pkg: InvoicePackage, inst: PackageInstalment) => {
+    setLineItems([{
+      id: generateId(),
+      description: `${pkg.name} — ${inst.name}`,
+      quantity: 1,
+      unitPrice: inst.amount,
+      taxInclusive: pkg.taxInclusive,
+    }])
     setStep('review')
   }
 
@@ -542,9 +601,15 @@ function InvoicePage() {
                   History
                 </Button>
               </Link>
-              <Link href="/invoice/services">
+              <Link href="/invoice/packages">
                 <Button variant="outline" size="sm">
                   <Package className="h-4 w-4 mr-1" />
+                  Packages
+                </Button>
+              </Link>
+              <Link href="/invoice/services">
+                <Button variant="outline" size="sm">
+                  <FileText className="h-4 w-4 mr-1" />
                   Services
                 </Button>
               </Link>
@@ -711,6 +776,84 @@ function InvoicePage() {
                       <Button variant="ghost" size="sm" onClick={handleSkipToCustom} className="text-muted-foreground">
                         <FileText className="h-4 w-4 mr-1" />
                         Skip — Custom Invoice
+                      </Button>
+                    </div>
+                  </CardContent>
+                </Card>
+              )}
+
+              {/* Package Selection — shown after vehicle type is chosen and packages exist */}
+              {vehicleType && (packagesData?.packages || []).length > 0 && (
+                <Card>
+                  <CardHeader>
+                    <CardTitle className="text-lg flex items-center gap-2">
+                      <Package className="h-5 w-5" />
+                      Select Package
+                    </CardTitle>
+                    <CardDescription>Choose a package or pick individual instalments</CardDescription>
+                  </CardHeader>
+                  <CardContent className="space-y-4">
+                    {packagesData!.packages.map(pkg => (
+                      <div key={pkg.id} className="border-2 rounded-xl p-4 space-y-3 hover:border-primary/30 transition-colors">
+                        <div className="flex items-center justify-between">
+                          <div>
+                            <h3 className="font-semibold">{pkg.name}</h3>
+                            <p className="text-sm text-muted-foreground">
+                              Total: <span className="font-mono font-medium">${pkg.totalPrice.toFixed(2)}</span>
+                              {pkg.taxInclusive ? ' (tax incl.)' : ' (+tax)'}
+                            </p>
+                          </div>
+                          <Button size="sm" onClick={() => handleSelectPackageFull(pkg)}>
+                            Full Package
+                          </Button>
+                        </div>
+
+                        {pkg.instalments.length > 0 && (
+                          <div className="space-y-1.5">
+                            <p className="text-xs text-muted-foreground font-medium uppercase tracking-wider">Instalments</p>
+                            {pkg.instalments.map(inst => (
+                              <button
+                                key={inst.id}
+                                onClick={() => handleSelectInstalment(pkg, inst)}
+                                className="w-full flex items-center justify-between px-3 py-2 rounded-lg border hover:bg-accent/50 hover:border-primary/30 transition-colors text-left"
+                              >
+                                <span className="text-sm">
+                                  <span className="text-muted-foreground mr-2">{inst.instalmentNumber}.</span>
+                                  {inst.name}
+                                </span>
+                                <span className="font-mono text-sm font-medium">${inst.amount.toFixed(2)}</span>
+                              </button>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    ))}
+
+                    {/* Option to use services instead */}
+                    <div className="flex flex-wrap gap-2 pt-2 border-t">
+                      <p className="w-full text-xs text-muted-foreground mb-1">Or use individual services:</p>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => {
+                          // Use services auto-fill instead
+                          if (vehicleServicesData?.services) {
+                            const newItems = vehicleServicesData.services.map((s: InvoiceService) => ({
+                              id: generateId(),
+                              description: s.name,
+                              quantity: 1,
+                              unitPrice: s.price,
+                              taxInclusive: s.taxInclusive,
+                            }))
+                            if (newItems.length > 0) setLineItems(newItems)
+                          }
+                          setStep('review')
+                        }}
+                      >
+                        Use {vehicleType === 'car' ? 'Car' : 'Truck'} Services
+                      </Button>
+                      <Button variant="ghost" size="sm" onClick={handleSkipToCustom}>
+                        Custom Invoice
                       </Button>
                     </div>
                   </CardContent>
