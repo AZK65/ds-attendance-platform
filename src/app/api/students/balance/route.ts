@@ -6,6 +6,7 @@ import { prisma } from '@/lib/db'
 export async function GET(request: NextRequest) {
   const phone = request.nextUrl.searchParams.get('phone') || ''
   const name = request.nextUrl.searchParams.get('name') || ''
+  const groupName = request.nextUrl.searchParams.get('groupName') || ''
 
   if (!phone && !name) {
     return NextResponse.json({ error: 'Phone or name is required' }, { status: 400 })
@@ -67,6 +68,16 @@ export async function GET(request: NextRequest) {
       // Fallback: construct contactId from phone
       if (!contactId && phoneDigits) {
         contactId = `${phoneDigits}@c.us`
+      }
+
+      // Fallback: resolve groupId from group name (from scheduling event notes)
+      if (!groupId && groupName) {
+        const group = await prisma.group.findFirst({
+          where: { name: { contains: groupName } },
+        })
+        if (group) {
+          groupId = group.id
+        }
       }
     }
 

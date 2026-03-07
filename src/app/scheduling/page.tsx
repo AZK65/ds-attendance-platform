@@ -1329,9 +1329,11 @@ function SchedulingPage() {
       return
     }
 
+    const groupFromNotes = parseGroupFromNotes(selectedEvent.notes)
     const params = new URLSearchParams()
     if (phone) params.set('phone', phone)
     if (studentName) params.set('name', studentName)
+    if (groupFromNotes) params.set('groupName', groupFromNotes)
 
     fetch(`/api/students/balance?${params}`)
       .then(res => res.ok ? res.json() : null)
