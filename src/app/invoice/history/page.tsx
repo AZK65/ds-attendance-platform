@@ -142,7 +142,7 @@ export default function InvoiceHistoryPage() {
       return res.json()
     },
   })
-  const cloverConfigured = !!(settings?.cloverMerchantId && settings?.cloverApiToken)
+  const cloverConfigured = !!settings?.cloverConfigured
 
   // Fetch invoices
   const { data, isLoading } = useQuery({

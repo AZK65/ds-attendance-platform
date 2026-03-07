@@ -392,8 +392,8 @@ function InvoicePage() {
     },
   })
 
-  // Check if Clover is configured
-  const cloverConfigured = !!(settings?.cloverMerchantId && settings?.cloverApiToken)
+  // Check if Clover is configured (server tells us via cloverConfigured flag)
+  const cloverConfigured = !!settings?.cloverConfigured
 
   const paymentLinkMutation = useMutation({
     mutationFn: async () => {

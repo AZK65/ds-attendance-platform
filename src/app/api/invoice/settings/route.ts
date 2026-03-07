@@ -26,8 +26,16 @@ export async function GET() {
       })
     }
 
+    // Mask sensitive tokens for the frontend — only show last 4 chars
+    const maskedToken = settings.cloverApiToken
+      ? '•'.repeat(Math.max(0, settings.cloverApiToken.length - 4)) + settings.cloverApiToken.slice(-4)
+      : ''
+
     return NextResponse.json({
       ...settings,
+      cloverApiToken: maskedToken,
+      // Tell frontend whether Clover is actually configured (token exists in DB)
+      cloverConfigured: !!(settings.cloverMerchantId && settings.cloverApiToken),
       schoolName: schoolInfo.schoolName,
       schoolAddress: schoolInfo.schoolAddress,
       schoolCity: schoolInfo.schoolCity,
@@ -49,21 +57,30 @@ export async function PUT(request: NextRequest) {
   try {
     const body = await request.json()
 
+    // Don't overwrite cloverApiToken with masked value (contains •)
+    const isMaskedToken = body.cloverApiToken && body.cloverApiToken.includes('•')
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const updateData: any = {
+      nextInvoiceNumber: body.nextInvoiceNumber,
+      invoicePrefix: body.invoicePrefix,
+      defaultGstRate: body.defaultGstRate,
+      defaultQstRate: body.defaultQstRate,
+      gstNumber: body.gstNumber,
+      qstNumber: body.qstNumber,
+      taxesEnabled: body.taxesEnabled,
+      senderEmail: body.senderEmail,
+      cloverMerchantId: body.cloverMerchantId,
+      notes: body.notes,
+    }
+    // Only update token if it's a real new value (not the masked placeholder)
+    if (!isMaskedToken && body.cloverApiToken !== undefined) {
+      updateData.cloverApiToken = body.cloverApiToken
+    }
+
     const settings = await prisma.invoiceSettings.upsert({
       where: { id: 'default' },
-      update: {
-        nextInvoiceNumber: body.nextInvoiceNumber,
-        invoicePrefix: body.invoicePrefix,
-        defaultGstRate: body.defaultGstRate,
-        defaultQstRate: body.defaultQstRate,
-        gstNumber: body.gstNumber,
-        qstNumber: body.qstNumber,
-        taxesEnabled: body.taxesEnabled,
-        senderEmail: body.senderEmail,
-        cloverMerchantId: body.cloverMerchantId,
-        cloverApiToken: body.cloverApiToken,
-        notes: body.notes,
-      },
+      update: updateData,
       create: {
         id: 'default',
         nextInvoiceNumber: body.nextInvoiceNumber || 1,
@@ -75,7 +92,7 @@ export async function PUT(request: NextRequest) {
         taxesEnabled: body.taxesEnabled ?? true,
         senderEmail: body.senderEmail || '',
         cloverMerchantId: body.cloverMerchantId || '',
-        cloverApiToken: body.cloverApiToken || '',
+        cloverApiToken: isMaskedToken ? '' : (body.cloverApiToken || ''),
         notes: body.notes || 'Merci pour votre confiance! / Thank you for your business!',
       }
     })
