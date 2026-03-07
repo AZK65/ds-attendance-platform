@@ -1445,11 +1445,7 @@ export async function checkWhatsAppNumber(phone: string): Promise<{ registered: 
 
 /**
  * Send a document (e.g. PDF) to a contact via WhatsApp
- * @param phone Phone number
- * @param base64Data Base64-encoded file data (without data URI prefix)
- * @param filename Filename for the document
- * @param mimetype MIME type (e.g. 'application/pdf')
- * @param caption Optional text caption to send with the document
+ * Uses pupPage approach to avoid "No LID for user" errors
  */
 export async function sendDocumentToContact(
   phone: string,
@@ -1464,22 +1460,75 @@ export async function sendDocumentToContact(
 
   const chatId = phoneToJid(phone)
 
-  // Import MessageMedia from whatsapp-web.js
-  const { MessageMedia } = await import('whatsapp-web.js')
-  const media = new MessageMedia(mimetype, base64Data, filename)
-
   const client = state.client as {
     sendMessage: (chatId: string, content: unknown, options?: Record<string, unknown>) => Promise<unknown>
+    pupPage?: {
+      evaluate: <T>(fn: string) => Promise<T>
+    }
   }
 
   console.log(`[WhatsApp] Sending document "${filename}" to ${chatId}`)
 
+  // Try pupPage first (avoids "No LID for user" error)
+  if (client.pupPage) {
+    try {
+      const result = await client.pupPage.evaluate(`
+        (async () => {
+          try {
+            const chatId = '${chatId}';
+            const base64Data = '${base64Data}';
+            const mimetype = '${mimetype}';
+            const filename = ${JSON.stringify(filename)};
+            const caption = ${JSON.stringify(caption || '')};
+
+            const chat = await window.Store.Chat.find(chatId);
+            if (!chat) {
+              return { error: 'Chat not found for ' + chatId };
+            }
+
+            // Create media message via WWebJS
+            const dataUrl = 'data:' + mimetype + ';base64,' + base64Data;
+            const media = await window.WWebJS.mediaFromURL(dataUrl);
+            media.filename = filename;
+
+            const options = {
+              sendMediaAsDocument: true,
+              caption: caption || undefined,
+            };
+
+            await window.WWebJS.sendMessage(chat, media, options);
+            return { success: true };
+          } catch (e) {
+            return { error: String(e) };
+          }
+        })()
+      `) as { success?: boolean; error?: string }
+
+      if (result.error) {
+        console.warn(`[WhatsApp] pupPage doc send error for ${chatId}: ${result.error}, trying client.sendMessage`)
+      } else {
+        console.log(`[WhatsApp] Document "${filename}" sent to ${chatId} via pupPage`)
+        return
+      }
+    } catch (pupError) {
+      const pupErrMsg = pupError instanceof Error ? pupError.message : String(pupError)
+      console.warn(`[WhatsApp] pupPage.evaluate failed for doc to ${chatId}: ${pupErrMsg}`)
+      if (pupErrMsg.includes('detached') || pupErrMsg.includes('Target closed') || pupErrMsg.includes('destroyed')) {
+        state.isConnected = false
+        throw new Error(`WhatsApp browser session lost: ${pupErrMsg}`)
+      }
+    }
+  }
+
+  // Fallback: use MessageMedia with client.sendMessage
   try {
+    const { MessageMedia } = await import('whatsapp-web.js')
+    const media = new MessageMedia(mimetype, base64Data, filename)
     await client.sendMessage(chatId, media, {
       caption: caption || undefined,
       sendMediaAsDocument: true,
     })
-    console.log(`[WhatsApp] Document "${filename}" sent to ${chatId}`)
+    console.log(`[WhatsApp] Document "${filename}" sent to ${chatId} via client.sendMessage`)
   } catch (error) {
     const errMsg = error instanceof Error ? error.message : String(error)
     console.error(`[WhatsApp] Failed to send document to ${chatId}:`, errMsg)
