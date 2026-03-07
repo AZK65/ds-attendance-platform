@@ -16,7 +16,7 @@ import {
 } from 'lucide-react'
 import Link from 'next/link'
 import { useSearchParams } from 'next/navigation'
-import { StudentSearchAutocomplete, type StudentResult, type DBStudent } from '@/components/StudentSearchAutocomplete'
+import { StudentSearchAutocomplete, type StudentResult, type DBStudent, type WhatsAppContact } from '@/components/StudentSearchAutocomplete'
 
 // Types
 interface LineItem {
@@ -495,6 +495,20 @@ function InvoicePage() {
     setSelectedStudent(true)
   }
 
+  const handleWAContactSelect = (contact: WhatsAppContact) => {
+    setFormData(prev => ({
+      ...prev,
+      studentName: contact.name || contact.pushName || '',
+      studentPhone: contact.phone || '',
+      studentAddress: '',
+      studentCity: '',
+      studentProvince: 'QC',
+      studentPostalCode: '',
+      studentEmail: '',
+    }))
+    setSelectedStudent(true)
+  }
+
   const handleVehicleTypeSelect = (type: 'car' | 'truck') => {
     setVehicleType(type)
     // If packages exist, we'll show them in the UI below
@@ -654,6 +668,7 @@ function InvoicePage() {
                     <StudentSearchAutocomplete
                       onSelect={handleStudentSelect}
                       onSelectDB={handleDBStudentSelect}
+                      onSelectWA={handleWAContactSelect}
                       placeholder="Search by name, phone, or licence number..."
                     />
                   </div>

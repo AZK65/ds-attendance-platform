@@ -41,8 +41,8 @@ export async function GET(request: NextRequest) {
   }
 
   try {
-    // Search both local SQLite (saved students) and external MySQL (driving school DB) in parallel
-    const [localStudents, externalStudents] = await Promise.all([
+    // Search local SQLite (saved students), external MySQL (driving school DB), and WhatsApp contacts in parallel
+    const [localStudents, externalStudents, whatsappContacts] = await Promise.all([
       prisma.student.findMany({
         where: {
           OR: [
@@ -67,12 +67,61 @@ export async function GET(request: NextRequest) {
         console.error('External DB search error:', err)
         return []
       }),
+      // Search WhatsApp contacts (synced from group attendance)
+      prisma.contact.findMany({
+        where: {
+          OR: [
+            { name: { contains: search } },
+            { pushName: { contains: search } },
+            { phone: { contains: search } },
+          ],
+        },
+        include: {
+          records: {
+            include: {
+              attendanceSheet: {
+                include: {
+                  group: { select: { name: true, id: true } },
+                },
+              },
+            },
+            orderBy: { date: 'desc' },
+            take: 1,
+          },
+        },
+        orderBy: { updatedAt: 'desc' },
+        take: 20,
+      }).catch((err) => {
+        console.error('WhatsApp contact search error:', err)
+        return [] as Awaited<ReturnType<typeof prisma.contact.findMany<{
+          include: { records: { include: { attendanceSheet: { include: { group: { select: { name: true; id: true } } } } } } }
+        }>>>
+      }),
     ])
 
-    // Return both result sets — the frontend can distinguish by the data shape
+    // Filter out WhatsApp contacts that already exist in localStudents (by phone match)
+    const localPhones = new Set(localStudents.map(s => s.phone).filter(Boolean))
+    const externalPhones = new Set(externalStudents.map((s: { phone_number?: string }) => s.phone_number).filter(Boolean))
+
+    const filteredContacts = whatsappContacts.filter(c => {
+      // Don't show if already in local Student table or external DB
+      if (localPhones.has(c.phone)) return false
+      if (externalPhones.has(c.phone)) return false
+      return true
+    }).map(c => ({
+      id: c.id,
+      phone: c.phone,
+      name: c.name || c.pushName || null,
+      pushName: c.pushName || null,
+      groupName: c.records[0]?.attendanceSheet?.group?.name || null,
+      groupId: c.records[0]?.attendanceSheet?.group?.id || null,
+    }))
+
+    // Return all three result sets
     return NextResponse.json({
       students: externalStudents,
       localStudents,
+      whatsappContacts: filteredContacts,
     })
   } catch (error) {
     console.error('Student search error:', error)

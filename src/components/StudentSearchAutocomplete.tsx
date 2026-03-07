@@ -4,7 +4,7 @@ import { useState, useEffect, useRef } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { Input } from '@/components/ui/input'
 import { Badge } from '@/components/ui/badge'
-import { Loader2, User, Phone, FileText, Database } from 'lucide-react'
+import { Loader2, User, Phone, FileText, Database, MessageCircle } from 'lucide-react'
 
 // Local student (from SQLite Student table)
 export interface StudentResult {
@@ -68,30 +68,44 @@ export interface DBStudent {
   user_defined_contract_number: number | null
 }
 
+// WhatsApp contact (from local Contact table, synced from WhatsApp groups)
+export interface WhatsAppContact {
+  id: string
+  phone: string
+  name: string | null
+  pushName: string | null
+  groupName: string | null
+  groupId: string | null
+}
+
 // Unified display item
 interface DisplayStudent {
   key: string
   name: string
   phone: string | null
-  source: 'local' | 'database'
+  source: 'local' | 'database' | 'whatsapp'
   // For selection
   localStudent?: StudentResult
   dbStudent?: DBStudent
+  waContact?: WhatsAppContact
   // Extra display info
   lastCertType?: string
   lastCertDate?: string
   contractNumber?: string
+  groupName?: string
 }
 
 interface StudentSearchAutocompleteProps {
   onSelect: (student: StudentResult) => void
   onSelectDB?: (student: DBStudent) => void
+  onSelectWA?: (contact: WhatsAppContact) => void
   placeholder?: string
 }
 
 export function StudentSearchAutocomplete({
   onSelect,
   onSelectDB,
+  onSelectWA,
   placeholder = "Search by name, phone, or licence number...",
 }: StudentSearchAutocompleteProps) {
   const [searchTerm, setSearchTerm] = useState('')
@@ -124,13 +138,13 @@ export function StudentSearchAutocomplete({
     queryKey: ['student-search', debouncedSearch],
     queryFn: async () => {
       const res = await fetch(`/api/students/search?q=${encodeURIComponent(debouncedSearch)}`)
-      if (!res.ok) return { students: [], localStudents: [] }
+      if (!res.ok) return { students: [], localStudents: [], whatsappContacts: [] }
       return res.json()
     },
     enabled: debouncedSearch.length >= 2,
   })
 
-  // Build unified display list from both sources
+  // Build unified display list from all three sources
   const displayStudents: DisplayStudent[] = []
 
   // Add external MySQL students first (main database)
@@ -160,6 +174,19 @@ export function StudentSearchAutocomplete({
     })
   }
 
+  // Add WhatsApp contacts (active students from groups, not already in DB)
+  const waContacts: WhatsAppContact[] = data?.whatsappContacts || []
+  for (const c of waContacts) {
+    displayStudents.push({
+      key: `wa-${c.id}`,
+      name: c.name || c.pushName || c.phone,
+      phone: c.phone,
+      source: 'whatsapp',
+      waContact: c,
+      groupName: c.groupName || undefined,
+    })
+  }
+
   const handleSelect = (item: DisplayStudent) => {
     if (item.source === 'database' && item.dbStudent) {
       if (onSelectDB) {
@@ -176,6 +203,32 @@ export function StudentSearchAutocomplete({
           municipality: item.dbStudent.city || null,
           province: 'QC',
           postalCode: item.dbStudent.postal_code || null,
+          registrationDate: null,
+          expiryDate: null,
+          module1Date: null, module2Date: null, module3Date: null, module4Date: null, module5Date: null,
+          module6Date: null, module7Date: null, module8Date: null, module9Date: null, module10Date: null,
+          module11Date: null, module12Date: null,
+          sortie1Date: null, sortie2Date: null, sortie3Date: null, sortie4Date: null, sortie5Date: null,
+          sortie6Date: null, sortie7Date: null, sortie8Date: null, sortie9Date: null, sortie10Date: null,
+          sortie11Date: null, sortie12Date: null, sortie13Date: null, sortie14Date: null, sortie15Date: null,
+          certificates: [],
+        })
+      }
+    } else if (item.source === 'whatsapp' && item.waContact) {
+      if (onSelectWA) {
+        onSelectWA(item.waContact)
+      } else {
+        // Convert WhatsApp contact to StudentResult format
+        onSelect({
+          id: item.waContact.id,
+          name: item.waContact.name || item.waContact.pushName || item.waContact.phone,
+          phone: item.waContact.phone,
+          phoneAlt: null,
+          licenceNumber: null,
+          address: null,
+          municipality: null,
+          province: 'QC',
+          postalCode: null,
           registrationDate: null,
           expiryDate: null,
           module1Date: null, module2Date: null, module3Date: null, module4Date: null, module5Date: null,
@@ -228,10 +281,14 @@ export function StudentSearchAutocomplete({
               onClick={() => handleSelect(item)}
             >
               <div className={`w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0 ${
-                item.source === 'database' ? 'bg-blue-100' : 'bg-muted'
+                item.source === 'database' ? 'bg-blue-100' :
+                item.source === 'whatsapp' ? 'bg-green-100' :
+                'bg-muted'
               }`}>
                 {item.source === 'database' ? (
                   <Database className="h-4 w-4 text-blue-600" />
+                ) : item.source === 'whatsapp' ? (
+                  <MessageCircle className="h-4 w-4 text-green-600" />
                 ) : (
                   <User className="h-4 w-4 text-muted-foreground" />
                 )}
@@ -244,6 +301,11 @@ export function StudentSearchAutocomplete({
                       DB
                     </Badge>
                   )}
+                  {item.source === 'whatsapp' && (
+                    <Badge variant="outline" className="text-[10px] px-1.5 py-0 text-green-600 border-green-200">
+                      WhatsApp
+                    </Badge>
+                  )}
                 </div>
                 {item.phone && (
                   <p className="text-xs text-muted-foreground flex items-center gap-1">
@@ -253,6 +315,11 @@ export function StudentSearchAutocomplete({
                 {item.contractNumber && (
                   <p className="text-[10px] text-muted-foreground">
                     Contract #{item.contractNumber}
+                  </p>
+                )}
+                {item.groupName && (
+                  <p className="text-[10px] text-muted-foreground">
+                    Group: {item.groupName}
                   </p>
                 )}
                 {item.lastCertType && (
