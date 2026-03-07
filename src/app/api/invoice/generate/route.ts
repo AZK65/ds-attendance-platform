@@ -42,6 +42,7 @@ interface InvoiceData {
   total: number
   taxesEnabled: boolean
   notes: string
+  remainingBalance?: number
 }
 
 // Styles for the invoice PDF
@@ -347,6 +348,13 @@ function InvoiceDocument({ data, logoSrc }: { data: InvoiceData; logoSrc: string
           React.createElement(Text, { style: styles.totalFinalLabel }, 'Total:'),
           React.createElement(Text, { style: styles.totalFinalValue }, formatCurrency(data.total)),
         ),
+        // Remaining Balance (if provided)
+        data.remainingBalance !== undefined && data.remainingBalance > 0
+          ? React.createElement(View, { style: { flexDirection: 'row', justifyContent: 'flex-end', width: 250, paddingVertical: 4, marginTop: 4 } },
+              React.createElement(Text, { style: { flex: 1, textAlign: 'right', paddingRight: 15, color: '#b45309', fontSize: 10, fontWeight: 'bold' } }, 'Remaining Balance:'),
+              React.createElement(Text, { style: { width: 100, textAlign: 'right', color: '#b45309', fontSize: 10, fontWeight: 'bold' } }, formatCurrency(data.remainingBalance)),
+            )
+          : null,
       ),
 
       // Notes

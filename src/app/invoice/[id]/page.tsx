@@ -77,7 +77,7 @@ export default function InvoiceViewPage() {
   const invoice = data?.invoice
   const settings = data?.settings
 
-  // Generate PDF when invoice loads
+  // Generate PDF when invoice loads (includes remaining balance)
   useEffect(() => {
     if (!invoice || !settings) return
 
@@ -88,41 +88,58 @@ export default function InvoiceViewPage() {
       lineItems = []
     }
 
-    const payload = {
-      schoolName: settings.schoolName,
-      schoolAddress: settings.schoolAddress,
-      schoolCity: settings.schoolCity,
-      schoolProvince: settings.schoolProvince,
-      schoolPostalCode: settings.schoolPostalCode,
-      gstNumber: settings.gstNumber,
-      qstNumber: settings.qstNumber,
-      studentName: invoice.studentName,
-      studentAddress: invoice.studentAddress || '',
-      studentCity: invoice.studentCity || '',
-      studentProvince: invoice.studentProvince || '',
-      studentPostalCode: invoice.studentPostalCode || '',
-      studentPhone: invoice.studentPhone || '',
-      studentEmail: invoice.studentEmail || '',
-      invoiceNumber: invoice.invoiceNumber,
-      invoiceDate: invoice.invoiceDate,
-      dueDate: invoice.dueDate || '',
-      lineItems,
-      subtotal: invoice.subtotal,
-      gstRate: settings.defaultGstRate,
-      qstRate: settings.defaultQstRate,
-      gstAmount: invoice.gstAmount,
-      qstAmount: invoice.qstAmount,
-      total: invoice.total,
-      taxesEnabled: settings.taxesEnabled && (invoice.gstAmount > 0 || invoice.qstAmount > 0),
-      notes: invoice.notes || '',
-    }
+    // Fetch student balance then generate PDF
+    const generatePdf = async () => {
+      let remainingBalance = 0
+      try {
+        const balanceParams = new URLSearchParams()
+        if (invoice.studentPhone) balanceParams.set('phone', invoice.studentPhone)
+        if (invoice.studentName) balanceParams.set('name', invoice.studentName)
+        if (balanceParams.toString()) {
+          const balRes = await fetch(`/api/students/balance?${balanceParams}`)
+          if (balRes.ok) {
+            const balData = await balRes.json()
+            remainingBalance = balData.openBalance || 0
+          }
+        }
+      } catch { /* non-fatal */ }
 
-    fetch('/api/invoice/generate', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(payload),
-    })
-      .then(async (res) => {
+      const payload = {
+        schoolName: settings.schoolName,
+        schoolAddress: settings.schoolAddress,
+        schoolCity: settings.schoolCity,
+        schoolProvince: settings.schoolProvince,
+        schoolPostalCode: settings.schoolPostalCode,
+        gstNumber: settings.gstNumber,
+        qstNumber: settings.qstNumber,
+        studentName: invoice.studentName,
+        studentAddress: invoice.studentAddress || '',
+        studentCity: invoice.studentCity || '',
+        studentProvince: invoice.studentProvince || '',
+        studentPostalCode: invoice.studentPostalCode || '',
+        studentPhone: invoice.studentPhone || '',
+        studentEmail: invoice.studentEmail || '',
+        invoiceNumber: invoice.invoiceNumber,
+        invoiceDate: invoice.invoiceDate,
+        dueDate: invoice.dueDate || '',
+        lineItems,
+        subtotal: invoice.subtotal,
+        gstRate: settings.defaultGstRate,
+        qstRate: settings.defaultQstRate,
+        gstAmount: invoice.gstAmount,
+        qstAmount: invoice.qstAmount,
+        total: invoice.total,
+        taxesEnabled: settings.taxesEnabled && (invoice.gstAmount > 0 || invoice.qstAmount > 0),
+        notes: invoice.notes || '',
+        remainingBalance,
+      }
+
+      try {
+        const res = await fetch('/api/invoice/generate', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload),
+        })
         if (!res.ok) throw new Error('Failed to generate PDF')
         const blob = await res.blob()
         const url = URL.createObjectURL(blob)
@@ -136,8 +153,12 @@ export default function InvoiceViewPage() {
           binary += String.fromCharCode(bytes[i])
         }
         setPdfBase64(btoa(binary))
-      })
-      .catch((err) => console.error('PDF generation failed:', err))
+      } catch (err) {
+        console.error('PDF generation failed:', err)
+      }
+    }
+
+    generatePdf()
   }, [invoice, settings])
 
   // Cleanup blob URL

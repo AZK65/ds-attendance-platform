@@ -24,7 +24,7 @@ import {
 import {
   Search, Loader2, FileText, ArrowLeft, X, Calendar,
   CreditCard, Link2, Eye, Copy, ExternalLink, CheckCircle2,
-  Banknote, Globe,
+  Banknote, Globe, User,
 } from 'lucide-react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
@@ -223,6 +223,26 @@ export default function InvoiceHistoryPage() {
       queryClient.invalidateQueries({ queryKey: ['invoices'] })
     },
   })
+
+  // Group participants for resolving student profile links
+  const { data: groupParticipantsData } = useQuery<{ participants: { id: string; phone: string; groupId: string }[] }>({
+    queryKey: ['group-participants-all'],
+    queryFn: async () => {
+      const res = await fetch('/api/groups/participants')
+      if (!res.ok) return { participants: [] }
+      return res.json()
+    },
+    staleTime: 5 * 60 * 1000,
+  })
+
+  function getStudentProfileLink(studentPhone: string | null): { groupId: string; contactId: string } | null {
+    if (!studentPhone) return null
+    const phone = studentPhone.replace(/\D/g, '')
+    const participants = groupParticipantsData?.participants || []
+    const match = participants.find(p => p.phone === phone)
+    if (match) return { groupId: match.groupId, contactId: match.id }
+    return null
+  }
 
   function clearFilters() {
     setSearch('')
@@ -447,6 +467,22 @@ export default function InvoiceHistoryPage() {
                             >
                               <Eye className="h-3.5 w-3.5" />
                             </Button>
+                            {/* View student profile */}
+                            {(() => {
+                              const profileLink = getStudentProfileLink(inv.studentPhone)
+                              if (!profileLink) return null
+                              return (
+                                <Button
+                                  size="sm"
+                                  variant="ghost"
+                                  className="h-7 w-7 p-0"
+                                  title="View student profile"
+                                  onClick={() => router.push(`/groups/${encodeURIComponent(profileLink.groupId)}/student/${encodeURIComponent(profileLink.contactId)}`)}
+                                >
+                                  <User className="h-3.5 w-3.5" />
+                                </Button>
+                              )
+                            })()}
                           </div>
                         </TableCell>
                       </TableRow>

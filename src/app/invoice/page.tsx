@@ -273,6 +273,22 @@ function InvoicePage() {
   // PDF generation mutation
   const generateMutation = useMutation({
     mutationFn: async () => {
+      // Fetch existing balance so we can show remaining balance on PDF
+      let remainingBalance = 0
+      try {
+        const balanceParams = new URLSearchParams()
+        if (formData.studentPhone) balanceParams.set('phone', formData.studentPhone)
+        if (formData.studentName) balanceParams.set('name', formData.studentName)
+        if (balanceParams.toString()) {
+          const balRes = await fetch(`/api/students/balance?${balanceParams}`)
+          if (balRes.ok) {
+            const balData = await balRes.json()
+            // Existing open balance + this new invoice total
+            remainingBalance = (balData.openBalance || 0) + total
+          }
+        }
+      } catch { /* non-fatal */ }
+
       const payload = {
         schoolName: settings?.schoolName || 'École de Conduite Qazi',
         schoolAddress: settings?.schoolAddress || '',
@@ -300,6 +316,7 @@ function InvoicePage() {
         total,
         taxesEnabled,
         notes: formData.notes,
+        remainingBalance,
       }
 
       const res = await fetch('/api/invoice/generate', {
