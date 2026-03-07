@@ -492,6 +492,12 @@ function InvoicePage() {
               </p>
             </div>
             <div className="flex gap-2">
+              <Link href="/invoice/history">
+                <Button variant="outline" size="sm">
+                  <FileText className="h-4 w-4 mr-1" />
+                  History
+                </Button>
+              </Link>
               <Link href="/invoice/services">
                 <Button variant="outline" size="sm">
                   <Package className="h-4 w-4 mr-1" />
