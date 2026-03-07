@@ -19,7 +19,7 @@ export async function POST(request: NextRequest) {
     const body = await request.json()
     phone = body.phone || 'unknown'
     studentName = body.studentName || ''
-    const { module, teacherName, date, classDateISO, startTime, endTime, reminderOnly } = body
+    const { module, teacherName, date, classDateISO, startTime, endTime, reminderOnly, isEdit } = body
 
     if (!phone || phone === 'unknown' || !studentName) {
       return NextResponse.json(
@@ -43,17 +43,19 @@ export async function POST(request: NextRequest) {
     }
     const timeStr = startTime && endTime ? `from ${formatTime12h(startTime)} to ${formatTime12h(endTime)}` : ''
 
-    const message = `Hi ${cleanName}! Your ${moduleStr} class has been scheduled${teacherStr} on ${dateStr} ${timeStr}. See you there!`.trim()
+    const message = isEdit
+      ? `Hi ${cleanName}! Your ${moduleStr} class has been updated${teacherStr}. It is now on ${dateStr} ${timeStr}. See you there!`.trim()
+      : `Hi ${cleanName}! Your ${moduleStr} class has been scheduled${teacherStr} on ${dateStr} ${timeStr}. See you there!`.trim()
 
-    // Only send the instant WhatsApp message if not reminderOnly (edit/reschedule only needs the reminder)
+    // Only send the instant WhatsApp message if not reminderOnly (reminderOnly = only reschedule the 1hr reminder)
     if (!reminderOnly) {
-      console.log(`[notify] Sending class notification to ${phone} (${studentName})`)
+      console.log(`[notify] Sending ${isEdit ? 'edit' : 'class'} notification to ${phone} (${studentName})`)
       await sendPrivateMessage(phone, message)
-      console.log(`[notify] Class notification sent to ${phone}`)
+      console.log(`[notify] ${isEdit ? 'Edit' : 'Class'} notification sent to ${phone}`)
 
       // Log the sent message
       await prisma.messageLog.create({
-        data: { type: 'class-scheduled', to: phone, toName: studentName, message: message.slice(0, 500), status: 'sent' },
+        data: { type: isEdit ? 'class-edited' : 'class-scheduled', to: phone, toName: studentName, message: message.slice(0, 500), status: 'sent' },
       }).catch(() => {})
     }
 

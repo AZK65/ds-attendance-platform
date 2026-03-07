@@ -653,7 +653,7 @@ function SchedulingPage() {
 
   // Update event mutation
   const updateMutation = useMutation({
-    mutationFn: async ({ eventId, data, originalNotes, originalTitle }: { eventId: string; data: EventFormData; originalNotes?: string; originalTitle?: string }) => {
+    mutationFn: async ({ eventId, data, originalNotes, originalTitle, originalStartTime }: { eventId: string; data: EventFormData; originalNotes?: string; originalTitle?: string; originalStartTime?: string }) => {
       // For truck classes, preserve the original title (Truck Class X (Auto) - Name)
       // since buildTitle() generates car-class format which mangles truck titles
       const isTruck = originalNotes && /TruckClass:\s*yes/i.test(originalNotes.replace(/<[^>]+>/g, ''))
@@ -676,18 +676,18 @@ function SchedulingPage() {
       }
       return res.json()
     },
-    onSuccess: (_, { data }) => {
+    onSuccess: (_, { data, originalStartTime }) => {
       queryClient.invalidateQueries({ queryKey: ['scheduling-events'] })
       setShowEditDialog(false)
       if (data.subcalendarId) notifyTeacher(data.subcalendarId, 'updated', data)
-      // Cancel old reminder and reschedule with updated teacher/time info
+      // Cancel old reminder for this specific class time, then reschedule + send edit notification
       if (data.studentPhone && data.date) {
         fetch('/api/scheduling/cancel-reminder', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ phone: data.studentPhone, classDateISO: data.date }),
+          body: JSON.stringify({ phone: data.studentPhone, classDateISO: data.date, startTime: originalStartTime }),
         }).then(() => {
-          // Reschedule a fresh reminder (reminderOnly = don't re-send the booking confirmation)
+          // Send edit notification to student + reschedule a fresh 1hr reminder
           const teacher = activeTeachers.find(t => t.id.toString() === data.subcalendarId)
           const moduleLabel = getModuleLabel(data.module)
           const [year, month, day] = data.date.split('-').map(Number)
@@ -705,7 +705,7 @@ function SchedulingPage() {
               classDateISO: data.date,
               startTime: data.startTime,
               endTime: data.endTime,
-              reminderOnly: true,
+              isEdit: true,
             }),
           }).catch(() => {})
         }).catch(() => {})
@@ -726,12 +726,12 @@ function SchedulingPage() {
       queryClient.invalidateQueries({ queryKey: ['scheduling-events'] })
       setShowEditDialog(false)
       if (data.subcalendarId) notifyTeacher(data.subcalendarId, 'deleted', data)
-      // Cancel any pending reminders for this deleted class
+      // Cancel pending reminder for this specific deleted class
       if (data.studentPhone && data.date) {
         fetch('/api/scheduling/cancel-reminder', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ phone: data.studentPhone, classDateISO: data.date }),
+          body: JSON.stringify({ phone: data.studentPhone, classDateISO: data.date, startTime: data.startTime }),
         }).catch(() => {})
       }
       setEditingEvent(null)
@@ -1432,7 +1432,9 @@ function SchedulingPage() {
     setDuplicateError(null)
     const dup = checkDuplicate(data, editingEvent.id)
     if (dup) { setDuplicateError(dup); return }
-    updateMutation.mutate({ eventId: editingEvent.id, data, originalNotes: editingEvent.notes, originalTitle: editingEvent.title })
+    // Extract original start time (HH:MM) from editingEvent.start_dt for cancel-reminder matching
+    const origStartTime = editingEvent.start_dt ? editingEvent.start_dt.slice(11, 16) : undefined
+    updateMutation.mutate({ eventId: editingEvent.id, data, originalNotes: editingEvent.notes, originalTitle: editingEvent.title, originalStartTime: origStartTime })
   }
 
   const handleDelete = () => {

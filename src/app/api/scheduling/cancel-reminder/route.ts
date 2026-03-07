@@ -1,11 +1,13 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/db'
 
-// Cancel pending reminders for a student's class (by phone + classDateISO)
+// Cancel pending reminders for a student's specific class (by phone + classDateISO + optional startTime)
 // Used when editing or deleting a class to prevent stale reminders
+// If startTime is provided, only cancels the reminder for that specific class time
+// If startTime is omitted, cancels ALL reminders for that student on that date (used for delete)
 export async function POST(request: NextRequest) {
   try {
-    const { phone, classDateISO } = await request.json()
+    const { phone, classDateISO, startTime } = await request.json()
 
     if (!phone || !classDateISO) {
       return NextResponse.json(
@@ -22,11 +24,23 @@ export async function POST(request: NextRequest) {
       },
     })
 
-    // Filter by phone in memberPhones JSON
+    // Filter by phone in memberPhones JSON + optionally by specific class time
     const toCancel = pendingReminders.filter(r => {
       try {
         const phones: string[] = JSON.parse(r.memberPhones)
-        return phones.includes(phone)
+        if (!phones.includes(phone)) return false
+
+        // If startTime is provided, only cancel the reminder for that specific class
+        // Reminders are scheduled 1 hour before the class, so scheduledAt = classTime - 1hr
+        if (startTime) {
+          const classDateTime = new Date(`${classDateISO}T${startTime}:00`)
+          const expectedReminderTime = new Date(classDateTime.getTime() - 1 * 60 * 60 * 1000)
+          // Allow 2-minute tolerance for timing differences
+          const diff = Math.abs(r.scheduledAt.getTime() - expectedReminderTime.getTime())
+          return diff < 2 * 60 * 1000
+        }
+
+        return true // No startTime filter — cancel all for this date
       } catch {
         return false
       }
@@ -51,6 +65,14 @@ export async function POST(request: NextRequest) {
         if (!phones.includes(phone)) return false
         // The reminder is 6 hours before, so the class time is scheduledAt + 6 hours
         const classTime = new Date(r.scheduledAt.getTime() + 6 * 60 * 60 * 1000)
+
+        // If startTime is provided, match to within 2 minutes of the specific class time
+        if (startTime) {
+          const expectedClassTime = new Date(`${classDateISO}T${startTime}:00`)
+          const diff = Math.abs(classTime.getTime() - expectedClassTime.getTime())
+          return diff < 2 * 60 * 1000
+        }
+
         return classTime >= classDayStart && classTime <= classDayEnd
       } catch {
         return false
@@ -73,7 +95,7 @@ export async function POST(request: NextRequest) {
       },
     })
 
-    console.log(`[cancel-reminder] Cancelled ${result.count} reminders for ${phone} on ${classDateISO}`)
+    console.log(`[cancel-reminder] Cancelled ${result.count} reminders for ${phone} on ${classDateISO}${startTime ? ` at ${startTime}` : ' (all)'}`)
 
     return NextResponse.json({ cancelled: result.count })
   } catch (error) {
