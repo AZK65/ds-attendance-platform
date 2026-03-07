@@ -4,7 +4,7 @@ import Link from 'next/link'
 import Image from 'next/image'
 import { usePathname } from 'next/navigation'
 import { motion } from 'motion/react'
-import { Home, Users, Award, CalendarDays, Link as LinkIcon, Receipt, UserPlus } from 'lucide-react'
+import { Home, Users, Award, CalendarDays, Link as LinkIcon, Receipt, UserPlus, MessageCircle } from 'lucide-react'
 import { ConnectionStatus } from './ConnectionStatus'
 import { NotificationBell } from './NotificationBell'
 
@@ -15,6 +15,7 @@ const NAV_ITEMS = [
   { href: '/scheduling', label: 'Scheduling', icon: CalendarDays },
   { href: '/invoice', label: 'Invoices', icon: Receipt },
   { href: '/students', label: 'Students', icon: UserPlus },
+  { href: '/inbox', label: 'Inbox', icon: MessageCircle },
 ]
 
 export function Navbar() {

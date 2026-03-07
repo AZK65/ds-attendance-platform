@@ -49,6 +49,35 @@ if (process.env.NODE_ENV !== 'production') {
 
 const AUTH_FOLDER = path.join(process.cwd(), '.wwebjs-auth')
 const CACHE_TTL = 60000 // 1 minute cache
+const CHAT_CACHE_TTL = 30000 // 30 second cache for inbox chats
+
+// Inbox types
+export interface ChatInfo {
+  id: string
+  name: string
+  isGroup: boolean
+  lastMessage: {
+    body: string
+    timestamp: number
+    fromMe: boolean
+  } | null
+  unreadCount: number
+  timestamp: number
+}
+
+export interface ChatMessage {
+  id: string
+  body: string
+  timestamp: number
+  fromMe: boolean
+  senderName: string | null
+  type: string
+  hasMedia: boolean
+}
+
+// Inbox chat cache
+let chatsCache: ChatInfo[] = []
+let lastChatSync = 0
 
 export function getWhatsAppState() {
   return {
@@ -1533,6 +1562,147 @@ export async function sendDocumentToContact(
     const errMsg = error instanceof Error ? error.message : String(error)
     console.error(`[WhatsApp] Failed to send document to ${chatId}:`, errMsg)
     throw new Error(`Failed to send document: ${errMsg}`)
+  }
+}
+
+// ── Inbox functions ─────────────────────────────────────────────
+
+export async function getAllChats(): Promise<ChatInfo[]> {
+  // Return cached if fresh
+  if (chatsCache.length > 0 && Date.now() - lastChatSync < CHAT_CACHE_TTL) {
+    return chatsCache
+  }
+
+  if (!state.client || !state.isConnected) {
+    return []
+  }
+
+  const client = state.client as {
+    getChats: () => Promise<Array<{
+      id: { _serialized: string }
+      name: string
+      isGroup: boolean
+      unreadCount: number
+      timestamp: number
+      lastMessage?: {
+        body: string
+        timestamp: number
+        fromMe: boolean
+        type: string
+      }
+    }>>
+  }
+
+  try {
+    const chats = await client.getChats()
+
+    const results: ChatInfo[] = chats.map(chat => ({
+      id: chat.id._serialized,
+      name: chat.name || chat.id._serialized,
+      isGroup: chat.isGroup,
+      lastMessage: chat.lastMessage ? {
+        body: chat.lastMessage.body || (chat.lastMessage.type !== 'chat' ? `[${chat.lastMessage.type}]` : ''),
+        timestamp: chat.lastMessage.timestamp,
+        fromMe: chat.lastMessage.fromMe
+      } : null,
+      unreadCount: chat.unreadCount || 0,
+      timestamp: chat.timestamp || 0
+    }))
+
+    // Sort by most recent timestamp
+    results.sort((a, b) => {
+      const tA = a.lastMessage?.timestamp || a.timestamp || 0
+      const tB = b.lastMessage?.timestamp || b.timestamp || 0
+      return tB - tA
+    })
+
+    chatsCache = results
+    lastChatSync = Date.now()
+    console.log(`[getAllChats] Fetched ${results.length} chats`)
+    return results
+  } catch (error) {
+    const errStr = String(error)
+    console.error('[getAllChats] Error:', errStr)
+    if (errStr.includes('detached') || errStr.includes('Target closed')) {
+      state.isConnected = false
+    }
+    return chatsCache // Return stale cache on error
+  }
+}
+
+export async function getChatMessages(chatId: string, limit = 50): Promise<ChatMessage[]> {
+  if (!state.client || !state.isConnected) {
+    throw new Error('WhatsApp not connected')
+  }
+
+  const client = state.client as {
+    getChatById: (id: string) => Promise<{
+      id: { _serialized: string }
+      isGroup: boolean
+      fetchMessages: (options: { limit: number }) => Promise<Array<{
+        id: { id: string; _serialized: string }
+        body: string
+        timestamp: number
+        fromMe: boolean
+        author?: string
+        type: string
+        hasMedia: boolean
+      }>>
+    }>
+    getContactById: (id: string) => Promise<{
+      name?: string
+      pushname?: string
+    }>
+  }
+
+  try {
+    const chat = await client.getChatById(chatId)
+    const messages = await chat.fetchMessages({ limit })
+
+    // Batch resolve sender names for group messages
+    const senderNames = new Map<string, string>()
+    if (chat.isGroup) {
+      const authors = new Set<string>()
+      for (const msg of messages) {
+        if (msg.author && !msg.fromMe) {
+          authors.add(msg.author)
+        }
+      }
+      // Resolve in parallel, max 20 at a time
+      const authorList = [...authors].slice(0, 50)
+      const contactPromises = authorList.map(async (authorId) => {
+        try {
+          const contact = await client.getContactById(authorId)
+          senderNames.set(authorId, contact.pushname || contact.name || authorId.replace('@c.us', ''))
+        } catch {
+          senderNames.set(authorId, authorId.replace('@c.us', ''))
+        }
+      })
+      await Promise.all(contactPromises)
+    }
+
+    // Return in chronological order (oldest first)
+    const result: ChatMessage[] = messages
+      .map(msg => ({
+        id: msg.id._serialized || msg.id.id,
+        body: msg.body || (msg.type !== 'chat' ? `[${msg.type}]` : ''),
+        timestamp: msg.timestamp,
+        fromMe: msg.fromMe,
+        senderName: msg.author ? (senderNames.get(msg.author) || msg.author.replace('@c.us', '')) : null,
+        type: msg.type || 'chat',
+        hasMedia: msg.hasMedia || false
+      }))
+      .sort((a, b) => a.timestamp - b.timestamp)
+
+    console.log(`[getChatMessages] Fetched ${result.length} messages for ${chatId}`)
+    return result
+  } catch (error) {
+    const errStr = String(error)
+    console.error(`[getChatMessages] Error for ${chatId}:`, errStr)
+    if (errStr.includes('detached') || errStr.includes('Target closed')) {
+      state.isConnected = false
+    }
+    throw error
   }
 }
 
