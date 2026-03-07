@@ -467,7 +467,7 @@ export default function StudentDetailPage() {
                 </Link>
               </Button>
               <Button variant="outline" size="sm" asChild>
-                <Link href={`/invoice?studentName=${encodeURIComponent(displayName)}&studentPhone=${encodeURIComponent(phone)}`}>
+                <Link href={`/invoice?studentName=${encodeURIComponent(profileData?.dbStudent?.full_name || displayName)}&studentPhone=${encodeURIComponent(phone)}${profileData?.dbStudent ? `&studentAddress=${encodeURIComponent(profileData.dbStudent.full_address || '')}&studentCity=${encodeURIComponent(profileData.dbStudent.city || '')}&studentPostalCode=${encodeURIComponent(profileData.dbStudent.postal_code || '')}&studentEmail=${encodeURIComponent(profileData.dbStudent.email || '')}` : ''}`}>
                   <Receipt className="h-4 w-4 mr-1" />
                   Invoice
                 </Link>
@@ -960,10 +960,18 @@ export default function StudentDetailPage() {
                                 ))}
                               </tbody>
                             </table>
-                            <div className="flex justify-end mt-2 pt-2 border-t border-muted text-xs text-muted-foreground space-x-4">
-                              <span>Subtotal: ${invoice.subtotal.toFixed(2)}</span>
-                              {invoice.gstAmount > 0 && <span>GST: ${invoice.gstAmount.toFixed(2)}</span>}
-                              {invoice.qstAmount > 0 && <span>QST: ${invoice.qstAmount.toFixed(2)}</span>}
+                            <div className="flex items-center justify-between mt-2 pt-2 border-t border-muted">
+                              <Button variant="outline" size="sm" asChild>
+                                <Link href={`/invoice/${invoice.id}`}>
+                                  <FileText className="h-3 w-3 mr-1" />
+                                  View Invoice
+                                </Link>
+                              </Button>
+                              <div className="text-xs text-muted-foreground space-x-4">
+                                <span>Subtotal: ${invoice.subtotal.toFixed(2)}</span>
+                                {invoice.gstAmount > 0 && <span>GST: ${invoice.gstAmount.toFixed(2)}</span>}
+                                {invoice.qstAmount > 0 && <span>QST: ${invoice.qstAmount.toFixed(2)}</span>}
+                              </div>
                             </div>
                           </div>
                         )}

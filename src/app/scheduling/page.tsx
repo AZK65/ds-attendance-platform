@@ -277,6 +277,7 @@ function SchedulingPage() {
   const [theoryGroupId, setTheoryGroupId] = useState<string | null>(null)
   const [studentBalance, setStudentBalance] = useState<{
     openBalance: number
+    totalInvoiced: number
     groupId: string | null
     contactId: string | null
   } | null>(null)
@@ -2780,15 +2781,17 @@ function SchedulingPage() {
                           </div>
                         )}
                         {/* Balance Badge */}
-                        {studentBalance && (studentBalance.openBalance > 0 || studentBalance.openBalance === 0) && (
+                        {studentBalance && (
                           <div className="flex items-center gap-3 min-w-0">
-                            <DollarSign className={`h-4 w-4 flex-shrink-0 ${studentBalance.openBalance > 0 ? 'text-amber-500' : 'text-green-500'}`} />
+                            <DollarSign className={`h-4 w-4 flex-shrink-0 ${studentBalance.openBalance > 0 ? 'text-amber-500' : 'text-muted-foreground'}`} />
                             <div className="min-w-0">
                               <p className="text-sm text-muted-foreground">Balance</p>
-                              <p className={`font-medium ${studentBalance.openBalance > 0 ? 'text-amber-600' : 'text-green-600'}`}>
-                                {studentBalance.openBalance > 0
-                                  ? `$${studentBalance.openBalance.toFixed(2)} owing`
-                                  : 'Paid up'}
+                              <p className={`font-medium ${studentBalance.openBalance > 0 ? 'text-amber-600' : 'text-muted-foreground'}`}>
+                                {studentBalance.totalInvoiced === 0
+                                  ? 'N/A'
+                                  : studentBalance.openBalance > 0
+                                    ? `$${studentBalance.openBalance.toFixed(2)} owing`
+                                    : 'Paid up'}
                               </p>
                             </div>
                           </div>
@@ -2872,6 +2875,15 @@ function SchedulingPage() {
                   <FileText className="h-4 w-4 mr-2" />
                   View Schedule
                 </Button>
+              )}
+              {/* View Student Profile button */}
+              {studentBalance?.groupId && studentBalance?.contactId && (
+                <Link href={`/groups/${encodeURIComponent(studentBalance.groupId)}/student/${encodeURIComponent(studentBalance.contactId)}`}>
+                  <Button variant="outline" onClick={() => setShowEventDetail(false)}>
+                    <User className="h-4 w-4 mr-2" />
+                    View Profile
+                  </Button>
+                </Link>
               )}
             </div>
             {/* Right side buttons */}
