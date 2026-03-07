@@ -8,11 +8,12 @@ export async function POST(request: NextRequest) {
     const body = await request.json()
     const { invoiceId, studentName, studentEmail, lineItems, total, invoiceNumber } = body
 
-    // Get Clover credentials
-    const settings = await prisma.invoiceSettings.findUnique({ where: { id: 'default' } })
-    if (!settings?.cloverMerchantId || !settings?.cloverApiToken) {
+    // Get Clover credentials from env
+    const cloverMerchantId = process.env.CLOVER_MERCHANT_ID
+    const cloverApiToken = process.env.CLOVER_API_TOKEN
+    if (!cloverMerchantId || !cloverApiToken) {
       return NextResponse.json(
-        { error: 'Clover credentials not configured. Add them in Invoice Settings.' },
+        { error: 'Clover credentials not configured. Add CLOVER_MERCHANT_ID and CLOVER_API_TOKEN to your environment.' },
         { status: 400 }
       )
     }
@@ -82,8 +83,8 @@ export async function POST(request: NextRequest) {
     const res = await fetch(`${CLOVER_BASE}/invoicingcheckoutservice/v1/checkouts`, {
       method: 'POST',
       headers: {
-        Authorization: `Bearer ${settings.cloverApiToken}`,
-        'X-Clover-Merchant-Id': settings.cloverMerchantId,
+        Authorization: `Bearer ${cloverApiToken}`,
+        'X-Clover-Merchant-Id': cloverMerchantId,
         'Content-Type': 'application/json',
       },
       body: JSON.stringify(checkoutPayload),

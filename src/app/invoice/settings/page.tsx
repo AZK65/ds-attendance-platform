@@ -21,8 +21,7 @@ interface InvoiceSettingsData {
   qstNumber: string
   taxesEnabled: boolean
   senderEmail: string
-  cloverMerchantId: string
-  cloverApiToken: string
+  cloverConfigured: boolean
   notes: string
 }
 
@@ -37,8 +36,6 @@ export default function InvoiceSettingsPage() {
     qstNumber: '',
     taxesEnabled: true,
     senderEmail: '',
-    cloverMerchantId: '',
-    cloverApiToken: '',
     notes: 'Merci pour votre confiance! / Thank you for your business!',
   })
   const [cloverTesting, setCloverTesting] = useState(false)
@@ -66,8 +63,6 @@ export default function InvoiceSettingsPage() {
         qstNumber: settings.qstNumber || '',
         taxesEnabled: settings.taxesEnabled,
         senderEmail: settings.senderEmail || '',
-        cloverMerchantId: settings.cloverMerchantId || '',
-        cloverApiToken: settings.cloverApiToken || '',
         notes: settings.notes,
       })
     }
@@ -258,7 +253,7 @@ export default function InvoiceSettingsPage() {
             </CardContent>
           </Card>
 
-          {/* Clover POS */}
+          {/* Clover POS Status */}
           <Card>
             <CardHeader>
               <CardTitle className="flex items-center gap-2">
@@ -266,78 +261,58 @@ export default function InvoiceSettingsPage() {
                 Clover POS
               </CardTitle>
               <CardDescription>
-                Connect your Clover POS to match receipts, generate payment links, and view orders alongside invoices.
+                Clover credentials are configured via environment variables (CLOVER_MERCHANT_ID and CLOVER_API_TOKEN) for security.
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
-              <div>
-                <Label htmlFor="cloverMerchantId">Merchant ID</Label>
-                <Input
-                  id="cloverMerchantId"
-                  value={formData.cloverMerchantId || ''}
-                  onChange={(e) => handleInputChange('cloverMerchantId', e.target.value)}
-                  placeholder="Your Clover Merchant ID"
-                />
-                <p className="text-xs text-muted-foreground mt-1">
-                  Found in your Clover Dashboard URL or Account Settings.
-                </p>
-              </div>
-              <div>
-                <Label htmlFor="cloverApiToken">API Token</Label>
-                <Input
-                  id="cloverApiToken"
-                  type="password"
-                  value={formData.cloverApiToken || ''}
-                  onChange={(e) => handleInputChange('cloverApiToken', e.target.value)}
-                  placeholder="Your Clover API token"
-                />
-                <p className="text-xs text-muted-foreground mt-1">
-                  Ecommerce API private key from your Clover developer settings.
-                </p>
-              </div>
               <div className="flex items-center gap-3">
-                <Button
-                  variant="outline"
-                  size="sm"
-                  disabled={!formData.cloverMerchantId || !formData.cloverApiToken || cloverTesting}
-                  onClick={async () => {
-                    setCloverTesting(true)
-                    setCloverTestResult(null)
-                    try {
-                      // Save first so the API route can read the credentials
-                      await fetch('/api/invoice/settings', {
-                        method: 'PUT',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify(formData),
-                      })
-                      const today = new Date().toISOString().split('T')[0]
-                      const res = await fetch(`/api/invoice/clover/orders?from=${today}&to=${today}`)
-                      setCloverTestResult(res.ok ? 'success' : 'error')
-                    } catch {
-                      setCloverTestResult('error')
-                    } finally {
-                      setCloverTesting(false)
-                    }
-                  }}
-                >
-                  {cloverTesting ? (
-                    <Loader2 className="h-4 w-4 animate-spin mr-1" />
-                  ) : (
-                    <CreditCard className="h-4 w-4 mr-1" />
-                  )}
-                  Test Connection
-                </Button>
-                {cloverTestResult === 'success' && (
+                {settings?.cloverConfigured ? (
                   <span className="text-sm text-green-600 flex items-center gap-1">
-                    <CheckCircle className="h-4 w-4" /> Connected
+                    <CheckCircle className="h-4 w-4" /> Clover is connected
+                  </span>
+                ) : (
+                  <span className="text-sm text-muted-foreground">
+                    Not configured. Add CLOVER_MERCHANT_ID and CLOVER_API_TOKEN to your .env file.
                   </span>
                 )}
-                {cloverTestResult === 'error' && (
-                  <span className="text-sm text-destructive">
-                    Connection failed. Check your credentials.
-                  </span>
+                {settings?.cloverConfigured && (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    disabled={cloverTesting}
+                    onClick={async () => {
+                      setCloverTesting(true)
+                      setCloverTestResult(null)
+                      try {
+                        const today = new Date().toISOString().split('T')[0]
+                        const res = await fetch(`/api/invoice/clover/orders?from=${today}&to=${today}`)
+                        setCloverTestResult(res.ok ? 'success' : 'error')
+                      } catch {
+                        setCloverTestResult('error')
+                      } finally {
+                        setCloverTesting(false)
+                      }
+                    }}
+                  >
+                    {cloverTesting ? (
+                      <Loader2 className="h-4 w-4 animate-spin mr-1" />
+                    ) : (
+                      <CreditCard className="h-4 w-4 mr-1" />
+                    )}
+                    Test Connection
+                  </Button>
                 )}
               </div>
+              {cloverTestResult === 'success' && (
+                <span className="text-sm text-green-600 flex items-center gap-1">
+                  <CheckCircle className="h-4 w-4" /> Connection successful
+                </span>
+              )}
+              {cloverTestResult === 'error' && (
+                <span className="text-sm text-destructive">
+                  Connection failed. Check your environment variables.
+                </span>
+              )}
             </CardContent>
           </Card>
 

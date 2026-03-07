@@ -1,22 +1,20 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { prisma } from '@/lib/db'
 
 const CLOVER_BASE = 'https://api.clover.com'
 
-async function getCloverCredentials() {
-  const settings = await prisma.invoiceSettings.findUnique({ where: { id: 'default' } })
-  if (!settings?.cloverMerchantId || !settings?.cloverApiToken) {
-    return null
-  }
-  return { merchantId: settings.cloverMerchantId, apiToken: settings.cloverApiToken }
+function getCloverCredentials() {
+  const merchantId = process.env.CLOVER_MERCHANT_ID
+  const apiToken = process.env.CLOVER_API_TOKEN
+  if (!merchantId || !apiToken) return null
+  return { merchantId, apiToken }
 }
 
 export async function GET(request: NextRequest) {
   try {
-    const creds = await getCloverCredentials()
+    const creds = getCloverCredentials()
     if (!creds) {
       return NextResponse.json(
-        { error: 'Clover credentials not configured. Add them in Invoice Settings.' },
+        { error: 'Clover credentials not configured. Add CLOVER_MERCHANT_ID and CLOVER_API_TOKEN to your environment.' },
         { status: 400 }
       )
     }
