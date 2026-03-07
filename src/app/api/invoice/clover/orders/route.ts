@@ -1,6 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server'
 
-const CLOVER_BASE = 'https://api.clover.com'
+// Use sandbox if CLOVER_SANDBOX=true, otherwise production
+const CLOVER_BASE = process.env.CLOVER_SANDBOX === 'true'
+  ? 'https://sandbox.dev.clover.com'
+  : 'https://api.clover.com'
 
 function getCloverCredentials() {
   const merchantId = process.env.CLOVER_MERCHANT_ID
@@ -72,8 +75,9 @@ export async function GET(request: NextRequest) {
 
     if (!res.ok) {
       const err = await res.text()
-      console.error('[Clover] Orders fetch error:', err)
-      return NextResponse.json({ error: 'Failed to fetch Clover orders' }, { status: res.status })
+      console.error('[Clover] Orders fetch error:', res.status, err)
+      console.error('[Clover] URL was:', url)
+      return NextResponse.json({ error: `Failed to fetch Clover orders: ${err}`, status: res.status }, { status: res.status })
     }
 
     const data = await res.json()

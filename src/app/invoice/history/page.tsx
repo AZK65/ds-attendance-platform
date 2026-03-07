@@ -329,7 +329,11 @@ export default function InvoiceHistoryPage() {
                   </TableHeader>
                   <TableBody>
                     {invoices.map((inv) => (
-                      <TableRow key={inv.id}>
+                      <TableRow
+                        key={inv.id}
+                        className="cursor-pointer hover:bg-muted/50 transition-colors"
+                        onClick={() => setViewDialogInvoice(inv)}
+                      >
                         <TableCell className="font-mono font-medium">
                           {inv.invoiceNumber}
                         </TableCell>
@@ -366,7 +370,7 @@ export default function InvoiceHistoryPage() {
                           </TableCell>
                         )}
                         <TableCell>
-                          <div className="flex gap-1">
+                          <div className="flex gap-1" onClick={(e) => e.stopPropagation()}>
                             {cloverConfigured && (
                               <>
                                 {/* Payment Link */}

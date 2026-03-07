@@ -1,7 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/db'
 
-const CLOVER_BASE = 'https://api.clover.com'
+// Use sandbox if CLOVER_SANDBOX=true, otherwise production
+const CLOVER_BASE = process.env.CLOVER_SANDBOX === 'true'
+  ? 'https://sandbox.dev.clover.com'
+  : 'https://api.clover.com'
 
 export async function POST(request: NextRequest) {
   try {
