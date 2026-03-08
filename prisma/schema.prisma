@@ -24,6 +24,7 @@ model Group {
   participantCount Int              @default(0)
   lastSynced       DateTime         @default(now())
   attendanceSheet  AttendanceSheet?
+  members          GroupMember[]
   createdAt        DateTime         @default(now())
   updatedAt        DateTime         @updatedAt
 }
@@ -35,8 +36,27 @@ model Contact {
   pushName   String?
   lastSynced DateTime           @default(now())
   records    AttendanceRecord[]
+  groups     GroupMember[]
   createdAt  DateTime           @default(now())
   updatedAt  DateTime           @updatedAt
+}
+
+// Cached group membership — synced from WhatsApp periodically
+model GroupMember {
+  id          String   @id @default(cuid())
+  groupId     String
+  group       Group    @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  contactId   String
+  contact     Contact  @relation(fields: [contactId], references: [id], onDelete: Cascade)
+  phone       String
+  isAdmin     Boolean  @default(false)
+  isSuperAdmin Boolean @default(false)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@unique([groupId, contactId])
+  @@index([groupId])
+  @@index([phone])
 }
 
 model AttendanceSheet {

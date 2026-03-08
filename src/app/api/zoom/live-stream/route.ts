@@ -5,7 +5,7 @@ import {
   removeListener
 } from '@/lib/zoom/live-store'
 import { matchZoomToWhatsApp } from '@/lib/zoom/client'
-import { getGroupParticipants, getWhatsAppState } from '@/lib/whatsapp/client'
+import { getGroupMembers } from '@/lib/group-sync'
 import { prisma } from '@/lib/db'
 
 export const dynamic = 'force-dynamic'
@@ -13,45 +13,22 @@ export const dynamic = 'force-dynamic'
 export async function GET(request: NextRequest) {
   const groupId = request.nextUrl.searchParams.get('groupId')
 
-  // Load learned matches and WhatsApp members for this SSE connection
-  // Use DB contacts first (fast), then upgrade to live WhatsApp data in background
+  // Load students from cached GroupMember table (instant) and learned matches
   let whatsappStudents: Array<{ name: string | null; pushName: string | null; phone: string }> = []
   let learnedMatches: Array<{ zoomName: string; whatsappPhone: string; whatsappName: string }> = []
 
   if (groupId) {
     try {
-      // Load learned matches (fast DB query)
-      learnedMatches = await prisma.zoomNameMatch.findMany()
+      // Both are fast DB queries — no WhatsApp API calls
+      const [members, matches] = await Promise.all([
+        getGroupMembers(groupId),
+        prisma.zoomNameMatch.findMany(),
+      ])
 
-      // Try DB contacts first for instant load
-      const dbRecords = await prisma.attendanceRecord.findMany({
-        where: { attendanceSheet: { groupId } },
-        select: {
-          contact: { select: { phone: true, name: true, pushName: true } },
-        },
-        distinct: ['contactId'],
-      })
-      if (dbRecords.length > 0) {
-        whatsappStudents = dbRecords.map(r => ({
-          name: r.contact.name,
-          pushName: r.contact.pushName,
-          phone: r.contact.phone,
-        }))
-      }
-
-      // Also try live WhatsApp data (may be faster/more current)
-      const state = getWhatsAppState()
-      if (state.isConnected) {
-        try {
-          const members = await getGroupParticipants(groupId)
-          const liveStudents = members.filter(m => !m.isSuperAdmin)
-          if (liveStudents.length > 0) {
-            whatsappStudents = liveStudents
-          }
-        } catch {
-          // Live WhatsApp failed, keep DB data
-        }
-      }
+      whatsappStudents = members
+        .filter(m => !m.isSuperAdmin)
+        .map(m => ({ name: m.name, pushName: m.pushName, phone: m.phone }))
+      learnedMatches = matches
     } catch (error) {
       console.error('[SSE] Error loading student data:', error)
     }
