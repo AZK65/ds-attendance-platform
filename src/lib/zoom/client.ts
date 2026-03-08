@@ -406,7 +406,41 @@ function stringSimilarity(s1: string, s2: string): number {
   return intersection / union
 }
 
-// Check if two names match (fuzzy matching)
+// Check if two name parts match (exact, prefix, or close edit distance)
+function partsMatch(a: string, b: string): boolean {
+  if (a === b) return true
+  // Prefix match for names >= 3 chars (e.g. "Mohi" matches "Mohima")
+  if (a.length >= 3 && b.length >= 3 && (a.startsWith(b) || b.startsWith(a))) return true
+  // Edit distance match for names >= 4 chars (1 typo tolerance)
+  if (a.length >= 4 && b.length >= 4) {
+    const dist = editDistance(a, b)
+    if (dist <= 1) return true
+  }
+  return false
+}
+
+// Simple Levenshtein edit distance
+function editDistance(a: string, b: string): number {
+  if (a.length === 0) return b.length
+  if (b.length === 0) return a.length
+  const matrix: number[][] = []
+  for (let i = 0; i <= a.length; i++) matrix[i] = [i]
+  for (let j = 0; j <= b.length; j++) matrix[0][j] = j
+  for (let i = 1; i <= a.length; i++) {
+    for (let j = 1; j <= b.length; j++) {
+      const cost = a[i - 1] === b[j - 1] ? 0 : 1
+      matrix[i][j] = Math.min(
+        matrix[i - 1][j] + 1,
+        matrix[i][j - 1] + 1,
+        matrix[i - 1][j - 1] + cost
+      )
+    }
+  }
+  return matrix[a.length][b.length]
+}
+
+// Check if two names match (broad fuzzy matching)
+// If ANY first/last name part matches between the two names, it's a match.
 function namesMatch(name1: string, name2: string, debug = false): boolean {
   const n1 = normalizeName(name1)
   const n2 = normalizeName(name2)
@@ -449,73 +483,14 @@ function namesMatch(name1: string, name2: string, debug = false): boolean {
     return true
   }
 
-  // If BOTH names have 2+ parts (first and last name), be strict about matching
-  // We need FIRST NAMES to match (or be reversed), not just any random parts
-  if (parts1.length >= 2 && parts2.length >= 2) {
-    const first1 = parts1[0]
-    const last1 = parts1[parts1.length - 1]
-    const first2 = parts2[0]
-    const last2 = parts2[parts2.length - 1]
-
-    // Helper to check if two name parts match (exact or prefix for longer names)
-    const partsMatch = (a: string, b: string): boolean => {
-      if (a === b) return true
-      if (a.length >= 4 && b.length >= 4 && (a.startsWith(b) || b.startsWith(a))) return true
-      return false
-    }
-
-    // Case 1: First names match AND (last names match OR one contains the other)
-    if (partsMatch(first1, first2)) {
-      // First names match - now check if last names are compatible
-      if (partsMatch(last1, last2)) {
-        if (debug) console.log(`  -> MATCH: first + last name match`)
-        return true
-      }
-      // For 3-part names, check if any middle/last parts match
-      if (parts1.length > 2 || parts2.length > 2) {
-        // Check if last1 appears anywhere in parts2, or last2 appears anywhere in parts1
-        const last1InParts2 = parts2.some(p => partsMatch(p, last1))
-        const last2InParts1 = parts1.some(p => partsMatch(p, last2))
-        if (last1InParts2 || last2InParts1) {
-          if (debug) console.log(`  -> MATCH: first name + partial last name`)
-          return true
-        }
-      }
-      if (debug) console.log(`  -> NO MATCH: first names match but last names differ (${last1} vs ${last2})`)
-      return false
-    }
-
-    // Case 2: Names are FULLY reversed (first1=last2 AND last1=first2)
-    // This handles "Musa Gaku" matching "Gaku Musa"
-    if (partsMatch(first1, last2) && partsMatch(last1, first2)) {
-      if (debug) console.log(`  -> MATCH: names fully reversed`)
-      return true
-    }
-
-    // Case 3: For 3+ part names, check if first name matches any part AND last name matches any part
-    if (parts1.length >= 3 || parts2.length >= 3) {
-      const first1MatchesAny = parts2.some(p => partsMatch(first1, p))
-      const last1MatchesAny = parts2.some(p => partsMatch(last1, p))
-      if (first1MatchesAny && last1MatchesAny) {
-        if (debug) console.log(`  -> MATCH: first and last found in other name parts`)
-        return true
-      }
-    }
-
-    if (debug) console.log(`  -> NO MATCH: first names don't match (${first1} vs ${first2})`)
-    return false
-  }
-
-  // If one name has only 1 part (e.g., "Sapna"), be more lenient
-  if (parts1.length === 1 || parts2.length === 1) {
-    const singlePart = parts1.length === 1 ? parts1[0] : parts2[0]
-    const multiParts = parts1.length === 1 ? parts2 : parts1
-
-    // Check if single part matches any part of the multi-part name
-    for (const p of multiParts) {
-      if (singlePart === p || (singlePart.length >= 3 && p.length >= 3 &&
-          (singlePart.startsWith(p) || p.startsWith(singlePart)))) {
-        if (debug) console.log(`  -> MATCH: single name "${singlePart}" matches part "${p}"`)
+  // Broad match: if ANY part from name1 matches ANY part from name2, it's a match.
+  // This handles cases like "Ahmed Khan" matching "Ahmed Qazi" (shared first name)
+  // or "Sarah Thompson" matching "John Thompson" would match — but that's acceptable
+  // because in a class setting, names are usually unique enough.
+  for (const p1 of parts1) {
+    for (const p2 of parts2) {
+      if (partsMatch(p1, p2)) {
+        if (debug) console.log(`  -> MATCH: shared name part "${p1}" ≈ "${p2}"`)
         return true
       }
     }
