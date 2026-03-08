@@ -460,7 +460,7 @@ function SchedulingPage() {
   })
 
   // Group participants (shared cache with ContactSearchAutocomplete) — used for View Profile link
-  const { data: groupParticipantsData } = useQuery<{ participants: { id: string; phone: string; groupId: string; groupName: string }[] }>({
+  const { data: groupParticipantsData } = useQuery<{ participants: { id: string; phone: string; name: string | null; pushName: string | null; groupId: string; groupName: string }[] }>({
     queryKey: ['group-participants-all'],
     queryFn: async () => {
       const res = await fetch('/api/groups/participants')
@@ -470,13 +470,25 @@ function SchedulingPage() {
     staleTime: 5 * 60 * 1000,
   })
 
-  // Resolve phone → { groupId, contactId } from group participants
-  const getStudentProfileLink = (studentPhone: string | undefined): { groupId: string; contactId: string } | null => {
-    if (!studentPhone) return null
+  // Resolve phone/name → { groupId, contactId } from group participants
+  const getStudentProfileLink = (studentPhone: string | undefined, studentName?: string): { groupId: string; contactId: string } | null => {
     const participants = groupParticipantsData?.participants || []
-    const match = participants.find(p => p.phone === studentPhone)
-    if (match) {
-      return { groupId: match.groupId, contactId: match.id }
+    // Try phone match first
+    if (studentPhone) {
+      const match = participants.find(p => p.phone === studentPhone)
+      if (match) {
+        return { groupId: match.groupId, contactId: match.id }
+      }
+    }
+    // Fall back to name match
+    if (studentName) {
+      const nameLower = studentName.toLowerCase()
+      const match = participants.find(p =>
+        p.name?.toLowerCase() === nameLower || p.pushName?.toLowerCase() === nameLower
+      )
+      if (match) {
+        return { groupId: match.groupId, contactId: match.id }
+      }
     }
     return null
   }
@@ -2754,7 +2766,7 @@ function SchedulingPage() {
                     ) : (
                       <>
                         {studentName && (() => {
-                          const profileLink = getStudentProfileLink(phone)
+                          const profileLink = getStudentProfileLink(phone, studentName)
                           return (
                             <div className="flex items-center gap-3 min-w-0">
                               <User className="h-4 w-4 text-muted-foreground flex-shrink-0" />
@@ -2904,7 +2916,8 @@ function SchedulingPage() {
               {/* View Student Profile button */}
               {selectedEvent && (() => {
                 const evPhone = parsePhoneFromNotes(selectedEvent.notes)
-                const profileLink = getStudentProfileLink(evPhone)
+                const evStudentName = parseStudentFromNotes(selectedEvent.notes) || parseModuleFromTitle(selectedEvent.title).studentName
+                const profileLink = getStudentProfileLink(evPhone, evStudentName)
                 if (!profileLink) return null
                 return (
                   <Link href={`/groups/${encodeURIComponent(profileLink.groupId)}/student/${encodeURIComponent(profileLink.contactId)}`}>

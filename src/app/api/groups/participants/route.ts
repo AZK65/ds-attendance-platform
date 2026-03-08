@@ -26,8 +26,8 @@ export async function GET() {
     // Get all groups with their module info
     const groups = await getGroupsWithDetails()
 
-    // Only include course groups (those with a module number)
-    const validGroups = groups.filter(g => g.name && g.name !== 'Status Broadcast' && g.moduleNumber)
+    // Include all real groups (exclude Status Broadcast)
+    const validGroups = groups.filter(g => g.name && g.name !== 'Status Broadcast')
 
     // Fetch participants for all groups in parallel (batched to avoid overwhelming)
     const BATCH_SIZE = 5
