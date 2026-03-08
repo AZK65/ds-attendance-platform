@@ -531,11 +531,11 @@ export default function StudentDetailPage() {
           transition={{ delay: 0.1, duration: 0.25 }}
           className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3"
         >
-          <div className="p-3 border rounded-lg text-center">
+          <Link href={`/groups/${encodeURIComponent(groupId)}`} className="p-3 border rounded-lg text-center hover:bg-accent/50 transition-colors cursor-pointer block">
             <Users className="h-5 w-5 mx-auto text-muted-foreground mb-1" />
             <p className="text-xs text-muted-foreground">Group</p>
-            <p className="font-medium text-sm truncate">{groupData?.group?.name || '-'}</p>
-          </div>
+            <p className="font-medium text-sm truncate text-primary">{groupData?.group?.name || '-'}</p>
+          </Link>
           <div className="p-3 border rounded-lg text-center">
             <Shield className="h-5 w-5 mx-auto text-muted-foreground mb-1" />
             <p className="text-xs text-muted-foreground">Role</p>

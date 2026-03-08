@@ -70,6 +70,9 @@ export async function GET(request: NextRequest) {
 // Try to find a matching student in the external MySQL database
 async function findExternalStudent(phone: string, name: string): Promise<StudentRecord | null> {
   try {
+    // Strip #number suffix from WhatsApp names (e.g. "Naseer Jasba #1114" → "Naseer Jasba")
+    const cleanName = name.replace(/\s*#\d+$/, '').trim()
+
     // Try phone first (most reliable match)
     if (phone) {
       // Strip common prefixes/formatting — search with last 10 digits
@@ -91,12 +94,12 @@ async function findExternalStudent(phone: string, name: string): Promise<Student
       }
     }
 
-    // Fallback: try name
-    if (name && name.length >= 2) {
-      const results = await searchStudents(name)
+    // Fallback: try name (cleaned of #number suffix)
+    if (cleanName && cleanName.length >= 2) {
+      const results = await searchStudents(cleanName)
       if (results.length > 0) {
         // Try to find an exact-ish name match (case insensitive)
-        const nameLower = name.toLowerCase()
+        const nameLower = cleanName.toLowerCase()
         const exactMatch = results.find(r =>
           r.full_name.toLowerCase() === nameLower ||
           r.full_name.toLowerCase().includes(nameLower) ||
@@ -117,6 +120,7 @@ async function findExternalStudent(phone: string, name: string): Promise<Student
 // Find invoices for a student by phone or name
 async function findStudentInvoices(phone: string, name: string) {
   const conditions = []
+  const cleanName = name.replace(/\s*#\d+$/, '').trim()
 
   if (phone) {
     // Match phone digits — strip formatting for comparison
@@ -126,8 +130,8 @@ async function findStudentInvoices(phone: string, name: string) {
     }
   }
 
-  if (name && name.length >= 2) {
-    conditions.push({ studentName: { contains: name } })
+  if (cleanName && cleanName.length >= 2) {
+    conditions.push({ studentName: { contains: cleanName } })
   }
 
   if (conditions.length === 0) return []
