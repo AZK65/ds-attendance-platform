@@ -480,12 +480,15 @@ function SchedulingPage() {
         return { groupId: match.groupId, contactId: match.id }
       }
     }
-    // Fall back to name match
+    // Fall back to name match (strip #number suffix that may be appended to names)
     if (studentName) {
-      const nameLower = studentName.toLowerCase()
-      const match = participants.find(p =>
-        p.name?.toLowerCase() === nameLower || p.pushName?.toLowerCase() === nameLower
-      )
+      const nameLower = studentName.toLowerCase().replace(/\s*#\d+$/, '').trim()
+      const match = participants.find(p => {
+        const pName = p.name?.toLowerCase() || ''
+        const pPush = p.pushName?.toLowerCase() || ''
+        return pName === nameLower || pPush === nameLower
+          || (nameLower.length >= 3 && (pName.includes(nameLower) || pPush.includes(nameLower)))
+      })
       if (match) {
         return { groupId: match.groupId, contactId: match.id }
       }

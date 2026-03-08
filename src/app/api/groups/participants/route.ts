@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server'
 import { getWhatsAppState, getGroupsWithDetails, getGroupParticipants } from '@/lib/whatsapp/client'
+import { prisma } from '@/lib/db'
 
 interface ParticipantWithGroup {
   id: string
@@ -15,11 +16,37 @@ interface ParticipantWithGroup {
 export async function GET() {
   const state = getWhatsAppState()
 
+  // When WhatsApp is disconnected, fall back to database contacts
   if (!state.isConnected) {
-    return NextResponse.json({
-      participants: [],
-      isConnected: false
-    })
+    try {
+      const records = await prisma.attendanceRecord.findMany({
+        select: {
+          contactId: true,
+          contact: { select: { id: true, phone: true, name: true, pushName: true } },
+          attendanceSheet: {
+            select: { group: { select: { id: true, name: true } } }
+          },
+        },
+        distinct: ['contactId'],
+        orderBy: { date: 'desc' },
+      })
+
+      const participants: ParticipantWithGroup[] = records.map(r => ({
+        id: r.contact.id,
+        phone: r.contact.phone,
+        name: r.contact.name,
+        pushName: r.contact.pushName,
+        groupId: r.attendanceSheet.group.id,
+        groupName: r.attendanceSheet.group.name,
+        moduleNumber: null,
+        lastMessageDate: null,
+      }))
+
+      return NextResponse.json({ participants, isConnected: false })
+    } catch (error) {
+      console.error('DB fallback participants error:', error)
+      return NextResponse.json({ participants: [], isConnected: false })
+    }
   }
 
   try {
