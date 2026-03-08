@@ -13,20 +13,47 @@ export const dynamic = 'force-dynamic'
 export async function GET(request: NextRequest) {
   const groupId = request.nextUrl.searchParams.get('groupId')
 
-  // Load WhatsApp members and learned matches once for this SSE connection
+  // Load learned matches and WhatsApp members for this SSE connection
+  // Use DB contacts first (fast), then upgrade to live WhatsApp data in background
   let whatsappStudents: Array<{ name: string | null; pushName: string | null; phone: string }> = []
   let learnedMatches: Array<{ zoomName: string; whatsappPhone: string; whatsappName: string }> = []
 
   if (groupId) {
     try {
+      // Load learned matches (fast DB query)
+      learnedMatches = await prisma.zoomNameMatch.findMany()
+
+      // Try DB contacts first for instant load
+      const dbRecords = await prisma.attendanceRecord.findMany({
+        where: { attendanceSheet: { groupId } },
+        select: {
+          contact: { select: { phone: true, name: true, pushName: true } },
+        },
+        distinct: ['contactId'],
+      })
+      if (dbRecords.length > 0) {
+        whatsappStudents = dbRecords.map(r => ({
+          name: r.contact.name,
+          pushName: r.contact.pushName,
+          phone: r.contact.phone,
+        }))
+      }
+
+      // Also try live WhatsApp data (may be faster/more current)
       const state = getWhatsAppState()
       if (state.isConnected) {
-        const members = await getGroupParticipants(groupId)
-        whatsappStudents = members.filter(m => !m.isSuperAdmin)
+        try {
+          const members = await getGroupParticipants(groupId)
+          const liveStudents = members.filter(m => !m.isSuperAdmin)
+          if (liveStudents.length > 0) {
+            whatsappStudents = liveStudents
+          }
+        } catch {
+          // Live WhatsApp failed, keep DB data
+        }
       }
-      learnedMatches = await prisma.zoomNameMatch.findMany()
     } catch (error) {
-      console.error('[SSE] Error loading WhatsApp data:', error)
+      console.error('[SSE] Error loading student data:', error)
     }
   }
 
