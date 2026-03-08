@@ -58,8 +58,11 @@ export default function LiveAttendancePage() {
 
   const [sseConnected, setSSEConnected] = useState(false)
   const [liveData, setLiveData] = useState<SSEData | null>(null)
-  const [manualOverrides, setManualOverrides] = useState<Set<string>>(new Set())
+  // Map of phone -> zoomName (linked unmatched participant) or '(Manual)' for plain manual
+  const [manualOverrides, setManualOverrides] = useState<Map<string, string>>(new Map())
   const [expandedPhone, setExpandedPhone] = useState<string | null>(null)
+  // Which absent student is picking an unmatched Zoom participant
+  const [pickingForPhone, setPickingForPhone] = useState<string | null>(null)
   const eventSourceRef = useRef<EventSource | null>(null)
 
   // Fetch group data
@@ -118,14 +121,15 @@ export default function LiveAttendancePage() {
     }
   }, [connectSSE])
 
-  // Mark absent student as present (manual override)
-  const markPresent = (phone: string) => {
-    setManualOverrides(prev => new Set([...prev, phone]))
+  // Mark absent student as present — link to an unmatched Zoom participant or mark as plain manual
+  const markPresent = (phone: string, zoomName?: string) => {
+    setManualOverrides(prev => new Map(prev).set(phone, zoomName || '(Manual)'))
+    setPickingForPhone(null)
   }
 
   const undoMarkPresent = (phone: string) => {
     setManualOverrides(prev => {
-      const next = new Set(prev)
+      const next = new Map(prev)
       next.delete(phone)
       return next
     })
@@ -134,7 +138,12 @@ export default function LiveAttendancePage() {
   // Compute effective present/absent lists with manual overrides
   const matched = liveData?.matched ?? []
   const rawAbsent = liveData?.absent ?? []
-  const unmatchedZoom = liveData?.unmatchedZoom ?? []
+  const rawUnmatchedZoom = liveData?.unmatchedZoom ?? []
+
+  // Collect all zoom names that have been linked to manual overrides
+  const linkedZoomNames = new Set(
+    [...manualOverrides.values()].filter(v => v !== '(Manual)')
+  )
 
   const overriddenAbsent = rawAbsent.filter(a => manualOverrides.has(a.phone))
   const effectivePresent = [
@@ -142,7 +151,7 @@ export default function LiveAttendancePage() {
     ...overriddenAbsent.map(a => ({
       whatsappName: a.name,
       whatsappPhone: a.phone,
-      zoomName: '(Manual)',
+      zoomName: manualOverrides.get(a.phone) || '(Manual)',
       duration: 0,
       joinTime: ''
     }))
@@ -151,6 +160,9 @@ export default function LiveAttendancePage() {
   const effectiveAbsent = rawAbsent
     .filter(a => !manualOverrides.has(a.phone))
     .sort((a, b) => a.name.localeCompare(b.name))
+
+  // Remove unmatched Zoom participants that were linked to a manual override
+  const unmatchedZoom = rawUnmatchedZoom.filter(p => !linkedZoomNames.has(p.name))
 
   const isLive = liveData?.isLive ?? meetingStatus?.isLive ?? false
   const lastUpdate = liveData?.timestamp ? new Date(liveData.timestamp) : null
@@ -288,10 +300,10 @@ export default function LiveAttendancePage() {
                           </p>
                         </div>
                         <div className="flex items-center gap-2">
-                          {student.zoomName === '(Manual)' ? (
+                          {manualOverrides.has(student.whatsappPhone) ? (
                             <>
                               <Badge variant="outline" className="text-xs bg-blue-50 text-blue-700 border-blue-200">
-                                Manual
+                                {student.zoomName === '(Manual)' ? 'Manual' : 'Linked'}
                               </Badge>
                               <Button
                                 variant="ghost"
@@ -349,16 +361,49 @@ export default function LiveAttendancePage() {
                               )}
                             </button>
                           </div>
-                          <Button
-                            variant="outline"
-                            size="sm"
-                            className="text-xs h-8 border-green-300 text-green-700 hover:bg-green-50"
-                            onClick={() => markPresent(student.phone)}
-                          >
-                            <CheckCircle className="h-3 w-3 mr-1" />
-                            Mark Present
-                          </Button>
+                          {unmatchedZoom.length > 0 ? (
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              className="text-xs h-8 border-green-300 text-green-700 hover:bg-green-50"
+                              onClick={() => setPickingForPhone(pickingForPhone === student.phone ? null : student.phone)}
+                            >
+                              <CheckCircle className="h-3 w-3 mr-1" />
+                              Link &amp; Mark
+                            </Button>
+                          ) : (
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              className="text-xs h-8 border-green-300 text-green-700 hover:bg-green-50"
+                              onClick={() => markPresent(student.phone)}
+                            >
+                              <CheckCircle className="h-3 w-3 mr-1" />
+                              Mark Present
+                            </Button>
+                          )}
                         </div>
+                        {/* Unmatched Zoom picker dropdown */}
+                        {pickingForPhone === student.phone && (
+                          <div className="mt-2 border rounded-lg bg-muted/30 p-2 space-y-1">
+                            <p className="text-xs text-muted-foreground mb-1.5 font-medium">Link to Zoom participant:</p>
+                            {unmatchedZoom.map((z, zi) => (
+                              <button
+                                key={zi}
+                                className="w-full text-left px-3 py-1.5 text-sm rounded-md hover:bg-green-50 dark:hover:bg-green-950/30 border hover:border-green-300 transition-colors"
+                                onClick={() => markPresent(student.phone, z.name)}
+                              >
+                                {z.name}
+                              </button>
+                            ))}
+                            <button
+                              className="w-full text-left px-3 py-1.5 text-sm rounded-md hover:bg-blue-50 dark:hover:bg-blue-950/30 border hover:border-blue-300 transition-colors text-muted-foreground"
+                              onClick={() => markPresent(student.phone)}
+                            >
+                              Mark without linking
+                            </button>
+                          </div>
+                        )}
                       </div>
                     ))
                   )}
