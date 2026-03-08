@@ -1,4 +1,4 @@
-import { NextResponse } from 'next/server'
+import { NextRequest, NextResponse } from 'next/server'
 import { getWhatsAppState, getGroupsWithDetails, getGroupParticipants } from '@/lib/whatsapp/client'
 import { prisma } from '@/lib/db'
 
@@ -13,7 +13,8 @@ interface ParticipantWithGroup {
   lastMessageDate: string | null
 }
 
-export async function GET() {
+export async function GET(request: NextRequest) {
+  const courseOnly = request.nextUrl.searchParams.get('courseOnly') === 'true'
   const state = getWhatsAppState()
 
   // When WhatsApp is disconnected, fall back to database contacts
@@ -53,8 +54,10 @@ export async function GET() {
     // Get all groups with their module info
     const groups = await getGroupsWithDetails()
 
-    // Include all real groups (exclude Status Broadcast)
-    const validGroups = groups.filter(g => g.name && g.name !== 'Status Broadcast')
+    // Filter groups based on courseOnly param
+    const validGroups = courseOnly
+      ? groups.filter(g => g.name && g.name !== 'Status Broadcast' && g.moduleNumber)
+      : groups.filter(g => g.name && g.name !== 'Status Broadcast')
 
     // Fetch participants for all groups in parallel (batched to avoid overwhelming)
     const BATCH_SIZE = 5

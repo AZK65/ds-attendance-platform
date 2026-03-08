@@ -263,9 +263,9 @@ function StudentsPage() {
     participants: ParticipantWithGroup[]
     isConnected: boolean
   }>({
-    queryKey: ['groups', 'participants'],
+    queryKey: ['groups', 'participants', 'courseOnly'],
     queryFn: async () => {
-      const res = await fetch('/api/groups/participants')
+      const res = await fetch('/api/groups/participants?courseOnly=true')
       if (!res.ok) throw new Error('Failed to fetch')
       return res.json()
     },
