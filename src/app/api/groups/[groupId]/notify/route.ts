@@ -94,7 +94,7 @@ export async function POST(
         await new Promise(resolve => setTimeout(resolve, 1500))
       }
 
-      // Schedule group reminder for 12pm on class date if requested
+      // Schedule group reminder for 12pm on class date if requested (with dedup)
       let groupReminderScheduled = false
       if (scheduleGroupReminder && classDateISO) {
         try {
@@ -106,6 +106,23 @@ export async function POST(
 
           // Only schedule if the date is in the future
           if (scheduledDate > new Date()) {
+            // Cancel any existing pending group reminders for the same group + date to prevent duplicates
+            const existingGroupReminders = await prisma.scheduledMessage.findMany({
+              where: {
+                status: 'pending',
+                groupId: decodedGroupId,
+                classDateISO: classDateISO,
+                isGroupMessage: true,
+              },
+            })
+            if (existingGroupReminders.length > 0) {
+              await prisma.scheduledMessage.updateMany({
+                where: { id: { in: existingGroupReminders.map(r => r.id) } },
+                data: { status: 'cancelled' },
+              })
+              console.log(`[group-notify] Cancelled ${existingGroupReminders.length} existing group reminder(s) for ${decodedGroupId} on ${classDateISO}`)
+            }
+
             await prisma.scheduledMessage.create({
               data: {
                 groupId: decodedGroupId,
