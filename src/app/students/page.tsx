@@ -60,6 +60,9 @@ import {
   Award,
   Receipt,
   CalendarDays,
+  ArrowUpDown,
+  ArrowUp,
+  ArrowDown,
 } from 'lucide-react'
 import { useRouter } from 'next/navigation'
 import { motion } from 'motion/react'
@@ -203,6 +206,7 @@ function StudentsPage() {
 
   // Search/filter state
   const [searchQuery, setSearchQuery] = useState('')
+  const [sortBy, setSortBy] = useState<'phase-asc' | 'phase-desc' | 'last-class' | 'oldest-class'>('phase-asc')
 
   // Form state (manual add/edit)
   const [showForm, setShowForm] = useState(false)
@@ -284,15 +288,7 @@ function StudentsPage() {
         byPhone.set(p.phone, p)
       }
     }
-    const deduped = Array.from(byPhone.values())
-    // Sort by phase ascending, then module ascending
-    deduped.sort((a, b) => {
-      const phaseA = getPhaseInfo(a.moduleNumber)?.phase ?? 99
-      const phaseB = getPhaseInfo(b.moduleNumber)?.phase ?? 99
-      if (phaseA !== phaseB) return phaseA - phaseB
-      return (a.moduleNumber ?? 0) - (b.moduleNumber ?? 0)
-    })
-    return deduped
+    return Array.from(byPhone.values())
   }, [participantsData])
 
   // Fetch last/next class info for all active student phones
@@ -339,18 +335,58 @@ function StudentsPage() {
 
   const dbMatches = matchesData?.matches || {}
 
-  // Filter active students by search query (client-side)
+  // Filter and sort active students (client-side)
   const filteredStudents = useMemo(() => {
+    let result = activeStudents
     const q = searchQuery.trim().toLowerCase()
-    if (!q) return activeStudents
-    return activeStudents.filter(s => {
-      const dbStudent = dbMatches[s.phone]
-      const name = (dbStudent?.full_name || cleanName(s.name) || cleanName(s.pushName) || '').toLowerCase()
-      const phone = s.phone.toLowerCase()
-      const group = (s.groupName || '').toLowerCase()
-      return name.includes(q) || phone.includes(q) || group.includes(q)
+    if (q) {
+      result = result.filter(s => {
+        const dbStudent = dbMatches[s.phone]
+        const name = (dbStudent?.full_name || cleanName(s.name) || cleanName(s.pushName) || '').toLowerCase()
+        const phone = s.phone.toLowerCase()
+        const group = (s.groupName || '').toLowerCase()
+        return name.includes(q) || phone.includes(q) || group.includes(q)
+      })
+    }
+
+    // Sort
+    const sorted = [...result]
+    sorted.sort((a, b) => {
+      switch (sortBy) {
+        case 'phase-asc': {
+          const phaseA = getPhaseInfo(a.moduleNumber)?.phase ?? 99
+          const phaseB = getPhaseInfo(b.moduleNumber)?.phase ?? 99
+          if (phaseA !== phaseB) return phaseA - phaseB
+          return (a.moduleNumber ?? 0) - (b.moduleNumber ?? 0)
+        }
+        case 'phase-desc': {
+          const phaseA = getPhaseInfo(a.moduleNumber)?.phase ?? 0
+          const phaseB = getPhaseInfo(b.moduleNumber)?.phase ?? 0
+          if (phaseA !== phaseB) return phaseB - phaseA
+          return (b.moduleNumber ?? 0) - (a.moduleNumber ?? 0)
+        }
+        case 'last-class': {
+          const dateA = classResults[a.phone]?.lastClass?.date
+          const dateB = classResults[b.phone]?.lastClass?.date
+          if (!dateA && !dateB) return 0
+          if (!dateA) return 1
+          if (!dateB) return -1
+          return new Date(dateB).getTime() - new Date(dateA).getTime()
+        }
+        case 'oldest-class': {
+          const dateA = classResults[a.phone]?.lastClass?.date
+          const dateB = classResults[b.phone]?.lastClass?.date
+          if (!dateA && !dateB) return 0
+          if (!dateA) return 1
+          if (!dateB) return -1
+          return new Date(dateA).getTime() - new Date(dateB).getTime()
+        }
+        default:
+          return 0
+      }
     })
-  }, [activeStudents, dbMatches, searchQuery])
+    return sorted
+  }, [activeStudents, dbMatches, searchQuery, sortBy, classResults])
 
   // Create mutation
   const createMutation = useMutation({
@@ -685,14 +721,49 @@ function StudentsPage() {
                   {searchQuery.trim() ? `${filteredStudents.length}/${activeStudents.length}` : activeStudents.length}
                 </Badge>
               </CardTitle>
-              <div className="relative flex-1 max-w-sm">
-                <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-                <Input
-                  placeholder="Filter by name, phone, or group..."
-                  value={searchQuery}
-                  onChange={e => setSearchQuery(e.target.value)}
-                  className="pl-10 h-9"
-                />
+              <div className="flex items-center gap-2 flex-1 max-w-lg">
+                <div className="relative flex-1">
+                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                  <Input
+                    placeholder="Filter by name, phone, or group..."
+                    value={searchQuery}
+                    onChange={e => setSearchQuery(e.target.value)}
+                    className="pl-10 h-9"
+                  />
+                </div>
+                <DropdownMenu>
+                  <DropdownMenuTrigger asChild>
+                    <Button variant="outline" size="sm" className="h-9 gap-1.5 flex-shrink-0">
+                      {sortBy === 'last-class' ? (
+                        <ArrowDown className="h-3.5 w-3.5" />
+                      ) : sortBy === 'oldest-class' ? (
+                        <ArrowUp className="h-3.5 w-3.5" />
+                      ) : (
+                        <ArrowUpDown className="h-3.5 w-3.5" />
+                      )}
+                      <span className="hidden sm:inline">
+                        {sortBy === 'phase-asc' && 'Phase ↑'}
+                        {sortBy === 'phase-desc' && 'Phase ↓'}
+                        {sortBy === 'last-class' && 'Last Class'}
+                        {sortBy === 'oldest-class' && 'Oldest Class'}
+                      </span>
+                    </Button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align="end">
+                    <DropdownMenuItem onClick={() => setSortBy('phase-asc')} className={sortBy === 'phase-asc' ? 'bg-accent' : ''}>
+                      Phase (Earliest First)
+                    </DropdownMenuItem>
+                    <DropdownMenuItem onClick={() => setSortBy('phase-desc')} className={sortBy === 'phase-desc' ? 'bg-accent' : ''}>
+                      Phase (Latest First)
+                    </DropdownMenuItem>
+                    <DropdownMenuItem onClick={() => setSortBy('last-class')} className={sortBy === 'last-class' ? 'bg-accent' : ''}>
+                      Last Class (Recent First)
+                    </DropdownMenuItem>
+                    <DropdownMenuItem onClick={() => setSortBy('oldest-class')} className={sortBy === 'oldest-class' ? 'bg-accent' : ''}>
+                      Oldest Class First
+                    </DropdownMenuItem>
+                  </DropdownMenuContent>
+                </DropdownMenu>
               </div>
             </div>
           </CardHeader>
