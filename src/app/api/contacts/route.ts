@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { searchContacts, getGroupParticipants, getWhatsAppState } from '@/lib/whatsapp/client'
+import { prisma } from '@/lib/db'
 
 export async function GET(request: NextRequest) {
   const searchParams = request.nextUrl.searchParams
@@ -8,8 +9,37 @@ export async function GET(request: NextRequest) {
 
   try {
     const state = getWhatsAppState()
+
+    // Always search local Student table (from invoices/certificates) — fast DB query
+    let studentContacts: Array<{ id: string; phone: string; name: string | null; pushName: string | null; source: string }> = []
+    if (search.length >= 2) {
+      try {
+        const students = await prisma.student.findMany({
+          where: {
+            OR: [
+              { name: { contains: search } },
+              { phone: { contains: search } },
+            ],
+          },
+          take: 10,
+          orderBy: { updatedAt: 'desc' },
+        })
+        studentContacts = students
+          .filter(s => s.phone)
+          .map(s => ({
+            id: `student-${s.id}`,
+            phone: s.phone!,
+            name: s.name,
+            pushName: null,
+            source: 'student',
+          }))
+      } catch {
+        // Non-fatal
+      }
+    }
+
     if (!state.isConnected) {
-      return NextResponse.json({ contacts: [], disconnected: true })
+      return NextResponse.json({ contacts: studentContacts, disconnected: true })
     }
 
     // Get contacts from WhatsApp
@@ -27,7 +57,16 @@ export async function GET(request: NextRequest) {
     }
 
     // Filter out existing group members
-    const contacts = allContacts.filter(c => !excludeIds.has(c.id))
+    const waContacts = allContacts.filter(c => !excludeIds.has(c.id))
+
+    // Merge: WhatsApp contacts first, then Student records not already in WhatsApp results
+    const waPhones = new Set(waContacts.map(c => c.phone))
+    const uniqueStudents = studentContacts.filter(s => !waPhones.has(s.phone))
+
+    const contacts = [
+      ...waContacts,
+      ...uniqueStudents,
+    ]
 
     return NextResponse.json({ contacts })
   } catch (error) {

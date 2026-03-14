@@ -4,13 +4,14 @@ import { useState, useEffect, useRef, useMemo } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { Input } from '@/components/ui/input'
 import { Badge } from '@/components/ui/badge'
-import { Loader2, Phone, User, Users, BookOpen, WifiOff } from 'lucide-react'
+import { Loader2, Phone, User, Users, BookOpen, WifiOff, FileText } from 'lucide-react'
 
 interface Contact {
   id: string
   phone: string
   name: string | null
   pushName: string | null
+  source?: string // 'student' when from Student table (invoice data)
 }
 
 interface ParticipantWithGroup {
@@ -234,13 +235,26 @@ export function ContactSearchAutocomplete({
                 className="w-full flex items-center gap-3 px-3 py-2 hover:bg-accent/50 text-left transition-colors"
                 onClick={() => handleSelect(contact)}
               >
-                <div className="w-8 h-8 rounded-full bg-muted flex items-center justify-center flex-shrink-0">
-                  <User className="h-4 w-4 text-muted-foreground" />
+                <div className={`w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0 ${
+                  contact.source === 'student' ? 'bg-purple-100' : 'bg-muted'
+                }`}>
+                  {contact.source === 'student' ? (
+                    <FileText className="h-4 w-4 text-purple-600" />
+                  ) : (
+                    <User className="h-4 w-4 text-muted-foreground" />
+                  )}
                 </div>
                 <div className="min-w-0 flex-1">
-                  <p className="font-medium text-sm truncate">
-                    {contact.name || contact.pushName || 'Unknown'}
-                  </p>
+                  <div className="flex items-center gap-2">
+                    <p className="font-medium text-sm truncate">
+                      {contact.name || contact.pushName || 'Unknown'}
+                    </p>
+                    {contact.source === 'student' && (
+                      <Badge variant="outline" className="text-[10px] px-1.5 py-0 text-purple-600 border-purple-200">
+                        Invoice
+                      </Badge>
+                    )}
+                  </div>
                   <p className="text-xs text-muted-foreground">
                     {formatPhone(contact.phone)}
                   </p>
