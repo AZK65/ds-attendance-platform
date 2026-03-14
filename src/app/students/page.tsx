@@ -204,16 +204,16 @@ function StudentsPage() {
   const queryClient = useQueryClient()
   const router = useRouter()
 
-  // Search/filter state — persist search in sessionStorage, sort in URL
+  // Search/filter state — persist search in localStorage, sort in URL
   const [searchQuery, setSearchQueryState] = useState(() => {
     if (typeof window !== 'undefined') {
-      return sessionStorage.getItem('students-search') ?? ''
+      return localStorage.getItem('students-search') ?? ''
     }
     return ''
   })
   const setSearchQuery = useCallback((val: string) => {
     setSearchQueryState(val)
-    sessionStorage.setItem('students-search', val)
+    localStorage.setItem('students-search', val)
   }, [])
 
   const validSorts = ['phase-asc', 'phase-desc', 'last-class', 'oldest-class'] as const
