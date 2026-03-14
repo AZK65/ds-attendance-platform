@@ -483,7 +483,7 @@ export default function StudentDetailPage() {
           start_dt: tc.date,
           end_dt: tc.date,
           subcalendar_ids: [],
-          notes: `Zoom Theory Class\nModule ${tc.moduleNumber}\nZoom Name: ${tc.zoomName}`,
+          notes: `Zoom Theory Class\nModule ${tc.moduleNumber}\nZoom Name: ${tc.zoomName}\nGroupId: ${tc.groupId}`,
         })
       }
     }
@@ -553,13 +553,20 @@ export default function StudentDetailPage() {
     const isExtraHours = parseExtraHoursFromNotes(event.notes)
     const isTheoryClass = event.id.startsWith('theory-')
 
+    // Extract groupId from theory class notes for navigation
+    const theoryGroupId = isTheoryClass ? event.notes?.match(/GroupId: (.+)/)?.[1] : null
+
     return (
       <div
         key={event.id}
-        onClick={() => !isTheoryClass && router.push(`/scheduling?eventId=${encodeURIComponent(event.id)}`)}
-        className={`flex items-center gap-4 p-3 border rounded-lg transition-colors ${
-          isTheoryClass ? '' : 'cursor-pointer hover:bg-accent/50'
-        }`}
+        onClick={() => {
+          if (isTheoryClass && theoryGroupId) {
+            router.push(`/groups/${encodeURIComponent(theoryGroupId)}`)
+          } else if (!isTheoryClass) {
+            router.push(`/scheduling?eventId=${encodeURIComponent(event.id)}`)
+          }
+        }}
+        className="flex items-center gap-4 p-3 border rounded-lg transition-colors cursor-pointer hover:bg-accent/50"
       >
         <div className="flex-shrink-0 text-center">
           <p className="text-xs text-muted-foreground">
