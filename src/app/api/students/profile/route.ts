@@ -17,12 +17,14 @@ export async function GET(request: NextRequest) {
   }
 
   try {
-    // Fetch from both sources in parallel
-    const [dbStudent, invoices] = await Promise.all([
+    // Fetch from all sources in parallel
+    const [dbStudent, invoices, localStudent] = await Promise.all([
       // 1. External MySQL: try to find student by phone, then by name
       findExternalStudent(phone, name),
       // 2. Local SQLite: find invoices for this student
       findStudentInvoices(phone, name),
+      // 3. Local SQLite: find student record with certificates
+      findLocalStudent(phone, name),
     ])
 
     // Compute invoice summary with balance
@@ -34,6 +36,53 @@ export async function GET(request: NextRequest) {
 
     return NextResponse.json({
       dbStudent,
+      localStudent: localStudent ? {
+        id: localStudent.id,
+        name: localStudent.name,
+        licenceNumber: localStudent.licenceNumber,
+        phone: localStudent.phone,
+        phoneAlt: localStudent.phoneAlt,
+        address: localStudent.address,
+        municipality: localStudent.municipality,
+        province: localStudent.province,
+        postalCode: localStudent.postalCode,
+        registrationDate: localStudent.registrationDate,
+        expiryDate: localStudent.expiryDate,
+        module1Date: localStudent.module1Date,
+        module2Date: localStudent.module2Date,
+        module3Date: localStudent.module3Date,
+        module4Date: localStudent.module4Date,
+        module5Date: localStudent.module5Date,
+        module6Date: localStudent.module6Date,
+        module7Date: localStudent.module7Date,
+        module8Date: localStudent.module8Date,
+        module9Date: localStudent.module9Date,
+        module10Date: localStudent.module10Date,
+        module11Date: localStudent.module11Date,
+        module12Date: localStudent.module12Date,
+        sortie1Date: localStudent.sortie1Date,
+        sortie2Date: localStudent.sortie2Date,
+        sortie3Date: localStudent.sortie3Date,
+        sortie4Date: localStudent.sortie4Date,
+        sortie5Date: localStudent.sortie5Date,
+        sortie6Date: localStudent.sortie6Date,
+        sortie7Date: localStudent.sortie7Date,
+        sortie8Date: localStudent.sortie8Date,
+        sortie9Date: localStudent.sortie9Date,
+        sortie10Date: localStudent.sortie10Date,
+        sortie11Date: localStudent.sortie11Date,
+        sortie12Date: localStudent.sortie12Date,
+        sortie13Date: localStudent.sortie13Date,
+        sortie14Date: localStudent.sortie14Date,
+        sortie15Date: localStudent.sortie15Date,
+        certificates: localStudent.certificates.map(cert => ({
+          id: cert.id,
+          certificateType: cert.certificateType,
+          contractNumber: cert.contractNumber,
+          attestationNumber: cert.attestationNumber,
+          generatedAt: cert.generatedAt,
+        })),
+      } : null,
       invoices: invoices.map(inv => ({
         id: inv.id,
         invoiceNumber: inv.invoiceNumber,
@@ -115,6 +164,34 @@ async function findExternalStudent(phone: string, name: string): Promise<Student
     console.error('[Student Profile] External DB error:', error)
     return null
   }
+}
+
+// Find local student record with certificates (from certificate generation)
+async function findLocalStudent(phone: string, name: string) {
+  const cleanName = name.replace(/\s*#\d+$/, '').trim()
+  const conditions = []
+
+  if (phone) {
+    const phoneDigits = phone.replace(/\D/g, '')
+    if (phoneDigits.length >= 7) {
+      conditions.push({ phone: { contains: phoneDigits.slice(-10) } })
+    }
+  }
+
+  if (cleanName && cleanName.length >= 2) {
+    conditions.push({ name: { contains: cleanName } })
+  }
+
+  if (conditions.length === 0) return null
+
+  return prisma.student.findFirst({
+    where: { OR: conditions },
+    include: {
+      certificates: {
+        orderBy: { generatedAt: 'desc' },
+      },
+    },
+  })
 }
 
 // Find invoices for a student by phone or name

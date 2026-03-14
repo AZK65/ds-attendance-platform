@@ -185,7 +185,7 @@ function InvoicePage() {
   })
 
   // Load packages for vehicle type selection
-  const { data: packagesData } = useQuery({
+  const { data: packagesData, isFetched: packagesFetched } = useQuery({
     queryKey: ['invoice-packages', vehicleType],
     queryFn: async () => {
       const params = vehicleType ? `?type=${vehicleType}` : ''
@@ -251,8 +251,9 @@ function InvoicePage() {
 
   // Auto-fill line items when vehicle type services load
   // Only auto-advance to review if there are NO packages to show
+  // Wait for BOTH queries to complete before deciding
   useEffect(() => {
-    if (vehicleServicesData?.services && vehicleType) {
+    if (vehicleServicesData?.services && vehicleType && packagesFetched) {
       // If packages exist for this vehicle type, don't auto-advance (let user pick)
       const hasPackages = (packagesData?.packages || []).length > 0
       if (hasPackages) return
@@ -269,7 +270,7 @@ function InvoicePage() {
       }
       setStep('review')
     }
-  }, [vehicleServicesData, vehicleType, packagesData])
+  }, [vehicleServicesData, vehicleType, packagesData, packagesFetched])
 
   // PDF generation mutation
   const generateMutation = useMutation({

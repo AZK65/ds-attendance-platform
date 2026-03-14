@@ -49,6 +49,7 @@ import {
   ChevronUp,
   Plus,
   Award,
+  Download,
 } from 'lucide-react'
 import Link from 'next/link'
 import { motion } from 'motion/react'
@@ -124,8 +125,59 @@ interface InvoiceRecord {
   createdAt: string
 }
 
+interface CertificateRecord {
+  id: string
+  certificateType: string
+  contractNumber: string | null
+  attestationNumber: string | null
+  generatedAt: string
+}
+
+interface LocalStudentRecord {
+  id: string
+  name: string
+  licenceNumber: string | null
+  phone: string | null
+  phoneAlt: string | null
+  address: string | null
+  municipality: string | null
+  province: string | null
+  postalCode: string | null
+  registrationDate: string | null
+  expiryDate: string | null
+  module1Date: string | null
+  module2Date: string | null
+  module3Date: string | null
+  module4Date: string | null
+  module5Date: string | null
+  module6Date: string | null
+  module7Date: string | null
+  module8Date: string | null
+  module9Date: string | null
+  module10Date: string | null
+  module11Date: string | null
+  module12Date: string | null
+  sortie1Date: string | null
+  sortie2Date: string | null
+  sortie3Date: string | null
+  sortie4Date: string | null
+  sortie5Date: string | null
+  sortie6Date: string | null
+  sortie7Date: string | null
+  sortie8Date: string | null
+  sortie9Date: string | null
+  sortie10Date: string | null
+  sortie11Date: string | null
+  sortie12Date: string | null
+  sortie13Date: string | null
+  sortie14Date: string | null
+  sortie15Date: string | null
+  certificates: CertificateRecord[]
+}
+
 interface StudentProfileData {
   dbStudent: DBStudentRecord | null
+  localStudent: LocalStudentRecord | null
   invoices: InvoiceRecord[]
   summary: {
     totalInvoiced: number
@@ -295,6 +347,77 @@ export default function StudentDetailPage() {
     },
     enabled: !!phone,
   })
+
+  const [downloadingCert, setDownloadingCert] = useState<string | null>(null)
+
+  // Build module dates from Teamup past classes
+  const moduleDatesFromClasses = useMemo(() => {
+    const dates: Record<string, string> = {}
+    // Only use past events (already completed classes)
+    const now = new Date()
+    const completedEvents = studentEvents
+      .filter(e => new Date(e.start_dt) < now)
+      .sort((a, b) => new Date(a.start_dt).getTime() - new Date(b.start_dt).getTime())
+
+    for (const event of completedEvents) {
+      const parsed = parseModuleFromTitle(event.title)
+      if (!parsed.module) continue
+
+      const eventDate = new Date(event.start_dt)
+      const dateStr = `${(eventDate.getMonth() + 1).toString().padStart(2, '0')}/${eventDate.getDate().toString().padStart(2, '0')}/${eventDate.getFullYear()}`
+
+      if (parsed.module.startsWith('S')) {
+        const sNum = parseInt(parsed.module.slice(1))
+        if (sNum >= 1 && sNum <= 15) {
+          dates[`sortie${sNum}Date`] = dateStr
+        }
+      } else {
+        const mNum = parseInt(parsed.module)
+        if (mNum >= 1 && mNum <= 12) {
+          dates[`module${mNum}Date`] = dateStr
+        }
+      }
+    }
+    return dates
+  }, [studentEvents])
+
+  const handleDownloadCertificate = async (cert: CertificateRecord) => {
+    if (!profileData?.localStudent) return
+    setDownloadingCert(cert.id)
+    try {
+      const res = await fetch('/api/certificate/regenerate', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          studentId: profileData.localStudent.id,
+          certificateId: cert.id,
+          certificateType: cert.certificateType,
+          moduleDates: moduleDatesFromClasses,
+        }),
+      })
+
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({ error: 'Unknown error' }))
+        throw new Error(err.error || 'Failed to generate certificate')
+      }
+
+      const blob = await res.blob()
+      const url = window.URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      const typeSuffix = cert.certificateType === 'phase1' ? 'learners' : 'full'
+      a.download = `certificate-${displayName}-${typeSuffix}.pdf`
+      document.body.appendChild(a)
+      a.click()
+      window.URL.revokeObjectURL(url)
+      document.body.removeChild(a)
+    } catch (error) {
+      console.error('Certificate download error:', error)
+      alert(error instanceof Error ? error.message : 'Failed to download certificate')
+    } finally {
+      setDownloadingCert(null)
+    }
+  }
 
   const [expandedInvoice, setExpandedInvoice] = useState<string | null>(null)
 
@@ -693,6 +816,98 @@ export default function StudentDetailPage() {
                   Add to Database
                 </Link>
               </Button>
+            </CardContent>
+          </Card>
+        </motion.div>
+      )}
+
+      {/* Certificate Info */}
+      {!loadingProfile && profileData?.localStudent && profileData.localStudent.certificates.length > 0 && (
+        <motion.div
+          initial={{ opacity: 0, y: 10 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ delay: 0.2, duration: 0.25 }}
+        >
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2 text-lg">
+                <Award className="h-5 w-5" />
+                Certificate Info
+                <Badge variant="secondary" className="ml-auto text-xs">
+                  {profileData.localStudent.certificates.length}
+                </Badge>
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="space-y-3">
+                {profileData.localStudent.certificates.map((cert) => {
+                  // Check if this certificate has the required dates saved
+                  const ls = profileData.localStudent!
+                  const hasPhase1Dates = !!(ls.module1Date || ls.module2Date || ls.module3Date || ls.module4Date || ls.module5Date || moduleDatesFromClasses.module1Date || moduleDatesFromClasses.module2Date || moduleDatesFromClasses.module3Date || moduleDatesFromClasses.module4Date || moduleDatesFromClasses.module5Date)
+                  const hasFullDates = hasPhase1Dates && !!(ls.module6Date || ls.module12Date || ls.sortie1Date || ls.sortie15Date || moduleDatesFromClasses.module6Date || moduleDatesFromClasses.module12Date || moduleDatesFromClasses.sortie1Date || moduleDatesFromClasses.sortie15Date)
+                  const canDownload = cert.certificateType === 'phase1' ? hasPhase1Dates : hasFullDates
+                  const isDownloading = downloadingCert === cert.id
+
+                  return (
+                    <div key={cert.id} className="flex items-center justify-between p-3 rounded-lg border bg-muted/30 gap-3">
+                      <div className="flex items-center gap-3 min-w-0">
+                        <div className={`w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0 ${
+                          cert.certificateType === 'full'
+                            ? 'bg-green-100 dark:bg-green-950'
+                            : 'bg-blue-100 dark:bg-blue-950'
+                        }`}>
+                          <GraduationCap className={`h-4 w-4 ${
+                            cert.certificateType === 'full' ? 'text-green-600' : 'text-blue-600'
+                          }`} />
+                        </div>
+                        <div className="min-w-0">
+                          <p className="text-sm font-medium">
+                            {cert.certificateType === 'full' ? 'Full Certificate' : 'Learners Certificate'}
+                          </p>
+                          <p className="text-xs text-muted-foreground">
+                            {new Date(cert.generatedAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
+                          </p>
+                          <div className="flex flex-wrap gap-x-3 mt-0.5">
+                            {cert.contractNumber && (
+                              <p className="text-xs">
+                                <span className="text-muted-foreground">Contract: </span>
+                                <span className="font-mono font-medium">{cert.contractNumber}</span>
+                              </p>
+                            )}
+                            {cert.attestationNumber && (
+                              <p className="text-xs">
+                                <span className="text-muted-foreground">Attestation: </span>
+                                <span className="font-mono font-medium">{cert.attestationNumber}</span>
+                              </p>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        disabled={!canDownload || isDownloading}
+                        onClick={() => handleDownloadCertificate(cert)}
+                        title={canDownload ? 'Download certificate' : 'No date information saved — generate the certificate first'}
+                        className="flex-shrink-0"
+                      >
+                        {isDownloading ? (
+                          <Loader2 className="h-4 w-4 animate-spin" />
+                        ) : (
+                          <Download className="h-4 w-4" />
+                        )}
+                      </Button>
+                    </div>
+                  )
+                })}
+                {/* Info about date sources */}
+                {Object.keys(moduleDatesFromClasses).length > 0 && (
+                  <p className="text-xs text-muted-foreground flex items-center gap-1">
+                    <CalendarDays className="h-3 w-3" />
+                    Dates auto-populated from {Object.keys(moduleDatesFromClasses).length} scheduled classes
+                  </p>
+                )}
+              </div>
             </CardContent>
           </Card>
         </motion.div>
