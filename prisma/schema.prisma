@@ -374,3 +374,10 @@ model StudentRegistration {
 
   @@index([status])
 }
+
+// Simple key-value store for user/app preferences (synced across devices)
+model AppPreference {
+  key       String   @id
+  value     String
+  updatedAt DateTime @updatedAt
+}

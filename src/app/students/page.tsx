@@ -204,16 +204,33 @@ function StudentsPage() {
   const queryClient = useQueryClient()
   const router = useRouter()
 
-  // Search/filter state — persist search in localStorage, sort in URL
-  const [searchQuery, setSearchQueryState] = useState(() => {
-    if (typeof window !== 'undefined') {
-      return localStorage.getItem('students-search') ?? ''
-    }
-    return ''
-  })
+  // Search/filter state — persist search in DB so it syncs across devices
+  const [searchQuery, setSearchQueryState] = useState('')
+  const searchSaveRef = useRef<NodeJS.Timeout | null>(null)
+
+  // Load saved search from DB on mount
+  useEffect(() => {
+    fetch('/api/preferences?keys=students-search')
+      .then(r => r.ok ? r.json() : {})
+      .then((prefs: Record<string, string>) => {
+        if (prefs['students-search']) {
+          setSearchQueryState(prefs['students-search'])
+        }
+      })
+      .catch(() => {})
+  }, [])
+
   const setSearchQuery = useCallback((val: string) => {
     setSearchQueryState(val)
-    localStorage.setItem('students-search', val)
+    // Debounce save to DB (don't save on every keystroke)
+    if (searchSaveRef.current) clearTimeout(searchSaveRef.current)
+    searchSaveRef.current = setTimeout(() => {
+      fetch('/api/preferences', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ key: 'students-search', value: val }),
+      }).catch(() => {})
+    }, 800)
   }, [])
 
   const validSorts = ['phase-asc', 'phase-desc', 'last-class', 'oldest-class'] as const
