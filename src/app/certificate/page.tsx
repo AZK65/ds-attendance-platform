@@ -123,19 +123,19 @@ type Step = 'upload-pdf' | 'upload-docs' | 'review' | 'download'
 type UploadMode = 'separate' | 'combined'
 type TemplateMode = 'new' | 'upload'
 type PageMode = 'single' | 'bulk' | 'database'
-type BulkStep = 'upload' | 'processing' | 'review' | 'download'
+type BulkStep = 'select' | 'processing' | 'review' | 'download'
 
-interface BulkImage {
+interface BulkStudent {
   id: string
-  image: string
-  fileName: string
-}
-
-interface BulkResult {
-  id: string
+  source: 'database' | 'ocr'
+  student?: DBStudent
   formData: CertificateFormData
+  ocrImage?: string
+  ocrProcessing?: boolean
   ocrError?: string
   pdfBlob?: Blob
+  datesFetched?: boolean
+  fileName?: string
 }
 
 const STEP_ORDER: Step[] = ['upload-pdf', 'upload-docs', 'review', 'download']
@@ -405,13 +405,18 @@ export default function CertificatePage() {
   const [isProcessing, setIsProcessing] = useState(false)
   const [phoneCameraTarget, setPhoneCameraTarget] = useState<'combined' | 'licence' | 'attendance' | null>(null)
   const [selectedStudentId, setSelectedStudentId] = useState<string | null>(null)
+  const [singleSearchQuery, setSingleSearchQuery] = useState('')
+  const [singleSearchResults, setSingleSearchResults] = useState<DBStudent[]>([])
+  const [singleSearching, setSingleSearching] = useState(false)
   const finalFormDataRef = useRef<CertificateFormData>(initialFormData)
 
   // ─── Bulk Mode State ────────────────────────────────────────────────────
-  const [bulkStep, setBulkStep] = useState<BulkStep>('upload')
-  const [bulkImages, setBulkImages] = useState<BulkImage[]>([])
-  const [bulkResults, setBulkResults] = useState<BulkResult[]>([])
+  const [bulkStep, setBulkStep] = useState<BulkStep>('select')
+  const [bulkStudents, setBulkStudents] = useState<BulkStudent[]>([])
   const [bulkCertType, setBulkCertType] = useState<'phase1' | 'full'>('full')
+  const [bulkSearchQuery, setBulkSearchQuery] = useState('')
+  const [bulkSearchResults, setBulkSearchResults] = useState<DBStudent[]>([])
+  const [bulkSearching, setBulkSearching] = useState(false)
   const [processingIndex, setProcessingIndex] = useState(0)
   const [activeTab, setActiveTab] = useState('0')
   const [isGenerating, setIsGenerating] = useState(false)
@@ -516,6 +521,106 @@ export default function CertificatePage() {
     }
   })
 
+  // ─── Single Mode Search ────────────────────────────────────────────────
+
+  const handleSingleSearch = useCallback(async () => {
+    if (singleSearchQuery.length < 2) return
+    setSingleSearching(true)
+    try {
+      const res = await fetch(`/api/students/search?q=${encodeURIComponent(singleSearchQuery)}`)
+      if (!res.ok) throw new Error('Search failed')
+      const data = await res.json()
+      setSingleSearchResults(data.students || [])
+    } catch { setSingleSearchResults([]) }
+    finally { setSingleSearching(false) }
+  }, [singleSearchQuery])
+
+  // Auto-search as user types
+  useEffect(() => {
+    if (singleSearchQuery.length < 2) { setSingleSearchResults([]); return }
+    const timer = setTimeout(() => handleSingleSearch(), 300)
+    return () => clearTimeout(timer)
+  }, [singleSearchQuery]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  const handleSingleSelectStudent = async (student: DBStudent) => {
+    setSelectedStudentId(String(student.student_id))
+    setSingleSearchResults([])
+
+    const nameParts = student.full_name.trim().split(/\s+/)
+    let formattedName = student.full_name
+    if (nameParts.length >= 2) {
+      const lastName = nameParts[0]
+      const firstName = nameParts.slice(1).join(' ')
+      formattedName = `${lastName}, ${firstName}`
+    }
+
+    const attestationRaw = String(student.contract_number || '')
+    const formattedAttestation = attestationRaw ? attestationRaw.split('').join('  ') : ''
+
+    const baseData: CertificateFormData = {
+      ...initialFormData,
+      name: formattedName,
+      licenceNumber: student.permit_number || '',
+      address: student.full_address || '',
+      municipality: student.city || 'Montreal',
+      province: 'QC',
+      postalCode: student.postal_code || '',
+      phone: student.phone_number || '',
+      contractNumber: String(student.user_defined_contract_number || ''),
+      attestationNumber: formattedAttestation,
+    }
+
+    setFormData(baseData)
+
+    // Fetch dates from Teamup + Zoom in parallel
+    try {
+      const phone = student.phone_number || ''
+      const name = student.full_name || ''
+      const params = new URLSearchParams()
+      if (phone) params.set('phone', phone)
+      if (name) params.set('studentName', name)
+
+      const [eventsRes, theoryRes] = await Promise.all([
+        fetch(`/api/scheduling/student-events?${params}`).catch(() => null),
+        fetch(`/api/scheduling/student-theory?${params}`).catch(() => null),
+      ])
+
+      const dates: Record<string, string> = {}
+
+      if (theoryRes?.ok) {
+        const theoryData: { moduleNumber: number; date: string }[] = await theoryRes.json()
+        for (const tc of theoryData) {
+          const d = new Date(tc.date)
+          const dateStr = `${(d.getMonth() + 1).toString().padStart(2, '0')}/${d.getDate().toString().padStart(2, '0')}/${d.getFullYear()}`
+          if (tc.moduleNumber >= 1 && tc.moduleNumber <= 12) dates[`module${tc.moduleNumber}Date`] = dateStr
+        }
+      }
+
+      if (eventsRes?.ok) {
+        const events: { id: string; title: string; start_dt: string }[] = await eventsRes.json()
+        const now = new Date()
+        for (const event of events) {
+          if (new Date(event.start_dt) >= now) continue
+          const parts = event.title.split(' - ')
+          const first = parts[0]?.trim() || ''
+          const sMatch = first.match(/^Session (\d+)$/)
+          const mMatch = first.match(/^M(\d+)$/)
+          const moduleMatch = first.match(/^Module (\d+)$/)
+          const eventDate = new Date(event.start_dt)
+          const dateStr = `${(eventDate.getMonth() + 1).toString().padStart(2, '0')}/${eventDate.getDate().toString().padStart(2, '0')}/${eventDate.getFullYear()}`
+
+          if (sMatch) { const n = parseInt(sMatch[1]); if (n >= 1 && n <= 15) dates[`sortie${n}Date`] = dateStr }
+          else if (mMatch) { const n = parseInt(mMatch[1]); if (n >= 1 && n <= 12 && !dates[`module${n}Date`]) dates[`module${n}Date`] = dateStr }
+          else if (moduleMatch) { const n = parseInt(moduleMatch[1]); if (n >= 1 && n <= 12 && !dates[`module${n}Date`]) dates[`module${n}Date`] = dateStr }
+        }
+      }
+
+      if (Object.keys(dates).length > 0) {
+        setFormData(prev => ({ ...prev, ...dates }))
+      }
+    } catch { /* non-critical */ }
+  }
+
   // ─── Single Mode Handlers ──────────────────────────────────────────────
 
   const handlePdfUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -619,94 +724,329 @@ export default function CertificatePage() {
 
   // ─── Bulk Mode Handlers ────────────────────────────────────────────────
 
-  const handleBulkUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+  // ─── Bulk Mode: Search & Add from Database ─────────────────────────────
+
+  const handleBulkSearch = useCallback(async (query?: string) => {
+    const searchTerm = query ?? bulkSearchQuery
+    if (searchTerm.length < 2) { setBulkSearchResults([]); return }
+    setBulkSearching(true)
+    try {
+      const res = await fetch(`/api/students/search?q=${encodeURIComponent(searchTerm)}`)
+      if (!res.ok) throw new Error('Search failed')
+      const data = await res.json()
+      setBulkSearchResults(data.students || [])
+    } catch { setBulkSearchResults([]) }
+    finally { setBulkSearching(false) }
+  }, [bulkSearchQuery])
+
+  useEffect(() => {
+    if (bulkSearchQuery.length < 2) { setBulkSearchResults([]); return }
+    const timer = setTimeout(() => handleBulkSearch(bulkSearchQuery), 300)
+    return () => clearTimeout(timer)
+  }, [bulkSearchQuery]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  const handleBulkAddStudent = async (student: DBStudent) => {
+    // Don't add duplicates
+    if (bulkStudents.some(bs => bs.student?.student_id === student.student_id)) return
+    setBulkSearchResults([])
+    setBulkSearchQuery('')
+
+    const nameParts = student.full_name.trim().split(/\s+/)
+    let formattedName = student.full_name
+    if (nameParts.length >= 2) {
+      const lastName = nameParts[0]
+      const firstName = nameParts.slice(1).join(' ')
+      formattedName = `${lastName}, ${firstName}`
+    }
+
+    const attestationRaw = String(student.contract_number || '')
+    const formattedAttestation = attestationRaw ? attestationRaw.split('').join('  ') : ''
+
+    const baseData: CertificateFormData = {
+      ...initialFormData,
+      name: formattedName,
+      licenceNumber: student.permit_number || '',
+      address: student.full_address || '',
+      municipality: student.city || 'Montreal',
+      province: 'QC',
+      postalCode: student.postal_code || '',
+      phone: student.phone_number || '',
+      contractNumber: String(student.user_defined_contract_number || ''),
+      attestationNumber: formattedAttestation,
+      certificateType: bulkCertType,
+    }
+
+    const newEntry: BulkStudent = {
+      id: `bulk-${Date.now()}-${student.student_id}`,
+      source: 'database',
+      student,
+      formData: baseData,
+      datesFetched: false,
+    }
+
+    setBulkStudents(prev => [...prev, newEntry])
+
+    // Fetch dates in background
+    try {
+      const phone = student.phone_number || ''
+      const name = student.full_name || ''
+      const params = new URLSearchParams()
+      if (phone) params.set('phone', phone)
+      if (name) params.set('studentName', name)
+
+      const [eventsRes, theoryRes] = await Promise.all([
+        fetch(`/api/scheduling/student-events?${params}`).catch(() => null),
+        fetch(`/api/scheduling/student-theory?${params}`).catch(() => null),
+      ])
+
+      const dates: Record<string, string> = {}
+
+      if (theoryRes?.ok) {
+        const theoryData: { moduleNumber: number; date: string }[] = await theoryRes.json()
+        for (const tc of theoryData) {
+          const d = new Date(tc.date)
+          const dateStr = `${(d.getMonth() + 1).toString().padStart(2, '0')}/${d.getDate().toString().padStart(2, '0')}/${d.getFullYear()}`
+          if (tc.moduleNumber >= 1 && tc.moduleNumber <= 12) dates[`module${tc.moduleNumber}Date`] = dateStr
+        }
+      }
+
+      if (eventsRes?.ok) {
+        const events: { id: string; title: string; start_dt: string }[] = await eventsRes.json()
+        const now = new Date()
+        for (const event of events) {
+          if (new Date(event.start_dt) >= now) continue
+          const parts = event.title.split(' - ')
+          const first = parts[0]?.trim() || ''
+          const sMatch = first.match(/^Session (\d+)$/)
+          const mMatch = first.match(/^M(\d+)$/)
+          const moduleMatch = first.match(/^Module (\d+)$/)
+          const eventDate = new Date(event.start_dt)
+          const dateStr = `${(eventDate.getMonth() + 1).toString().padStart(2, '0')}/${eventDate.getDate().toString().padStart(2, '0')}/${eventDate.getFullYear()}`
+
+          if (sMatch) { const n = parseInt(sMatch[1]); if (n >= 1 && n <= 15) dates[`sortie${n}Date`] = dateStr }
+          else if (mMatch) { const n = parseInt(mMatch[1]); if (n >= 1 && n <= 12 && !dates[`module${n}Date`]) dates[`module${n}Date`] = dateStr }
+          else if (moduleMatch) { const n = parseInt(moduleMatch[1]); if (n >= 1 && n <= 12 && !dates[`module${n}Date`]) dates[`module${n}Date`] = dateStr }
+        }
+      }
+
+      setBulkStudents(prev => prev.map(bs =>
+        bs.id === newEntry.id
+          ? { ...bs, formData: { ...bs.formData, ...dates }, datesFetched: true }
+          : bs
+      ))
+    } catch {
+      setBulkStudents(prev => prev.map(bs =>
+        bs.id === newEntry.id ? { ...bs, datesFetched: true } : bs
+      ))
+    }
+  }
+
+  // ─── Bulk Mode: OCR Image Upload ─────────────────────────────────────
+
+  const handleBulkImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = e.target.files
     if (!files || files.length === 0) return
-    const newImages: BulkImage[] = []
+    const newEntries: BulkStudent[] = []
     for (let i = 0; i < files.length; i++) {
+      let imageData: string
       try {
-        const compressed = await compressImage(files[i], 2500, 0.85)
-        newImages.push({ id: `${Date.now()}-${i}`, image: compressed, fileName: files[i].name })
+        imageData = await compressImage(files[i], 2500, 0.85)
       } catch {
-        const base64 = await new Promise<string>((resolve) => {
+        imageData = await new Promise<string>((resolve) => {
           const reader = new FileReader()
           reader.onload = (ev) => resolve(ev.target?.result as string)
           reader.readAsDataURL(files[i])
         })
-        newImages.push({ id: `${Date.now()}-${i}`, image: base64, fileName: files[i].name })
       }
+      newEntries.push({
+        id: `ocr-${Date.now()}-${i}`,
+        source: 'ocr',
+        formData: { ...initialFormData, certificateType: bulkCertType },
+        ocrImage: imageData,
+        fileName: files[i].name,
+      })
     }
-    setBulkImages(prev => [...prev, ...newImages])
+    setBulkStudents(prev => [...prev, ...newEntries])
     e.target.value = ''
   }
 
-  const removeBulkImage = (id: string) => {
-    setBulkImages(prev => prev.filter(img => img.id !== id))
+  const removeBulkStudent = (id: string) => {
+    setBulkStudents(prev => prev.filter(bs => bs.id !== id))
   }
 
+  // ─── Bulk Mode: Process OCR entries ──────────────────────────────────
+
   const handleBulkProcess = useCallback(async () => {
+    const ocrEntries = bulkStudents.filter(bs => bs.source === 'ocr' && bs.ocrImage && !bs.datesFetched)
+    if (ocrEntries.length === 0) {
+      // No OCR to process, skip to review
+      setActiveTab('0')
+      setBulkStep('review')
+      return
+    }
+
     setBulkStep('processing')
-    const results: BulkResult[] = []
-    for (let i = 0; i < bulkImages.length; i++) {
+    for (let i = 0; i < ocrEntries.length; i++) {
       setProcessingIndex(i)
+      const entry = ocrEntries[i]
       try {
         const res = await fetch('/api/ocr', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ licenceImage: null, attendanceImage: null, combinedImage: bulkImages[i].image })
+          body: JSON.stringify({ licenceImage: null, attendanceImage: null, combinedImage: entry.ocrImage })
         })
         if (!res.ok) {
           const errorData = await res.json().catch(() => ({ error: 'OCR failed' }))
-          results.push({ id: bulkImages[i].id, formData: { ...initialFormData, certificateType: bulkCertType }, ocrError: errorData.error || 'OCR failed' })
+          setBulkStudents(prev => prev.map(bs =>
+            bs.id === entry.id ? { ...bs, ocrError: errorData.error || 'OCR failed', datesFetched: true } : bs
+          ))
           continue
         }
         const data: ExtractedData = await res.json()
-        results.push({ id: bulkImages[i].id, formData: { ...initialFormData, ...data, certificateType: bulkCertType } })
+        setBulkStudents(prev => prev.map(bs =>
+          bs.id === entry.id ? { ...bs, formData: { ...bs.formData, ...data }, datesFetched: true } : bs
+        ))
       } catch (err) {
-        results.push({ id: bulkImages[i].id, formData: { ...initialFormData, certificateType: bulkCertType }, ocrError: err instanceof Error ? err.message : 'Unknown error' })
+        setBulkStudents(prev => prev.map(bs =>
+          bs.id === entry.id ? { ...bs, ocrError: err instanceof Error ? err.message : 'OCR failed', datesFetched: true } : bs
+        ))
       }
     }
-    setBulkResults(results)
     setActiveTab('0')
     setBulkStep('review')
-  }, [bulkImages, bulkCertType])
+  }, [bulkStudents])
 
   const handleBulkFieldChange = (index: number, field: keyof CertificateFormData, value: string) => {
-    setBulkResults(prev => {
+    setBulkStudents(prev => {
       const updated = [...prev]
       updated[index] = { ...updated[index], formData: { ...updated[index].formData, [field]: value } }
       return updated
     })
   }
 
+  // ─── Bulk Mode: Per-student OCR for missing dates (in review step) ───
+
+  const handleBulkStudentOcrUpload = async (index: number, e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    if (!file) return
+    let imageData: string
+    try {
+      imageData = await compressImage(file, 2500, 0.85)
+    } catch {
+      imageData = await new Promise<string>((resolve) => {
+        const reader = new FileReader()
+        reader.onload = (ev) => resolve(ev.target?.result as string)
+        reader.readAsDataURL(file)
+      })
+    }
+    setBulkStudents(prev => {
+      const updated = [...prev]
+      updated[index] = { ...updated[index], ocrImage: imageData }
+      return updated
+    })
+    e.target.value = ''
+  }
+
+  const handleBulkStudentOcrProcess = async (index: number) => {
+    const student = bulkStudents[index]
+    if (!student?.ocrImage) return
+
+    setBulkStudents(prev => {
+      const updated = [...prev]
+      updated[index] = { ...updated[index], ocrProcessing: true, ocrError: undefined }
+      return updated
+    })
+
+    try {
+      const res = await fetch('/api/ocr', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ licenceImage: null, attendanceImage: null, combinedImage: student.ocrImage })
+      })
+      if (!res.ok) {
+        const errorData = await res.json().catch(() => ({ error: 'OCR failed' }))
+        throw new Error(errorData.error || 'OCR failed')
+      }
+      const ocrData: ExtractedData = await res.json()
+
+      // Merge OCR dates — only fill in empty date fields
+      setBulkStudents(prev => {
+        const updated = [...prev]
+        const fd = { ...updated[index].formData }
+        const dateFields = [
+          'module1Date', 'module2Date', 'module3Date', 'module4Date', 'module5Date', 'module6Date',
+          'module7Date', 'module8Date', 'module9Date', 'module10Date', 'module11Date', 'module12Date',
+          'sortie1Date', 'sortie2Date', 'sortie3Date', 'sortie4Date', 'sortie5Date', 'sortie6Date',
+          'sortie7Date', 'sortie8Date', 'sortie9Date', 'sortie10Date', 'sortie11Date', 'sortie12Date',
+          'sortie13Date', 'sortie14Date', 'sortie15Date',
+          'registrationDate', 'expiryDate',
+        ] as const
+        for (const field of dateFields) {
+          if (ocrData[field] && !fd[field]) {
+            fd[field] = ocrData[field]
+          }
+        }
+        updated[index] = { ...updated[index], formData: fd, ocrProcessing: false }
+        return updated
+      })
+    } catch (err) {
+      setBulkStudents(prev => {
+        const updated = [...prev]
+        updated[index] = { ...updated[index], ocrProcessing: false, ocrError: err instanceof Error ? err.message : 'OCR failed' }
+        return updated
+      })
+    }
+  }
+
+  // ─── Bulk Mode: Generate & Download ──────────────────────────────────
+
   const handleBulkGenerate = useCallback(async () => {
     if (!templateStatus?.template) return
     setIsGenerating(true)
-    const updatedResults = [...bulkResults]
+    const updatedStudents = [...bulkStudents]
 
-    for (let i = 0; i < updatedResults.length; i++) {
+    for (let i = 0; i < updatedStudents.length; i++) {
       setGenerateIndex(i)
 
-      // Fetch next numbers for each student
-      let finalFormData = { ...updatedResults[i].formData }
+      let finalFormData = { ...updatedStudents[i].formData }
+
+      // If student has attestation from DB, use school settings only
+      // Otherwise, auto-increment numbers
+      const hasAttestation = finalFormData.attestationNumber.replace(/\s/g, '').length > 0
       try {
-        const numRes = await fetch('/api/certificate/next-number', { method: 'POST' })
-        if (numRes.ok) {
-          const numbers = await numRes.json()
-          const attestationStr = String(numbers.attestationNumber)
-          finalFormData = {
-            ...finalFormData,
-            contractNumber: finalFormData.contractNumber || String(numbers.contractNumber),
-            attestationNumber: attestationStr.split('').join('  '),
-            schoolName: numbers.schoolName || '',
-            schoolAddress: numbers.schoolAddress || '',
-            schoolCity: numbers.schoolCity || '',
-            schoolProvince: numbers.schoolProvince || '',
-            schoolPostalCode: numbers.schoolPostalCode || '',
-            schoolNumber: numbers.schoolNumber || '',
+        if (hasAttestation) {
+          const settingsRes = await fetch('/api/certificate/settings')
+          if (settingsRes.ok) {
+            const settings = await settingsRes.json()
+            finalFormData = {
+              ...finalFormData,
+              schoolName: settings.schoolName || '',
+              schoolAddress: settings.schoolAddress || '',
+              schoolCity: settings.schoolCity || '',
+              schoolProvince: settings.schoolProvince || '',
+              schoolPostalCode: settings.schoolPostalCode || '',
+              schoolNumber: settings.schoolNumber || '',
+            }
+          }
+        } else {
+          const numRes = await fetch('/api/certificate/next-number', { method: 'POST' })
+          if (numRes.ok) {
+            const numbers = await numRes.json()
+            const attestationStr = String(numbers.attestationNumber)
+            finalFormData = {
+              ...finalFormData,
+              contractNumber: finalFormData.contractNumber || String(numbers.contractNumber),
+              attestationNumber: attestationStr.split('').join('  '),
+              schoolName: numbers.schoolName || '',
+              schoolAddress: numbers.schoolAddress || '',
+              schoolCity: numbers.schoolCity || '',
+              schoolProvince: numbers.schoolProvince || '',
+              schoolPostalCode: numbers.schoolPostalCode || '',
+              schoolNumber: numbers.schoolNumber || '',
+            }
           }
         }
-      } catch { /* continue without numbers */ }
+      } catch { /* continue */ }
 
       try {
         const res = await fetch('/api/certificate/generate', {
@@ -715,24 +1055,24 @@ export default function CertificatePage() {
           body: JSON.stringify({ ...finalFormData, templatePdf: templateStatus.template })
         })
         if (!res.ok) throw new Error('PDF generation failed')
-        updatedResults[i] = { ...updatedResults[i], pdfBlob: await res.blob() }
+        updatedStudents[i] = { ...updatedStudents[i], pdfBlob: await res.blob() }
       } catch {
-        updatedResults[i] = { ...updatedResults[i], ocrError: (updatedResults[i].ocrError || '') + ' | PDF generation failed' }
+        updatedStudents[i] = { ...updatedStudents[i], ocrError: 'PDF generation failed' }
       }
     }
 
-    setBulkResults(updatedResults)
+    setBulkStudents(updatedStudents)
     setIsGenerating(false)
     setBulkStep('download')
-  }, [bulkResults, templateStatus])
+  }, [bulkStudents, templateStatus])
 
   const handleDownloadZip = useCallback(async () => {
     const JSZip = (await import('jszip')).default
     const zip = new JSZip()
-    bulkResults.forEach((result, index) => {
-      if (result.pdfBlob) {
-        const name = result.formData.name ? result.formData.name.replace(/[^a-zA-Z0-9À-ÿ\s,-]/g, '').trim() : `student-${index + 1}`
-        zip.file(`${name}.pdf`, result.pdfBlob)
+    bulkStudents.forEach((bs, index) => {
+      if (bs.pdfBlob) {
+        const name = bs.formData.name ? bs.formData.name.replace(/[^a-zA-Z0-9À-ÿ\s,-]/g, '').trim() : `student-${index + 1}`
+        zip.file(`${name}.pdf`, bs.pdfBlob)
       }
     })
     const content = await zip.generateAsync({ type: 'blob' })
@@ -744,15 +1084,15 @@ export default function CertificatePage() {
     a.click()
     document.body.removeChild(a)
     URL.revokeObjectURL(url)
-  }, [bulkResults])
+  }, [bulkStudents])
 
   const handleDownloadSingle = (index: number) => {
-    const result = bulkResults[index]
-    if (!result?.pdfBlob) return
-    const url = URL.createObjectURL(result.pdfBlob)
+    const bs = bulkStudents[index]
+    if (!bs?.pdfBlob) return
+    const url = URL.createObjectURL(bs.pdfBlob)
     const a = document.createElement('a')
     a.href = url
-    a.download = `certificate-${result.formData.name || `student-${index + 1}`}-${new Date().toISOString().split('T')[0]}.pdf`
+    a.download = `certificate-${bs.formData.name || `student-${index + 1}`}-${new Date().toISOString().split('T')[0]}.pdf`
     document.body.appendChild(a)
     a.click()
     document.body.removeChild(a)
@@ -1018,7 +1358,8 @@ export default function CertificatePage() {
   const dbCanProcessScan = dbUploadMode === 'combined' ? !!dbCombinedImage : !!(dbLicenceImage || dbAttendanceImage)
 
   const isStudentDataComplete = (fd: CertificateFormData) => !!(fd.name && fd.licenceNumber && fd.module1Date)
-  const successCount = bulkResults.filter(r => r.pdfBlob).length
+  const successCount = bulkStudents.filter(bs => bs.pdfBlob).length
+  const ocrEntriesCount = bulkStudents.filter(bs => bs.source === 'ocr' && !bs.datesFetched).length
 
   // ─── Render ────────────────────────────────────────────────────────────
 
@@ -1138,14 +1479,71 @@ export default function CertificatePage() {
                 </motion.div>
               )}
 
-              {/* Step 2: Scan */}
+              {/* Step 2: Search & Scan */}
               {step === 'upload-docs' && (
                 <motion.div key="upload-docs" custom={direction} initial={{ opacity: 0, x: direction * 30 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: direction * -30 }} transition={{ duration: 0.25 }} className="space-y-6">
                   <div className="text-center mb-6">
-                    <h2 className="text-2xl font-bold mb-2">Scan Documents</h2>
-                    <p className="text-muted-foreground">Upload the driver&apos;s licence and attendance sheet to auto-fill</p>
+                    <h2 className="text-2xl font-bold mb-2">Student & Documents</h2>
+                    <p className="text-muted-foreground">Search for a student to auto-fill, then scan documents for dates</p>
                   </div>
 
+                  {/* Student Search */}
+                  <Card>
+                    <CardHeader>
+                      <CardTitle className="flex items-center gap-2"><Search className="h-5 w-5" /> Search Student</CardTitle>
+                      <CardDescription>Search by name, phone, or permit to auto-fill student info and class dates</CardDescription>
+                    </CardHeader>
+                    <CardContent className="space-y-3">
+                      <div className="flex gap-2">
+                        <Input
+                          value={singleSearchQuery}
+                          onChange={(e) => setSingleSearchQuery(e.target.value)}
+                          placeholder="Type a name, phone number, or permit..."
+                          onKeyDown={(e) => { if (e.key === 'Enter') handleSingleSearch() }}
+                          className="flex-1"
+                        />
+                        <Button onClick={() => handleSingleSearch()} disabled={singleSearching || singleSearchQuery.length < 2} size="sm">
+                          {singleSearching ? <Loader2 className="h-4 w-4 animate-spin" /> : <Search className="h-4 w-4" />}
+                        </Button>
+                      </div>
+                      {selectedStudentId && (
+                        <div className="flex items-center gap-2 p-2 bg-green-50 dark:bg-green-950/30 border border-green-200 dark:border-green-800 rounded-lg">
+                          <CheckCircle className="h-4 w-4 text-green-600 shrink-0" />
+                          <span className="text-sm text-green-800 dark:text-green-300 font-medium truncate">{formData.name}</span>
+                          <Button variant="ghost" size="sm" className="ml-auto h-6 w-6 p-0" onClick={() => { setSelectedStudentId(null); setFormData(initialFormData) }}>
+                            <X className="h-3 w-3" />
+                          </Button>
+                        </div>
+                      )}
+                      {singleSearchResults.length > 0 && !selectedStudentId && (
+                        <div className="space-y-1.5 max-h-[250px] overflow-y-auto">
+                          {singleSearchResults.map((student) => (
+                            <button
+                              key={student.student_id}
+                              onClick={() => handleSingleSelectStudent(student)}
+                              className="w-full text-left p-2.5 rounded-lg border hover:border-primary hover:bg-accent transition-colors"
+                            >
+                              <div className="flex items-center justify-between">
+                                <div>
+                                  <p className="font-medium text-sm">{student.full_name}</p>
+                                  <div className="flex flex-wrap gap-x-3 text-xs text-muted-foreground mt-0.5">
+                                    {student.phone_number && <span>📞 {student.phone_number}</span>}
+                                    {student.permit_number && <span className="font-mono">🪪 {student.permit_number}</span>}
+                                  </div>
+                                </div>
+                                <ArrowRight className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
+                              </div>
+                            </button>
+                          ))}
+                        </div>
+                      )}
+                      {singleSearchResults.length === 0 && singleSearchQuery.length >= 2 && !singleSearching && !selectedStudentId && (
+                        <p className="text-xs text-muted-foreground text-center py-2">No students found</p>
+                      )}
+                    </CardContent>
+                  </Card>
+
+                  {/* Document Upload */}
                   <div className="flex justify-center gap-2 mb-4">
                     <Button variant={uploadMode === 'combined' ? 'default' : 'outline'} onClick={() => setUploadMode('combined')} size="sm">Single Photo (Both Documents)</Button>
                     <Button variant={uploadMode === 'separate' ? 'default' : 'outline'} onClick={() => setUploadMode('separate')} size="sm">Separate Photos</Button>
@@ -1217,9 +1615,14 @@ export default function CertificatePage() {
 
                   <div className="flex justify-between">
                     <Button variant="outline" onClick={() => navigateStep('upload-pdf')}><ArrowLeft className="h-4 w-4 mr-2" /> Back</Button>
-                    <Button size="lg" onClick={handleProcessImages} disabled={!canProceedToReview || isProcessing}>
-                      {isProcessing ? <><Loader2 className="h-4 w-4 mr-2 animate-spin" /> Processing with AI...</> : <>Process & Continue <ArrowRight className="h-4 w-4 ml-2" /></>}
-                    </Button>
+                    <div className="flex gap-2">
+                      {selectedStudentId && (
+                        <Button variant="outline" onClick={() => navigateStep('review')}>Skip Scan <ArrowRight className="h-4 w-4 ml-2" /></Button>
+                      )}
+                      <Button size="lg" onClick={handleProcessImages} disabled={!canProceedToReview || isProcessing}>
+                        {isProcessing ? <><Loader2 className="h-4 w-4 mr-2 animate-spin" /> Processing with AI...</> : <>Process & Continue <ArrowRight className="h-4 w-4 ml-2" /></>}
+                      </Button>
+                    </div>
                   </div>
                   {ocrMutation.isError && <p className="text-destructive text-sm text-center">{ocrMutation.error instanceof Error ? ocrMutation.error.message : 'Failed to process images. Please try again.'}</p>}
                 </motion.div>
@@ -1511,27 +1914,26 @@ export default function CertificatePage() {
               {/* Bulk Progress Steps */}
               <div className="flex items-center justify-center mb-8">
                 {[
-                  { key: 'upload', label: 'Upload', num: 1 },
-                  { key: 'processing', label: 'Processing', num: 2 },
-                  { key: 'review', label: 'Review', num: 3 },
-                  { key: 'download', label: 'Download', num: 4 },
+                  { key: 'select', label: 'Select', num: 1 },
+                  { key: 'review', label: 'Review', num: 2 },
+                  { key: 'download', label: 'Download', num: 3 },
                 ].map((s, idx) => (
                   <div key={s.key} className="flex items-center">
                     {idx > 0 && <div className="w-4 sm:w-12 h-0.5 bg-muted mx-1 sm:mx-2" />}
                     <div className="flex items-center gap-1 sm:gap-2">
-                      <div className={`flex items-center justify-center w-8 h-8 sm:w-10 sm:h-10 rounded-full font-bold text-sm sm:text-base ${bulkStep === s.key ? 'bg-primary text-primary-foreground' : 'bg-muted text-muted-foreground'}`}>{s.num}</div>
-                      <span className={`hidden sm:inline ${bulkStep === s.key ? 'font-medium' : 'text-muted-foreground'}`}>{s.label}</span>
+                      <div className={`flex items-center justify-center w-8 h-8 sm:w-10 sm:h-10 rounded-full font-bold text-sm sm:text-base ${bulkStep === s.key || (bulkStep === 'processing' && s.key === 'review') ? 'bg-primary text-primary-foreground' : 'bg-muted text-muted-foreground'}`}>{s.num}</div>
+                      <span className={`hidden sm:inline ${bulkStep === s.key || (bulkStep === 'processing' && s.key === 'review') ? 'font-medium' : 'text-muted-foreground'}`}>{s.label}</span>
                     </div>
                   </div>
                 ))}
               </div>
 
-              {/* Bulk Step 1: Upload */}
-              {bulkStep === 'upload' && (
+              {/* Bulk Step 1: Select Students */}
+              {bulkStep === 'select' && (
                 <div className="space-y-6">
                   <div className="text-center mb-6">
-                    <h2 className="text-2xl font-bold mb-2">Upload Student Photos</h2>
-                    <p className="text-muted-foreground">Select multiple combined photos (licence + attendance in one image per student)</p>
+                    <h2 className="text-2xl font-bold mb-2">Select Students</h2>
+                    <p className="text-muted-foreground">Search the database to add students, or upload photos for OCR</p>
                   </div>
 
                   {!templateStatus?.exists && (
@@ -1556,72 +1958,143 @@ export default function CertificatePage() {
                     </CardContent>
                   </Card>
 
+                  {/* Search from Database */}
                   <Card>
                     <CardHeader>
-                      <CardTitle className="flex items-center gap-2"><Camera className="h-5 w-5" /> Combined Photos</CardTitle>
-                      <CardDescription>Each photo should contain both the driver&apos;s licence and attendance sheet for one student</CardDescription>
+                      <CardTitle className="flex items-center gap-2"><Search className="h-5 w-5" /> Search Database</CardTitle>
+                      <CardDescription>Search by name, phone, or permit to add students with auto-filled info and dates</CardDescription>
                     </CardHeader>
-                    <CardContent>
-                      <div className="border-2 border-dashed rounded-lg p-8 text-center hover:border-primary transition-colors">
-                        <input type="file" accept="image/*" multiple onChange={handleBulkUpload} className="hidden" id="bulk-upload" />
-                        <label htmlFor="bulk-upload" className="cursor-pointer">
-                          <Upload className="h-10 w-10 mx-auto text-muted-foreground" />
-                          <p className="font-medium mt-2">Click to select photos</p>
-                          <p className="text-sm text-muted-foreground">Select multiple images at once</p>
-                        </label>
+                    <CardContent className="space-y-3">
+                      <div className="flex gap-2">
+                        <Input
+                          value={bulkSearchQuery}
+                          onChange={(e) => setBulkSearchQuery(e.target.value)}
+                          placeholder="Type a name, phone number, or permit..."
+                          onKeyDown={(e) => { if (e.key === 'Enter') handleBulkSearch() }}
+                          className="flex-1"
+                        />
+                        <Button onClick={() => handleBulkSearch()} disabled={bulkSearching || bulkSearchQuery.length < 2} size="sm">
+                          {bulkSearching ? <Loader2 className="h-4 w-4 animate-spin" /> : <Search className="h-4 w-4" />}
+                        </Button>
                       </div>
-
-                      {bulkImages.length > 0 && (
-                        <div className="mt-4">
-                          <div className="flex items-center justify-between mb-3">
-                            <p className="text-sm font-medium">{bulkImages.length} student{bulkImages.length !== 1 ? 's' : ''} ready</p>
-                            <Button variant="ghost" size="sm" onClick={() => setBulkImages([])} className="text-muted-foreground">Clear all</Button>
-                          </div>
-                          <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-5 gap-3">
-                            {bulkImages.map((img) => (
-                              <div key={img.id} className="relative group">
-                                <img src={img.image} alt={img.fileName} className="w-full aspect-square object-cover rounded-lg border" />
-                                <button onClick={() => removeBulkImage(img.id)} className="absolute -top-2 -right-2 bg-destructive text-destructive-foreground rounded-full p-0.5 opacity-0 group-hover:opacity-100 transition-opacity">
-                                  <X className="h-3.5 w-3.5" />
-                                </button>
-                                <p className="text-[10px] text-muted-foreground truncate mt-1">{img.fileName}</p>
-                              </div>
-                            ))}
-                          </div>
+                      {bulkSearchResults.length > 0 && (
+                        <div className="space-y-1.5 max-h-[200px] overflow-y-auto">
+                          {bulkSearchResults.map((student) => {
+                            const alreadyAdded = bulkStudents.some(bs => bs.student?.student_id === student.student_id)
+                            return (
+                              <button
+                                key={student.student_id}
+                                onClick={() => !alreadyAdded && handleBulkAddStudent(student)}
+                                disabled={alreadyAdded}
+                                className={`w-full text-left p-2.5 rounded-lg border transition-colors ${alreadyAdded ? 'opacity-50 cursor-not-allowed bg-muted' : 'hover:border-primary hover:bg-accent'}`}
+                              >
+                                <div className="flex items-center justify-between">
+                                  <div>
+                                    <p className="font-medium text-sm">{student.full_name}</p>
+                                    <div className="flex flex-wrap gap-x-3 text-xs text-muted-foreground mt-0.5">
+                                      {student.phone_number && <span>📞 {student.phone_number}</span>}
+                                      {student.permit_number && <span className="font-mono">🪪 {student.permit_number}</span>}
+                                    </div>
+                                  </div>
+                                  {alreadyAdded ? (
+                                    <Badge variant="secondary" className="text-xs">Added</Badge>
+                                  ) : (
+                                    <Plus className="h-4 w-4 text-muted-foreground shrink-0" />
+                                  )}
+                                </div>
+                              </button>
+                            )
+                          })}
                         </div>
+                      )}
+                      {bulkSearchResults.length === 0 && bulkSearchQuery.length >= 2 && !bulkSearching && (
+                        <p className="text-xs text-muted-foreground text-center py-2">No students found</p>
                       )}
                     </CardContent>
                   </Card>
 
+                  {/* Upload Photos for OCR */}
+                  <Card>
+                    <CardHeader>
+                      <CardTitle className="flex items-center gap-2"><Camera className="h-5 w-5" /> Upload Photos (OCR)</CardTitle>
+                      <CardDescription>Upload combined photos (licence + attendance) to extract student info via AI</CardDescription>
+                    </CardHeader>
+                    <CardContent>
+                      <div className="border-2 border-dashed rounded-lg p-6 text-center hover:border-primary transition-colors">
+                        <input type="file" accept="image/*" multiple onChange={handleBulkImageUpload} className="hidden" id="bulk-upload" />
+                        <label htmlFor="bulk-upload" className="cursor-pointer">
+                          <Upload className="h-8 w-8 mx-auto text-muted-foreground" />
+                          <p className="font-medium mt-2">Click to select photos</p>
+                          <p className="text-sm text-muted-foreground">Select multiple images at once</p>
+                        </label>
+                      </div>
+                    </CardContent>
+                  </Card>
+
+                  {/* Selected Students List */}
+                  {bulkStudents.length > 0 && (
+                    <Card>
+                      <CardHeader>
+                        <div className="flex items-center justify-between">
+                          <CardTitle className="flex items-center gap-2"><Users className="h-5 w-5" /> Selected ({bulkStudents.length})</CardTitle>
+                          <Button variant="ghost" size="sm" onClick={() => setBulkStudents([])} className="text-muted-foreground text-xs">Clear all</Button>
+                        </div>
+                      </CardHeader>
+                      <CardContent>
+                        <div className="space-y-2">
+                          {bulkStudents.map((bs) => (
+                            <div key={bs.id} className="flex items-center justify-between p-2.5 rounded-lg border">
+                              <div className="flex items-center gap-3 min-w-0">
+                                <Badge variant={bs.source === 'database' ? 'default' : 'secondary'} className="text-[10px] shrink-0">
+                                  {bs.source === 'database' ? 'DB' : 'OCR'}
+                                </Badge>
+                                <div className="min-w-0">
+                                  <p className="text-sm font-medium truncate">
+                                    {bs.source === 'database' ? bs.student?.full_name : (bs.fileName || 'Photo')}
+                                  </p>
+                                  {bs.source === 'database' && !bs.datesFetched && (
+                                    <p className="text-xs text-muted-foreground flex items-center gap-1"><Loader2 className="h-3 w-3 animate-spin" /> Fetching dates...</p>
+                                  )}
+                                  {bs.source === 'database' && bs.datesFetched && (
+                                    <p className="text-xs text-green-600 flex items-center gap-1"><CheckCircle className="h-3 w-3" /> Dates loaded</p>
+                                  )}
+                                </div>
+                              </div>
+                              <Button variant="ghost" size="sm" className="h-7 w-7 p-0 shrink-0" onClick={() => removeBulkStudent(bs.id)}>
+                                <X className="h-3.5 w-3.5" />
+                              </Button>
+                            </div>
+                          ))}
+                        </div>
+                      </CardContent>
+                    </Card>
+                  )}
+
                   <div className="flex justify-center">
-                    <Button size="lg" onClick={handleBulkProcess} disabled={bulkImages.length === 0 || !templateStatus?.exists}>
-                      Process {bulkImages.length} Student{bulkImages.length !== 1 ? 's' : ''} <ArrowRight className="h-4 w-4 ml-2" />
+                    <Button size="lg" onClick={handleBulkProcess} disabled={bulkStudents.length === 0 || !templateStatus?.exists}>
+                      {ocrEntriesCount > 0 ? (
+                        <>Process & Review {bulkStudents.length} Student{bulkStudents.length !== 1 ? 's' : ''} <ArrowRight className="h-4 w-4 ml-2" /></>
+                      ) : (
+                        <>Review {bulkStudents.length} Student{bulkStudents.length !== 1 ? 's' : ''} <ArrowRight className="h-4 w-4 ml-2" /></>
+                      )}
                     </Button>
                   </div>
                 </div>
               )}
 
-              {/* Bulk Step 2: Processing */}
+              {/* Bulk Step 2: Processing OCR */}
               {bulkStep === 'processing' && (
                 <div className="space-y-6">
                   <div className="text-center">
                     <Loader2 className="h-12 w-12 animate-spin mx-auto text-primary mb-4" />
                     <h2 className="text-2xl font-bold mb-2">Processing Documents</h2>
-                    <p className="text-muted-foreground">Scanning student {processingIndex + 1} of {bulkImages.length}...</p>
+                    <p className="text-muted-foreground">Scanning photo {processingIndex + 1} of {bulkStudents.filter(bs => bs.source === 'ocr' && !bs.datesFetched).length}...</p>
                   </div>
                   <div className="max-w-md mx-auto">
                     <div className="h-3 bg-muted rounded-full overflow-hidden">
-                      <div className="h-full bg-primary rounded-full transition-all duration-500" style={{ width: `${((processingIndex + 1) / bulkImages.length) * 100}%` }} />
+                      <div className="h-full bg-primary rounded-full transition-all duration-500" style={{ width: `${((processingIndex + 1) / Math.max(1, bulkStudents.filter(bs => bs.source === 'ocr' && !bs.datesFetched).length)) * 100}%` }} />
                     </div>
                     <p className="text-xs text-muted-foreground text-center mt-2">This may take a moment per student...</p>
-                  </div>
-                  <div className="grid grid-cols-4 sm:grid-cols-6 md:grid-cols-8 gap-2 max-w-2xl mx-auto">
-                    {bulkImages.map((img, idx) => (
-                      <div key={img.id} className="relative">
-                        <img src={img.image} alt={img.fileName} className={`w-full aspect-square object-cover rounded-lg border-2 ${idx < processingIndex ? 'border-green-400 opacity-60' : idx === processingIndex ? 'border-primary animate-pulse' : 'border-muted opacity-40'}`} />
-                        {idx < processingIndex && <div className="absolute inset-0 flex items-center justify-center"><CheckCircle2 className="h-5 w-5 text-green-600" /></div>}
-                      </div>
-                    ))}
                   </div>
                 </div>
               )}
@@ -1631,44 +2104,85 @@ export default function CertificatePage() {
                 <div className="space-y-6">
                   <div className="text-center mb-2">
                     <h2 className="text-2xl font-bold mb-2">Review Students</h2>
-                    <p className="text-muted-foreground">Check each student&apos;s extracted data and make corrections</p>
+                    <p className="text-muted-foreground">Check each student&apos;s data. Upload a photo per student to OCR missing dates.</p>
                   </div>
 
                   <Tabs value={activeTab} onValueChange={setActiveTab}>
                     <TabsList className="w-full flex-wrap h-auto gap-1 p-1">
-                      {bulkResults.map((result, idx) => {
-                        const complete = isStudentDataComplete(result.formData)
-                        const hasError = !!result.ocrError
+                      {bulkStudents.map((bs, idx) => {
+                        const complete = isStudentDataComplete(bs.formData)
+                        const hasError = !!bs.ocrError
                         return (
-                          <TabsTrigger key={result.id} value={String(idx)} className="flex items-center gap-1.5 text-xs sm:text-sm">
+                          <TabsTrigger key={bs.id} value={String(idx)} className="flex items-center gap-1.5 text-xs sm:text-sm">
                             <span className={`h-2 w-2 rounded-full ${hasError ? 'bg-red-500' : complete ? 'bg-green-500' : 'bg-amber-500'}`} />
-                            {result.formData.name ? result.formData.name.split(',')[0].trim().substring(0, 12) : `Student ${idx + 1}`}
+                            {bs.formData.name ? bs.formData.name.split(',')[0].trim().substring(0, 12) : `Student ${idx + 1}`}
                           </TabsTrigger>
                         )
                       })}
                     </TabsList>
 
-                    {bulkResults.map((result, idx) => (
-                      <TabsContent key={result.id} value={String(idx)}>
-                        {result.ocrError && (
+                    {bulkStudents.map((bs, idx) => (
+                      <TabsContent key={bs.id} value={String(idx)}>
+                        {bs.ocrError && (
                           <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded-lg flex items-start gap-2">
                             <AlertCircle className="h-4 w-4 text-red-600 mt-0.5 shrink-0" />
                             <div>
                               <p className="text-sm font-medium text-red-800">OCR Error</p>
-                              <p className="text-xs text-red-600">{result.ocrError}</p>
+                              <p className="text-xs text-red-600">{bs.ocrError}</p>
                               <p className="text-xs text-muted-foreground mt-1">You can fill in the data manually below.</p>
                             </div>
                           </div>
                         )}
-                        <ReviewForm formData={result.formData} onChange={(field, value) => handleBulkFieldChange(idx, field, value)} showCertType={false} />
+
+                        {/* Per-student OCR upload for missing dates */}
+                        <Card className="mb-4">
+                          <CardHeader className="py-3">
+                            <CardTitle className="text-sm flex items-center gap-2"><Camera className="h-4 w-4" /> Scan for Missing Dates</CardTitle>
+                          </CardHeader>
+                          <CardContent className="py-2">
+                            <div className="flex items-center gap-3">
+                              <div className="flex-1">
+                                <input
+                                  type="file"
+                                  accept="image/*"
+                                  onChange={(e) => handleBulkStudentOcrUpload(idx, e)}
+                                  className="hidden"
+                                  id={`bulk-ocr-${idx}`}
+                                />
+                                <label htmlFor={`bulk-ocr-${idx}`} className="cursor-pointer">
+                                  <div className="border border-dashed rounded-lg p-3 text-center hover:border-primary transition-colors">
+                                    {bs.ocrImage ? (
+                                      <div className="flex items-center justify-center gap-2">
+                                        <CheckCircle className="h-4 w-4 text-green-600" />
+                                        <span className="text-sm text-green-700">Photo uploaded</span>
+                                      </div>
+                                    ) : (
+                                      <div className="flex items-center justify-center gap-2">
+                                        <Upload className="h-4 w-4 text-muted-foreground" />
+                                        <span className="text-sm text-muted-foreground">Upload licence + attendance photo</span>
+                                      </div>
+                                    )}
+                                  </div>
+                                </label>
+                              </div>
+                              {bs.ocrImage && (
+                                <Button size="sm" onClick={() => handleBulkStudentOcrProcess(idx)} disabled={bs.ocrProcessing}>
+                                  {bs.ocrProcessing ? <><Loader2 className="h-3.5 w-3.5 mr-1 animate-spin" /> Processing...</> : <>Run OCR</>}
+                                </Button>
+                              )}
+                            </div>
+                          </CardContent>
+                        </Card>
+
+                        <ReviewForm formData={bs.formData} onChange={(field, value) => handleBulkFieldChange(idx, field, value)} showCertType={false} />
                       </TabsContent>
                     ))}
                   </Tabs>
 
                   <div className="flex justify-between">
-                    <Button variant="outline" onClick={() => { setBulkStep('upload'); setBulkResults([]) }}><ArrowLeft className="h-4 w-4 mr-2" /> Start Over</Button>
-                    <Button size="lg" onClick={handleBulkGenerate} disabled={isGenerating}>
-                      {isGenerating ? <><Loader2 className="h-4 w-4 mr-2 animate-spin" /> Generating {generateIndex + 1} of {bulkResults.length}...</> : <>Generate All Certificates <ArrowRight className="h-4 w-4 ml-2" /></>}
+                    <Button variant="outline" onClick={() => setBulkStep('select')}><ArrowLeft className="h-4 w-4 mr-2" /> Back</Button>
+                    <Button size="lg" onClick={handleBulkGenerate} disabled={isGenerating || bulkStudents.length === 0}>
+                      {isGenerating ? <><Loader2 className="h-4 w-4 mr-2 animate-spin" /> Generating {generateIndex + 1} of {bulkStudents.length}...</> : <>Generate All Certificates <ArrowRight className="h-4 w-4 ml-2" /></>}
                     </Button>
                   </div>
                 </div>
@@ -1688,16 +2202,16 @@ export default function CertificatePage() {
                     <CardHeader><CardTitle>Individual Downloads</CardTitle></CardHeader>
                     <CardContent>
                       <div className="space-y-2">
-                        {bulkResults.map((result, idx) => (
-                          <div key={result.id} className="flex items-center justify-between p-3 rounded-lg border">
+                        {bulkStudents.map((bs, idx) => (
+                          <div key={bs.id} className="flex items-center justify-between p-3 rounded-lg border">
                             <div className="flex items-center gap-3">
-                              <div className={`h-2.5 w-2.5 rounded-full ${result.pdfBlob ? 'bg-green-500' : 'bg-red-500'}`} />
+                              <div className={`h-2.5 w-2.5 rounded-full ${bs.pdfBlob ? 'bg-green-500' : 'bg-red-500'}`} />
                               <div>
-                                <p className="text-sm font-medium">{result.formData.name || `Student ${idx + 1}`}</p>
-                                {result.formData.licenceNumber && <p className="text-xs text-muted-foreground font-mono">{result.formData.licenceNumber}</p>}
+                                <p className="text-sm font-medium">{bs.formData.name || `Student ${idx + 1}`}</p>
+                                {bs.formData.licenceNumber && <p className="text-xs text-muted-foreground font-mono">{bs.formData.licenceNumber}</p>}
                               </div>
                             </div>
-                            {result.pdfBlob ? (
+                            {bs.pdfBlob ? (
                               <Button variant="outline" size="sm" onClick={() => handleDownloadSingle(idx)}><Download className="h-3.5 w-3.5 mr-1.5" /> Download</Button>
                             ) : (
                               <Badge variant="destructive">Failed</Badge>
@@ -1709,7 +2223,7 @@ export default function CertificatePage() {
                   </Card>
 
                   <div className="flex justify-center">
-                    <Button variant="outline" onClick={() => { setBulkStep('upload'); setBulkImages([]); setBulkResults([]) }}>Create Another Batch</Button>
+                    <Button variant="outline" onClick={() => { setBulkStep('select'); setBulkStudents([]) }}>Create Another Batch</Button>
                   </div>
                 </div>
               )}
