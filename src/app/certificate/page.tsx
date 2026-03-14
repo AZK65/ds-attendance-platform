@@ -793,7 +793,7 @@ export default function CertificatePage() {
     return () => clearTimeout(timer)
   }, [dbSearchQuery]) // eslint-disable-line react-hooks/exhaustive-deps
 
-  const handleDbSelectStudent = (student: DBStudent) => {
+  const handleDbSelectStudent = async (student: DBStudent) => {
     setDbSelectedStudent(student)
     // Parse the name: database has "First Last" format, certificate needs "Last, First"
     const nameParts = student.full_name.trim().split(/\s+/)
@@ -809,7 +809,7 @@ export default function CertificatePage() {
     const attestationRaw = String(student.contract_number || '')
     const formattedAttestation = attestationRaw ? attestationRaw.split('').join('  ') : ''
 
-    setDbFormData({
+    const baseData = {
       ...initialFormData,
       name: formattedName,
       licenceNumber: student.permit_number || '',
@@ -820,7 +820,73 @@ export default function CertificatePage() {
       phone: student.phone_number || '',
       contractNumber: String(student.user_defined_contract_number || ''),
       attestationNumber: formattedAttestation,
-    })
+    }
+
+    setDbFormData(baseData)
+
+    // Fetch dates from Teamup events + Zoom theory classes in parallel
+    try {
+      const phone = student.phone_number || ''
+      const name = student.full_name || ''
+      const params = new URLSearchParams()
+      if (phone) params.set('phone', phone)
+      if (name) params.set('studentName', name)
+
+      const [eventsRes, theoryRes] = await Promise.all([
+        fetch(`/api/scheduling/student-events?${params}`).catch(() => null),
+        fetch(`/api/scheduling/student-theory?${params}`).catch(() => null),
+      ])
+
+      const dates: Record<string, string> = {}
+
+      // Theory module dates from Zoom
+      if (theoryRes?.ok) {
+        const theoryData: { moduleNumber: number; date: string }[] = await theoryRes.json()
+        for (const tc of theoryData) {
+          const d = new Date(tc.date)
+          const dateStr = `${(d.getMonth() + 1).toString().padStart(2, '0')}/${d.getDate().toString().padStart(2, '0')}/${d.getFullYear()}`
+          if (tc.moduleNumber >= 1 && tc.moduleNumber <= 12) {
+            dates[`module${tc.moduleNumber}Date`] = dateStr
+          }
+        }
+      }
+
+      // In-car session dates from Teamup
+      if (eventsRes?.ok) {
+        const events: { id: string; title: string; start_dt: string }[] = await eventsRes.json()
+        const now = new Date()
+        for (const event of events) {
+          if (new Date(event.start_dt) >= now) continue // skip future
+          const parts = event.title.split(' - ')
+          const first = parts[0]?.trim() || ''
+          const sMatch = first.match(/^Session (\d+)$/)
+          const mMatch = first.match(/^M(\d+)$/)
+          const moduleMatch = first.match(/^Module (\d+)$/)
+          const eventDate = new Date(event.start_dt)
+          const dateStr = `${(eventDate.getMonth() + 1).toString().padStart(2, '0')}/${eventDate.getDate().toString().padStart(2, '0')}/${eventDate.getFullYear()}`
+
+          if (sMatch) {
+            const sNum = parseInt(sMatch[1])
+            if (sNum >= 1 && sNum <= 15) dates[`sortie${sNum}Date`] = dateStr
+          } else if (mMatch) {
+            const mNum = parseInt(mMatch[1])
+            if (mNum >= 1 && mNum <= 12 && !dates[`module${mNum}Date`]) dates[`module${mNum}Date`] = dateStr
+          } else if (moduleMatch) {
+            const mNum = parseInt(moduleMatch[1])
+            if (mNum >= 1 && mNum <= 12 && !dates[`module${mNum}Date`]) dates[`module${mNum}Date`] = dateStr
+          }
+        }
+      }
+
+      // Update form data with auto-populated dates
+      if (Object.keys(dates).length > 0) {
+        setDbFormData(prev => ({ ...prev, ...dates }))
+      }
+    } catch (error) {
+      console.error('Failed to fetch class dates:', error)
+      // Non-critical — user can still enter dates via OCR or manually
+    }
+
     // Clear previous scan images
     setDbLicenceImage(null)
     setDbAttendanceImage(null)

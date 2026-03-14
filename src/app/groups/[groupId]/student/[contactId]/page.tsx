@@ -175,6 +175,14 @@ interface LocalStudentRecord {
   certificates: CertificateRecord[]
 }
 
+interface TheoryClassRecord {
+  moduleNumber: number
+  date: string
+  groupId: string
+  meetingUUID: string
+  zoomName: string
+}
+
 interface StudentProfileData {
   dbStudent: DBStudentRecord | null
   localStudent: LocalStudentRecord | null
@@ -348,12 +356,36 @@ export default function StudentDetailPage() {
     enabled: !!phone,
   })
 
+  // Fetch theory class dates from Zoom attendance records
+  const { data: theoryClasses = [], isLoading: loadingTheory } = useQuery<TheoryClassRecord[]>({
+    queryKey: ['student-theory', phone, displayName],
+    queryFn: async () => {
+      const params = new URLSearchParams()
+      params.set('phone', phone)
+      if (displayName && displayName !== phone) params.set('name', displayName)
+      const res = await fetch(`/api/scheduling/student-theory?${params}`)
+      if (!res.ok) throw new Error('Failed to fetch theory classes')
+      return res.json()
+    },
+    enabled: !!phone,
+  })
+
   const [downloadingCert, setDownloadingCert] = useState<string | null>(null)
 
-  // Build module dates from Teamup past classes
+  // Build module dates from Teamup past classes (in-car) + Zoom theory classes (modules)
   const moduleDatesFromClasses = useMemo(() => {
     const dates: Record<string, string> = {}
-    // Only use past events (already completed classes)
+
+    // 1. Theory module dates from Zoom attendance records
+    for (const tc of theoryClasses) {
+      const d = new Date(tc.date)
+      const dateStr = `${(d.getMonth() + 1).toString().padStart(2, '0')}/${d.getDate().toString().padStart(2, '0')}/${d.getFullYear()}`
+      if (tc.moduleNumber >= 1 && tc.moduleNumber <= 12) {
+        dates[`module${tc.moduleNumber}Date`] = dateStr
+      }
+    }
+
+    // 2. In-car session dates from Teamup events (past only)
     const now = new Date()
     const completedEvents = studentEvents
       .filter(e => new Date(e.start_dt) < now)
@@ -372,14 +404,15 @@ export default function StudentDetailPage() {
           dates[`sortie${sNum}Date`] = dateStr
         }
       } else {
+        // Teamup module events (if any) — Zoom data takes priority so only set if not already there
         const mNum = parseInt(parsed.module)
-        if (mNum >= 1 && mNum <= 12) {
+        if (mNum >= 1 && mNum <= 12 && !dates[`module${mNum}Date`]) {
           dates[`module${mNum}Date`] = dateStr
         }
       }
     }
     return dates
-  }, [studentEvents])
+  }, [studentEvents, theoryClasses])
 
   const handleDownloadCertificate = async (cert: CertificateRecord) => {
     if (!profileData?.localStudent) return
@@ -421,7 +454,7 @@ export default function StudentDetailPage() {
 
   const [expandedInvoice, setExpandedInvoice] = useState<string | null>(null)
 
-  // Split events into upcoming and past
+  // Split events into upcoming and past, merge theory classes into past
   const { upcomingEvents, pastEvents } = useMemo(() => {
     const now = new Date()
     const upcoming: TeamupEvent[] = []
@@ -433,6 +466,28 @@ export default function StudentDetailPage() {
         past.push(event)
       }
     }
+
+    // Add theory classes from Zoom attendance as synthetic events
+    for (const tc of theoryClasses) {
+      const tcDate = new Date(tc.date)
+      // Don't add if already in the past list (avoid duplicates with Teamup events)
+      const alreadyExists = past.some(e => {
+        const parsed = parseModuleFromTitle(e.title)
+        return parsed.module === String(tc.moduleNumber) &&
+          Math.abs(new Date(e.start_dt).getTime() - tcDate.getTime()) < 24 * 60 * 60 * 1000
+      })
+      if (!alreadyExists) {
+        past.push({
+          id: `theory-${tc.moduleNumber}-${tc.meetingUUID}`,
+          title: `M${tc.moduleNumber} - ${displayName}`,
+          start_dt: tc.date,
+          end_dt: tc.date,
+          subcalendar_ids: [],
+          notes: `Zoom Theory Class\nModule ${tc.moduleNumber}\nZoom Name: ${tc.zoomName}`,
+        })
+      }
+    }
+
     // Upcoming sorted ascending, past sorted descending
     upcoming.sort((a, b) => new Date(a.start_dt).getTime() - new Date(b.start_dt).getTime())
     past.sort((a, b) => new Date(b.start_dt).getTime() - new Date(a.start_dt).getTime())
@@ -489,19 +544,22 @@ export default function StudentDetailPage() {
     editMutation.reset()
   }
 
-  const isLoading = loadingGroup || loadingEvents || loadingAttendance
+  const isLoading = loadingGroup || loadingEvents || loadingAttendance || loadingTheory
 
   // Render an event card
   const renderEventCard = (event: TeamupEvent) => {
     const parsed = parseModuleFromTitle(event.title)
     const phaseInfo = parsed.module ? getPhaseInfo(parsed.module) : null
     const isExtraHours = parseExtraHoursFromNotes(event.notes)
+    const isTheoryClass = event.id.startsWith('theory-')
 
     return (
       <div
         key={event.id}
-        onClick={() => router.push(`/scheduling?eventId=${encodeURIComponent(event.id)}`)}
-        className="flex items-center gap-4 p-3 border rounded-lg cursor-pointer hover:bg-accent/50 transition-colors"
+        onClick={() => !isTheoryClass && router.push(`/scheduling?eventId=${encodeURIComponent(event.id)}`)}
+        className={`flex items-center gap-4 p-3 border rounded-lg transition-colors ${
+          isTheoryClass ? '' : 'cursor-pointer hover:bg-accent/50'
+        }`}
       >
         <div className="flex-shrink-0 text-center">
           <p className="text-xs text-muted-foreground">
@@ -524,18 +582,25 @@ export default function StudentDetailPage() {
                 {phaseInfo.label}
               </Badge>
             )}
+            {isTheoryClass && (
+              <Badge variant="outline" className="text-xs border-indigo-200 text-indigo-700 bg-indigo-50 dark:bg-indigo-950 dark:text-indigo-300">
+                Zoom
+              </Badge>
+            )}
             {isExtraHours && (
               <Badge variant="outline" className="text-xs">Extra Hours</Badge>
             )}
           </div>
           <div className="flex items-center gap-3 mt-1 text-sm text-muted-foreground">
-            <span className="flex items-center gap-1">
-              <Clock className="h-3 w-3" />
-              {formatTime12h(event.start_dt)} - {formatTime12h(event.end_dt)}
-            </span>
+            {!isTheoryClass && (
+              <span className="flex items-center gap-1">
+                <Clock className="h-3 w-3" />
+                {formatTime12h(event.start_dt)} - {formatTime12h(event.end_dt)}
+              </span>
+            )}
             <span className="flex items-center gap-1">
               <User className="h-3 w-3" />
-              {getTeacherName(event.subcalendar_ids)}
+              {isTheoryClass ? 'Theory (Zoom)' : getTeacherName(event.subcalendar_ids)}
             </span>
           </div>
         </div>
@@ -904,7 +969,8 @@ export default function StudentDetailPage() {
                 {Object.keys(moduleDatesFromClasses).length > 0 && (
                   <p className="text-xs text-muted-foreground flex items-center gap-1">
                     <CalendarDays className="h-3 w-3" />
-                    Dates auto-populated from {Object.keys(moduleDatesFromClasses).length} scheduled classes
+                    {Object.keys(moduleDatesFromClasses).length} dates auto-populated
+                    {theoryClasses.length > 0 && ` (${theoryClasses.length} theory modules from Zoom)`}
                   </p>
                 )}
               </div>
