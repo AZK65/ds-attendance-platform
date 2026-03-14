@@ -859,53 +859,61 @@ function InvoicePage() {
                       <Package className="h-5 w-5" />
                       Select Package
                     </CardTitle>
-                    <CardDescription>Choose a package or pick individual instalments</CardDescription>
+                    <CardDescription>Choose a package or pick an individual instalment</CardDescription>
                   </CardHeader>
                   <CardContent className="space-y-4">
-                    {packagesData!.packages.map(pkg => (
-                      <div key={pkg.id} className="border-2 rounded-xl p-4 space-y-3 hover:border-primary/30 transition-colors">
-                        <div className="flex items-center justify-between">
-                          <div>
-                            <h3 className="font-semibold">{pkg.name}</h3>
-                            <p className="text-sm text-muted-foreground">
-                              Total: <span className="font-mono font-medium">${pkg.totalPrice.toFixed(2)}</span>
-                              {pkg.taxInclusive ? ' (tax incl.)' : ' (+tax)'}
-                            </p>
-                          </div>
-                          <Button size="sm" onClick={() => handleSelectPackageFull(pkg)}>
-                            Full Package
-                          </Button>
-                        </div>
+                    <div className={`grid gap-4 ${packagesData!.packages.length === 1 ? 'grid-cols-1 max-w-md mx-auto' : 'grid-cols-1 md:grid-cols-2'}`}>
+                      {packagesData!.packages.map(pkg => (
+                        <div key={pkg.id} className="border-2 rounded-xl overflow-hidden hover:border-primary/30 transition-colors flex flex-col">
+                          {/* Package header — clickable for full package */}
+                          <button
+                            onClick={() => handleSelectPackageFull(pkg)}
+                            className="p-4 bg-muted/30 hover:bg-muted/60 transition-colors text-left border-b"
+                          >
+                            <div className="flex items-center justify-between">
+                              <div>
+                                <h3 className="font-semibold text-base">{pkg.name}</h3>
+                                <p className="text-sm text-muted-foreground mt-0.5">
+                                  {pkg.taxInclusive ? 'Tax included' : '+ tax'}
+                                </p>
+                              </div>
+                              <div className="text-right">
+                                <span className="text-xl font-bold font-mono">${pkg.totalPrice.toFixed(2)}</span>
+                                <p className="text-xs text-primary font-medium mt-0.5">Full Package &rarr;</p>
+                              </div>
+                            </div>
+                          </button>
 
-                        {pkg.instalments.length > 0 && (
-                          <div className="space-y-1.5">
-                            <p className="text-xs text-muted-foreground font-medium uppercase tracking-wider">Instalments</p>
-                            {pkg.instalments.map(inst => (
-                              <button
-                                key={inst.id}
-                                onClick={() => handleSelectInstalment(pkg, inst)}
-                                className="w-full flex items-center justify-between px-3 py-2 rounded-lg border hover:bg-accent/50 hover:border-primary/30 transition-colors text-left"
-                              >
-                                <span className="text-sm">
-                                  <span className="text-muted-foreground mr-2">{inst.instalmentNumber}.</span>
-                                  {inst.name}
-                                </span>
-                                <span className="font-mono text-sm font-medium">${inst.amount.toFixed(2)}</span>
-                              </button>
-                            ))}
-                          </div>
-                        )}
-                      </div>
-                    ))}
+                          {/* Individual instalments */}
+                          {pkg.instalments.length > 0 && (
+                            <div className="p-3 space-y-1.5 flex-1">
+                              <p className="text-[10px] text-muted-foreground font-medium uppercase tracking-wider px-1">Or pick an instalment</p>
+                              {pkg.instalments.map(inst => (
+                                <button
+                                  key={inst.id}
+                                  onClick={() => handleSelectInstalment(pkg, inst)}
+                                  className="w-full flex items-center justify-between px-3 py-2 rounded-lg border hover:bg-accent/50 hover:border-primary/30 transition-colors text-left"
+                                >
+                                  <span className="text-sm">
+                                    <span className="text-muted-foreground mr-1.5">{inst.instalmentNumber}.</span>
+                                    {inst.name}
+                                  </span>
+                                  <span className="font-mono text-sm font-medium">${inst.amount.toFixed(2)}</span>
+                                </button>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+                      ))}
+                    </div>
 
                     {/* Option to use services instead */}
-                    <div className="flex flex-wrap gap-2 pt-2 border-t">
-                      <p className="w-full text-xs text-muted-foreground mb-1">Or use individual services:</p>
+                    <div className="flex flex-wrap items-center justify-center gap-2 pt-3 border-t">
+                      <span className="text-xs text-muted-foreground">Or:</span>
                       <Button
                         variant="outline"
                         size="sm"
                         onClick={() => {
-                          // Use services auto-fill instead
                           if (vehicleServicesData?.services) {
                             const newItems = vehicleServicesData.services.map((s: InvoiceService) => ({
                               id: generateId(),
