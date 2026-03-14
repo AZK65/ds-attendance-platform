@@ -12,7 +12,7 @@ import { Checkbox } from '@/components/ui/checkbox'
 import {
   Receipt, Plus, Trash2, Download, Loader2, Settings, CheckCircle2,
   Car, Truck, ArrowLeft, ArrowRight, FileText, Package, Mail, MessageCircle, Send,
-  CreditCard, Copy, ExternalLink, Banknote, Globe,
+  CreditCard, Copy, ExternalLink, Banknote, Globe, DollarSign, Clock, AlertTriangle,
 } from 'lucide-react'
 import Link from 'next/link'
 import { useSearchParams } from 'next/navigation'
@@ -194,6 +194,31 @@ function InvoicePage() {
       return res.json() as Promise<{ packages: InvoicePackage[] }>
     },
     enabled: !!vehicleType,
+  })
+
+  // Load student balance when student is selected
+  const { data: balanceData } = useQuery({
+    queryKey: ['student-balance', formData.studentPhone, formData.studentName],
+    queryFn: async () => {
+      const params = new URLSearchParams()
+      if (formData.studentPhone) params.set('phone', formData.studentPhone)
+      if (formData.studentName) params.set('name', formData.studentName)
+      const res = await fetch(`/api/students/balance?${params}`)
+      if (!res.ok) return null
+      return res.json() as Promise<{ totalInvoiced: number; totalPaid: number; openBalance: number }>
+    },
+    enabled: !!(formData.studentPhone || formData.studentName),
+  })
+
+  // Load student invoice history when on review step
+  const { data: invoiceHistoryData } = useQuery({
+    queryKey: ['student-invoice-history', formData.studentName],
+    queryFn: async () => {
+      const res = await fetch(`/api/invoice/list?search=${encodeURIComponent(formData.studentName)}`)
+      if (!res.ok) return { invoices: [] }
+      return res.json() as Promise<{ invoices: { id: string; invoiceNumber: string; invoiceDate: string; total: number; paymentStatus: string; paymentMethod: string | null }[] }>
+    },
+    enabled: !!formData.studentName && (step === 'review' || step === 'payment' || step === 'done'),
   })
 
   const allServices = allServicesData?.services || []
@@ -620,7 +645,7 @@ function InvoicePage() {
   return (
     <div className="min-h-screen bg-background">
       <main className="container mx-auto px-4 py-8">
-        <div className="max-w-4xl mx-auto">
+        <div className="max-w-6xl mx-auto">
           {/* Header */}
           <motion.div
             initial={{ opacity: 0, y: -10 }}
@@ -979,6 +1004,45 @@ function InvoicePage() {
                 </Button>
               </div>
 
+              {/* Balance Card — top right priority */}
+              {balanceData && (
+                <Card className={`border-2 ${balanceData.openBalance > 0 ? 'border-amber-300 bg-amber-50/50 dark:bg-amber-950/20' : 'border-green-300 bg-green-50/50 dark:bg-green-950/20'}`}>
+                  <CardContent className="pt-6 pb-6">
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-4">
+                        <div className={`w-14 h-14 rounded-full flex items-center justify-center ${balanceData.openBalance > 0 ? 'bg-amber-100 dark:bg-amber-900' : 'bg-green-100 dark:bg-green-900'}`}>
+                          <DollarSign className={`h-7 w-7 ${balanceData.openBalance > 0 ? 'text-amber-600' : 'text-green-600'}`} />
+                        </div>
+                        <div>
+                          <p className="text-sm text-muted-foreground font-medium">Student Balance</p>
+                          <p className={`text-3xl font-bold font-mono ${balanceData.openBalance > 0 ? 'text-amber-700 dark:text-amber-400' : 'text-green-700 dark:text-green-400'}`}>
+                            ${balanceData.openBalance.toFixed(2)}
+                          </p>
+                          {balanceData.openBalance > 0 && (
+                            <p className="text-xs text-amber-600 flex items-center gap-1 mt-0.5">
+                              <AlertTriangle className="h-3 w-3" /> Outstanding balance
+                            </p>
+                          )}
+                        </div>
+                      </div>
+                      <div className="text-right space-y-1">
+                        <div className="text-sm">
+                          <span className="text-muted-foreground">Invoiced: </span>
+                          <span className="font-mono font-medium">${balanceData.totalInvoiced.toFixed(2)}</span>
+                        </div>
+                        <div className="text-sm">
+                          <span className="text-muted-foreground">Paid: </span>
+                          <span className="font-mono font-medium text-green-600">${balanceData.totalPaid.toFixed(2)}</span>
+                        </div>
+                        <div className="text-xs text-muted-foreground mt-1">
+                          + this invoice: <span className="font-mono font-bold">${total.toFixed(2)}</span>
+                        </div>
+                      </div>
+                    </div>
+                  </CardContent>
+                </Card>
+              )}
+
               {/* Invoice Details */}
               <Card>
                 <CardHeader>
@@ -1016,6 +1080,47 @@ function InvoicePage() {
                   </div>
                 </CardContent>
               </Card>
+
+              {/* Invoice History */}
+              {invoiceHistoryData && invoiceHistoryData.invoices.length > 0 && (
+                <Card>
+                  <CardHeader>
+                    <CardTitle className="text-lg flex items-center gap-2">
+                      <Clock className="h-5 w-5" />
+                      Invoice History
+                    </CardTitle>
+                    <CardDescription>Previous invoices for {formData.studentName}</CardDescription>
+                  </CardHeader>
+                  <CardContent>
+                    <div className="space-y-2">
+                      {invoiceHistoryData.invoices.slice(0, 10).map(inv => (
+                        <div key={inv.id} className="flex items-center justify-between p-3 rounded-lg border hover:bg-accent/30 transition-colors">
+                          <div className="flex items-center gap-3">
+                            <FileText className="h-4 w-4 text-muted-foreground shrink-0" />
+                            <div>
+                              <p className="text-sm font-medium font-mono">{inv.invoiceNumber}</p>
+                              <p className="text-xs text-muted-foreground">{inv.invoiceDate}</p>
+                            </div>
+                          </div>
+                          <div className="flex items-center gap-3">
+                            <span className="font-mono text-sm font-medium">${inv.total.toFixed(2)}</span>
+                            <Badge
+                              variant={inv.paymentStatus === 'paid' ? 'default' : 'secondary'}
+                              className={`text-[10px] ${
+                                inv.paymentStatus === 'paid'
+                                  ? 'bg-green-100 text-green-700 border-green-200 hover:bg-green-100'
+                                  : 'bg-amber-100 text-amber-700 border-amber-200 hover:bg-amber-100'
+                              }`}
+                            >
+                              {inv.paymentStatus === 'paid' ? 'Paid' : 'Unpaid'}
+                            </Badge>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </CardContent>
+                </Card>
+              )}
 
               {/* Line Items */}
               <Card>
