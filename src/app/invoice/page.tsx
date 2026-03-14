@@ -205,7 +205,7 @@ function InvoicePage() {
       if (formData.studentName) params.set('name', formData.studentName)
       const res = await fetch(`/api/students/balance?${params}`)
       if (!res.ok) return null
-      return res.json() as Promise<{ totalInvoiced: number; totalPaid: number; openBalance: number }>
+      return res.json() as Promise<{ totalInvoiced: number; totalPaid: number; openBalance: number; groupId: string | null; contactId: string | null }>
     },
     enabled: !!(formData.studentPhone || formData.studentName),
   })
@@ -985,7 +985,13 @@ function InvoicePage() {
                 <div className="flex items-center gap-3">
                   <CheckCircle2 className="h-5 w-5 text-green-500" />
                   <div>
-                    <p className="font-medium text-sm">{formData.studentName}</p>
+                    {balanceData?.groupId && balanceData?.contactId ? (
+                      <Link href={`/groups/${balanceData.groupId}/student/${balanceData.contactId}`} className="font-medium text-sm text-primary hover:underline">
+                        {formData.studentName}
+                      </Link>
+                    ) : (
+                      <p className="font-medium text-sm">{formData.studentName}</p>
+                    )}
                     <p className="text-xs text-muted-foreground">
                       {formData.studentPhone && `${formData.studentPhone} · `}
                       {vehicleType ? (
@@ -1317,7 +1323,11 @@ function InvoicePage() {
                   <h3 className="text-xl font-bold">Invoice Generated!</h3>
                   <p className="text-muted-foreground">
                     Invoice <span className="font-mono font-bold">{invoiceNumber}</span> for{' '}
-                    <span className="font-bold">{formData.studentName}</span> has been downloaded.
+                    {balanceData?.groupId && balanceData?.contactId ? (
+                      <Link href={`/groups/${balanceData.groupId}/student/${balanceData.contactId}`} className="font-bold text-primary hover:underline">{formData.studentName}</Link>
+                    ) : (
+                      <span className="font-bold">{formData.studentName}</span>
+                    )} has been downloaded.
                   </p>
                   <p className="text-lg font-bold">${total.toFixed(2)}</p>
                 </CardContent>
@@ -1437,7 +1447,11 @@ function InvoicePage() {
                   </h3>
                   <p className="text-muted-foreground">
                     Invoice <span className="font-mono font-bold">{invoiceNumber}</span> for{' '}
-                    <span className="font-bold">{formData.studentName}</span>
+                    {balanceData?.groupId && balanceData?.contactId ? (
+                      <Link href={`/groups/${balanceData.groupId}/student/${balanceData.contactId}`} className="font-bold text-primary hover:underline">{formData.studentName}</Link>
+                    ) : (
+                      <span className="font-bold">{formData.studentName}</span>
+                    )}
                     {paymentMethod === 'cash' && ' — paid in cash'}
                     {paymentMethod === 'card' && ' — paid by card'}
                     {paymentMethod === 'online' && ' — payment link sent'}
