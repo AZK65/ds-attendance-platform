@@ -204,41 +204,34 @@ function StudentsPage() {
   const queryClient = useQueryClient()
   const router = useRouter()
 
-  // Search/filter state — persist in URL so it survives navigation
-  const [searchQuery, setSearchQueryState] = useState(searchParams.get('q') ?? '')
+  // Search/filter state — persist search in sessionStorage, sort in URL
+  const [searchQuery, setSearchQueryState] = useState(() => {
+    if (typeof window !== 'undefined') {
+      return sessionStorage.getItem('students-search') ?? ''
+    }
+    return ''
+  })
+  const setSearchQuery = useCallback((val: string) => {
+    setSearchQueryState(val)
+    sessionStorage.setItem('students-search', val)
+  }, [])
+
   const validSorts = ['phase-asc', 'phase-desc', 'last-class', 'oldest-class'] as const
   type SortOption = typeof validSorts[number]
   const urlSort = searchParams.get('sort')
   const initialSort: SortOption = validSorts.includes(urlSort as SortOption) ? (urlSort as SortOption) : 'phase-asc'
   const [sortBy, setSortByState] = useState<SortOption>(initialSort)
 
-  // Helper to update URL params without scroll
-  const updateUrlParams = useCallback((updates: Record<string, string | null>) => {
+  const setSortBy = (val: SortOption) => {
+    setSortByState(val)
     const params = new URLSearchParams(window.location.search)
-    for (const [key, value] of Object.entries(updates)) {
-      if (value === null || value === '') {
-        params.delete(key)
-      } else {
-        params.set(key, value)
-      }
+    if (val === 'phase-asc') {
+      params.delete('sort')
+    } else {
+      params.set('sort', val)
     }
     const qs = params.toString()
     router.replace(`/students${qs ? `?${qs}` : ''}`, { scroll: false })
-  }, [router])
-
-  // Debounce URL update for search — keep input responsive but don't spam URL changes
-  const searchDebounceRef = useRef<NodeJS.Timeout | null>(null)
-  const setSearchQuery = useCallback((val: string) => {
-    setSearchQueryState(val)
-    if (searchDebounceRef.current) clearTimeout(searchDebounceRef.current)
-    searchDebounceRef.current = setTimeout(() => {
-      updateUrlParams({ q: val || null })
-    }, 400)
-  }, [updateUrlParams])
-
-  const setSortBy = (val: SortOption) => {
-    setSortByState(val)
-    updateUrlParams({ sort: val === 'phase-asc' ? null : val })
   }
 
   // Form state (manual add/edit)
