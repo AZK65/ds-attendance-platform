@@ -204,9 +204,25 @@ function StudentsPage() {
   const queryClient = useQueryClient()
   const router = useRouter()
 
-  // Search/filter state
+  // Search/filter state — persist sortBy in URL so it survives navigation
   const [searchQuery, setSearchQuery] = useState('')
-  const [sortBy, setSortBy] = useState<'phase-asc' | 'phase-desc' | 'last-class' | 'oldest-class'>('phase-asc')
+  const validSorts = ['phase-asc', 'phase-desc', 'last-class', 'oldest-class'] as const
+  type SortOption = typeof validSorts[number]
+  const urlSort = searchParams.get('sort')
+  const initialSort: SortOption = validSorts.includes(urlSort as SortOption) ? (urlSort as SortOption) : 'phase-asc'
+  const [sortBy, setSortByState] = useState<SortOption>(initialSort)
+
+  const setSortBy = (val: SortOption) => {
+    setSortByState(val)
+    const params = new URLSearchParams(window.location.search)
+    if (val === 'phase-asc') {
+      params.delete('sort')
+    } else {
+      params.set('sort', val)
+    }
+    const qs = params.toString()
+    router.replace(`/students${qs ? `?${qs}` : ''}`, { scroll: false })
+  }
 
   // Form state (manual add/edit)
   const [showForm, setShowForm] = useState(false)
