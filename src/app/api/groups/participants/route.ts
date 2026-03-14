@@ -98,6 +98,7 @@ export async function GET(request: NextRequest) {
       const participants: ParticipantWithGroup[] = cachedMembers
         .filter(m => {
           if (!m.group.name || m.group.name === 'Status Broadcast') return false
+          if (courseOnly && !m.group.moduleNumber) return false
           return true
         })
         .map(m => ({

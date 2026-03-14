@@ -282,6 +282,7 @@ function StudentsPage() {
   const { data: participantsData, isLoading: isLoadingParticipants } = useQuery<{
     participants: ParticipantWithGroup[]
     isConnected: boolean
+    fromCache?: boolean
   }>({
     queryKey: ['groups', 'participants', 'courseOnly'],
     queryFn: async () => {
@@ -784,14 +785,17 @@ function StudentsPage() {
             </div>
           </CardHeader>
           <CardContent>
+            {/* Cache indicator — show when using cached data */}
+            {participantsData && !participantsData.isConnected && activeStudents.length > 0 && (
+              <div className="flex items-center gap-2 text-xs text-amber-600 bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800 rounded-lg px-3 py-2 mb-3">
+                <Database className="h-3.5 w-3.5 shrink-0" />
+                <span>Showing cached data — WhatsApp is not connected. Connect to refresh.</span>
+              </div>
+            )}
             {isLoadingParticipants ? (
               <div className="flex items-center justify-center py-8">
                 <Loader2 className="h-5 w-5 animate-spin mr-2" />
                 <span className="text-muted-foreground">Loading students...</span>
-              </div>
-            ) : participantsData && !participantsData.isConnected ? (
-              <div className="text-center py-8">
-                <p className="text-muted-foreground">WhatsApp is not connected. Connect WhatsApp to see active students.</p>
               </div>
             ) : activeStudents.length === 0 ? (
               <div className="text-center py-8">
