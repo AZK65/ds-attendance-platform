@@ -16,6 +16,7 @@ import {
 } from 'lucide-react'
 import Link from 'next/link'
 import { useSearchParams } from 'next/navigation'
+import { motion, AnimatePresence } from 'motion/react'
 import { StudentSearchAutocomplete, type StudentResult, type DBStudent, type WhatsAppContact } from '@/components/StudentSearchAutocomplete'
 
 // Types
@@ -620,7 +621,12 @@ function InvoicePage() {
       <main className="container mx-auto px-4 py-8">
         <div className="max-w-4xl mx-auto">
           {/* Header */}
-          <div className="flex items-center justify-between mb-8">
+          <motion.div
+            initial={{ opacity: 0, y: -10 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.25 }}
+            className="flex items-center justify-between mb-8"
+          >
             <div>
               <h2 className="text-2xl font-bold flex items-center gap-2">
                 <Receipt className="h-6 w-6" />
@@ -656,10 +662,15 @@ function InvoicePage() {
                 </Button>
               </Link>
             </div>
-          </div>
+          </motion.div>
 
           {/* Step indicator */}
-          <div className="flex items-center justify-center gap-0 mb-8">
+          <motion.div
+            initial={{ opacity: 0, y: 10 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ delay: 0.1, duration: 0.25 }}
+            className="flex items-center justify-center gap-0 mb-8"
+          >
             {stepLabels.map((label, i) => (
               <div key={label} className="flex items-center">
                 {i > 0 && (
@@ -683,11 +694,12 @@ function InvoicePage() {
                 </div>
               </div>
             ))}
-          </div>
+          </motion.div>
 
           {/* ========== STEP 1: SELECT STUDENT ========== */}
+          <AnimatePresence mode="wait">
           {step === 'student' && (
-            <div className="space-y-6">
+            <motion.div key="step-student" initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -20 }} transition={{ duration: 0.25 }} className="space-y-6">
               {/* Student Search Card */}
               <Card>
                 <CardHeader>
@@ -936,12 +948,12 @@ function InvoicePage() {
                   </CardContent>
                 </Card>
               )}
-            </div>
+            </motion.div>
           )}
 
           {/* ========== STEP 2: REVIEW & EDIT ========== */}
           {step === 'review' && (
-            <div className="space-y-6">
+            <motion.div key="step-review" initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -20 }} transition={{ duration: 0.25 }} className="space-y-6">
               {/* Student summary bar */}
               <div className="flex items-center justify-between bg-muted/50 rounded-lg px-4 py-3">
                 <div className="flex items-center gap-3">
@@ -1187,12 +1199,12 @@ function InvoicePage() {
                   Error: {generateMutation.error?.message || 'Failed to generate invoice'}
                 </div>
               )}
-            </div>
+            </motion.div>
           )}
 
           {/* ========== STEP 3: PAYMENT METHOD ========== */}
           {step === 'payment' && (
-            <div className="space-y-6">
+            <motion.div key="step-payment" initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -20 }} transition={{ duration: 0.25 }} className="space-y-6">
               <Card>
                 <CardContent className="pt-8 pb-8 text-center space-y-4">
                   <CheckCircle2 className="h-16 w-16 text-green-500 mx-auto" />
@@ -1305,12 +1317,12 @@ function InvoicePage() {
                   Skip — decide later
                 </Button>
               </div>
-            </div>
+            </motion.div>
           )}
 
           {/* ========== STEP 4: DONE ========== */}
           {step === 'done' && (
-            <div className="space-y-6">
+            <motion.div key="step-done" initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -20 }} transition={{ duration: 0.25 }} className="space-y-6">
               <Card>
                 <CardContent className="pt-8 pb-8 text-center space-y-4">
                   <CheckCircle2 className="h-16 w-16 text-green-500 mx-auto" />
@@ -1491,8 +1503,9 @@ function InvoicePage() {
                   Create Another
                 </Button>
               </div>
-            </div>
+            </motion.div>
           )}
+          </AnimatePresence>
         </div>
       </main>
     </div>

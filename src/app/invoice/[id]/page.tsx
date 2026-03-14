@@ -12,6 +12,7 @@ import {
 } from 'lucide-react'
 import Link from 'next/link'
 import { useParams } from 'next/navigation'
+import { motion } from 'motion/react'
 
 interface InvoiceData {
   id: string
@@ -278,7 +279,12 @@ export default function InvoiceViewPage() {
     <div className="min-h-screen bg-gradient-to-br from-gray-50 to-gray-100 dark:from-gray-950 dark:to-gray-900">
       <div className="max-w-7xl mx-auto p-4 md:p-8">
         {/* Header */}
-        <div className="flex items-center justify-between mb-6">
+        <motion.div
+          initial={{ opacity: 0, y: -10 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.25 }}
+          className="flex items-center justify-between mb-6"
+        >
           <div className="flex items-center gap-4">
             <Link href="/invoice/history">
               <Button variant="outline" size="sm">
@@ -314,9 +320,14 @@ export default function InvoiceViewPage() {
               </Badge>
             )}
           </div>
-        </div>
+        </motion.div>
 
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+        <motion.div
+          initial={{ opacity: 0, y: 10 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ delay: 0.1, duration: 0.25 }}
+          className="grid grid-cols-1 lg:grid-cols-3 gap-6"
+        >
           {/* PDF Preview */}
           <div className="lg:col-span-2">
             <Card className="h-full">
@@ -640,7 +651,7 @@ export default function InvoiceViewPage() {
               </Card>
             )}
           </div>
-        </div>
+        </motion.div>
       </div>
     </div>
   )

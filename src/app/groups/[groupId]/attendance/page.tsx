@@ -20,6 +20,7 @@ import {
   Smartphone
 } from 'lucide-react'
 import Link from 'next/link'
+import { motion } from 'motion/react'
 
 interface MatchedStudent {
   whatsappName: string
@@ -225,7 +226,12 @@ export default function LiveAttendancePage() {
     <div className="min-h-screen bg-background">
       <main className="container mx-auto px-4 py-6 max-w-5xl">
         {/* Header */}
-        <div className="flex items-center justify-between mb-6">
+        <motion.div
+          initial={{ opacity: 0, y: -10 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.25 }}
+          className="flex items-center justify-between mb-6"
+        >
           <div className="flex items-center gap-3">
             <Link href={`/groups/${encodeURIComponent(groupId)}`}>
               <Button variant="ghost" size="icon">
@@ -284,7 +290,7 @@ export default function LiveAttendancePage() {
               <RefreshCw className="h-4 w-4" />
             </Button>
           </div>
-        </div>
+        </motion.div>
 
         {/* Not Live State */}
         {!isLive && !liveData?.participantCount && (
@@ -307,7 +313,12 @@ export default function LiveAttendancePage() {
         {(isLive || (liveData?.matched && liveData.matched.length > 0)) && (
           <>
             {/* Stats Cards */}
-            <div className="grid grid-cols-3 gap-4 mb-6">
+            <motion.div
+              initial={{ opacity: 0, y: 10 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ delay: 0.1, duration: 0.25 }}
+              className="grid grid-cols-3 gap-4 mb-6"
+            >
               <div className="bg-green-50 dark:bg-green-950/30 border-2 border-green-300 dark:border-green-800 rounded-xl p-5 text-center">
                 <UserCheck className="h-7 w-7 mx-auto text-green-600 mb-1" />
                 <span className="text-4xl font-bold text-green-700 dark:text-green-400">{effectivePresent.length}</span>
@@ -323,10 +334,15 @@ export default function LiveAttendancePage() {
                 <span className="text-4xl font-bold text-gray-700 dark:text-gray-400">{unmatchedZoom.length}</span>
                 <p className="text-sm text-gray-500 font-medium mt-1">Unmatched</p>
               </div>
-            </div>
+            </motion.div>
 
             {/* Two Column Layout */}
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 mb-6">
+            <motion.div
+              initial={{ opacity: 0, y: 10 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ delay: 0.15, duration: 0.25 }}
+              className="grid grid-cols-1 lg:grid-cols-2 gap-4 mb-6"
+            >
               {/* Present Students */}
               <div className="border-2 border-green-200 dark:border-green-900 rounded-xl overflow-hidden">
                 <div className="bg-green-100 dark:bg-green-950/50 px-4 py-3 border-b border-green-200 dark:border-green-900">
@@ -467,7 +483,7 @@ export default function LiveAttendancePage() {
                   )}
                 </div>
               </div>
-            </div>
+            </motion.div>
 
             {/* Unmatched Zoom Participants */}
             {unmatchedZoom.length > 0 && (

@@ -28,6 +28,7 @@ import {
 } from 'lucide-react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
+import { motion } from 'motion/react'
 
 interface Invoice {
   id: string
@@ -260,7 +261,12 @@ export default function InvoiceHistoryPage() {
     <div className="min-h-screen bg-gradient-to-br from-gray-50 to-gray-100 dark:from-gray-950 dark:to-gray-900">
       <div className="max-w-7xl mx-auto p-4 md:p-8">
         {/* Header */}
-        <div className="flex items-center justify-between mb-8">
+        <motion.div
+          initial={{ opacity: 0, y: -10 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.25 }}
+          className="flex items-center justify-between mb-8"
+        >
           <div>
             <h2 className="text-2xl font-bold flex items-center gap-2">
               <FileText className="h-6 w-6" />
@@ -276,9 +282,14 @@ export default function InvoiceHistoryPage() {
               Back
             </Button>
           </Link>
-        </div>
+        </motion.div>
 
         {/* Filters */}
+        <motion.div
+          initial={{ opacity: 0, y: 10 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ delay: 0.1, duration: 0.25 }}
+        >
         <Card className="mb-6">
           <CardContent className="pt-6">
             <div className="flex flex-col md:flex-row gap-4">
@@ -316,8 +327,14 @@ export default function InvoiceHistoryPage() {
             </div>
           </CardContent>
         </Card>
+        </motion.div>
 
         {/* Results */}
+        <motion.div
+          initial={{ opacity: 0, y: 10 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ delay: 0.15, duration: 0.25 }}
+        >
         <Card>
           <CardHeader>
             <CardTitle className="text-lg flex items-center gap-2">
@@ -493,6 +510,7 @@ export default function InvoiceHistoryPage() {
             )}
           </CardContent>
         </Card>
+        </motion.div>
       </div>
 
       {/* ========== Match Dialog ========== */}
