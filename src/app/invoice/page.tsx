@@ -93,8 +93,9 @@ function InvoicePage() {
   const [vehicleType, setVehicleType] = useState<'car' | 'truck' | null>(null)
   const [selectedStudent, setSelectedStudent] = useState(false)
 
-  // PDF blob for sending after generation
+  // PDF blob for sending after generation + preview
   const pdfBase64Ref = useRef<string | null>(null)
+  const [pdfPreviewUrl, setPdfPreviewUrl] = useState<string | null>(null)
   const [emailSent, setEmailSent] = useState(false)
   const [whatsappSent, setWhatsappSent] = useState(false)
   const [paymentUrl, setPaymentUrl] = useState<string | null>(null)
@@ -369,15 +370,9 @@ function InvoicePage() {
       }
       pdfBase64Ref.current = btoa(binary)
 
-      // Download the PDF
+      // Create blob URL for preview (don't auto-download — user can download from preview)
       const url = URL.createObjectURL(blob)
-      const a = document.createElement('a')
-      a.href = url
-      a.download = `invoice-${invoiceNumber}.pdf`
-      document.body.appendChild(a)
-      a.click()
-      document.body.removeChild(a)
-      URL.revokeObjectURL(url)
+      setPdfPreviewUrl(url)
 
       setEmailSent(false)
       setWhatsappSent(false)
@@ -626,6 +621,8 @@ function InvoicePage() {
     setSelectedStudent(false)
     setVehicleType(null)
     pdfBase64Ref.current = null
+    if (pdfPreviewUrl) URL.revokeObjectURL(pdfPreviewUrl)
+    setPdfPreviewUrl(null)
     setEmailSent(false)
     setWhatsappSent(false)
     setPaymentUrl(null)
@@ -645,7 +642,7 @@ function InvoicePage() {
   return (
     <div className="min-h-screen bg-background">
       <main className="container mx-auto px-4 py-8">
-        <div className="max-w-6xl mx-auto">
+        <div className="max-w-7xl mx-auto">
           {/* Header */}
           <motion.div
             initial={{ opacity: 0, y: -10 }}
@@ -747,12 +744,30 @@ function InvoicePage() {
                     <div className="flex items-center gap-2 text-sm text-green-600">
                       <CheckCircle2 className="h-4 w-4" />
                       Student loaded — fields auto-filled
+                      {balanceData?.groupId && balanceData?.contactId && (
+                        <Link
+                          href={`/groups/${balanceData.groupId}/student/${balanceData.contactId}`}
+                          className="text-primary hover:underline ml-1 flex items-center gap-1"
+                        >
+                          View Details <ExternalLink className="h-3 w-3" />
+                        </Link>
+                      )}
                     </div>
                   )}
 
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                     <div>
-                      <Label htmlFor="studentName">Name *</Label>
+                      <div className="flex items-center gap-2">
+                        <Label htmlFor="studentName">Name *</Label>
+                        {balanceData?.groupId && balanceData?.contactId && formData.studentName && (
+                          <Link
+                            href={`/groups/${balanceData.groupId}/student/${balanceData.contactId}`}
+                            className="text-xs text-primary hover:underline flex items-center gap-0.5"
+                          >
+                            <ExternalLink className="h-3 w-3" />
+                          </Link>
+                        )}
+                      </div>
                       <Input
                         id="studentName"
                         value={formData.studentName}
@@ -1316,312 +1331,390 @@ function InvoicePage() {
 
           {/* ========== STEP 3: PAYMENT METHOD ========== */}
           {step === 'payment' && (
-            <motion.div key="step-payment" initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -20 }} transition={{ duration: 0.25 }} className="space-y-6">
-              <Card>
-                <CardContent className="pt-8 pb-8 text-center space-y-4">
-                  <CheckCircle2 className="h-16 w-16 text-green-500 mx-auto" />
-                  <h3 className="text-xl font-bold">Invoice Generated!</h3>
-                  <p className="text-muted-foreground">
-                    Invoice <span className="font-mono font-bold">{invoiceNumber}</span> for{' '}
-                    {balanceData?.groupId && balanceData?.contactId ? (
-                      <Link href={`/groups/${balanceData.groupId}/student/${balanceData.contactId}`} className="font-bold text-primary hover:underline">{formData.studentName}</Link>
-                    ) : (
-                      <span className="font-bold">{formData.studentName}</span>
-                    )} has been downloaded.
-                  </p>
-                  <p className="text-lg font-bold">${total.toFixed(2)}</p>
-                </CardContent>
-              </Card>
-
-              <Card>
-                <CardHeader>
-                  <CardTitle className="text-lg flex items-center gap-2">
-                    <CreditCard className="h-5 w-5" />
-                    Payment Method
-                  </CardTitle>
-                  <CardDescription>How will the student pay for this invoice?</CardDescription>
-                </CardHeader>
-                <CardContent>
-                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-                    {/* Cash */}
-                    <button
-                      className={`flex flex-col items-center gap-3 p-6 rounded-xl border-2 transition-all hover:shadow-md ${
-                        paymentMethod === 'cash'
-                          ? 'border-green-500 bg-green-50 dark:bg-green-950'
-                          : 'border-muted hover:border-green-300'
-                      }`}
-                      onClick={async () => {
-                        setPaymentMethod('cash')
-                        if (savedInvoiceId) {
-                          await fetch('/api/invoice/update-payment', {
-                            method: 'PUT',
-                            headers: { 'Content-Type': 'application/json' },
-                            body: JSON.stringify({ invoiceId: savedInvoiceId, paymentMethod: 'cash', paymentStatus: 'paid' }),
-                          })
-                        }
-                        setStep('done')
-                      }}
-                    >
-                      <Banknote className="h-10 w-10 text-green-600" />
-                      <div className="text-center">
-                        <p className="font-semibold">Cash</p>
-                        <p className="text-xs text-muted-foreground">Paid in cash</p>
-                      </div>
-                    </button>
-
-                    {/* Credit/Debit In-Person */}
-                    <button
-                      className={`flex flex-col items-center gap-3 p-6 rounded-xl border-2 transition-all hover:shadow-md ${
-                        paymentMethod === 'card'
-                          ? 'border-blue-500 bg-blue-50 dark:bg-blue-950'
-                          : 'border-muted hover:border-blue-300'
-                      }`}
-                      onClick={async () => {
-                        setPaymentMethod('card')
-                        if (savedInvoiceId) {
-                          await fetch('/api/invoice/update-payment', {
-                            method: 'PUT',
-                            headers: { 'Content-Type': 'application/json' },
-                            body: JSON.stringify({ invoiceId: savedInvoiceId, paymentMethod: 'card', paymentStatus: 'paid' }),
-                          })
-                        }
-                        setStep('done')
-                      }}
-                    >
-                      <CreditCard className="h-10 w-10 text-blue-600" />
-                      <div className="text-center">
-                        <p className="font-semibold">Credit / Debit</p>
-                        <p className="text-xs text-muted-foreground">Paid at terminal</p>
-                      </div>
-                    </button>
-
-                    {/* Online Payment */}
-                    <button
-                      className={`flex flex-col items-center gap-3 p-6 rounded-xl border-2 transition-all hover:shadow-md ${
-                        paymentMethod === 'online'
-                          ? 'border-purple-500 bg-purple-50 dark:bg-purple-950'
-                          : 'border-muted hover:border-purple-300'
-                      }`}
-                      onClick={async () => {
-                        setPaymentMethod('online')
-                        if (savedInvoiceId) {
-                          await fetch('/api/invoice/update-payment', {
-                            method: 'PUT',
-                            headers: { 'Content-Type': 'application/json' },
-                            body: JSON.stringify({ invoiceId: savedInvoiceId, paymentMethod: 'online', paymentStatus: 'unpaid' }),
-                          })
-                        }
-                        // Generate payment link if Clover is configured
-                        if (cloverConfigured) {
-                          paymentLinkMutation.mutate()
-                        }
-                        setStep('done')
-                      }}
-                    >
-                      <Globe className="h-10 w-10 text-purple-600" />
-                      <div className="text-center">
-                        <p className="font-semibold">Online</p>
-                        <p className="text-xs text-muted-foreground">Send payment link</p>
-                      </div>
-                    </button>
+            <motion.div key="step-payment" initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -20 }} transition={{ duration: 0.25 }}>
+              <div className="grid grid-cols-1 lg:grid-cols-5 gap-6">
+                {/* PDF Preview — large left column */}
+                {pdfPreviewUrl && (
+                  <div className="lg:col-span-3">
+                    <Card className="h-full">
+                      <CardHeader className="pb-2">
+                        <div className="flex items-center justify-between">
+                          <CardTitle className="text-lg flex items-center gap-2">
+                            <FileText className="h-5 w-5" />
+                            Invoice Preview
+                          </CardTitle>
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            onClick={() => {
+                              const a = document.createElement('a')
+                              a.href = pdfPreviewUrl
+                              a.download = `invoice-${invoiceNumber}.pdf`
+                              document.body.appendChild(a)
+                              a.click()
+                              document.body.removeChild(a)
+                            }}
+                          >
+                            <Download className="h-4 w-4 mr-1" />
+                            Download PDF
+                          </Button>
+                        </div>
+                      </CardHeader>
+                      <CardContent>
+                        <iframe
+                          src={pdfPreviewUrl}
+                          className="w-full rounded-lg border bg-white"
+                          style={{ height: '75vh', minHeight: '600px' }}
+                          title="Invoice PDF Preview"
+                        />
+                      </CardContent>
+                    </Card>
                   </div>
-                </CardContent>
-              </Card>
+                )}
 
-              <div className="flex justify-center">
-                <Button variant="ghost" size="sm" onClick={() => setStep('done')}>
-                  Skip — decide later
-                </Button>
+                {/* Right column — payment + info */}
+                <div className={`${pdfPreviewUrl ? 'lg:col-span-2' : 'lg:col-span-5'} space-y-6`}>
+                  <Card>
+                    <CardContent className="pt-6 pb-6 text-center space-y-3">
+                      <CheckCircle2 className="h-12 w-12 text-green-500 mx-auto" />
+                      <h3 className="text-lg font-bold">Invoice Generated!</h3>
+                      <p className="text-sm text-muted-foreground">
+                        <span className="font-mono font-bold">{invoiceNumber}</span> for{' '}
+                        {balanceData?.groupId && balanceData?.contactId ? (
+                          <Link href={`/groups/${balanceData.groupId}/student/${balanceData.contactId}`} className="font-bold text-primary hover:underline">{formData.studentName}</Link>
+                        ) : (
+                          <span className="font-bold">{formData.studentName}</span>
+                        )}
+                      </p>
+                      <p className="text-2xl font-bold">${total.toFixed(2)}</p>
+                    </CardContent>
+                  </Card>
+
+                  <Card>
+                    <CardHeader>
+                      <CardTitle className="text-lg flex items-center gap-2">
+                        <CreditCard className="h-5 w-5" />
+                        Payment Method
+                      </CardTitle>
+                      <CardDescription>How will the student pay?</CardDescription>
+                    </CardHeader>
+                    <CardContent>
+                      <div className="grid grid-cols-1 gap-3">
+                        {/* Cash */}
+                        <button
+                          className={`flex items-center gap-4 p-4 rounded-xl border-2 transition-all hover:shadow-md text-left ${
+                            paymentMethod === 'cash'
+                              ? 'border-green-500 bg-green-50 dark:bg-green-950'
+                              : 'border-muted hover:border-green-300'
+                          }`}
+                          onClick={async () => {
+                            setPaymentMethod('cash')
+                            if (savedInvoiceId) {
+                              await fetch('/api/invoice/update-payment', {
+                                method: 'PUT',
+                                headers: { 'Content-Type': 'application/json' },
+                                body: JSON.stringify({ invoiceId: savedInvoiceId, paymentMethod: 'cash', paymentStatus: 'paid' }),
+                              })
+                            }
+                            setStep('done')
+                          }}
+                        >
+                          <Banknote className="h-8 w-8 text-green-600 shrink-0" />
+                          <div>
+                            <p className="font-semibold">Cash</p>
+                            <p className="text-xs text-muted-foreground">Paid in cash</p>
+                          </div>
+                        </button>
+
+                        {/* Credit/Debit In-Person */}
+                        <button
+                          className={`flex items-center gap-4 p-4 rounded-xl border-2 transition-all hover:shadow-md text-left ${
+                            paymentMethod === 'card'
+                              ? 'border-blue-500 bg-blue-50 dark:bg-blue-950'
+                              : 'border-muted hover:border-blue-300'
+                          }`}
+                          onClick={async () => {
+                            setPaymentMethod('card')
+                            if (savedInvoiceId) {
+                              await fetch('/api/invoice/update-payment', {
+                                method: 'PUT',
+                                headers: { 'Content-Type': 'application/json' },
+                                body: JSON.stringify({ invoiceId: savedInvoiceId, paymentMethod: 'card', paymentStatus: 'paid' }),
+                              })
+                            }
+                            setStep('done')
+                          }}
+                        >
+                          <CreditCard className="h-8 w-8 text-blue-600 shrink-0" />
+                          <div>
+                            <p className="font-semibold">Credit / Debit</p>
+                            <p className="text-xs text-muted-foreground">Paid at terminal</p>
+                          </div>
+                        </button>
+
+                        {/* Online Payment */}
+                        <button
+                          className={`flex items-center gap-4 p-4 rounded-xl border-2 transition-all hover:shadow-md text-left ${
+                            paymentMethod === 'online'
+                              ? 'border-purple-500 bg-purple-50 dark:bg-purple-950'
+                              : 'border-muted hover:border-purple-300'
+                          }`}
+                          onClick={async () => {
+                            setPaymentMethod('online')
+                            if (savedInvoiceId) {
+                              await fetch('/api/invoice/update-payment', {
+                                method: 'PUT',
+                                headers: { 'Content-Type': 'application/json' },
+                                body: JSON.stringify({ invoiceId: savedInvoiceId, paymentMethod: 'online', paymentStatus: 'unpaid' }),
+                              })
+                            }
+                            if (cloverConfigured) {
+                              paymentLinkMutation.mutate()
+                            }
+                            setStep('done')
+                          }}
+                        >
+                          <Globe className="h-8 w-8 text-purple-600 shrink-0" />
+                          <div>
+                            <p className="font-semibold">Online</p>
+                            <p className="text-xs text-muted-foreground">Send payment link</p>
+                          </div>
+                        </button>
+                      </div>
+                    </CardContent>
+                  </Card>
+
+                  <div className="flex justify-center">
+                    <Button variant="ghost" size="sm" onClick={() => setStep('done')}>
+                      Skip — decide later
+                    </Button>
+                  </div>
+                </div>
               </div>
             </motion.div>
           )}
 
           {/* ========== STEP 4: DONE ========== */}
           {step === 'done' && (
-            <motion.div key="step-done" initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -20 }} transition={{ duration: 0.25 }} className="space-y-6">
-              <Card>
-                <CardContent className="pt-8 pb-8 text-center space-y-4">
-                  <CheckCircle2 className="h-16 w-16 text-green-500 mx-auto" />
-                  <h3 className="text-xl font-bold">
-                    {paymentMethod === 'cash' || paymentMethod === 'card' ? 'Invoice Paid!' : 'Invoice Generated!'}
-                  </h3>
-                  <p className="text-muted-foreground">
-                    Invoice <span className="font-mono font-bold">{invoiceNumber}</span> for{' '}
-                    {balanceData?.groupId && balanceData?.contactId ? (
-                      <Link href={`/groups/${balanceData.groupId}/student/${balanceData.contactId}`} className="font-bold text-primary hover:underline">{formData.studentName}</Link>
-                    ) : (
-                      <span className="font-bold">{formData.studentName}</span>
-                    )}
-                    {paymentMethod === 'cash' && ' — paid in cash'}
-                    {paymentMethod === 'card' && ' — paid by card'}
-                    {paymentMethod === 'online' && ' — payment link sent'}
-                    {!paymentMethod && ' has been downloaded'}
-                  </p>
-                  <p className="text-lg font-bold">${total.toFixed(2)}</p>
-                </CardContent>
-              </Card>
-
-              {/* Send Options */}
-              <Card>
-                <CardHeader>
-                  <CardTitle className="text-lg flex items-center gap-2">
-                    <Send className="h-5 w-5" />
-                    Send Invoice
-                  </CardTitle>
-                  <CardDescription>Send the invoice directly to the student</CardDescription>
-                </CardHeader>
-                <CardContent className="space-y-4">
-                  {/* Email */}
-                  <div className="flex items-center gap-3 p-3 rounded-lg border">
-                    <Mail className="h-5 w-5 text-blue-500 shrink-0" />
-                    <div className="flex-1 min-w-0">
-                      <p className="text-sm font-medium">Send via Email</p>
-                      {formData.studentEmail ? (
-                        <p className="text-xs text-muted-foreground truncate">{formData.studentEmail}</p>
-                      ) : (
-                        <p className="text-xs text-amber-600">No email address on file</p>
-                      )}
-                    </div>
-                    {emailSent ? (
-                      <Badge className="bg-green-100 text-green-700 border-green-200 shrink-0">
-                        <CheckCircle2 className="h-3 w-3 mr-1" />
-                        Sent
-                      </Badge>
-                    ) : (
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        onClick={() => emailMutation.mutate()}
-                        disabled={!formData.studentEmail || emailMutation.isPending}
-                      >
-                        {emailMutation.isPending ? (
-                          <Loader2 className="h-4 w-4 animate-spin" />
-                        ) : (
-                          <>
-                            <Mail className="h-4 w-4 mr-1" />
-                            Send
-                          </>
-                        )}
-                      </Button>
-                    )}
+            <motion.div key="step-done" initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -20 }} transition={{ duration: 0.25 }}>
+              <div className="grid grid-cols-1 lg:grid-cols-5 gap-6">
+                {/* PDF Preview — large left column */}
+                {pdfPreviewUrl && (
+                  <div className="lg:col-span-3">
+                    <Card className="h-full">
+                      <CardHeader className="pb-2">
+                        <div className="flex items-center justify-between">
+                          <CardTitle className="text-lg flex items-center gap-2">
+                            <FileText className="h-5 w-5" />
+                            Invoice Preview
+                          </CardTitle>
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            onClick={() => {
+                              const a = document.createElement('a')
+                              a.href = pdfPreviewUrl
+                              a.download = `invoice-${invoiceNumber}.pdf`
+                              document.body.appendChild(a)
+                              a.click()
+                              document.body.removeChild(a)
+                            }}
+                          >
+                            <Download className="h-4 w-4 mr-1" />
+                            Download PDF
+                          </Button>
+                        </div>
+                      </CardHeader>
+                      <CardContent>
+                        <iframe
+                          src={pdfPreviewUrl}
+                          className="w-full rounded-lg border bg-white"
+                          style={{ height: '75vh', minHeight: '600px' }}
+                          title="Invoice PDF Preview"
+                        />
+                      </CardContent>
+                    </Card>
                   </div>
-                  {emailMutation.isError && (
-                    <p className="text-xs text-destructive ml-8">
-                      {emailMutation.error?.message || 'Failed to send email'}
-                    </p>
-                  )}
+                )}
 
-                  {/* WhatsApp */}
-                  <div className="flex items-center gap-3 p-3 rounded-lg border">
-                    <MessageCircle className="h-5 w-5 text-green-500 shrink-0" />
-                    <div className="flex-1 min-w-0">
-                      <p className="text-sm font-medium">Send via WhatsApp</p>
-                      {formData.studentPhone ? (
-                        <p className="text-xs text-muted-foreground truncate">{formData.studentPhone}</p>
-                      ) : (
-                        <p className="text-xs text-amber-600">No phone number on file</p>
-                      )}
-                    </div>
-                    {whatsappSent ? (
-                      <Badge className="bg-green-100 text-green-700 border-green-200 shrink-0">
-                        <CheckCircle2 className="h-3 w-3 mr-1" />
-                        Sent
-                      </Badge>
-                    ) : (
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        onClick={() => whatsappMutation.mutate()}
-                        disabled={!formData.studentPhone || whatsappMutation.isPending}
-                      >
-                        {whatsappMutation.isPending ? (
-                          <Loader2 className="h-4 w-4 animate-spin" />
+                {/* Right column — status + send + create another */}
+                <div className={`${pdfPreviewUrl ? 'lg:col-span-2' : 'lg:col-span-5'} space-y-6`}>
+                  <Card>
+                    <CardContent className="pt-6 pb-6 text-center space-y-3">
+                      <CheckCircle2 className="h-12 w-12 text-green-500 mx-auto" />
+                      <h3 className="text-lg font-bold">
+                        {paymentMethod === 'cash' || paymentMethod === 'card' ? 'Invoice Paid!' : 'Invoice Generated!'}
+                      </h3>
+                      <p className="text-sm text-muted-foreground">
+                        <span className="font-mono font-bold">{invoiceNumber}</span> for{' '}
+                        {balanceData?.groupId && balanceData?.contactId ? (
+                          <Link href={`/groups/${balanceData.groupId}/student/${balanceData.contactId}`} className="font-bold text-primary hover:underline">{formData.studentName}</Link>
                         ) : (
-                          <>
-                            <MessageCircle className="h-4 w-4 mr-1" />
-                            Send
-                          </>
+                          <span className="font-bold">{formData.studentName}</span>
                         )}
-                      </Button>
-                    )}
-                  </div>
-                  {whatsappMutation.isError && (
-                    <p className="text-xs text-destructive ml-8">
-                      {whatsappMutation.error?.message || 'Failed to send via WhatsApp'}
-                    </p>
-                  )}
+                        {paymentMethod === 'cash' && ' — paid in cash'}
+                        {paymentMethod === 'card' && ' — paid by card'}
+                        {paymentMethod === 'online' && ' — payment link sent'}
+                        {!paymentMethod && ''}
+                      </p>
+                      <p className="text-2xl font-bold">${total.toFixed(2)}</p>
+                    </CardContent>
+                  </Card>
 
-                  {/* Clover Payment Link */}
-                  {cloverConfigured && (
-                    <>
+                  {/* Send Options */}
+                  <Card>
+                    <CardHeader>
+                      <CardTitle className="text-lg flex items-center gap-2">
+                        <Send className="h-5 w-5" />
+                        Send Invoice
+                      </CardTitle>
+                      <CardDescription>Send directly to the student</CardDescription>
+                    </CardHeader>
+                    <CardContent className="space-y-3">
+                      {/* Email */}
                       <div className="flex items-center gap-3 p-3 rounded-lg border">
-                        <CreditCard className="h-5 w-5 text-purple-500 shrink-0" />
+                        <Mail className="h-5 w-5 text-blue-500 shrink-0" />
                         <div className="flex-1 min-w-0">
-                          <p className="text-sm font-medium">Clover Payment Link</p>
-                          {paymentUrl ? (
-                            <p className="text-xs text-muted-foreground truncate">{paymentUrl}</p>
+                          <p className="text-sm font-medium">Email</p>
+                          {formData.studentEmail ? (
+                            <p className="text-xs text-muted-foreground truncate">{formData.studentEmail}</p>
                           ) : (
-                            <p className="text-xs text-muted-foreground">Generate a payment link for the student</p>
+                            <p className="text-xs text-amber-600">No email on file</p>
                           )}
                         </div>
-                        {paymentUrl ? (
-                          <div className="flex gap-1 shrink-0">
-                            <Button
-                              size="sm"
-                              variant="outline"
-                              onClick={() => {
-                                navigator.clipboard.writeText(paymentUrl)
-                                setPaymentLinkCopied(true)
-                                setTimeout(() => setPaymentLinkCopied(false), 2000)
-                              }}
-                            >
-                              {paymentLinkCopied ? (
-                                <CheckCircle2 className="h-4 w-4 text-green-500" />
-                              ) : (
-                                <Copy className="h-4 w-4" />
-                              )}
-                            </Button>
-                            <Button
-                              size="sm"
-                              variant="outline"
-                              onClick={() => window.open(paymentUrl, '_blank')}
-                            >
-                              <ExternalLink className="h-4 w-4" />
-                            </Button>
-                          </div>
+                        {emailSent ? (
+                          <Badge className="bg-green-100 text-green-700 border-green-200 shrink-0">
+                            <CheckCircle2 className="h-3 w-3 mr-1" />
+                            Sent
+                          </Badge>
                         ) : (
                           <Button
                             size="sm"
                             variant="outline"
-                            onClick={() => paymentLinkMutation.mutate()}
-                            disabled={paymentLinkMutation.isPending}
+                            onClick={() => emailMutation.mutate()}
+                            disabled={!formData.studentEmail || emailMutation.isPending}
                           >
-                            {paymentLinkMutation.isPending ? (
+                            {emailMutation.isPending ? (
                               <Loader2 className="h-4 w-4 animate-spin" />
                             ) : (
-                              <>
-                                <CreditCard className="h-4 w-4 mr-1" />
-                                Generate
-                              </>
+                              <Mail className="h-4 w-4" />
                             )}
                           </Button>
                         )}
                       </div>
-                      {paymentLinkMutation.isError && (
+                      {emailMutation.isError && (
                         <p className="text-xs text-destructive ml-8">
-                          {paymentLinkMutation.error?.message || 'Failed to create payment link'}
+                          {emailMutation.error?.message || 'Failed to send email'}
                         </p>
                       )}
-                    </>
-                  )}
-                </CardContent>
-              </Card>
 
-              <div className="flex gap-3 justify-center">
-                <Button onClick={resetForm}>
-                  <Plus className="h-4 w-4 mr-1" />
-                  Create Another
-                </Button>
+                      {/* WhatsApp */}
+                      <div className="flex items-center gap-3 p-3 rounded-lg border">
+                        <MessageCircle className="h-5 w-5 text-green-500 shrink-0" />
+                        <div className="flex-1 min-w-0">
+                          <p className="text-sm font-medium">WhatsApp</p>
+                          {formData.studentPhone ? (
+                            <p className="text-xs text-muted-foreground truncate">{formData.studentPhone}</p>
+                          ) : (
+                            <p className="text-xs text-amber-600">No phone on file</p>
+                          )}
+                        </div>
+                        {whatsappSent ? (
+                          <Badge className="bg-green-100 text-green-700 border-green-200 shrink-0">
+                            <CheckCircle2 className="h-3 w-3 mr-1" />
+                            Sent
+                          </Badge>
+                        ) : (
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            onClick={() => whatsappMutation.mutate()}
+                            disabled={!formData.studentPhone || whatsappMutation.isPending}
+                          >
+                            {whatsappMutation.isPending ? (
+                              <Loader2 className="h-4 w-4 animate-spin" />
+                            ) : (
+                              <MessageCircle className="h-4 w-4" />
+                            )}
+                          </Button>
+                        )}
+                      </div>
+                      {whatsappMutation.isError && (
+                        <p className="text-xs text-destructive ml-8">
+                          {whatsappMutation.error?.message || 'Failed to send via WhatsApp'}
+                        </p>
+                      )}
+
+                      {/* Clover Payment Link */}
+                      {cloverConfigured && (
+                        <>
+                          <div className="flex items-center gap-3 p-3 rounded-lg border">
+                            <CreditCard className="h-5 w-5 text-purple-500 shrink-0" />
+                            <div className="flex-1 min-w-0">
+                              <p className="text-sm font-medium">Payment Link</p>
+                              {paymentUrl ? (
+                                <p className="text-xs text-muted-foreground truncate">{paymentUrl}</p>
+                              ) : (
+                                <p className="text-xs text-muted-foreground">Clover payment link</p>
+                              )}
+                            </div>
+                            {paymentUrl ? (
+                              <div className="flex gap-1 shrink-0">
+                                <Button
+                                  size="sm"
+                                  variant="outline"
+                                  onClick={() => {
+                                    navigator.clipboard.writeText(paymentUrl)
+                                    setPaymentLinkCopied(true)
+                                    setTimeout(() => setPaymentLinkCopied(false), 2000)
+                                  }}
+                                >
+                                  {paymentLinkCopied ? (
+                                    <CheckCircle2 className="h-4 w-4 text-green-500" />
+                                  ) : (
+                                    <Copy className="h-4 w-4" />
+                                  )}
+                                </Button>
+                                <Button
+                                  size="sm"
+                                  variant="outline"
+                                  onClick={() => window.open(paymentUrl, '_blank')}
+                                >
+                                  <ExternalLink className="h-4 w-4" />
+                                </Button>
+                              </div>
+                            ) : (
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                onClick={() => paymentLinkMutation.mutate()}
+                                disabled={paymentLinkMutation.isPending}
+                              >
+                                {paymentLinkMutation.isPending ? (
+                                  <Loader2 className="h-4 w-4 animate-spin" />
+                                ) : (
+                                  <CreditCard className="h-4 w-4" />
+                                )}
+                              </Button>
+                            )}
+                          </div>
+                          {paymentLinkMutation.isError && (
+                            <p className="text-xs text-destructive ml-8">
+                              {paymentLinkMutation.error?.message || 'Failed to create payment link'}
+                            </p>
+                          )}
+                        </>
+                      )}
+                    </CardContent>
+                  </Card>
+
+                  <div className="flex gap-3 justify-center">
+                    <Button onClick={resetForm}>
+                      <Plus className="h-4 w-4 mr-1" />
+                      Create Another
+                    </Button>
+                  </div>
+                </div>
               </div>
             </motion.div>
           )}
