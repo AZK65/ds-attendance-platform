@@ -352,11 +352,11 @@ export default function InvoiceViewPage() {
           initial={{ opacity: 0, y: 10 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ delay: 0.1, duration: 0.25 }}
-          className="grid grid-cols-1 lg:grid-cols-5 gap-6"
+          className="grid grid-cols-1 lg:grid-cols-[3fr_2fr] gap-6"
         >
-          {/* PDF Preview — large left column */}
-          <div className="lg:col-span-3">
-            <Card className="h-full">
+          {/* PDF Preview — left column */}
+          <div>
+            <Card>
               <CardHeader className="pb-2">
                 <div className="flex items-center justify-between">
                   <CardTitle className="text-lg flex items-center gap-2">
@@ -404,7 +404,7 @@ export default function InvoiceViewPage() {
                   <iframe
                     src={pdfUrl}
                     className="w-full rounded-lg border bg-white"
-                    style={{ height: '80vh', minHeight: '700px' }}
+                    style={{ height: '65vh', minHeight: '500px' }}
                     title={`Invoice ${invoice.invoiceNumber}`}
                   />
                 ) : (
@@ -418,7 +418,7 @@ export default function InvoiceViewPage() {
           </div>
 
           {/* Right column — Balance → Details → History → Send → Payment Link */}
-          <div className="lg:col-span-2 space-y-4">
+          <div className="space-y-4">
             {/* Student Balance — FIRST card */}
             {studentProfile?.summary && (
               <Card className={`border-2 ${studentProfile.summary.openBalance > 0 ? 'border-amber-300 bg-amber-50/50 dark:bg-amber-950/20' : 'border-green-300 bg-green-50/50 dark:bg-green-950/20'}`}>
