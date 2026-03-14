@@ -8,6 +8,7 @@ import { Badge } from '@/components/ui/badge'
 import {
   ArrowLeft, Download, Loader2, Mail, MessageCircle, Printer,
   CreditCard, Copy, ExternalLink, CheckCircle2, Banknote, Globe, Link2,
+  FileText, DollarSign, TrendingDown,
 } from 'lucide-react'
 import Link from 'next/link'
 import { useParams } from 'next/navigation'
@@ -76,6 +77,21 @@ export default function InvoiceViewPage() {
 
   const invoice = data?.invoice
   const settings = data?.settings
+
+  // Fetch student invoice history + balance
+  const { data: studentProfile } = useQuery({
+    queryKey: ['student-profile', invoice?.studentPhone, invoice?.studentName],
+    queryFn: async () => {
+      const params = new URLSearchParams()
+      if (invoice?.studentPhone) params.set('phone', invoice.studentPhone)
+      if (invoice?.studentName) params.set('name', invoice.studentName)
+      if (!params.toString()) return null
+      const res = await fetch(`/api/students/profile?${params}`)
+      if (!res.ok) return null
+      return res.json()
+    },
+    enabled: !!invoice,
+  })
 
   // Generate PDF when invoice loads (includes remaining balance)
   useEffect(() => {
@@ -549,6 +565,80 @@ export default function InvoiceViewPage() {
                 )}
               </CardContent>
             </Card>
+
+            {/* Student Balance */}
+            {studentProfile?.summary && (
+              <Card>
+                <CardHeader className="pb-3">
+                  <CardTitle className="text-sm font-medium text-muted-foreground uppercase tracking-wider flex items-center gap-1.5">
+                    <DollarSign className="h-3.5 w-3.5" />
+                    Balance
+                  </CardTitle>
+                </CardHeader>
+                <CardContent className="space-y-2 text-sm">
+                  <div className="flex justify-between">
+                    <span className="text-muted-foreground">Total Invoiced</span>
+                    <span className="font-medium">{formatCurrency(studentProfile.summary.totalInvoiced)}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-muted-foreground">Total Paid</span>
+                    <span className="font-medium text-green-600">{formatCurrency(studentProfile.summary.totalPaid)}</span>
+                  </div>
+                  <div className="flex justify-between border-t pt-2 mt-2">
+                    <span className="font-semibold flex items-center gap-1">
+                      <TrendingDown className="h-3.5 w-3.5" />
+                      Remaining
+                    </span>
+                    <span className={`font-bold text-lg ${studentProfile.summary.openBalance > 0 ? 'text-red-600' : 'text-green-600'}`}>
+                      {formatCurrency(studentProfile.summary.openBalance)}
+                    </span>
+                  </div>
+                </CardContent>
+              </Card>
+            )}
+
+            {/* Invoice History */}
+            {studentProfile?.invoices && studentProfile.invoices.length > 0 && (
+              <Card>
+                <CardHeader className="pb-3">
+                  <CardTitle className="text-sm font-medium text-muted-foreground uppercase tracking-wider flex items-center gap-1.5">
+                    <FileText className="h-3.5 w-3.5" />
+                    Invoice History ({studentProfile.invoices.length})
+                  </CardTitle>
+                </CardHeader>
+                <CardContent className="p-0">
+                  <div className="divide-y max-h-[300px] overflow-y-auto">
+                    {studentProfile.invoices.map((inv: { id: string; invoiceNumber: string; invoiceDate: string; total: number; paymentStatus: string }) => (
+                      <Link
+                        key={inv.id}
+                        href={`/invoice/${inv.id}`}
+                        className={`flex items-center justify-between px-4 py-3 hover:bg-muted/50 transition-colors ${inv.id === invoiceId ? 'bg-blue-50 dark:bg-blue-950/30' : ''}`}
+                      >
+                        <div className="min-w-0">
+                          <p className={`text-sm font-medium ${inv.id === invoiceId ? 'text-blue-700 dark:text-blue-400' : ''}`}>
+                            {inv.invoiceNumber}
+                            {inv.id === invoiceId && <span className="text-xs text-blue-500 ml-1.5">(current)</span>}
+                          </p>
+                          <p className="text-xs text-muted-foreground">{inv.invoiceDate}</p>
+                        </div>
+                        <div className="flex items-center gap-2 flex-shrink-0">
+                          <span className="text-sm font-medium">{formatCurrency(inv.total)}</span>
+                          {inv.paymentStatus === 'paid' ? (
+                            <Badge className="bg-green-100 text-green-700 border-green-200 text-xs px-1.5">
+                              Paid
+                            </Badge>
+                          ) : (
+                            <Badge variant="outline" className="text-orange-600 border-orange-200 text-xs px-1.5">
+                              Unpaid
+                            </Badge>
+                          )}
+                        </div>
+                      </Link>
+                    ))}
+                  </div>
+                </CardContent>
+              </Card>
+            )}
           </div>
         </div>
       </div>
