@@ -235,20 +235,29 @@ function StudentsPage() {
 
   const validSorts = ['phase-asc', 'phase-desc', 'last-class', 'oldest-class'] as const
   type SortOption = typeof validSorts[number]
-  const urlSort = searchParams.get('sort')
-  const initialSort: SortOption = validSorts.includes(urlSort as SortOption) ? (urlSort as SortOption) : 'phase-asc'
-  const [sortBy, setSortByState] = useState<SortOption>(initialSort)
+  const [sortBy, setSortByState] = useState<SortOption>('phase-asc')
+
+  // Load saved sort from DB on mount
+  useEffect(() => {
+    fetch('/api/preferences?keys=students-sort')
+      .then(r => r.ok ? r.json() : {})
+      .then((prefs: Record<string, string>) => {
+        if (prefs['students-sort'] && validSorts.includes(prefs['students-sort'] as SortOption)) {
+          setSortByState(prefs['students-sort'] as SortOption)
+        }
+      })
+      .catch(() => {})
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
   const setSortBy = (val: SortOption) => {
     setSortByState(val)
-    const params = new URLSearchParams(window.location.search)
-    if (val === 'phase-asc') {
-      params.delete('sort')
-    } else {
-      params.set('sort', val)
-    }
-    const qs = params.toString()
-    router.replace(`/students${qs ? `?${qs}` : ''}`, { scroll: false })
+    // Save to DB
+    fetch('/api/preferences', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ key: 'students-sort', value: val }),
+    }).catch(() => {})
   }
 
   // Form state (manual add/edit)
