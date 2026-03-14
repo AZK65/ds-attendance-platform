@@ -1,10 +1,13 @@
 'use client'
 
 import { useState, useEffect } from 'react'
-import { useQuery, useMutation } from '@tanstack/react-query'
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
+import {
+  Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription,
+} from '@/components/ui/dialog'
 import {
   ArrowLeft, Download, Loader2, Mail, MessageCircle, Printer,
   CreditCard, Copy, ExternalLink, CheckCircle2, Banknote, Globe, Link2,
@@ -60,11 +63,28 @@ function formatCurrency(amount: number): string {
 export default function InvoiceViewPage() {
   const params = useParams()
   const invoiceId = params.id as string
+  const queryClient = useQueryClient()
   const [pdfUrl, setPdfUrl] = useState<string | null>(null)
   const [pdfBase64, setPdfBase64] = useState<string | null>(null)
   const [emailSent, setEmailSent] = useState(false)
   const [whatsappSent, setWhatsappSent] = useState(false)
   const [copiedLink, setCopiedLink] = useState(false)
+
+  // Mark as Paid dialog state
+  const [showPayDialog, setShowPayDialog] = useState(false)
+  const [payStep, setPayStep] = useState<'method' | 'match'>('method')
+
+  // Clover match types
+  interface CloverMatch {
+    orderId: string
+    total: number
+    date: string
+    createdTime: number
+    state: string
+    score: 'exact' | 'close' | 'partial' | 'weak'
+    diff: number
+    lineItems: Array<{ name: string; price: number; quantity: number }>
+  }
 
   // Fetch invoice + settings
   const { data, isLoading, error } = useQuery({
@@ -261,6 +281,56 @@ export default function InvoiceViewPage() {
     },
   })
 
+  // Mark as paid mutation
+  const markPaidMutation = useMutation({
+    mutationFn: async ({ method, cloverOrderId }: { method: 'cash' | 'card'; cloverOrderId?: string }) => {
+      // 1. Update payment status
+      const res = await fetch('/api/invoice/update-payment', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          invoiceId,
+          paymentMethod: method,
+          paymentStatus: 'paid',
+        }),
+      })
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}))
+        throw new Error(data.error || 'Failed to mark as paid')
+      }
+      // 2. If a Clover order was matched, link it
+      if (cloverOrderId) {
+        await fetch('/api/invoice/clover/match', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ invoiceId, cloverOrderId }),
+        })
+      }
+      return res.json()
+    },
+    onSuccess: () => {
+      setShowPayDialog(false)
+      setPayStep('method')
+      queryClient.invalidateQueries({ queryKey: ['invoice', invoiceId] })
+      queryClient.invalidateQueries({ queryKey: ['student-profile'] })
+    },
+  })
+
+  // Clover match query — fetch when user selects debit/credit
+  const cloverMatchQuery = useQuery({
+    queryKey: ['clover-match', invoiceId],
+    queryFn: async () => {
+      const res = await fetch('/api/invoice/clover/match', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ invoiceId }),
+      })
+      if (!res.ok) throw new Error('Failed to fetch Clover matches')
+      return res.json() as Promise<{ matches: CloverMatch[] }>
+    },
+    enabled: false, // Only run when triggered manually
+  })
+
   if (isLoading) {
     return (
       <div className="min-h-screen bg-background flex items-center justify-center">
@@ -335,9 +405,20 @@ export default function InvoiceViewPage() {
                 Paid{paymentMethodLabel ? ` (${paymentMethodLabel})` : ''}
               </Badge>
             ) : (
-              <Badge variant="outline" className="text-orange-600 border-orange-200">
-                Unpaid
-              </Badge>
+              <>
+                <Badge variant="outline" className="text-orange-600 border-orange-200">
+                  Unpaid
+                </Badge>
+                <Button
+                  size="sm"
+                  variant="default"
+                  className="bg-green-600 hover:bg-green-700 text-white h-7 text-xs"
+                  onClick={() => { setPayStep('method'); setShowPayDialog(true) }}
+                >
+                  <CheckCircle2 className="h-3 w-3 mr-1" />
+                  Mark as Paid
+                </Button>
+              </>
             )}
             {invoice.cloverOrderId && (
               <Badge className="bg-blue-100 text-blue-700 border-blue-200">
@@ -700,6 +781,149 @@ export default function InvoiceViewPage() {
           </div>
         </motion.div>
       </div>
+
+      {/* Mark as Paid Dialog */}
+      <Dialog open={showPayDialog} onOpenChange={(open) => { setShowPayDialog(open); if (!open) setPayStep('method') }}>
+        <DialogContent className="sm:max-w-md">
+          {payStep === 'method' ? (
+            <>
+              <DialogHeader>
+                <DialogTitle>Mark as Paid</DialogTitle>
+                <DialogDescription>
+                  How was this invoice paid?
+                </DialogDescription>
+              </DialogHeader>
+              <div className="grid grid-cols-2 gap-3 pt-2">
+                <Button
+                  variant="outline"
+                  className="h-20 flex-col gap-2"
+                  disabled={markPaidMutation.isPending}
+                  onClick={() => markPaidMutation.mutate({ method: 'cash' })}
+                >
+                  {markPaidMutation.isPending ? (
+                    <Loader2 className="h-6 w-6 animate-spin" />
+                  ) : (
+                    <Banknote className="h-6 w-6 text-green-600" />
+                  )}
+                  <span className="text-sm font-medium">Cash</span>
+                </Button>
+                <Button
+                  variant="outline"
+                  className="h-20 flex-col gap-2"
+                  disabled={markPaidMutation.isPending}
+                  onClick={() => {
+                    if (settings?.cloverConfigured) {
+                      setPayStep('match')
+                      cloverMatchQuery.refetch()
+                    } else {
+                      markPaidMutation.mutate({ method: 'card' })
+                    }
+                  }}
+                >
+                  <CreditCard className="h-6 w-6 text-blue-600" />
+                  <span className="text-sm font-medium">Debit / Credit</span>
+                </Button>
+              </div>
+              {markPaidMutation.isError && (
+                <p className="text-xs text-destructive text-center">
+                  {markPaidMutation.error?.message || 'Failed to update'}
+                </p>
+              )}
+            </>
+          ) : (
+            <>
+              <DialogHeader>
+                <DialogTitle>Match Clover Transaction</DialogTitle>
+                <DialogDescription>
+                  Select a Clover transaction to link, or skip to mark as paid without matching.
+                </DialogDescription>
+              </DialogHeader>
+              <div className="space-y-2 max-h-[400px] overflow-y-auto">
+                {cloverMatchQuery.isLoading || cloverMatchQuery.isFetching ? (
+                  <div className="flex items-center justify-center py-8">
+                    <Loader2 className="h-5 w-5 animate-spin mr-2" />
+                    <span className="text-sm text-muted-foreground">Searching Clover transactions...</span>
+                  </div>
+                ) : cloverMatchQuery.isError ? (
+                  <div className="text-center py-4">
+                    <p className="text-sm text-destructive mb-2">Could not fetch Clover transactions</p>
+                    <Button variant="outline" size="sm" onClick={() => {
+                      markPaidMutation.mutate({ method: 'card' })
+                    }}>
+                      Mark as Paid Anyway
+                    </Button>
+                  </div>
+                ) : cloverMatchQuery.data?.matches && cloverMatchQuery.data.matches.length > 0 ? (
+                  cloverMatchQuery.data.matches.map((match) => (
+                    <button
+                      key={match.orderId}
+                      className={`w-full text-left rounded-lg border p-3 hover:bg-muted/50 transition-colors ${
+                        match.score === 'exact' ? 'border-green-300 bg-green-50/50 dark:bg-green-950/20' :
+                        match.score === 'close' ? 'border-blue-200' : 'border-border'
+                      }`}
+                      disabled={markPaidMutation.isPending}
+                      onClick={() => markPaidMutation.mutate({ method: 'card', cloverOrderId: match.orderId })}
+                    >
+                      <div className="flex items-center justify-between mb-1">
+                        <div className="flex items-center gap-2">
+                          <span className="font-mono text-sm font-medium">{formatCurrency(match.total)}</span>
+                          {match.score === 'exact' && (
+                            <Badge className="bg-green-100 text-green-700 border-green-200 text-[10px] px-1.5 py-0">
+                              Exact Match
+                            </Badge>
+                          )}
+                          {match.score === 'close' && (
+                            <Badge className="bg-blue-100 text-blue-700 border-blue-200 text-[10px] px-1.5 py-0">
+                              Close ({formatCurrency(match.diff)} diff)
+                            </Badge>
+                          )}
+                          {match.score === 'partial' && (
+                            <Badge variant="outline" className="text-[10px] px-1.5 py-0">
+                              {formatCurrency(match.diff)} diff
+                            </Badge>
+                          )}
+                        </div>
+                        <span className="text-xs text-muted-foreground">{match.date}</span>
+                      </div>
+                      {match.lineItems.length > 0 && (
+                        <p className="text-xs text-muted-foreground truncate">
+                          {match.lineItems.map(li => li.name).join(', ')}
+                        </p>
+                      )}
+                    </button>
+                  ))
+                ) : (
+                  <div className="text-center py-4">
+                    <p className="text-sm text-muted-foreground mb-2">No matching Clover transactions found</p>
+                  </div>
+                )}
+              </div>
+              <div className="flex justify-between pt-2 border-t">
+                <Button variant="ghost" size="sm" onClick={() => setPayStep('method')}>
+                  <ArrowLeft className="h-3.5 w-3.5 mr-1" />
+                  Back
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  disabled={markPaidMutation.isPending}
+                  onClick={() => markPaidMutation.mutate({ method: 'card' })}
+                >
+                  {markPaidMutation.isPending ? (
+                    <Loader2 className="h-3.5 w-3.5 mr-1 animate-spin" />
+                  ) : null}
+                  Skip & Mark as Paid
+                </Button>
+              </div>
+              {markPaidMutation.isError && (
+                <p className="text-xs text-destructive text-center">
+                  {markPaidMutation.error?.message || 'Failed to update'}
+                </p>
+              )}
+            </>
+          )}
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }
