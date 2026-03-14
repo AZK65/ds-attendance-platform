@@ -14,7 +14,7 @@ interface MatchedRecord {
 export async function GET(request: NextRequest) {
   const { searchParams } = new URL(request.url)
   const phone = searchParams.get('phone')
-  const name = searchParams.get('name')
+  const name = searchParams.get('studentName') || searchParams.get('name')
 
   if (!phone && !name) {
     return NextResponse.json(
@@ -37,6 +37,28 @@ export async function GET(request: NextRequest) {
     const phoneSuffix = phoneDigits.length > 10 ? phoneDigits.slice(-10) : phoneDigits
     const cleanName = (name || '').replace(/\s*#\d+$/, '').trim().toLowerCase()
 
+    // Also look up WhatsApp contact phones by name (the external DB may have a different phone)
+    const extraPhoneSuffixes: string[] = []
+    if (cleanName && cleanName.length >= 2) {
+      const contacts = await prisma.contact.findMany({
+        where: {
+          OR: [
+            { name: { contains: cleanName } },
+            { pushName: { contains: cleanName } },
+          ],
+        },
+        select: { phone: true },
+        take: 5,
+      })
+      for (const c of contacts) {
+        const digits = c.phone.replace(/\D/g, '')
+        const suffix = digits.length > 10 ? digits.slice(-10) : digits
+        if (suffix.length >= 7 && suffix !== phoneSuffix) {
+          extraPhoneSuffixes.push(suffix)
+        }
+      }
+    }
+
     const theoryClasses: {
       moduleNumber: number
       date: string
@@ -52,10 +74,16 @@ export async function GET(request: NextRequest) {
         const matched: MatchedRecord[] = JSON.parse(record.matchedRecords)
 
         const studentMatch = matched.find(m => {
-          // Match by phone
+          const mPhone = m.whatsappPhone.replace(/\D/g, '')
+          // Match by primary phone
           if (phoneSuffix && phoneSuffix.length >= 7) {
-            const mPhone = m.whatsappPhone.replace(/\D/g, '')
             if (mPhone.includes(phoneSuffix) || phoneSuffix.includes(mPhone.slice(-10))) {
+              return true
+            }
+          }
+          // Match by WhatsApp contact phones (fallback when DB phone differs)
+          for (const extra of extraPhoneSuffixes) {
+            if (mPhone.includes(extra) || extra.includes(mPhone.slice(-10))) {
               return true
             }
           }
