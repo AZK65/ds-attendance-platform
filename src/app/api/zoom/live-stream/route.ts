@@ -2,7 +2,8 @@ import { NextRequest } from 'next/server'
 import {
   getCurrentState,
   addListener,
-  removeListener
+  removeListener,
+  getManualOverrides
 } from '@/lib/zoom/live-store'
 import { matchZoomToWhatsApp } from '@/lib/zoom/client'
 import { getGroupMembers } from '@/lib/group-sync'
@@ -44,6 +45,9 @@ export async function GET(request: NextRequest) {
       learnedMatches
     )
 
+    // Get manual overrides for this group
+    const overrides = groupId ? getManualOverrides(groupId) : []
+
     return {
       type: 'state',
       isLive: currentState.isLive,
@@ -52,6 +56,7 @@ export async function GET(request: NextRequest) {
       startTime: currentState.startTime,
       participantCount: currentState.participants.length,
       ...matchedData,
+      manualOverrides: overrides,
       timestamp: new Date().toISOString()
     }
   }

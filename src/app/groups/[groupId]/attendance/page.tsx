@@ -2,7 +2,7 @@
 
 import { useQuery } from '@tanstack/react-query'
 import { useParams } from 'next/navigation'
-import { useState, useEffect, useRef, useCallback } from 'react'
+import { useState, useEffect, useRef, useCallback, useMemo } from 'react'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import {
@@ -16,7 +16,8 @@ import {
   WifiOff,
   CheckCircle,
   Undo2,
-  HelpCircle
+  HelpCircle,
+  Smartphone
 } from 'lucide-react'
 import Link from 'next/link'
 
@@ -39,6 +40,13 @@ interface UnmatchedZoom {
   duration: number
 }
 
+interface ManualOverrideData {
+  phone: string
+  zoomName: string
+  setBy: string
+  setAt: string
+}
+
 interface SSEData {
   type: string
   isLive: boolean
@@ -49,6 +57,7 @@ interface SSEData {
   matched: MatchedStudent[]
   absent: AbsentStudent[]
   unmatchedZoom: UnmatchedZoom[]
+  manualOverrides: ManualOverrideData[]
   timestamp: string
 }
 
@@ -58,11 +67,11 @@ export default function LiveAttendancePage() {
 
   const [sseConnected, setSSEConnected] = useState(false)
   const [liveData, setLiveData] = useState<SSEData | null>(null)
-  // Map of phone -> zoomName (linked unmatched participant) or '(Manual)' for plain manual
-  const [manualOverrides, setManualOverrides] = useState<Map<string, string>>(new Map())
   const [expandedPhone, setExpandedPhone] = useState<string | null>(null)
-  // Which absent student is picking an unmatched Zoom participant
   const [pickingForPhone, setPickingForPhone] = useState<string | null>(null)
+  // Optimistic overrides: shown immediately while waiting for SSE confirmation
+  const [optimisticAdds, setOptimisticAdds] = useState<Map<string, string>>(new Map())
+  const [optimisticRemoves, setOptimisticRemoves] = useState<Set<string>>(new Set())
   const eventSourceRef = useRef<EventSource | null>(null)
 
   // Fetch group data
@@ -103,6 +112,9 @@ export default function LiveAttendancePage() {
       try {
         const data = JSON.parse(event.data) as SSEData
         setLiveData(data)
+        // Clear optimistic state when SSE confirms
+        setOptimisticAdds(new Map())
+        setOptimisticRemoves(new Set())
       } catch {
         // Ignore parse errors (keepalive comments, etc.)
       }
@@ -110,7 +122,6 @@ export default function LiveAttendancePage() {
 
     es.onerror = () => {
       setSSEConnected(false)
-      // EventSource auto-reconnects
     }
   }, [groupId])
 
@@ -121,51 +132,87 @@ export default function LiveAttendancePage() {
     }
   }, [connectSSE])
 
-  // Mark absent student as present — link to an unmatched Zoom participant or mark as plain manual
-  const markPresent = (phone: string, zoomName?: string) => {
-    setManualOverrides(prev => new Map(prev).set(phone, zoomName || '(Manual)'))
+  // Derive overrides from SSE data + optimistic state
+  const serverOverrides = useMemo(() => {
+    const map = new Map<string, string>()
+    for (const o of (liveData?.manualOverrides ?? [])) {
+      if (!optimisticRemoves.has(o.phone)) {
+        map.set(o.phone, o.zoomName)
+      }
+    }
+    for (const [phone, zoomName] of optimisticAdds) {
+      map.set(phone, zoomName)
+    }
+    return map
+  }, [liveData?.manualOverrides, optimisticAdds, optimisticRemoves])
+
+  // Mark absent student as present via server API
+  const markPresent = async (phone: string, zoomName?: string) => {
+    const name = zoomName || '(Manual)'
     setPickingForPhone(null)
+    // Optimistic update
+    setOptimisticAdds(prev => new Map(prev).set(phone, name))
+    setOptimisticRemoves(prev => {
+      const next = new Set(prev)
+      next.delete(phone)
+      return next
+    })
+    await fetch('/api/zoom/live-override', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ groupId, phone, zoomName: name, action: 'add', setBy: 'office' })
+    })
   }
 
-  const undoMarkPresent = (phone: string) => {
-    setManualOverrides(prev => {
+  const undoMarkPresent = async (phone: string) => {
+    // Optimistic update
+    setOptimisticRemoves(prev => new Set(prev).add(phone))
+    setOptimisticAdds(prev => {
       const next = new Map(prev)
       next.delete(phone)
       return next
     })
+    await fetch('/api/zoom/live-override', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ groupId, phone, action: 'remove', setBy: 'office' })
+    })
   }
 
-  // Compute effective present/absent lists with manual overrides
+  // Compute effective present/absent lists with server overrides
   const matched = liveData?.matched ?? []
   const rawAbsent = liveData?.absent ?? []
   const rawUnmatchedZoom = liveData?.unmatchedZoom ?? []
 
-  // Collect all zoom names that have been linked to manual overrides
   const linkedZoomNames = new Set(
-    [...manualOverrides.values()].filter(v => v !== '(Manual)')
+    [...serverOverrides.values()].filter(v => v !== '(Manual)')
   )
 
-  const overriddenAbsent = rawAbsent.filter(a => manualOverrides.has(a.phone))
+  const overriddenAbsent = rawAbsent.filter(a => serverOverrides.has(a.phone))
   const effectivePresent = [
     ...matched,
     ...overriddenAbsent.map(a => ({
       whatsappName: a.name,
       whatsappPhone: a.phone,
-      zoomName: manualOverrides.get(a.phone) || '(Manual)',
+      zoomName: serverOverrides.get(a.phone) || '(Manual)',
       duration: 0,
       joinTime: ''
     }))
   ].sort((a, b) => a.whatsappName.localeCompare(b.whatsappName))
 
   const effectiveAbsent = rawAbsent
-    .filter(a => !manualOverrides.has(a.phone))
+    .filter(a => !serverOverrides.has(a.phone))
     .sort((a, b) => a.name.localeCompare(b.name))
 
-  // Remove unmatched Zoom participants that were linked to a manual override
   const unmatchedZoom = rawUnmatchedZoom.filter(p => !linkedZoomNames.has(p.name))
 
   const isLive = liveData?.isLive ?? meetingStatus?.isLive ?? false
   const lastUpdate = liveData?.timestamp ? new Date(liveData.timestamp) : null
+
+  // Find override info (for setBy display)
+  const getOverrideInfo = (phone: string) => {
+    return liveData?.manualOverrides?.find(o => o.phone === phone)
+  }
 
   const formatPhone = (phone: string) => {
     if (phone.length >= 10) {
@@ -187,7 +234,7 @@ export default function LiveAttendancePage() {
             </Link>
             <div>
               <h1 className="text-xl font-semibold">{group?.name || 'Loading...'}</h1>
-              <p className="text-sm text-muted-foreground">Live Attendance</p>
+              <p className="text-sm text-muted-foreground">Live Attendance — Office View</p>
             </div>
             {isLive ? (
               <Badge className="bg-green-600 text-white ml-2 text-sm px-3 py-1">
@@ -204,6 +251,12 @@ export default function LiveAttendancePage() {
             )}
           </div>
           <div className="flex items-center gap-3">
+            <Link href={`/groups/${encodeURIComponent(groupId)}/attendance/teacher`}>
+              <Button variant="outline" size="sm" className="gap-1.5">
+                <Smartphone className="h-4 w-4" />
+                Teacher View
+              </Button>
+            </Link>
             {sseConnected ? (
               <div className="flex items-center gap-1 text-green-600 text-xs">
                 <Wifi className="h-3 w-3" />
@@ -288,38 +341,43 @@ export default function LiveAttendancePage() {
                       No students matched yet
                     </div>
                   ) : (
-                    effectivePresent.map((student, i) => (
-                      <div key={student.whatsappPhone || i} className="px-4 py-3 flex items-center justify-between">
-                        <div>
-                          <p className="font-medium text-base">{student.whatsappName}</p>
-                          <p className="text-xs text-muted-foreground">
-                            Zoom: {student.zoomName}
-                            {student.joinTime && (
-                              <> &middot; Joined {new Date(student.joinTime).toLocaleTimeString()}</>
+                    effectivePresent.map((student, i) => {
+                      const overrideInfo = getOverrideInfo(student.whatsappPhone)
+                      const isOverridden = serverOverrides.has(student.whatsappPhone)
+                      return (
+                        <div key={student.whatsappPhone || i} className="px-4 py-3 flex items-center justify-between">
+                          <div>
+                            <p className="font-medium text-base">{student.whatsappName}</p>
+                            <p className="text-xs text-muted-foreground">
+                              Zoom: {student.zoomName}
+                              {student.joinTime && (
+                                <> &middot; Joined {new Date(student.joinTime).toLocaleTimeString()}</>
+                              )}
+                            </p>
+                          </div>
+                          <div className="flex items-center gap-2">
+                            {isOverridden ? (
+                              <>
+                                <Badge variant="outline" className="text-xs bg-blue-50 text-blue-700 border-blue-200">
+                                  {student.zoomName === '(Manual)' ? 'Manual' : 'Linked'}
+                                  {overrideInfo?.setBy === 'teacher' && ' (Teacher)'}
+                                </Badge>
+                                <Button
+                                  variant="ghost"
+                                  size="sm"
+                                  className="h-7 w-7 p-0"
+                                  onClick={() => undoMarkPresent(student.whatsappPhone)}
+                                >
+                                  <Undo2 className="h-3 w-3" />
+                                </Button>
+                              </>
+                            ) : (
+                              <CheckCircle className="h-5 w-5 text-green-500" />
                             )}
-                          </p>
+                          </div>
                         </div>
-                        <div className="flex items-center gap-2">
-                          {manualOverrides.has(student.whatsappPhone) ? (
-                            <>
-                              <Badge variant="outline" className="text-xs bg-blue-50 text-blue-700 border-blue-200">
-                                {student.zoomName === '(Manual)' ? 'Manual' : 'Linked'}
-                              </Badge>
-                              <Button
-                                variant="ghost"
-                                size="sm"
-                                className="h-7 w-7 p-0"
-                                onClick={() => undoMarkPresent(student.whatsappPhone)}
-                              >
-                                <Undo2 className="h-3 w-3" />
-                              </Button>
-                            </>
-                          ) : (
-                            <CheckCircle className="h-5 w-5 text-green-500" />
-                          )}
-                        </div>
-                      </div>
-                    ))
+                      )
+                    })
                   )}
                 </div>
               </div>

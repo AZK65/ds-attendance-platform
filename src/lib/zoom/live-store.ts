@@ -7,6 +7,13 @@ interface LiveParticipant {
   email?: string
 }
 
+export interface ManualOverride {
+  phone: string
+  zoomName: string
+  setBy: string
+  setAt: string
+}
+
 interface LiveMeetingState {
   meetingId: string
   meetingUUID: string
@@ -23,6 +30,9 @@ let currentMeeting: LiveMeetingState | null = null
 
 // Listeners notified on every state change
 const listeners: Set<StateChangeListener> = new Set()
+
+// Manual overrides keyed by groupId → phone → override
+const manualOverrides: Map<string, Map<string, ManualOverride>> = new Map()
 
 function notifyListeners() {
   for (const listener of listeners) {
@@ -70,9 +80,10 @@ export function handleMeetingEnded(payload: {
     currentMeeting.isLive = false
     console.log(`[Live Store] Meeting ended: ${currentMeeting.topic}`)
     notifyListeners()
-    // Clear meeting state after notifying
+    // Clear meeting state and overrides after notifying
     setTimeout(() => {
       currentMeeting = null
+      manualOverrides.clear()
     }, 60000) // Keep data for 1 min after meeting ends
   }
 }
@@ -161,4 +172,46 @@ export function addListener(listener: StateChangeListener) {
 export function removeListener(listener: StateChangeListener) {
   listeners.delete(listener)
   console.log(`[Live Store] Listener removed (${listeners.size} remaining)`)
+}
+
+// --- Manual Override Functions ---
+
+export function setManualOverride(
+  groupId: string,
+  phone: string,
+  zoomName: string,
+  setBy: string = 'unknown'
+): void {
+  if (!manualOverrides.has(groupId)) {
+    manualOverrides.set(groupId, new Map())
+  }
+  manualOverrides.get(groupId)!.set(phone, {
+    phone,
+    zoomName,
+    setBy,
+    setAt: new Date().toISOString()
+  })
+  console.log(`[Live Store] Manual override set: ${phone} -> ${zoomName} (by ${setBy})`)
+  notifyListeners()
+}
+
+export function removeManualOverride(groupId: string, phone: string): void {
+  const groupOverrides = manualOverrides.get(groupId)
+  if (groupOverrides) {
+    groupOverrides.delete(phone)
+    console.log(`[Live Store] Manual override removed: ${phone}`)
+    notifyListeners()
+  }
+}
+
+export function getManualOverrides(groupId: string): ManualOverride[] {
+  const groupOverrides = manualOverrides.get(groupId)
+  if (!groupOverrides) return []
+  return Array.from(groupOverrides.values())
+}
+
+export function clearManualOverrides(groupId: string): void {
+  manualOverrides.delete(groupId)
+  console.log(`[Live Store] Manual overrides cleared for group ${groupId}`)
+  notifyListeners()
 }
