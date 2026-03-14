@@ -55,7 +55,8 @@ export async function GET(
         lastSynced: group.lastSynced,
       },
       participants,
-      moduleNumber: null,
+      moduleNumber: group.moduleNumber ?? null,
+      lastModuleMessageDate: group.lastMessageDate?.toISOString() ?? null,
       fromCache: true,
       isConnected: false
     })
@@ -116,12 +117,16 @@ export async function GET(
       update: {
         name: groupInfo.name,
         participantCount: participants.length,
+        moduleNumber: moduleNumber ?? undefined,
+        lastMessageDate: lastModuleMessageDate ?? undefined,
         lastSynced: new Date()
       },
       create: {
         id: decodedGroupId,
         name: groupInfo.name,
-        participantCount: participants.length
+        participantCount: participants.length,
+        moduleNumber: moduleNumber ?? null,
+        lastMessageDate: lastModuleMessageDate ?? null,
       }
     })
 

@@ -16,9 +16,9 @@ export async function GET() {
         id: g.id,
         name: g.name,
         participantCount: g.participantCount,
-        moduleNumber: null,
-        lastMessageDate: null,
-        lastMessagePreview: null
+        moduleNumber: g.moduleNumber ?? null,
+        lastMessageDate: g.lastMessageDate?.toISOString() ?? null,
+        lastMessagePreview: g.lastMessagePreview ?? null
       })),
       fromCache: true,
       isConnected: false
@@ -38,12 +38,18 @@ export async function GET() {
         update: {
           name: group.name,
           participantCount: group.participantCount,
+          moduleNumber: group.moduleNumber ?? undefined,
+          lastMessageDate: group.lastMessageDate ?? undefined,
+          lastMessagePreview: group.lastMessagePreview ?? undefined,
           lastSynced: new Date()
         },
         create: {
           id: group.id,
           name: group.name,
-          participantCount: group.participantCount
+          participantCount: group.participantCount,
+          moduleNumber: group.moduleNumber ?? null,
+          lastMessageDate: group.lastMessageDate ?? null,
+          lastMessagePreview: group.lastMessagePreview ?? null,
         }
       })
     }

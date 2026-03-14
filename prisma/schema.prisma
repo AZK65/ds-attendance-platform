@@ -19,14 +19,17 @@ model WhatsAppSession {
 }
 
 model Group {
-  id               String           @id
-  name             String
-  participantCount Int              @default(0)
-  lastSynced       DateTime         @default(now())
-  attendanceSheet  AttendanceSheet?
-  members          GroupMember[]
-  createdAt        DateTime         @default(now())
-  updatedAt        DateTime         @updatedAt
+  id                 String           @id
+  name               String
+  participantCount   Int              @default(0)
+  moduleNumber       Int?
+  lastMessageDate    DateTime?
+  lastMessagePreview String?
+  lastSynced         DateTime         @default(now())
+  attendanceSheet    AttendanceSheet?
+  members            GroupMember[]
+  createdAt          DateTime         @default(now())
+  updatedAt          DateTime         @updatedAt
 }
 
 model Contact {

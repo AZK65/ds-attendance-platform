@@ -616,7 +616,10 @@ export async function getGroups(): Promise<GroupInfo[]> {
     return dbGroups.map(g => ({
       id: g.id,
       name: g.name,
-      participantCount: g.participantCount
+      participantCount: g.participantCount,
+      moduleNumber: g.moduleNumber ?? null,
+      lastMessageDate: g.lastMessageDate ?? null,
+      lastMessagePreview: g.lastMessagePreview ?? null
     }))
   }
 
@@ -1063,9 +1066,9 @@ export async function getGroupsWithDetails(): Promise<GroupInfo[]> {
       id: g.id,
       name: g.name,
       participantCount: g.participantCount,
-      moduleNumber: null,
-      lastMessageDate: null,
-      lastMessagePreview: null
+      moduleNumber: g.moduleNumber ?? null,
+      lastMessageDate: g.lastMessageDate ?? null,
+      lastMessagePreview: g.lastMessagePreview ?? null
     }))
   }
 

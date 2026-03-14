@@ -60,6 +60,20 @@ export async function GET(request: NextRequest) {
         }
       }
 
+      // Persist module numbers to DB in background
+      for (const group of validGroups) {
+        if (group.moduleNumber) {
+          prisma.group.update({
+            where: { id: group.id },
+            data: {
+              moduleNumber: group.moduleNumber,
+              lastMessageDate: group.lastMessageDate ?? undefined,
+              lastMessagePreview: group.lastMessagePreview ?? undefined,
+            }
+          }).catch(() => {})
+        }
+      }
+
       return NextResponse.json({
         participants: allParticipants,
         isConnected: true,
@@ -93,8 +107,8 @@ export async function GET(request: NextRequest) {
           pushName: m.contact.pushName,
           groupId: m.groupId,
           groupName: m.group.name,
-          moduleNumber: null,
-          lastMessageDate: null,
+          moduleNumber: m.group.moduleNumber ?? null,
+          lastMessageDate: m.group.lastMessageDate?.toISOString() ?? null,
         }))
 
       return NextResponse.json({
@@ -114,7 +128,7 @@ export async function GET(request: NextRequest) {
         contactId: true,
         contact: { select: { id: true, phone: true, name: true, pushName: true } },
         attendanceSheet: {
-          select: { group: { select: { id: true, name: true } } }
+          select: { group: { select: { id: true, name: true, moduleNumber: true, lastMessageDate: true } } }
         },
       },
       distinct: ['contactId'],
@@ -128,8 +142,8 @@ export async function GET(request: NextRequest) {
       pushName: r.contact.pushName,
       groupId: r.attendanceSheet.group.id,
       groupName: r.attendanceSheet.group.name,
-      moduleNumber: null,
-      lastMessageDate: null,
+      moduleNumber: r.attendanceSheet.group.moduleNumber ?? null,
+      lastMessageDate: r.attendanceSheet.group.lastMessageDate?.toISOString() ?? null,
     }))
 
     return NextResponse.json({ participants, isConnected: false })
