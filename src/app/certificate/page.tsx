@@ -523,6 +523,57 @@ export default function CertificatePage() {
 
   // ─── Single Mode Search ────────────────────────────────────────────────
 
+  const mergeSearchResults = (data: {
+    students?: DBStudent[]
+    localStudents?: { id: string; name: string; phone: string; licenceNumber: string; address?: string; municipality?: string; postalCode?: string }[]
+    whatsappContacts?: { id: string; phone: string; name: string | null; pushName: string | null; groupName: string | null; groupId: string | null }[]
+  }): DBStudent[] => {
+    const results: DBStudent[] = [...(data.students || [])]
+    const seenPhones = new Set(results.map(s => s.phone_number).filter(Boolean))
+
+    // Add local students (SQLite)
+    for (const ls of (data.localStudents || [])) {
+      if (ls.phone && seenPhones.has(ls.phone)) continue
+      if (ls.phone) seenPhones.add(ls.phone)
+      results.push({
+        student_id: parseInt(ls.id) || Date.now(),
+        full_name: ls.name || '',
+        permit_number: ls.licenceNumber || '',
+        full_address: ls.address || '',
+        city: ls.municipality || '',
+        postal_code: ls.postalCode || '',
+        phone_number: ls.phone || '',
+        email: '',
+        contract_number: 0,
+        dob: '',
+        status: 'local',
+        user_defined_contract_number: null,
+      })
+    }
+
+    // Add WhatsApp contacts
+    for (const wc of (data.whatsappContacts || [])) {
+      if (wc.phone && seenPhones.has(wc.phone)) continue
+      if (wc.phone) seenPhones.add(wc.phone)
+      results.push({
+        student_id: parseInt(wc.id.replace(/\D/g, '').slice(-9)) || Date.now(),
+        full_name: wc.name || wc.pushName || '',
+        permit_number: '',
+        full_address: '',
+        city: '',
+        postal_code: '',
+        phone_number: wc.phone || '',
+        email: '',
+        contract_number: 0,
+        dob: '',
+        status: 'whatsapp',
+        user_defined_contract_number: null,
+      })
+    }
+
+    return results
+  }
+
   const handleSingleSearch = useCallback(async () => {
     if (singleSearchQuery.length < 2) return
     setSingleSearching(true)
@@ -530,7 +581,7 @@ export default function CertificatePage() {
       const res = await fetch(`/api/students/search?q=${encodeURIComponent(singleSearchQuery)}`)
       if (!res.ok) throw new Error('Search failed')
       const data = await res.json()
-      setSingleSearchResults(data.students || [])
+      setSingleSearchResults(mergeSearchResults(data))
     } catch { setSingleSearchResults([]) }
     finally { setSingleSearching(false) }
   }, [singleSearchQuery])
@@ -734,7 +785,7 @@ export default function CertificatePage() {
       const res = await fetch(`/api/students/search?q=${encodeURIComponent(searchTerm)}`)
       if (!res.ok) throw new Error('Search failed')
       const data = await res.json()
-      setBulkSearchResults(data.students || [])
+      setBulkSearchResults(mergeSearchResults(data))
     } catch { setBulkSearchResults([]) }
     finally { setBulkSearching(false) }
   }, [bulkSearchQuery])
@@ -1112,7 +1163,7 @@ export default function CertificatePage() {
       const res = await fetch(`/api/students/search?q=${encodeURIComponent(searchTerm)}`)
       if (!res.ok) throw new Error('Search failed')
       const data = await res.json()
-      setDbSearchResults(data.students || [])
+      setDbSearchResults(mergeSearchResults(data))
     } catch (err) {
       console.error('Student search error:', err)
       setDbSearchResults([])
@@ -1519,13 +1570,17 @@ export default function CertificatePage() {
                         <div className="space-y-1.5 max-h-[250px] overflow-y-auto">
                           {singleSearchResults.map((student) => (
                             <button
-                              key={student.student_id}
+                              key={`${student.status || 'ext'}-${student.student_id}`}
                               onClick={() => handleSingleSelectStudent(student)}
                               className="w-full text-left p-2.5 rounded-lg border hover:border-primary hover:bg-accent transition-colors"
                             >
                               <div className="flex items-center justify-between">
                                 <div>
-                                  <p className="font-medium text-sm">{student.full_name}</p>
+                                  <div className="flex items-center gap-2">
+                                    <p className="font-medium text-sm">{student.full_name}</p>
+                                    {student.status === 'whatsapp' && <Badge variant="secondary" className="text-[9px] px-1.5 py-0">WhatsApp</Badge>}
+                                    {student.status === 'local' && <Badge variant="secondary" className="text-[9px] px-1.5 py-0">Local</Badge>}
+                                  </div>
                                   <div className="flex flex-wrap gap-x-3 text-xs text-muted-foreground mt-0.5">
                                     {student.phone_number && <span>📞 {student.phone_number}</span>}
                                     {student.permit_number && <span className="font-mono">🪪 {student.permit_number}</span>}
