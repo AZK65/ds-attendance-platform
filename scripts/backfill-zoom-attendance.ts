@@ -318,40 +318,72 @@ function matchParticipants(
   return { matched, absent, unmatchedZoom }
 }
 
+// ── Extract module number from meeting topic ──
+
+function extractModuleNumber(text: string): number | null {
+  // Match patterns like "Module 5", "M5", "module5", "Mod 12"
+  const patterns = [
+    /module\s*(\d+)/i,
+    /\bM(\d+)\b/,
+    /\bmod\s*(\d+)/i,
+  ]
+  for (const p of patterns) {
+    const m = text.match(p)
+    if (m) {
+      const num = parseInt(m[1], 10)
+      if (num >= 1 && num <= 24) return num
+    }
+  }
+  return null
+}
+
 // ── Main backfill logic ──
+// This version does NOT depend on the Group table.
+// It matches Zoom participants directly against ALL Contacts in the database,
+// and extracts module numbers from meeting topics.
 
 const ZOOM_MEETING_ID = '4171672829' // Default recurring meeting ID
+const BACKFILL_GROUP_ID = 'backfill-theory' // Synthetic groupId for records without real groups
 
 async function main() {
-  console.log('\n🔄 ZOOM ATTENDANCE BACKFILL')
+  console.log('\n🔄 ZOOM ATTENDANCE BACKFILL (Group-independent)')
   console.log('═'.repeat(60))
 
-  // 1. Get all WhatsApp groups with a moduleNumber (theory groups)
-  const groups = await prisma.group.findMany({
-    where: { moduleNumber: { not: null } },
-    include: {
-      members: {
-        include: { contact: true },
-      },
-    },
-    orderBy: { moduleNumber: 'asc' },
-  })
+  // 1. Load ALL contacts from the database (our student roster)
+  const contacts = await prisma.contact.findMany()
+  console.log(`\n👥 Loaded ${contacts.length} contacts from database`)
 
-  console.log(`\n📋 Found ${groups.length} theory groups:`)
-  for (const g of groups) {
-    console.log(`   M${g.moduleNumber} - ${g.name} (${g.members.length} members)`)
-  }
-
-  if (groups.length === 0) {
-    console.log('\n❌ No theory groups found. Make sure groups have moduleNumber set.')
+  if (contacts.length === 0) {
+    console.log('\n❌ No contacts found in database. Cannot match Zoom participants.')
     return
   }
 
-  // 2. Get learned matches
+  const allMembers = contacts.map(c => ({
+    name: c.name || c.pushName || c.phone,
+    phone: c.phone,
+  }))
+
+  // 2. Also check if Groups exist (use them if available for better absent tracking)
+  const groups = await prisma.group.findMany({
+    where: { moduleNumber: { not: null } },
+    include: { members: { include: { contact: true } } },
+    orderBy: { moduleNumber: 'asc' },
+  })
+
+  if (groups.length > 0) {
+    console.log(`\n📋 Found ${groups.length} theory groups (will use for absent tracking):`)
+    for (const g of groups) {
+      console.log(`   M${g.moduleNumber} - ${g.name} (${g.members.length} members)`)
+    }
+  } else {
+    console.log(`\n⚠️  No theory groups found — will match against all contacts (no absent tracking)`)
+  }
+
+  // 3. Get learned matches
   const learnedMatches = await prisma.zoomNameMatch.findMany()
   console.log(`\n🧠 Loaded ${learnedMatches.length} learned name matches`)
 
-  // 3. Fetch past meetings from Zoom
+  // 4. Fetch past meetings from Zoom
   console.log(`\n🔍 Fetching past meeting instances for meeting ID: ${ZOOM_MEETING_ID}...`)
 
   let meetings: ZoomPastMeeting[] = []
@@ -380,6 +412,34 @@ async function main() {
     }
   }
 
+  // Also try fetching ALL meetings (not just recurring ID) in case theory classes use different IDs
+  if (meetings.length === 0) {
+    console.log('   Trying to fetch ALL meetings from report API...')
+    const now = new Date()
+    for (let i = 0; i < 3; i++) {
+      const to = new Date(now.getTime() - i * 30 * 24 * 60 * 60 * 1000)
+      const from = new Date(to.getTime() - 30 * 24 * 60 * 60 * 1000)
+      const fromStr = from.toISOString().split('T')[0]
+      const toStr = to.toISOString().split('T')[0]
+      console.log(`   Fetching ALL ${fromStr} to ${toStr}...`)
+
+      const monthMeetings = await getReportMeetings('me', fromStr, toStr)
+      console.log(`   Found ${monthMeetings.length} total meetings`)
+      for (const m of monthMeetings) {
+        console.log(`      ${new Date(m.start_time).toLocaleDateString('en-CA')} - ID: ${m.id} - "${m.topic}" (${m.participants_count || '?'} participants)`)
+      }
+      meetings.push(...monthMeetings)
+    }
+  }
+
+  // Deduplicate by UUID
+  const seenUUIDs = new Set<string>()
+  meetings = meetings.filter(m => {
+    if (seenUUIDs.has(m.uuid)) return false
+    seenUUIDs.add(m.uuid)
+    return true
+  })
+
   // Filter to last 3 months
   const threeMonthsAgo = new Date()
   threeMonthsAgo.setMonth(threeMonthsAgo.getMonth() - 3)
@@ -389,7 +449,8 @@ async function main() {
   console.log(`\n📅 ${meetings.length} meetings in the last 3 months:`)
   for (const m of meetings) {
     const date = new Date(m.start_time).toLocaleDateString('en-CA')
-    console.log(`   ${date} - ${m.topic || 'Untitled'} (${m.participants_count || '?'} participants) UUID: ${m.uuid}`)
+    const mod = extractModuleNumber(m.topic || '')
+    console.log(`   ${date} - ${m.topic || 'Untitled'} (${m.participants_count || '?'} participants)${mod ? ` → Module ${mod}` : ''} UUID: ${m.uuid}`)
   }
 
   if (meetings.length === 0) {
@@ -397,21 +458,30 @@ async function main() {
     return
   }
 
-  // 4. For each meeting, fetch participants and match against EACH group
+  // 5. For each meeting, fetch participants and match
   let totalCreated = 0
   let totalSkipped = 0
 
   for (const meeting of meetings) {
     const meetingDate = new Date(meeting.start_time)
     const dateStr = meetingDate.toLocaleDateString('en-CA')
-    console.log(`\n${'─'.repeat(60)}`)
-    console.log(`📅 Processing: ${dateStr} - ${meeting.topic || 'Untitled'}`)
+    const moduleNumber = extractModuleNumber(meeting.topic || '')
 
-    // Check which groups already have this meeting saved
-    const existingRecords = await prisma.zoomAttendance.findMany({
-      where: { meetingUUID: meeting.uuid },
+    console.log(`\n${'─'.repeat(60)}`)
+    console.log(`📅 Processing: ${dateStr} - ${meeting.topic || 'Untitled'}${moduleNumber ? ` (Module ${moduleNumber})` : ''}`)
+
+    // Use a groupId based on the meeting — either a real group or synthetic
+    const groupId = BACKFILL_GROUP_ID
+
+    // Check if already saved
+    const existing = await prisma.zoomAttendance.findUnique({
+      where: { groupId_meetingUUID: { groupId, meetingUUID: meeting.uuid } },
     })
-    const existingGroupIds = new Set(existingRecords.map(r => r.groupId))
+    if (existing) {
+      console.log(`   ⏭️  Already saved — skipping`)
+      totalSkipped++
+      continue
+    }
 
     // Fetch participants
     console.log(`   Fetching participants...`)
@@ -422,47 +492,36 @@ async function main() {
     }
     console.log(`   Got ${participants.length} participants`)
 
-    // Match against each theory group
-    for (const group of groups) {
-      if (existingGroupIds.has(group.id)) {
-        console.log(`   ⏭️  M${group.moduleNumber} (${group.name.slice(0, 30)}...): already saved`)
-        totalSkipped++
-        continue
-      }
+    // Match against all contacts
+    const result = matchParticipants(
+      participants,
+      allMembers,
+      learnedMatches.map(lm => ({ zoomName: lm.zoomName, whatsappPhone: lm.whatsappPhone }))
+    )
 
-      const members = group.members.map(gm => ({
-        name: gm.contact.name || gm.contact.pushName || gm.phone,
-        phone: gm.phone,
-      }))
+    console.log(`   ✅ Matched: ${result.matched.length} | Unmatched contacts: ${result.absent.length} | Unmatched Zoom: ${result.unmatchedZoom.length}`)
 
-      const result = matchParticipants(
-        participants,
-        members,
-        learnedMatches.map(lm => ({ zoomName: lm.zoomName, whatsappPhone: lm.whatsappPhone }))
-      )
-
-      // Only save if there are actual matches (otherwise this meeting wasn't for this group)
-      if (result.matched.length === 0) {
-        console.log(`   ⏭️  M${group.moduleNumber} (${group.name.slice(0, 30)}...): 0 matches — skipping`)
-        continue
-      }
-
-      // Save the attendance record
-      await prisma.zoomAttendance.create({
-        data: {
-          groupId: group.id,
-          meetingUUID: meeting.uuid,
-          meetingDate,
-          moduleNumber: group.moduleNumber,
-          matchedRecords: JSON.stringify(result.matched),
-          absentRecords: JSON.stringify(result.absent),
-          unmatchedZoom: JSON.stringify(result.unmatchedZoom),
-        },
-      })
-
-      console.log(`   ✅ M${group.moduleNumber} (${group.name.slice(0, 30)}...): ${result.matched.length} present, ${result.absent.length} absent`)
-      totalCreated++
+    if (result.matched.length === 0) {
+      console.log(`   ⏭️  0 matches — skipping`)
+      continue
     }
+
+    // Save the attendance record
+    // Note: "absent" here means contacts not found in Zoom (may not have been expected to attend)
+    // We save all data so it can be used for student lookup
+    await prisma.zoomAttendance.create({
+      data: {
+        groupId,
+        meetingUUID: meeting.uuid,
+        meetingDate,
+        moduleNumber,
+        matchedRecords: JSON.stringify(result.matched),
+        absentRecords: JSON.stringify([]), // Can't determine true absences without group membership
+        unmatchedZoom: JSON.stringify(result.unmatchedZoom),
+      },
+    })
+
+    totalCreated++
 
     // Rate limit: Zoom API has limits
     await new Promise(r => setTimeout(r, 500))
@@ -474,9 +533,17 @@ async function main() {
   console.log(`   Records skipped (already existed): ${totalSkipped}`)
   console.log(`   Meetings processed: ${meetings.length}`)
 
-  // Now run the summary
+  // Summary
   const allRecords = await prisma.zoomAttendance.findMany({ orderBy: { meetingDate: 'desc' } })
   console.log(`\n   Total ZoomAttendance records now: ${allRecords.length}`)
+
+  if (totalCreated > 0) {
+    console.log(`\n📋 Created records summary:`)
+    for (const r of allRecords) {
+      const matched = JSON.parse(r.matchedRecords) as Array<{ whatsappName: string }>
+      console.log(`   ${new Date(r.meetingDate).toLocaleDateString('en-CA')} | M${r.moduleNumber || '?'} | ${matched.length} students matched`)
+    }
+  }
 }
 
 main()
