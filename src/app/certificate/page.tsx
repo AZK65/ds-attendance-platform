@@ -119,9 +119,8 @@ const initialFormData: CertificateFormData = {
   certificateType: 'full'
 }
 
-type Step = 'upload-pdf' | 'upload-docs' | 'review' | 'download'
+type Step = 'upload-docs' | 'review' | 'download'
 type UploadMode = 'separate' | 'combined'
-type TemplateMode = 'new' | 'upload'
 type PageMode = 'single' | 'bulk' | 'database'
 type BulkStep = 'select' | 'processing' | 'review' | 'download'
 
@@ -138,7 +137,7 @@ interface BulkStudent {
   fileName?: string
 }
 
-const STEP_ORDER: Step[] = ['upload-pdf', 'upload-docs', 'review', 'download']
+const STEP_ORDER: Step[] = ['upload-docs', 'review', 'download']
 
 // ─── Shared Helpers ──────────────────────────────────────────────────────────
 
@@ -293,6 +292,14 @@ function ReviewForm({
               <Label>Driver&apos;s Licence Number</Label>
               <Input value={formData.licenceNumber} onChange={(e) => onChange('licenceNumber', e.target.value)} placeholder="N1326100391 07" className="font-mono" />
             </div>
+            <div>
+              <Label>Registration Date</Label>
+              <Input type="date" value={formData.registrationDate} onChange={(e) => onChange('registrationDate', e.target.value)} />
+            </div>
+            <div>
+              <Label>Expiry Date</Label>
+              <Input type="date" value={formData.expiryDate} onChange={(e) => onChange('expiryDate', e.target.value)} />
+            </div>
             <div className="col-span-2">
               <Label>Attestation Number (for Barcode)</Label>
               <Input value={formData.attestationNumber} onChange={(e) => onChange('attestationNumber', e.target.value)} placeholder="M23662011870" className="font-mono" />
@@ -384,7 +391,7 @@ export default function CertificatePage() {
   const [pageMode, setPageMode] = useState<PageMode>('single')
 
   // ─── Single Mode State ──────────────────────────────────────────────────
-  const [step, setStep] = useState<Step>('upload-pdf')
+  const [step, setStep] = useState<Step>('upload-docs')
   const [direction, setDirection] = useState(1)
 
   const navigateStep = (newStep: Step) => {
@@ -395,9 +402,7 @@ export default function CertificatePage() {
   }
 
   const [uploadMode, setUploadMode] = useState<UploadMode>('combined')
-  const [templateMode, setTemplateMode] = useState<TemplateMode>('new')
   const [templatePdf, setTemplatePdf] = useState<string | null>(null)
-  const [templatePdfName, setTemplatePdfName] = useState<string>('')
   const [licenceImage, setLicenceImage] = useState<string | null>(null)
   const [attendanceImage, setAttendanceImage] = useState<string | null>(null)
   const [combinedImage, setCombinedImage] = useState<string | null>(null)
@@ -437,7 +442,7 @@ export default function CertificatePage() {
   const [dbPhoneCameraTarget, setDbPhoneCameraTarget] = useState<'combined' | 'licence' | 'attendance' | null>(null)
 
   // ─── Shared Queries ─────────────────────────────────────────────────────
-  const { data: templateStatus, isLoading: isLoadingTemplate } = useQuery({
+  const { data: templateStatus } = useQuery({
     queryKey: ['certificate-template'],
     queryFn: async () => {
       const res = await fetch('/api/certificate/template')
@@ -448,14 +453,10 @@ export default function CertificatePage() {
   })
 
   useEffect(() => {
-    if (templateMode === 'new' && templateStatus?.exists && templateStatus?.template) {
+    if (templateStatus?.exists && templateStatus?.template) {
       setTemplatePdf(templateStatus.template)
-      setTemplatePdfName('Blank Template (from settings)')
-    } else if (templateMode === 'upload') {
-      setTemplatePdf(null)
-      setTemplatePdfName('')
     }
-  }, [templateMode, templateStatus])
+  }, [templateStatus])
 
   // ─── Single Mode Mutations ──────────────────────────────────────────────
 
@@ -674,17 +675,6 @@ export default function CertificatePage() {
 
   // ─── Single Mode Handlers ──────────────────────────────────────────────
 
-  const handlePdfUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0]
-    if (!file) return
-    const reader = new FileReader()
-    reader.onload = (event) => {
-      setTemplatePdf(event.target?.result as string)
-      setTemplatePdfName(file.name)
-    }
-    reader.readAsDataURL(file)
-  }
-
   const handleImageUpload = (type: 'licence' | 'attendance' | 'combined') => async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]
     if (!file) return
@@ -735,33 +725,31 @@ export default function CertificatePage() {
     if (!templatePdf) return
     let finalFormData = { ...formData }
 
-    if (templateMode === 'new') {
-      try {
-        const res = await fetch('/api/certificate/next-number', { method: 'POST' })
-        if (!res.ok) {
-          const err = await res.json().catch(() => ({ error: 'Failed to get certificate numbers' }))
-          alert(err.error || 'Failed to get certificate numbers from settings')
-          return
-        }
-        const numbers = await res.json()
-        const attestationStr = String(numbers.attestationNumber)
-        const formattedAttestation = attestationStr.split('').join('  ')
-        finalFormData = {
-          ...finalFormData,
-          contractNumber: finalFormData.contractNumber || String(numbers.contractNumber),
-          attestationNumber: formattedAttestation,
-          schoolName: numbers.schoolName || '',
-          schoolAddress: numbers.schoolAddress || '',
-          schoolCity: numbers.schoolCity || '',
-          schoolProvince: numbers.schoolProvince || '',
-          schoolPostalCode: numbers.schoolPostalCode || '',
-          schoolNumber: numbers.schoolNumber || '',
-        }
-      } catch (error) {
-        console.error('Error fetching next numbers:', error)
-        alert('Failed to get certificate numbers. Check settings.')
+    try {
+      const res = await fetch('/api/certificate/next-number', { method: 'POST' })
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({ error: 'Failed to get certificate numbers' }))
+        alert(err.error || 'Failed to get certificate numbers from settings')
         return
       }
+      const numbers = await res.json()
+      const attestationStr = String(numbers.attestationNumber)
+      const formattedAttestation = attestationStr.split('').join('  ')
+      finalFormData = {
+        ...finalFormData,
+        contractNumber: finalFormData.contractNumber || String(numbers.contractNumber),
+        attestationNumber: formattedAttestation,
+        schoolName: numbers.schoolName || '',
+        schoolAddress: numbers.schoolAddress || '',
+        schoolCity: numbers.schoolCity || '',
+        schoolProvince: numbers.schoolProvince || '',
+        schoolPostalCode: numbers.schoolPostalCode || '',
+        schoolNumber: numbers.schoolNumber || '',
+      }
+    } catch (error) {
+      console.error('Error fetching next numbers:', error)
+      alert('Failed to get certificate numbers. Check settings.')
+      return
     }
 
     // Capture final form data in ref for the save mutation (avoids React state timing issues)
@@ -770,7 +758,6 @@ export default function CertificatePage() {
     navigateStep('download')
   }
 
-  const canProceedToOcr = templatePdf
   const canProceedToReview = uploadMode === 'combined' ? combinedImage : (licenceImage || attendanceImage)
 
   // ─── Bulk Mode Handlers ────────────────────────────────────────────────
@@ -1443,7 +1430,7 @@ export default function CertificatePage() {
                     {idx > 0 && <div className="w-4 sm:w-12 h-0.5 bg-muted mx-1 sm:mx-2" />}
                     <div className="flex items-center gap-1 sm:gap-2">
                       <div className={`flex items-center justify-center w-8 h-8 sm:w-10 sm:h-10 rounded-full font-bold text-sm sm:text-base ${step === s ? 'bg-primary text-primary-foreground' : 'bg-muted text-muted-foreground'}`}>{idx + 1}</div>
-                      <span className={`hidden sm:inline ${step === s ? 'font-medium' : 'text-muted-foreground'}`}>{['Template', 'Scan', 'Review', 'Done'][idx]}</span>
+                      <span className={`hidden sm:inline ${step === s ? 'font-medium' : 'text-muted-foreground'}`}>{['Scan', 'Review', 'Done'][idx]}</span>
                     </div>
                   </div>
                 ))}
@@ -1451,86 +1438,7 @@ export default function CertificatePage() {
 
               <AnimatePresence mode="wait" custom={direction}>
               {/* Step 1: Template */}
-              {step === 'upload-pdf' && (
-                <motion.div key="upload-pdf" custom={direction} initial={{ opacity: 0, x: direction * 30 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: direction * -30 }} transition={{ duration: 0.25 }} className="space-y-6">
-                  <div className="text-center mb-6">
-                    <div className="flex items-center justify-center gap-2 mb-2">
-                      <h2 className="text-2xl font-bold">Certificate Template</h2>
-                      <Link href="/certificate/settings"><Button variant="ghost" size="sm"><Settings className="h-4 w-4" /></Button></Link>
-                    </div>
-                    <p className="text-muted-foreground">Choose to use a new certificate or upload one with a unique barcode</p>
-                  </div>
-
-                  <div className="flex justify-center gap-2 mb-4">
-                    <Button variant={templateMode === 'new' ? 'default' : 'outline'} onClick={() => setTemplateMode('new')} disabled={!templateStatus?.exists} className="flex items-center gap-2">
-                      <Plus className="h-4 w-4" /> New Certificate
-                      {!templateStatus?.exists && <Badge variant="secondary" className="ml-1 text-xs">No template</Badge>}
-                    </Button>
-                    <Button variant={templateMode === 'upload' ? 'default' : 'outline'} onClick={() => setTemplateMode('upload')} className="flex items-center gap-2">
-                      <Upload className="h-4 w-4" /> Upload PDF
-                    </Button>
-                  </div>
-
-                  {templateMode === 'new' ? (
-                    <Card>
-                      <CardHeader>
-                        <CardTitle className="flex items-center gap-2"><Plus className="h-5 w-5" /> New Certificate</CardTitle>
-                        <CardDescription>Uses the blank template from settings. Contract and attestation numbers will auto-increment.</CardDescription>
-                      </CardHeader>
-                      <CardContent>
-                        {isLoadingTemplate ? (
-                          <div className="flex items-center justify-center p-8"><Loader2 className="h-6 w-6 animate-spin text-muted-foreground" /></div>
-                        ) : templateStatus?.exists ? (
-                          <div className="border-2 border-dashed rounded-lg p-8 text-center border-green-300 bg-green-50">
-                            <FileText className="h-12 w-12 mx-auto text-green-600 mb-2" />
-                            <div className="flex items-center justify-center gap-1 text-green-600"><CheckCircle2 className="h-4 w-4" /><span className="text-sm font-medium">Blank template ready</span></div>
-                            <p className="text-xs text-muted-foreground mt-2">Numbers will auto-increment from settings</p>
-                          </div>
-                        ) : (
-                          <div className="border-2 border-dashed rounded-lg p-8 text-center border-amber-300 bg-amber-50">
-                            <FileText className="h-12 w-12 mx-auto text-amber-600 mb-2" />
-                            <p className="font-medium text-amber-800">No blank template configured</p>
-                            <p className="text-sm text-muted-foreground mt-2">Go to <Link href="/certificate/settings" className="underline">Settings</Link> to upload a blank template</p>
-                          </div>
-                        )}
-                      </CardContent>
-                    </Card>
-                  ) : (
-                    <Card>
-                      <CardHeader>
-                        <CardTitle className="flex items-center gap-2"><FileText className="h-5 w-5" /> Upload Certificate PDF</CardTitle>
-                        <CardDescription>Upload a certificate PDF with the student&apos;s unique barcode from SAAQ.</CardDescription>
-                      </CardHeader>
-                      <CardContent>
-                        <div className="border-2 border-dashed rounded-lg p-8 text-center hover:border-primary transition-colors">
-                          <input type="file" accept=".pdf" onChange={handlePdfUpload} className="hidden" id="pdf-upload" />
-                          <label htmlFor="pdf-upload" className="cursor-pointer">
-                            {templatePdf && templateMode === 'upload' ? (
-                              <div className="space-y-2">
-                                <FileText className="h-12 w-12 mx-auto text-primary" />
-                                <div className="flex items-center justify-center gap-1 text-green-600"><CheckCircle2 className="h-4 w-4" /><span className="text-sm font-medium">{templatePdfName}</span></div>
-                                <p className="text-xs text-muted-foreground">Click to replace</p>
-                              </div>
-                            ) : (
-                              <div className="space-y-2">
-                                <Upload className="h-10 w-10 mx-auto text-muted-foreground" />
-                                <p className="font-medium">Click to upload PDF</p>
-                                <p className="text-sm text-muted-foreground">Certificate with unique barcode</p>
-                              </div>
-                            )}
-                          </label>
-                        </div>
-                      </CardContent>
-                    </Card>
-                  )}
-
-                  <div className="flex justify-center">
-                    <Button size="lg" onClick={() => navigateStep('upload-docs')} disabled={!canProceedToOcr}>Continue <ArrowRight className="h-4 w-4 ml-2" /></Button>
-                  </div>
-                </motion.div>
-              )}
-
-              {/* Step 2: Search & Scan */}
+              {/* Step 1: Search & Scan */}
               {step === 'upload-docs' && (
                 <motion.div key="upload-docs" custom={direction} initial={{ opacity: 0, x: direction * 30 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: direction * -30 }} transition={{ duration: 0.25 }} className="space-y-6">
                   <div className="text-center mb-6">
@@ -1668,16 +1576,13 @@ export default function CertificatePage() {
                     </div>
                   )}
 
-                  <div className="flex justify-between">
-                    <Button variant="outline" onClick={() => navigateStep('upload-pdf')}><ArrowLeft className="h-4 w-4 mr-2" /> Back</Button>
-                    <div className="flex gap-2">
-                      {selectedStudentId && (
-                        <Button variant="outline" onClick={() => navigateStep('review')}>Skip Scan <ArrowRight className="h-4 w-4 ml-2" /></Button>
-                      )}
-                      <Button size="lg" onClick={handleProcessImages} disabled={!canProceedToReview || isProcessing}>
-                        {isProcessing ? <><Loader2 className="h-4 w-4 mr-2 animate-spin" /> Processing with AI...</> : <>Process & Continue <ArrowRight className="h-4 w-4 ml-2" /></>}
-                      </Button>
-                    </div>
+                  <div className="flex justify-end gap-2">
+                    {selectedStudentId && (
+                      <Button variant="outline" onClick={() => navigateStep('review')}>Skip Scan <ArrowRight className="h-4 w-4 ml-2" /></Button>
+                    )}
+                    <Button size="lg" onClick={handleProcessImages} disabled={!canProceedToReview || isProcessing}>
+                      {isProcessing ? <><Loader2 className="h-4 w-4 mr-2 animate-spin" /> Processing with AI...</> : <>Process & Continue <ArrowRight className="h-4 w-4 ml-2" /></>}
+                    </Button>
                   </div>
                   {ocrMutation.isError && <p className="text-destructive text-sm text-center">{ocrMutation.error instanceof Error ? ocrMutation.error.message : 'Failed to process images. Please try again.'}</p>}
                 </motion.div>
@@ -1711,7 +1616,7 @@ export default function CertificatePage() {
                     <p className="text-muted-foreground mb-6">Your certificate has been downloaded automatically.</p>
                     <div className="flex justify-center gap-4">
                       <Button variant="outline" onClick={() => templatePdf && pdfMutation.mutate({ ...formData, templatePdf })}><Download className="h-4 w-4 mr-2" /> Download Again</Button>
-                      <Button onClick={() => { navigateStep('upload-pdf'); setTemplatePdf(null); setTemplatePdfName(''); setLicenceImage(null); setAttendanceImage(null); setCombinedImage(null); setFormData(initialFormData); setSelectedStudentId(null) }}>Create Another</Button>
+                      <Button onClick={() => { navigateStep('upload-docs'); setLicenceImage(null); setAttendanceImage(null); setCombinedImage(null); setFormData(initialFormData); setSelectedStudentId(null) }}>Create Another</Button>
                     </div>
                   </div>
                 </motion.div>

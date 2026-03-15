@@ -101,6 +101,8 @@ export async function POST(request: NextRequest) {
       phone: student.phone || '',
       phoneAlt: student.phoneAlt || '',
       licenceNumber: student.licenceNumber || '',
+      registrationDate: student.registrationDate || '',
+      expiryDate: student.expiryDate || '',
       schoolName: settings?.schoolName || 'École de Conduite Qazi',
       schoolAddress: settings?.schoolAddress || '786 rue Jean-Talon Ouest',
       schoolCity: settings?.schoolCity || 'Montréal',
