@@ -25,7 +25,9 @@ const loadCallbacks: (() => void)[] = []
 
 function loadGoogleMaps(): Promise<void> {
   return new Promise((resolve) => {
-    if (googleMapsLoaded) {
+    // Already loaded (including from a previous SPA navigation)
+    if (googleMapsLoaded || window.google?.maps?.places) {
+      googleMapsLoaded = true
       resolve()
       return
     }
@@ -41,13 +43,21 @@ function loadGoogleMaps(): Promise<void> {
 
     googleMapsLoading = true
     const script = document.createElement('script')
-    script.src = `https://maps.googleapis.com/maps/api/js?key=${key}&libraries=places&loading=async`
+    script.src = `https://maps.googleapis.com/maps/api/js?key=${key}&libraries=places`
     script.async = true
     script.onload = () => {
-      googleMapsLoaded = true
-      googleMapsLoading = false
-      loadCallbacks.forEach(cb => cb())
-      loadCallbacks.length = 0
+      // Wait for google.maps.places to be available (may take a tick)
+      const waitForPlaces = () => {
+        if (window.google?.maps?.places) {
+          googleMapsLoaded = true
+          googleMapsLoading = false
+          loadCallbacks.forEach(cb => cb())
+          loadCallbacks.length = 0
+        } else {
+          setTimeout(waitForPlaces, 100)
+        }
+      }
+      waitForPlaces()
     }
     script.onerror = () => {
       googleMapsLoading = false
