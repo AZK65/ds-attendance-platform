@@ -624,7 +624,7 @@ export default function CertificatePage() {
 
     setFormData(baseData)
 
-    // Fetch dates from Teamup + Zoom in parallel
+    // Fetch dates from local SQLite (saved from previous generations), Teamup + Zoom in parallel
     try {
       const phone = student.phone_number || ''
       const name = student.full_name || ''
@@ -632,13 +632,35 @@ export default function CertificatePage() {
       if (phone) params.set('phone', phone)
       if (name) params.set('studentName', name)
 
-      const [eventsRes, theoryRes] = await Promise.all([
+      const [eventsRes, theoryRes, profileRes] = await Promise.all([
         fetch(`/api/scheduling/student-events?${params}`).catch(() => null),
         fetch(`/api/scheduling/student-theory?${params}`).catch(() => null),
+        fetch(`/api/students/profile?${params}`).catch(() => null),
       ])
 
       const dates: Record<string, string> = {}
 
+      // First: load saved dates from local SQLite (lowest priority — will be overridden by Teamup/Zoom)
+      if (profileRes?.ok) {
+        const profile = await profileRes.json()
+        if (profile.localStudent) {
+          const s = profile.localStudent
+          const dateFields = [
+            'module1Date', 'module2Date', 'module3Date', 'module4Date', 'module5Date',
+            'module6Date', 'module7Date', 'module8Date', 'module9Date', 'module10Date',
+            'module11Date', 'module12Date',
+            'sortie1Date', 'sortie2Date', 'sortie3Date', 'sortie4Date', 'sortie5Date',
+            'sortie6Date', 'sortie7Date', 'sortie8Date', 'sortie9Date', 'sortie10Date',
+            'sortie11Date', 'sortie12Date', 'sortie13Date', 'sortie14Date', 'sortie15Date',
+            'registrationDate', 'expiryDate',
+          ]
+          for (const field of dateFields) {
+            if (s[field]) dates[field] = s[field]
+          }
+        }
+      }
+
+      // Second: Zoom theory dates (higher priority — override saved dates)
       if (theoryRes?.ok) {
         const theoryData: { moduleNumber: number; date: string }[] = await theoryRes.json()
         for (const tc of theoryData) {
@@ -648,6 +670,7 @@ export default function CertificatePage() {
         }
       }
 
+      // Third: Teamup calendar events (highest priority — override everything)
       if (eventsRes?.ok) {
         const events: { id: string; title: string; start_dt: string }[] = await eventsRes.json()
         const now = new Date()
@@ -1202,7 +1225,7 @@ export default function CertificatePage() {
 
     setDbFormData(baseData)
 
-    // Fetch dates from Teamup events + Zoom theory classes in parallel
+    // Fetch dates from local SQLite (saved), Teamup events + Zoom theory classes in parallel
     try {
       const phone = student.phone_number || ''
       const name = student.full_name || ''
@@ -1210,14 +1233,35 @@ export default function CertificatePage() {
       if (phone) params.set('phone', phone)
       if (name) params.set('studentName', name)
 
-      const [eventsRes, theoryRes] = await Promise.all([
+      const [eventsRes, theoryRes, profileRes] = await Promise.all([
         fetch(`/api/scheduling/student-events?${params}`).catch(() => null),
         fetch(`/api/scheduling/student-theory?${params}`).catch(() => null),
+        fetch(`/api/students/profile?${params}`).catch(() => null),
       ])
 
       const dates: Record<string, string> = {}
 
-      // Theory module dates from Zoom
+      // First: load saved dates from local SQLite (lowest priority — will be overridden by Teamup/Zoom)
+      if (profileRes?.ok) {
+        const profile = await profileRes.json()
+        if (profile.localStudent) {
+          const s = profile.localStudent
+          const dateFields = [
+            'module1Date', 'module2Date', 'module3Date', 'module4Date', 'module5Date',
+            'module6Date', 'module7Date', 'module8Date', 'module9Date', 'module10Date',
+            'module11Date', 'module12Date',
+            'sortie1Date', 'sortie2Date', 'sortie3Date', 'sortie4Date', 'sortie5Date',
+            'sortie6Date', 'sortie7Date', 'sortie8Date', 'sortie9Date', 'sortie10Date',
+            'sortie11Date', 'sortie12Date', 'sortie13Date', 'sortie14Date', 'sortie15Date',
+            'registrationDate', 'expiryDate',
+          ]
+          for (const field of dateFields) {
+            if (s[field]) dates[field] = s[field]
+          }
+        }
+      }
+
+      // Second: Theory module dates from Zoom (higher priority)
       if (theoryRes?.ok) {
         const theoryData: { moduleNumber: number; date: string }[] = await theoryRes.json()
         for (const tc of theoryData) {
@@ -1229,7 +1273,7 @@ export default function CertificatePage() {
         }
       }
 
-      // In-car session dates from Teamup
+      // Third: In-car session dates from Teamup (highest priority)
       if (eventsRes?.ok) {
         const events: { id: string; title: string; start_dt: string }[] = await eventsRes.json()
         const now = new Date()
