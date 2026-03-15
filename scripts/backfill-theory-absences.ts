@@ -25,15 +25,31 @@ async function main() {
   const threeMonthsAgo = new Date()
   threeMonthsAgo.setMonth(threeMonthsAgo.getMonth() - 3)
 
-  const records = await prisma.zoomAttendance.findMany({
-    where: {
-      moduleNumber: { not: null },
-      meetingDate: { gte: threeMonthsAgo },
-    },
+  // First, check total records to debug
+  const allRecords = await prisma.zoomAttendance.findMany({
     orderBy: { meetingDate: 'desc' },
   })
+  console.log(`\n🔍 Total ZoomAttendance records in DB: ${allRecords.length}`)
+  if (allRecords.length > 0) {
+    console.log(`   Earliest: ${new Date(allRecords[allRecords.length - 1].meetingDate).toISOString()}`)
+    console.log(`   Latest: ${new Date(allRecords[0].meetingDate).toISOString()}`)
+    console.log(`   With moduleNumber: ${allRecords.filter(r => r.moduleNumber != null).length}`)
+    console.log(`   3-month cutoff: ${threeMonthsAgo.toISOString()}`)
+  }
+
+  // Filter in JS to avoid DateTime comparison issues
+  const records = allRecords.filter(r =>
+    r.moduleNumber != null &&
+    new Date(r.meetingDate) >= threeMonthsAgo
+  )
 
   console.log(`\n📋 Found ${records.length} theory class records in the last 3 months\n`)
+
+  if (records.length === 0 && allRecords.filter(r => r.moduleNumber != null).length > 0) {
+    console.log(`⚠️  There are records with moduleNumber but outside the 3-month window.`)
+    console.log(`   Scanning ALL records instead...\n`)
+    records.push(...allRecords.filter(r => r.moduleNumber != null))
+  }
 
   let totalPresent = 0
   let totalAbsent = 0
