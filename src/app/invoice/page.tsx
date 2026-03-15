@@ -354,9 +354,19 @@ function InvoicePage() {
           const balRes = await fetch(`/api/students/balance?${balanceParams}`)
           if (balRes.ok) {
             const balData = await balRes.json()
-            // Existing open balance + this new invoice total
-            remainingBalance = (balData.openBalance || 0) + total
+            const previousBalance = balData.openBalance || 0
+            if (selectedPackage) {
+              // Package selected: remaining = package total + prior balance - this invoice
+              remainingBalance = selectedPackage.totalPrice + previousBalance - total
+            } else {
+              // No package: remaining = prior balance + this invoice
+              remainingBalance = previousBalance + total
+            }
           }
+        }
+        // If no balance data but package selected, still compute package balance
+        if (remainingBalance === 0 && selectedPackage) {
+          remainingBalance = selectedPackage.totalPrice - total
         }
       } catch { /* non-fatal */ }
 
@@ -455,6 +465,7 @@ function InvoicePage() {
     },
     onSuccess: (data) => {
       queryClient.invalidateQueries({ queryKey: ['invoice-settings'] })
+      queryClient.invalidateQueries({ queryKey: ['student-balance'] })
       if (data?.invoice?.id) {
         setSavedInvoiceId(data.invoice.id)
       }
