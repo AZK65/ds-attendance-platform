@@ -371,6 +371,19 @@ export default function StudentDetailPage() {
     enabled: !!phone,
   })
 
+  // Fetch road class attendance (ClassAttendance) for student's Teamup events
+  const { data: classAttendanceMap = {} } = useQuery<Record<string, boolean>>({
+    queryKey: ['class-attendance', studentEvents.map(e => e.id).join(',')],
+    queryFn: async () => {
+      const eventIds = studentEvents.map(e => String(e.id)).join(',')
+      if (!eventIds) return {}
+      const res = await fetch(`/api/scheduling/attendance?eventIds=${encodeURIComponent(eventIds)}`)
+      if (!res.ok) throw new Error('Failed to fetch class attendance')
+      return res.json()
+    },
+    enabled: studentEvents.length > 0,
+  })
+
   const [downloadingCert, setDownloadingCert] = useState<string | null>(null)
 
   // Build module dates from Teamup past classes (in-car) + Zoom theory classes (modules)
@@ -555,6 +568,9 @@ export default function StudentDetailPage() {
     const isExtraHours = parseExtraHoursFromNotes(event.notes)
     const isTheoryClass = event.id.startsWith('theory-')
     const isTheoryAbsent = isTheoryClass && event.notes?.includes('Status: absent')
+    const isPastEvent = new Date(event.start_dt) < new Date()
+    const isRoadClassPresent = !isTheoryClass && isPastEvent ? classAttendanceMap[String(event.id)] === true : false
+    const isRoadClassAbsent = !isTheoryClass && isPastEvent && !isRoadClassPresent
 
     // Extract groupId from theory class notes for navigation
     const theoryGroupId = isTheoryClass ? event.notes?.match(/GroupId: (.+)/)?.[1] : null
@@ -569,7 +585,7 @@ export default function StudentDetailPage() {
             router.push(`/scheduling?eventId=${encodeURIComponent(event.id)}`)
           }
         }}
-        className={`flex items-center gap-4 p-3 border rounded-lg transition-colors cursor-pointer hover:bg-accent/50 ${isTheoryAbsent ? 'border-red-200 bg-red-50/50 dark:bg-red-950/20' : ''}`}
+        className={`flex items-center gap-4 p-3 border rounded-lg transition-colors cursor-pointer hover:bg-accent/50 ${(isTheoryAbsent || isRoadClassAbsent) ? 'border-red-200 bg-red-50/50 dark:bg-red-950/20' : ''}`}
       >
         <div className="flex-shrink-0 text-center">
           <p className="text-xs text-muted-foreground">
@@ -609,6 +625,19 @@ export default function StudentDetailPage() {
                   </Badge>
                 )}
               </>
+            )}
+            {!isTheoryClass && isPastEvent && (
+              isRoadClassPresent ? (
+                <Badge className="text-xs bg-green-100 text-green-700 border-green-200">
+                  <CheckCircle className="h-3 w-3 mr-0.5" />
+                  Present
+                </Badge>
+              ) : (
+                <Badge className="text-xs bg-red-100 text-red-700 border-red-200">
+                  <XCircle className="h-3 w-3 mr-0.5" />
+                  Absent
+                </Badge>
+              )
             )}
             {isExtraHours && (
               <Badge variant="outline" className="text-xs">Extra Hours</Badge>
