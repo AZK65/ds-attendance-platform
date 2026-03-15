@@ -74,6 +74,7 @@ interface InvoiceData {
   cloverOrderId: string | null
   cloverPaymentUrl: string | null
   cloverPaid: boolean
+  remainingBalance: number | null
 }
 
 interface SettingsData {
@@ -175,19 +176,22 @@ export default function InvoiceViewPage() {
 
     // Fetch student balance then generate PDF
     const generatePdf = async () => {
-      let remainingBalance = 0
-      try {
-        const balanceParams = new URLSearchParams()
-        if (invoice.studentPhone) balanceParams.set('phone', invoice.studentPhone)
-        if (invoice.studentName) balanceParams.set('name', invoice.studentName)
-        if (balanceParams.toString()) {
-          const balRes = await fetch(`/api/students/balance?${balanceParams}`)
-          if (balRes.ok) {
-            const balData = await balRes.json()
-            remainingBalance = balData.openBalance || 0
+      // Use saved remainingBalance if available (captures package context at creation time)
+      let remainingBalance = invoice.remainingBalance ?? 0
+      if (!remainingBalance) {
+        try {
+          const balanceParams = new URLSearchParams()
+          if (invoice.studentPhone) balanceParams.set('phone', invoice.studentPhone)
+          if (invoice.studentName) balanceParams.set('name', invoice.studentName)
+          if (balanceParams.toString()) {
+            const balRes = await fetch(`/api/students/balance?${balanceParams}`)
+            if (balRes.ok) {
+              const balData = await balRes.json()
+              remainingBalance = balData.openBalance || 0
+            }
           }
-        }
-      } catch { /* non-fatal */ }
+        } catch { /* non-fatal */ }
+      }
 
       const payload = {
         schoolName: settings.schoolName,

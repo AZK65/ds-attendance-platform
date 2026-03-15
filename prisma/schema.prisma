@@ -280,6 +280,7 @@ model Invoice {
   cloverOrderId     String?  // Linked Clover order ID
   cloverPaymentUrl  String?  // Clover Hosted Checkout link
   cloverPaid        Boolean  @default(false) // Payment completed via Clover
+  remainingBalance  Float?   // Saved at creation: package or manual balance for PDF
   createdAt         DateTime @default(now())
   updatedAt         DateTime @updatedAt
 

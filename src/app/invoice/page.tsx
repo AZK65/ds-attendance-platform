@@ -136,6 +136,7 @@ function InvoicePage() {
   const [manualBalance, setManualBalance] = useState<number | null>(null)
 
   // PDF blob for sending after generation + preview
+  const computedBalanceRef = useRef<number>(0)
   const pdfBase64Ref = useRef<string | null>(null)
   const [pdfPreviewUrl, setPdfPreviewUrl] = useState<string | null>(null)
   const [emailSent, setEmailSent] = useState(false)
@@ -380,6 +381,9 @@ function InvoicePage() {
         }
       } catch { /* non-fatal */ }
 
+      // Store for save payload
+      computedBalanceRef.current = remainingBalance
+
       const payload = {
         schoolName: settings?.schoolName || 'École de Conduite Qazi',
         schoolAddress: settings?.schoolAddress || '',
@@ -472,6 +476,7 @@ function InvoicePage() {
           qstAmount,
           total,
           notes: formData.notes,
+          remainingBalance: computedBalanceRef.current || null,
         }),
       })
       if (!res.ok) throw new Error('Failed to save invoice')

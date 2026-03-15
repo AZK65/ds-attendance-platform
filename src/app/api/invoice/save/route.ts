@@ -26,6 +26,7 @@ export async function POST(request: NextRequest) {
       notes,
       paymentMethod,
       paymentStatus,
+      remainingBalance,
     } = body
 
     if (!invoiceNumber || !studentName) {
@@ -56,6 +57,7 @@ export async function POST(request: NextRequest) {
         notes: notes || null,
         paymentMethod: paymentMethod || null,
         paymentStatus: paymentStatus || 'unpaid',
+        remainingBalance: remainingBalance != null ? remainingBalance : null,
       }
     })
 
