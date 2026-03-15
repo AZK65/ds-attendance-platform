@@ -181,6 +181,7 @@ interface TheoryClassRecord {
   groupId: string
   meetingUUID: string
   zoomName: string
+  status: 'present' | 'absent'
 }
 
 interface StudentProfileData {
@@ -477,13 +478,14 @@ export default function StudentDetailPage() {
           Math.abs(new Date(e.start_dt).getTime() - tcDate.getTime()) < 24 * 60 * 60 * 1000
       })
       if (!alreadyExists) {
+        const isAbsent = tc.status === 'absent'
         past.push({
           id: `theory-${tc.moduleNumber}-${tc.meetingUUID}`,
-          title: `M${tc.moduleNumber} - ${displayName}`,
+          title: `M${tc.moduleNumber} - ${displayName}${isAbsent ? ' (ABSENT)' : ''}`,
           start_dt: tc.date,
           end_dt: tc.date,
           subcalendar_ids: [],
-          notes: `Zoom Theory Class\nModule ${tc.moduleNumber}\nZoom Name: ${tc.zoomName}\nGroupId: ${tc.groupId}`,
+          notes: `Zoom Theory Class\nModule ${tc.moduleNumber}\nZoom Name: ${tc.zoomName}\nGroupId: ${tc.groupId}\nStatus: ${tc.status}`,
         })
       }
     }
@@ -492,7 +494,7 @@ export default function StudentDetailPage() {
     upcoming.sort((a, b) => new Date(a.start_dt).getTime() - new Date(b.start_dt).getTime())
     past.sort((a, b) => new Date(b.start_dt).getTime() - new Date(a.start_dt).getTime())
     return { upcomingEvents: upcoming, pastEvents: past }
-  }, [studentEvents])
+  }, [studentEvents, theoryClasses])
 
   // Attendance stats
   const attendanceStats = useMemo(() => {
@@ -552,6 +554,7 @@ export default function StudentDetailPage() {
     const phaseInfo = parsed.module ? getPhaseInfo(parsed.module) : null
     const isExtraHours = parseExtraHoursFromNotes(event.notes)
     const isTheoryClass = event.id.startsWith('theory-')
+    const isTheoryAbsent = isTheoryClass && event.notes?.includes('Status: absent')
 
     // Extract groupId from theory class notes for navigation
     const theoryGroupId = isTheoryClass ? event.notes?.match(/GroupId: (.+)/)?.[1] : null
@@ -566,7 +569,7 @@ export default function StudentDetailPage() {
             router.push(`/scheduling?eventId=${encodeURIComponent(event.id)}`)
           }
         }}
-        className="flex items-center gap-4 p-3 border rounded-lg transition-colors cursor-pointer hover:bg-accent/50"
+        className={`flex items-center gap-4 p-3 border rounded-lg transition-colors cursor-pointer hover:bg-accent/50 ${isTheoryAbsent ? 'border-red-200 bg-red-50/50 dark:bg-red-950/20' : ''}`}
       >
         <div className="flex-shrink-0 text-center">
           <p className="text-xs text-muted-foreground">
@@ -590,9 +593,22 @@ export default function StudentDetailPage() {
               </Badge>
             )}
             {isTheoryClass && (
-              <Badge variant="outline" className="text-xs border-indigo-200 text-indigo-700 bg-indigo-50 dark:bg-indigo-950 dark:text-indigo-300">
-                Zoom
-              </Badge>
+              <>
+                <Badge variant="outline" className="text-xs border-indigo-200 text-indigo-700 bg-indigo-50 dark:bg-indigo-950 dark:text-indigo-300">
+                  Zoom
+                </Badge>
+                {isTheoryAbsent ? (
+                  <Badge className="text-xs bg-red-100 text-red-700 border-red-200">
+                    <XCircle className="h-3 w-3 mr-0.5" />
+                    Absent
+                  </Badge>
+                ) : (
+                  <Badge className="text-xs bg-green-100 text-green-700 border-green-200">
+                    <CheckCircle className="h-3 w-3 mr-0.5" />
+                    Present
+                  </Badge>
+                )}
+              </>
             )}
             {isExtraHours && (
               <Badge variant="outline" className="text-xs">Extra Hours</Badge>

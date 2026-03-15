@@ -8,6 +8,11 @@ interface MatchedRecord {
   duration: number
 }
 
+interface AbsentRecord {
+  name: string
+  phone: string
+}
+
 // GET /api/scheduling/student-theory?phone=15145551234&name=Ahmed
 // Fetches theory module dates from saved Zoom attendance records
 // Returns: [{ moduleNumber, date, groupName }]
@@ -59,43 +64,53 @@ export async function GET(request: NextRequest) {
       }
     }
 
-    const theoryClasses: {
+    // Helper to check if a phone matches
+    const phoneMatches = (testPhone: string): boolean => {
+      const mPhone = testPhone.replace(/\D/g, '')
+      if (phoneSuffix && phoneSuffix.length >= 7) {
+        if (mPhone.includes(phoneSuffix) || phoneSuffix.includes(mPhone.slice(-10))) {
+          return true
+        }
+      }
+      for (const extra of extraPhoneSuffixes) {
+        if (mPhone.includes(extra) || extra.includes(mPhone.slice(-10))) {
+          return true
+        }
+      }
+      return false
+    }
+
+    // Helper to check if a name matches
+    const nameMatches = (testName: string): boolean => {
+      if (cleanName && cleanName.length >= 2) {
+        const mName = testName.toLowerCase()
+        if (mName.includes(cleanName) || cleanName.includes(mName)) {
+          return true
+        }
+      }
+      return false
+    }
+
+    interface TheoryClass {
       moduleNumber: number
       date: string
       groupId: string
       meetingUUID: string
       zoomName: string
-    }[] = []
+      status: 'present' | 'absent'
+    }
+
+    const theoryClasses: TheoryClass[] = []
 
     for (const record of records) {
       if (!record.moduleNumber) continue
 
       try {
+        // Check if student was present (in matchedRecords)
         const matched: MatchedRecord[] = JSON.parse(record.matchedRecords)
-
-        const studentMatch = matched.find(m => {
-          const mPhone = m.whatsappPhone.replace(/\D/g, '')
-          // Match by primary phone
-          if (phoneSuffix && phoneSuffix.length >= 7) {
-            if (mPhone.includes(phoneSuffix) || phoneSuffix.includes(mPhone.slice(-10))) {
-              return true
-            }
-          }
-          // Match by WhatsApp contact phones (fallback when DB phone differs)
-          for (const extra of extraPhoneSuffixes) {
-            if (mPhone.includes(extra) || extra.includes(mPhone.slice(-10))) {
-              return true
-            }
-          }
-          // Match by name
-          if (cleanName && cleanName.length >= 2) {
-            const mName = m.whatsappName.toLowerCase()
-            if (mName.includes(cleanName) || cleanName.includes(mName)) {
-              return true
-            }
-          }
-          return false
-        })
+        const studentMatch = matched.find(m =>
+          phoneMatches(m.whatsappPhone) || nameMatches(m.whatsappName)
+        )
 
         if (studentMatch) {
           theoryClasses.push({
@@ -104,7 +119,27 @@ export async function GET(request: NextRequest) {
             groupId: record.groupId,
             meetingUUID: record.meetingUUID,
             zoomName: studentMatch.zoomName,
+            status: 'present',
           })
+          continue
+        }
+
+        // Check if student was absent (in absentRecords)
+        if (record.absentRecords) {
+          const absent: AbsentRecord[] = JSON.parse(record.absentRecords)
+          const absentMatch = absent.find(a =>
+            phoneMatches(a.phone) || nameMatches(a.name)
+          )
+          if (absentMatch) {
+            theoryClasses.push({
+              moduleNumber: record.moduleNumber,
+              date: record.meetingDate.toISOString(),
+              groupId: record.groupId,
+              meetingUUID: record.meetingUUID,
+              zoomName: absentMatch.name,
+              status: 'absent',
+            })
+          }
         }
       } catch {
         // Skip records with malformed JSON
@@ -112,7 +147,8 @@ export async function GET(request: NextRequest) {
     }
 
     // Deduplicate: if same module number appears multiple times, keep the most recent
-    const byModule = new Map<number, typeof theoryClasses[0]>()
+    // But keep both present and absent entries for different modules
+    const byModule = new Map<number, TheoryClass>()
     for (const tc of theoryClasses) {
       const existing = byModule.get(tc.moduleNumber)
       if (!existing || new Date(tc.date) > new Date(existing.date)) {
