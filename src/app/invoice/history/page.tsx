@@ -24,7 +24,7 @@ import {
 import {
   Search, Loader2, FileText, ArrowLeft, X, Calendar,
   CreditCard, Link2, Eye, Copy, ExternalLink, CheckCircle2,
-  Banknote, Globe, User,
+  Banknote, Globe, User, Trash2,
 } from 'lucide-react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
@@ -125,6 +125,7 @@ export default function InvoiceHistoryPage() {
   const [matchDialogInvoice, setMatchDialogInvoice] = useState<Invoice | null>(null)
   const [viewDialogInvoice, setViewDialogInvoice] = useState<Invoice | null>(null)
   const [copiedLinkId, setCopiedLinkId] = useState<string | null>(null)
+  const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null)
 
   useEffect(() => {
     const timer = setTimeout(() => setDebouncedSearch(search.trim()), 300)
@@ -222,6 +223,19 @@ export default function InvoiceHistoryPage() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['invoices'] })
+    },
+  })
+
+  // Delete invoice mutation
+  const deleteMutation = useMutation({
+    mutationFn: async (invoiceId: string) => {
+      const res = await fetch(`/api/invoice/${invoiceId}`, { method: 'DELETE' })
+      if (!res.ok) throw new Error('Failed to delete invoice')
+      return res.json()
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['invoices'] })
+      setDeleteConfirmId(null)
     },
   })
 
@@ -500,6 +514,32 @@ export default function InvoiceHistoryPage() {
                                 </Button>
                               )
                             })()}
+                            {/* Delete */}
+                            {deleteConfirmId === inv.id ? (
+                              <Button
+                                size="sm"
+                                variant="ghost"
+                                className="h-7 px-2 text-red-600 hover:text-red-700 hover:bg-red-50"
+                                disabled={deleteMutation.isPending}
+                                onClick={() => deleteMutation.mutate(inv.id)}
+                              >
+                                {deleteMutation.isPending ? (
+                                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                                ) : (
+                                  <span className="text-xs font-medium">Confirm</span>
+                                )}
+                              </Button>
+                            ) : (
+                              <Button
+                                size="sm"
+                                variant="ghost"
+                                className="h-7 w-7 p-0 text-muted-foreground hover:text-red-600"
+                                title="Delete invoice"
+                                onClick={() => setDeleteConfirmId(inv.id)}
+                              >
+                                <Trash2 className="h-3.5 w-3.5" />
+                              </Button>
+                            )}
                           </div>
                         </TableCell>
                       </TableRow>

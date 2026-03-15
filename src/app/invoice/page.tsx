@@ -18,6 +18,41 @@ import Link from 'next/link'
 import { useSearchParams } from 'next/navigation'
 import { motion, AnimatePresence } from 'motion/react'
 import { StudentSearchAutocomplete, type StudentResult, type DBStudent, type WhatsAppContact } from '@/components/StudentSearchAutocomplete'
+import { PDFDocument } from 'pdf-lib'
+
+// Print helper: triplicates PDF pages for 3 copies and prints in B&W
+async function printPdf3Copies(pdfBlobUrl: string) {
+  const response = await fetch(pdfBlobUrl)
+  const originalBytes = await response.arrayBuffer()
+  const originalDoc = await PDFDocument.load(originalBytes)
+  const tripleDoc = await PDFDocument.create()
+
+  // Copy all pages 3 times
+  for (let copy = 0; copy < 3; copy++) {
+    const pages = await tripleDoc.copyPages(originalDoc, originalDoc.getPageIndices())
+    for (const page of pages) {
+      tripleDoc.addPage(page)
+    }
+  }
+
+  const tripleBytes = await tripleDoc.save()
+  const blob = new Blob([tripleBytes], { type: 'application/pdf' })
+  const url = URL.createObjectURL(blob)
+
+  const printFrame = document.createElement('iframe')
+  printFrame.style.display = 'none'
+  printFrame.src = url
+  document.body.appendChild(printFrame)
+  printFrame.onload = () => {
+    setTimeout(() => {
+      printFrame.contentWindow?.print()
+      setTimeout(() => {
+        document.body.removeChild(printFrame)
+        URL.revokeObjectURL(url)
+      }, 1000)
+    }, 500)
+  }
+}
 
 // Types
 interface LineItem {
@@ -704,12 +739,16 @@ function InvoicePage() {
                 {i > 0 && (
                   <div className={`w-10 h-0.5 ${currentStepIndex >= i ? 'bg-primary' : 'bg-muted'}`} />
                 )}
-                <div className="flex flex-col items-center gap-1">
+                <button
+                  className="flex flex-col items-center gap-1"
+                  disabled={i >= currentStepIndex}
+                  onClick={() => { if (i < currentStepIndex) setStep(stepOrder[i]) }}
+                >
                   <div className={`w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold transition-colors ${
                     currentStepIndex === i
                       ? 'bg-primary text-primary-foreground'
                       : currentStepIndex > i
-                        ? 'bg-primary/20 text-primary'
+                        ? 'bg-primary/20 text-primary cursor-pointer hover:bg-primary/30'
                         : 'bg-muted text-muted-foreground'
                   }`}>
                     {currentStepIndex > i ? <CheckCircle2 className="h-4 w-4" /> : i + 1}
@@ -719,7 +758,7 @@ function InvoicePage() {
                   }`}>
                     {label}
                   </span>
-                </div>
+                </button>
               </div>
             ))}
           </motion.div>
@@ -1385,21 +1424,11 @@ function InvoicePage() {
                             <Button
                               size="sm"
                               variant="outline"
-                              onClick={() => {
-                                const printFrame = document.createElement('iframe')
-                                printFrame.style.display = 'none'
-                                printFrame.src = pdfPreviewUrl
-                                document.body.appendChild(printFrame)
-                                printFrame.onload = () => {
-                                  setTimeout(() => {
-                                    printFrame.contentWindow?.print()
-                                    setTimeout(() => document.body.removeChild(printFrame), 1000)
-                                  }, 500)
-                                }
-                              }}
+                              onClick={() => printPdf3Copies(pdfPreviewUrl)}
+                              title="Print 3 copies in B&W"
                             >
                               <Printer className="h-4 w-4 mr-1" />
-                              Print
+                              Print 3x
                             </Button>
                           </div>
                         </div>
@@ -1528,7 +1557,11 @@ function InvoicePage() {
                     </CardContent>
                   </Card>
 
-                  <div className="flex justify-center">
+                  <div className="flex justify-center gap-3">
+                    <Button variant="ghost" size="sm" onClick={() => setStep('review')}>
+                      <ArrowLeft className="h-4 w-4 mr-1" />
+                      Back to Review
+                    </Button>
                     <Button variant="ghost" size="sm" onClick={() => setStep('done')}>
                       Skip — decide later
                     </Button>
@@ -1571,24 +1604,11 @@ function InvoicePage() {
                             <Button
                               size="sm"
                               variant="outline"
-                              onClick={() => {
-                                // Open PDF in new tab and trigger print dialog
-                                // Note: copies and B&W must be set in the print dialog
-                                const printFrame = document.createElement('iframe')
-                                printFrame.style.display = 'none'
-                                printFrame.src = pdfPreviewUrl
-                                document.body.appendChild(printFrame)
-                                printFrame.onload = () => {
-                                  setTimeout(() => {
-                                    printFrame.contentWindow?.print()
-                                    // Clean up after print dialog closes
-                                    setTimeout(() => document.body.removeChild(printFrame), 1000)
-                                  }, 500)
-                                }
-                              }}
+                              onClick={() => printPdf3Copies(pdfPreviewUrl)}
+                              title="Print 3 copies in B&W"
                             >
                               <Printer className="h-4 w-4 mr-1" />
-                              Print
+                              Print 3x
                             </Button>
                           </div>
                         </div>

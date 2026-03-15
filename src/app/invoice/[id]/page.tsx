@@ -16,6 +16,40 @@ import {
 import Link from 'next/link'
 import { useParams } from 'next/navigation'
 import { motion } from 'motion/react'
+import { PDFDocument } from 'pdf-lib'
+
+// Print helper: triplicates PDF pages for 3 copies
+async function printPdf3Copies(pdfBlobUrl: string) {
+  const response = await fetch(pdfBlobUrl)
+  const originalBytes = await response.arrayBuffer()
+  const originalDoc = await PDFDocument.load(originalBytes)
+  const tripleDoc = await PDFDocument.create()
+
+  for (let copy = 0; copy < 3; copy++) {
+    const pages = await tripleDoc.copyPages(originalDoc, originalDoc.getPageIndices())
+    for (const page of pages) {
+      tripleDoc.addPage(page)
+    }
+  }
+
+  const tripleBytes = await tripleDoc.save()
+  const blob = new Blob([tripleBytes], { type: 'application/pdf' })
+  const url = URL.createObjectURL(blob)
+
+  const printFrame = document.createElement('iframe')
+  printFrame.style.display = 'none'
+  printFrame.src = url
+  document.body.appendChild(printFrame)
+  printFrame.onload = () => {
+    setTimeout(() => {
+      printFrame.contentWindow?.print()
+      setTimeout(() => {
+        document.body.removeChild(printFrame)
+        URL.revokeObjectURL(url)
+      }, 1000)
+    }, 500)
+  }
+}
 
 interface InvoiceData {
   id: string
@@ -451,14 +485,12 @@ export default function InvoiceViewPage() {
                       disabled={!pdfUrl}
                       onClick={() => {
                         if (!pdfUrl) return
-                        const printWindow = window.open(pdfUrl, '_blank')
-                        if (printWindow) {
-                          printWindow.addEventListener('load', () => printWindow.print())
-                        }
+                        printPdf3Copies(pdfUrl)
                       }}
+                      title="Print 3 copies in B&W"
                     >
                       <Printer className="h-4 w-4 mr-1" />
-                      Print
+                      Print 3x
                     </Button>
                     <Button
                       size="sm"
