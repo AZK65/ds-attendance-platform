@@ -184,6 +184,14 @@ interface TheoryClassRecord {
   status: 'present' | 'absent'
 }
 
+interface ZoomClassRecord {
+  date: string
+  meetingUUID: string
+  zoomName: string
+  duration: number
+  status: 'present'
+}
+
 interface StudentProfileData {
   dbStudent: DBStudentRecord | null
   localStudent: LocalStudentRecord | null
@@ -371,6 +379,20 @@ export default function StudentDetailPage() {
     enabled: !!phone,
   })
 
+  // Fetch road/other Zoom classes (no moduleNumber)
+  const { data: zoomRoadClasses = [] } = useQuery<ZoomClassRecord[]>({
+    queryKey: ['student-zoom-classes', phone, displayName],
+    queryFn: async () => {
+      const params = new URLSearchParams()
+      params.set('phone', phone)
+      if (displayName && displayName !== phone) params.set('name', displayName)
+      const res = await fetch(`/api/scheduling/student-zoom-classes?${params}`)
+      if (!res.ok) throw new Error('Failed to fetch zoom classes')
+      return res.json()
+    },
+    enabled: !!phone,
+  })
+
   const [downloadingCert, setDownloadingCert] = useState<string | null>(null)
 
   // Build module dates from Teamup past classes (in-car) + Zoom theory classes (modules)
@@ -490,11 +512,31 @@ export default function StudentDetailPage() {
       }
     }
 
+    // Add road/other Zoom classes as synthetic events
+    for (const rc of zoomRoadClasses) {
+      const rcDate = new Date(rc.date)
+      // Don't add if already exists in past (avoid duplicates)
+      const alreadyExists = past.some(e =>
+        Math.abs(new Date(e.start_dt).getTime() - rcDate.getTime()) < 2 * 60 * 60 * 1000
+      )
+      if (!alreadyExists) {
+        const durationMin = Math.round(rc.duration / 60)
+        past.push({
+          id: `zoom-road-${rc.meetingUUID}`,
+          title: `Zoom Class - ${displayName}`,
+          start_dt: rc.date,
+          end_dt: rc.date,
+          subcalendar_ids: [],
+          notes: `Zoom Road Class\nZoom Name: ${rc.zoomName}\nDuration: ${durationMin} min\nStatus: present`,
+        })
+      }
+    }
+
     // Upcoming sorted ascending, past sorted descending
     upcoming.sort((a, b) => new Date(a.start_dt).getTime() - new Date(b.start_dt).getTime())
     past.sort((a, b) => new Date(b.start_dt).getTime() - new Date(a.start_dt).getTime())
     return { upcomingEvents: upcoming, pastEvents: past }
-  }, [studentEvents, theoryClasses])
+  }, [studentEvents, theoryClasses, zoomRoadClasses])
 
   // Attendance stats
   const attendanceStats = useMemo(() => {
@@ -554,6 +596,8 @@ export default function StudentDetailPage() {
     const phaseInfo = parsed.module ? getPhaseInfo(parsed.module) : null
     const isExtraHours = parseExtraHoursFromNotes(event.notes)
     const isTheoryClass = event.id.startsWith('theory-')
+    const isRoadZoomClass = event.id.startsWith('zoom-road-')
+    const isZoomClass = isTheoryClass || isRoadZoomClass
     const isTheoryAbsent = isTheoryClass && event.notes?.includes('Status: absent')
 
     // Extract groupId from theory class notes for navigation
@@ -565,7 +609,7 @@ export default function StudentDetailPage() {
         onClick={() => {
           if (isTheoryClass && theoryGroupId) {
             router.push(`/groups/${encodeURIComponent(theoryGroupId)}`)
-          } else if (!isTheoryClass) {
+          } else if (!isZoomClass) {
             router.push(`/scheduling?eventId=${encodeURIComponent(event.id)}`)
           }
         }}
@@ -592,7 +636,7 @@ export default function StudentDetailPage() {
                 {phaseInfo.label}
               </Badge>
             )}
-            {isTheoryClass && (
+            {isZoomClass && (
               <>
                 <Badge variant="outline" className="text-xs border-indigo-200 text-indigo-700 bg-indigo-50 dark:bg-indigo-950 dark:text-indigo-300">
                   Zoom
@@ -615,7 +659,7 @@ export default function StudentDetailPage() {
             )}
           </div>
           <div className="flex items-center gap-3 mt-1 text-sm text-muted-foreground">
-            {!isTheoryClass && (
+            {!isZoomClass && (
               <span className="flex items-center gap-1">
                 <Clock className="h-3 w-3" />
                 {formatTime12h(event.start_dt)} - {formatTime12h(event.end_dt)}
@@ -623,7 +667,7 @@ export default function StudentDetailPage() {
             )}
             <span className="flex items-center gap-1">
               <User className="h-3 w-3" />
-              {isTheoryClass ? 'Theory (Zoom)' : getTeacherName(event.subcalendar_ids)}
+              {isTheoryClass ? 'Theory (Zoom)' : isRoadZoomClass ? 'Road Class (Zoom)' : getTeacherName(event.subcalendar_ids)}
             </span>
           </div>
         </div>
