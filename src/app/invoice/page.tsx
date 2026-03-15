@@ -132,6 +132,7 @@ function InvoicePage() {
   const [vehicleType, setVehicleType] = useState<'car' | 'truck' | null>(null)
   const [selectedStudent, setSelectedStudent] = useState(false)
   const [selectedPackage, setSelectedPackage] = useState<{ name: string; totalPrice: number } | null>(null)
+  const [manualBalance, setManualBalance] = useState<number | null>(null)
 
   // PDF blob for sending after generation + preview
   const pdfBase64Ref = useRef<string | null>(null)
@@ -358,6 +359,9 @@ function InvoicePage() {
             if (selectedPackage) {
               // Package selected: remaining = package total + prior balance - this invoice
               remainingBalance = selectedPackage.totalPrice + previousBalance - total
+            } else if (manualBalance !== null && manualBalance > 0) {
+              // Manual balance entered: use it directly
+              remainingBalance = manualBalance
             } else {
               // No package: remaining = prior balance + this invoice
               remainingBalance = previousBalance + total
@@ -367,6 +371,10 @@ function InvoicePage() {
         // If no balance data but package selected, still compute package balance
         if (remainingBalance === 0 && selectedPackage) {
           remainingBalance = selectedPackage.totalPrice - total
+        }
+        // If manual balance set and no other balance computed
+        if (remainingBalance === 0 && manualBalance !== null && manualBalance > 0) {
+          remainingBalance = manualBalance
         }
       } catch { /* non-fatal */ }
 
@@ -677,6 +685,7 @@ function InvoicePage() {
     setLineItems([{ id: generateId(), description: '', quantity: 1, unitPrice: 0, taxInclusive: true }])
     setSelectedStudent(false)
     setSelectedPackage(null)
+    setManualBalance(null)
     setVehicleType(null)
     pdfBase64Ref.current = null
     if (pdfPreviewUrl) URL.revokeObjectURL(pdfPreviewUrl)
@@ -1358,6 +1367,24 @@ function InvoicePage() {
                         <span className="font-bold text-base">Total:</span>
                         <span className="font-bold text-base font-mono">${total.toFixed(2)}</span>
                       </div>
+                      {!selectedPackage && (
+                        <div className="flex justify-between items-center w-64 mt-2 pt-2 border-t border-dashed">
+                          <Label htmlFor="manualBalance" className="text-sm text-muted-foreground">Balance:</Label>
+                          <div className="flex items-center gap-1">
+                            <span className="text-sm text-muted-foreground">$</span>
+                            <Input
+                              id="manualBalance"
+                              type="number"
+                              min="0"
+                              step="0.01"
+                              value={manualBalance ?? ''}
+                              onChange={(e) => setManualBalance(e.target.value ? parseFloat(e.target.value) : null)}
+                              placeholder="0.00"
+                              className="w-28 text-right font-mono h-8"
+                            />
+                          </div>
+                        </div>
+                      )}
                     </div>
                   </div>
                 </CardContent>
