@@ -5,11 +5,39 @@ import { prisma } from '@/lib/db'
 export async function GET() {
   const state = getWhatsAppState()
 
-  if (!state.isConnected) {
-    // Return from database if not connected
-    const cachedGroups = await prisma.group.findMany({
-      orderBy: { name: 'asc' }
-    })
+  // Always return cached data first (instant) — sync from WhatsApp in background
+  const cachedGroups = await prisma.group.findMany({
+    orderBy: { name: 'asc' }
+  })
+
+  if (cachedGroups.length > 0) {
+    // Background sync from WhatsApp (non-blocking — doesn't delay response)
+    if (state.isConnected) {
+      getGroupsWithDetails().then(async (groups) => {
+        for (const group of groups) {
+          if (!group.name) continue
+          await prisma.group.upsert({
+            where: { id: group.id },
+            update: {
+              name: group.name,
+              participantCount: group.participantCount,
+              moduleNumber: group.moduleNumber ?? undefined,
+              lastMessageDate: group.lastMessageDate ?? undefined,
+              lastMessagePreview: group.lastMessagePreview ?? undefined,
+              lastSynced: new Date()
+            },
+            create: {
+              id: group.id,
+              name: group.name,
+              participantCount: group.participantCount,
+              moduleNumber: group.moduleNumber ?? null,
+              lastMessageDate: group.lastMessageDate ?? null,
+              lastMessagePreview: group.lastMessagePreview ?? null,
+            }
+          }).catch(() => {})
+        }
+      }).catch(() => {})
+    }
 
     return NextResponse.json({
       groups: cachedGroups.map(g => ({
@@ -21,18 +49,20 @@ export async function GET() {
         lastMessagePreview: g.lastMessagePreview ?? null
       })),
       fromCache: true,
-      isConnected: false
+      isConnected: state.isConnected
     })
   }
 
+  // No cached data yet — must fetch live
+  if (!state.isConnected) {
+    return NextResponse.json({ groups: [], fromCache: true, isConnected: false })
+  }
+
   try {
-    // Fetch groups with details (module info, last message date)
     const groups = await getGroupsWithDetails()
 
-    // Update database with group info (skip groups without names)
     for (const group of groups) {
-      if (!group.name) continue  // Skip groups without a name
-
+      if (!group.name) continue
       await prisma.group.upsert({
         where: { id: group.id },
         update: {
