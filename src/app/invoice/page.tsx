@@ -10,9 +10,12 @@ import { Badge } from '@/components/ui/badge'
 import { Textarea } from '@/components/ui/textarea'
 import { Checkbox } from '@/components/ui/checkbox'
 import {
+  Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription,
+} from '@/components/ui/dialog'
+import {
   Receipt, Plus, Trash2, Download, Loader2, Settings, CheckCircle2,
   Car, Truck, ArrowLeft, ArrowRight, FileText, Package, Mail, MessageCircle, Send,
-  CreditCard, Copy, ExternalLink, Banknote, Globe, DollarSign, Clock, AlertTriangle, Printer,
+  CreditCard, Copy, ExternalLink, Banknote, Globe, DollarSign, Clock, AlertTriangle, Printer, Link2,
 } from 'lucide-react'
 import Link from 'next/link'
 import { useSearchParams } from 'next/navigation'
@@ -138,6 +141,9 @@ function InvoicePage() {
   const [paymentLinkCopied, setPaymentLinkCopied] = useState(false)
   const [paymentMethod, setPaymentMethod] = useState<'cash' | 'card' | 'online' | null>(null)
   const [savedInvoiceId, setSavedInvoiceId] = useState<string | null>(null)
+  const [showCloverMatch, setShowCloverMatch] = useState(false)
+  const [cloverMatching, setCloverMatching] = useState(false)
+  const [cloverMatches, setCloverMatches] = useState<Array<{ orderId: string; total: number; date: string; score: string; diff: number; lineItems: Array<{ name: string; price: number; quantity: number }> }>>([])
 
   // Form state
   const [formData, setFormData] = useState<InvoiceFormData>({
@@ -1515,7 +1521,25 @@ function InvoicePage() {
                                 body: JSON.stringify({ invoiceId: savedInvoiceId, paymentMethod: 'card', paymentStatus: 'paid' }),
                               })
                             }
-                            setStep('done')
+                            // Show Clover match dialog if configured, otherwise go to done
+                            if (cloverConfigured && savedInvoiceId) {
+                              setShowCloverMatch(true)
+                              setCloverMatching(true)
+                              try {
+                                const res = await fetch('/api/invoice/clover/match', {
+                                  method: 'POST',
+                                  headers: { 'Content-Type': 'application/json' },
+                                  body: JSON.stringify({ invoiceId: savedInvoiceId }),
+                                })
+                                if (res.ok) {
+                                  const data = await res.json()
+                                  setCloverMatches(data.matches || [])
+                                }
+                              } catch { /* non-fatal */ }
+                              setCloverMatching(false)
+                            } else {
+                              setStep('done')
+                            }
                           }}
                         >
                           <CreditCard className="h-8 w-8 text-blue-600 shrink-0" />
@@ -1809,6 +1833,82 @@ function InvoicePage() {
           </AnimatePresence>
         </div>
       </main>
+
+      {/* Clover Match Dialog */}
+      <Dialog open={showCloverMatch} onOpenChange={(open) => { if (!open) { setShowCloverMatch(false); setStep('done') } }}>
+        <DialogContent className="max-w-lg max-h-[80vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Link2 className="h-5 w-5" />
+              Match Clover Transaction
+            </DialogTitle>
+            <DialogDescription>
+              Select a Clover transaction to link to this invoice, or skip.
+            </DialogDescription>
+          </DialogHeader>
+
+          {cloverMatching ? (
+            <div className="flex items-center justify-center py-8">
+              <Loader2 className="h-5 w-5 animate-spin mr-2" />
+              <span className="text-sm text-muted-foreground">Searching Clover transactions...</span>
+            </div>
+          ) : cloverMatches.length > 0 ? (
+            <div className="space-y-2">
+              {cloverMatches.map((match) => (
+                <button
+                  key={match.orderId}
+                  className={`w-full text-left rounded-lg border p-3 hover:bg-muted/50 transition-colors ${
+                    match.score === 'exact' ? 'border-green-300 bg-green-50/50 dark:bg-green-950/20' :
+                    match.score === 'close' ? 'border-blue-200' : 'border-border'
+                  }`}
+                  onClick={async () => {
+                    if (savedInvoiceId) {
+                      await fetch('/api/invoice/clover/match', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ invoiceId: savedInvoiceId, cloverOrderId: match.orderId }),
+                      })
+                    }
+                    setShowCloverMatch(false)
+                    setStep('done')
+                  }}
+                >
+                  <div className="flex items-center justify-between mb-1">
+                    <div className="flex items-center gap-2">
+                      <span className="font-mono text-sm font-medium">${match.total.toFixed(2)}</span>
+                      {match.score === 'exact' && (
+                        <Badge className="bg-green-100 text-green-700 border-green-200 text-[10px] px-1.5 py-0">Exact Match</Badge>
+                      )}
+                      {match.score === 'close' && (
+                        <Badge className="bg-blue-100 text-blue-700 border-blue-200 text-[10px] px-1.5 py-0">Close (${match.diff.toFixed(2)} diff)</Badge>
+                      )}
+                      {match.score === 'partial' && (
+                        <Badge variant="outline" className="text-[10px] px-1.5 py-0">${match.diff.toFixed(2)} diff</Badge>
+                      )}
+                    </div>
+                    <span className="text-xs text-muted-foreground">{match.date}</span>
+                  </div>
+                  {match.lineItems.length > 0 && (
+                    <p className="text-xs text-muted-foreground truncate">
+                      {match.lineItems.map(li => li.name).join(', ')}
+                    </p>
+                  )}
+                </button>
+              ))}
+            </div>
+          ) : (
+            <div className="text-center py-4 text-sm text-muted-foreground">
+              No matching Clover transactions found
+            </div>
+          )}
+
+          <div className="flex justify-end pt-2 border-t">
+            <Button variant="outline" size="sm" onClick={() => { setShowCloverMatch(false); setStep('done') }}>
+              Skip
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }

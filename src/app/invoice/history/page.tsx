@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect, useMemo } from 'react'
+import { useState, useEffect, useMemo, useRef } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
@@ -24,7 +24,7 @@ import {
 import {
   Search, Loader2, FileText, ArrowLeft, X, Calendar,
   CreditCard, Link2, Eye, Copy, ExternalLink, CheckCircle2,
-  Banknote, Globe, User, Trash2,
+  Banknote, Globe, User, Trash2, MoreVertical,
 } from 'lucide-react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
@@ -126,11 +126,20 @@ export default function InvoiceHistoryPage() {
   const [viewDialogInvoice, setViewDialogInvoice] = useState<Invoice | null>(null)
   const [copiedLinkId, setCopiedLinkId] = useState<string | null>(null)
   const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null)
+  const [menuOpenId, setMenuOpenId] = useState<string | null>(null)
 
   useEffect(() => {
     const timer = setTimeout(() => setDebouncedSearch(search.trim()), 300)
     return () => clearTimeout(timer)
   }, [search])
+
+  // Close 3-dot menu when clicking outside
+  useEffect(() => {
+    if (!menuOpenId) return
+    const handler = () => setMenuOpenId(null)
+    document.addEventListener('click', handler)
+    return () => document.removeEventListener('click', handler)
+  }, [menuOpenId])
 
   const queryParams = useMemo(() => {
     const params = new URLSearchParams()
@@ -443,51 +452,6 @@ export default function InvoiceHistoryPage() {
                         )}
                         <TableCell>
                           <div className="flex gap-1" onClick={(e) => e.stopPropagation()}>
-                            {cloverConfigured && (
-                              <>
-                                {/* Payment Link */}
-                                {inv.cloverPaymentUrl ? (
-                                  <Button
-                                    size="sm"
-                                    variant="ghost"
-                                    className="h-7 w-7 p-0"
-                                    title="Copy payment link"
-                                    onClick={() => copyLink(inv.cloverPaymentUrl!, inv.id)}
-                                  >
-                                    {copiedLinkId === inv.id ? (
-                                      <CheckCircle2 className="h-3.5 w-3.5 text-green-500" />
-                                    ) : (
-                                      <Copy className="h-3.5 w-3.5" />
-                                    )}
-                                  </Button>
-                                ) : (
-                                  <Button
-                                    size="sm"
-                                    variant="ghost"
-                                    className="h-7 w-7 p-0"
-                                    title="Generate payment link"
-                                    disabled={paymentLinkMutation.isPending}
-                                    onClick={() => paymentLinkMutation.mutate(inv.id)}
-                                  >
-                                    {paymentLinkMutation.isPending ? (
-                                      <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                                    ) : (
-                                      <CreditCard className="h-3.5 w-3.5" />
-                                    )}
-                                  </Button>
-                                )}
-                                {/* Match */}
-                                <Button
-                                  size="sm"
-                                  variant="ghost"
-                                  className="h-7 w-7 p-0"
-                                  title={inv.cloverOrderId ? 'View Clover match' : 'Find Clover match'}
-                                  onClick={() => setMatchDialogInvoice(inv)}
-                                >
-                                  <Link2 className="h-3.5 w-3.5" />
-                                </Button>
-                              </>
-                            )}
                             {/* View invoice */}
                             <Button
                               size="sm"
@@ -498,22 +462,6 @@ export default function InvoiceHistoryPage() {
                             >
                               <Eye className="h-3.5 w-3.5" />
                             </Button>
-                            {/* View student profile */}
-                            {(() => {
-                              const profileLink = getStudentProfileLink(inv.studentPhone)
-                              if (!profileLink) return null
-                              return (
-                                <Button
-                                  size="sm"
-                                  variant="ghost"
-                                  className="h-7 w-7 p-0"
-                                  title="View student profile"
-                                  onClick={() => router.push(`/groups/${encodeURIComponent(profileLink.groupId)}/student/${encodeURIComponent(profileLink.contactId)}`)}
-                                >
-                                  <User className="h-3.5 w-3.5" />
-                                </Button>
-                              )
-                            })()}
                             {/* Delete */}
                             {deleteConfirmId === inv.id ? (
                               <Button
@@ -540,6 +488,67 @@ export default function InvoiceHistoryPage() {
                                 <Trash2 className="h-3.5 w-3.5" />
                               </Button>
                             )}
+                            {/* 3-dot menu for more actions */}
+                            <div className="relative">
+                              <Button
+                                size="sm"
+                                variant="ghost"
+                                className="h-7 w-7 p-0"
+                                title="More actions"
+                                onClick={() => setMenuOpenId(menuOpenId === inv.id ? null : inv.id)}
+                              >
+                                <MoreVertical className="h-3.5 w-3.5" />
+                              </Button>
+                              {menuOpenId === inv.id && (
+                                <div className="absolute right-0 top-8 z-50 bg-popover border rounded-lg shadow-lg py-1 min-w-[180px]">
+                                  {/* View student profile */}
+                                  {(() => {
+                                    const profileLink = getStudentProfileLink(inv.studentPhone)
+                                    if (!profileLink) return null
+                                    return (
+                                      <button
+                                        className="w-full flex items-center gap-2 px-3 py-2 text-sm hover:bg-muted transition-colors"
+                                        onClick={() => { setMenuOpenId(null); router.push(`/groups/${encodeURIComponent(profileLink.groupId)}/student/${encodeURIComponent(profileLink.contactId)}`) }}
+                                      >
+                                        <User className="h-3.5 w-3.5" />
+                                        View Student
+                                      </button>
+                                    )
+                                  })()}
+                                  {cloverConfigured && (
+                                    <>
+                                      {/* Payment Link */}
+                                      {inv.cloverPaymentUrl ? (
+                                        <button
+                                          className="w-full flex items-center gap-2 px-3 py-2 text-sm hover:bg-muted transition-colors"
+                                          onClick={() => { copyLink(inv.cloverPaymentUrl!, inv.id); setMenuOpenId(null) }}
+                                        >
+                                          {copiedLinkId === inv.id ? <CheckCircle2 className="h-3.5 w-3.5 text-green-500" /> : <Copy className="h-3.5 w-3.5" />}
+                                          Copy Payment Link
+                                        </button>
+                                      ) : (
+                                        <button
+                                          className="w-full flex items-center gap-2 px-3 py-2 text-sm hover:bg-muted transition-colors"
+                                          disabled={paymentLinkMutation.isPending}
+                                          onClick={() => { paymentLinkMutation.mutate(inv.id); setMenuOpenId(null) }}
+                                        >
+                                          <CreditCard className="h-3.5 w-3.5" />
+                                          Generate Payment Link
+                                        </button>
+                                      )}
+                                      {/* Match */}
+                                      <button
+                                        className="w-full flex items-center gap-2 px-3 py-2 text-sm hover:bg-muted transition-colors"
+                                        onClick={() => { setMatchDialogInvoice(inv); setMenuOpenId(null) }}
+                                      >
+                                        <Link2 className="h-3.5 w-3.5" />
+                                        {inv.cloverOrderId ? 'View Clover Match' : 'Find Clover Match'}
+                                      </button>
+                                    </>
+                                  )}
+                                </div>
+                              )}
+                            </div>
                           </div>
                         </TableCell>
                       </TableRow>
