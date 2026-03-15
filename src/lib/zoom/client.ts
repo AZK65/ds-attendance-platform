@@ -439,8 +439,9 @@ function editDistance(a: string, b: string): number {
   return matrix[a.length][b.length]
 }
 
-// Check if two names match (broad fuzzy matching)
-// If ANY first/last name part matches between the two names, it's a match.
+// Check if two names match (strict matching)
+// Requires first name match. Last-name-only matches are rejected to avoid
+// false positives (e.g. "Ahmed Khan" should NOT match "Sara Khan").
 function namesMatch(name1: string, name2: string, debug = false): boolean {
   const n1 = normalizeName(name1)
   const n2 = normalizeName(name2)
@@ -452,12 +453,6 @@ function namesMatch(name1: string, name2: string, debug = false): boolean {
   // Exact match
   if (n1 === n2) {
     if (debug) console.log(`  -> MATCH: exact`)
-    return true
-  }
-
-  // One contains the other
-  if (n1.includes(n2) || n2.includes(n1)) {
-    if (debug) console.log(`  -> MATCH: contains`)
     return true
   }
 
@@ -483,16 +478,62 @@ function namesMatch(name1: string, name2: string, debug = false): boolean {
     return true
   }
 
-  // Broad match: if ANY part from name1 matches ANY part from name2, it's a match.
-  // This handles cases like "Ahmed Khan" matching "Ahmed Qazi" (shared first name)
-  // or "Sarah Thompson" matching "John Thompson" would match — but that's acceptable
-  // because in a class setting, names are usually unique enough.
-  for (const p1 of parts1) {
-    for (const p2 of parts2) {
-      if (partsMatch(p1, p2)) {
-        if (debug) console.log(`  -> MATCH: shared name part "${p1}" ≈ "${p2}"`)
-        return true
+  // CASE 1: Both names have multiple parts (e.g. "Ahmed Khan" vs "Ahmed Khan")
+  // Need MAJORITY of parts to match. One shared part is NOT enough —
+  // "Ahmed Khan" and "Ahmed Qazi" are different people,
+  // "Sara Khan" and "Ahmed Khan" are different people.
+  if (parts1.length > 1 && parts2.length > 1) {
+    // Count how many parts from name1 match any part in name2
+    let matchCount = 0
+    const usedParts2 = new Set<number>()
+
+    for (const p1 of parts1) {
+      for (let i = 0; i < parts2.length; i++) {
+        if (usedParts2.has(i)) continue
+        if (partsMatch(p1, parts2[i])) {
+          matchCount++
+          usedParts2.add(i)
+          break
+        }
       }
+    }
+
+    const minParts = Math.min(parts1.length, parts2.length)
+    const maxParts = Math.max(parts1.length, parts2.length)
+
+    // For 2-part names: require BOTH parts to match
+    // For 3+ part names: require at least 2 matching parts
+    const requiredMatches = minParts <= 2 ? minParts : Math.max(2, Math.ceil(maxParts * 0.6))
+
+    if (debug) {
+      console.log(`  matchCount: ${matchCount}, required: ${requiredMatches} (min: ${minParts}, max: ${maxParts})`)
+    }
+
+    if (matchCount >= requiredMatches) {
+      if (debug) console.log(`  -> MATCH: ${matchCount}/${maxParts} parts matched (needed ${requiredMatches})`)
+      return true
+    }
+
+    if (debug) console.log(`  -> NO MATCH: only ${matchCount}/${maxParts} parts matched (needed ${requiredMatches})`)
+    return false
+  }
+
+  // CASE 2: One or both names are single-part (e.g. "Ahmed" vs "Ahmed Khan")
+  // Single name must match the FIRST name of the multi-part name.
+  const singlePart = parts1.length === 1 ? parts1[0] : parts2[0]
+  const multiParts = parts1.length === 1 ? parts2 : parts1
+
+  if (multiParts.length === 1) {
+    // Both are single names — just compare them directly
+    if (partsMatch(singlePart, multiParts[0])) {
+      if (debug) console.log(`  -> MATCH: single names match "${singlePart}" ≈ "${multiParts[0]}"`)
+      return true
+    }
+  } else {
+    // Single name must match the first name of the multi-part name
+    if (partsMatch(singlePart, multiParts[0])) {
+      if (debug) console.log(`  -> MATCH: single name matches first name "${singlePart}" ≈ "${multiParts[0]}"`)
+      return true
     }
   }
 
