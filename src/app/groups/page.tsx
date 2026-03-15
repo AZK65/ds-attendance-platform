@@ -73,7 +73,10 @@ export default function GroupsPage() {
     queryFn: async () => {
       const res = await fetch('/api/groups')
       return res.json()
-    }
+    },
+    staleTime: 60 * 60 * 1000,        // 1 hour — data is fresh for a long time
+    gcTime: 2 * 60 * 60 * 1000,       // 2 hours — keep in cache even longer
+    refetchInterval: 60 * 60 * 1000,   // Background refresh every hour
   })
 
   // Force sync mutation - reconnects if needed and syncs fresh data
@@ -110,7 +113,9 @@ export default function GroupsPage() {
       const res = await fetch('/api/groups/participants')
       return res.json() as Promise<{ participants: ParticipantWithGroup[]; isConnected: boolean }>
     },
-    staleTime: 5 * 60 * 1000, // Cache for 5 minutes
+    staleTime: 60 * 60 * 1000,        // 1 hour
+    gcTime: 2 * 60 * 60 * 1000,       // 2 hours
+    refetchInterval: 60 * 60 * 1000,   // Background refresh every hour
   })
 
   // Fetch WhatsApp contacts based on search (same API as scheduling page)

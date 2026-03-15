@@ -326,8 +326,9 @@ function StudentsPage() {
       if (!res.ok) throw new Error('Failed to fetch')
       return res.json()
     },
-    staleTime: 30 * 60 * 1000,
-    gcTime: 60 * 60 * 1000,
+    staleTime: 60 * 60 * 1000,        // 1 hour
+    gcTime: 2 * 60 * 60 * 1000,       // 2 hours
+    refetchInterval: 60 * 60 * 1000,   // Background refresh every hour
   })
 
   // Deduplicate participants by phone (keep the one with highest module number)
@@ -361,8 +362,9 @@ function StudentsPage() {
       return res.json()
     },
     enabled: phoneList.length > 0,
-    staleTime: 30 * 60 * 1000,
-    gcTime: 60 * 60 * 1000,
+    staleTime: 60 * 60 * 1000,        // 1 hour
+    gcTime: 2 * 60 * 60 * 1000,       // 2 hours
+    refetchInterval: 60 * 60 * 1000,   // Background refresh every hour
   })
 
   const classResults = classesData?.results || {}
@@ -382,8 +384,9 @@ function StudentsPage() {
       return res.json()
     },
     enabled: phoneList.length > 0,
-    staleTime: 30 * 60 * 1000,
-    gcTime: 60 * 60 * 1000,
+    staleTime: 60 * 60 * 1000,        // 1 hour
+    gcTime: 2 * 60 * 60 * 1000,       // 2 hours
+    refetchInterval: 60 * 60 * 1000,   // Background refresh every hour
   })
 
   const dbMatches = matchesData?.matches || {}
