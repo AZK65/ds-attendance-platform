@@ -92,6 +92,7 @@ function InvoicePage() {
   const [step, setStep] = useState<Step>('student')
   const [vehicleType, setVehicleType] = useState<'car' | 'truck' | null>(null)
   const [selectedStudent, setSelectedStudent] = useState(false)
+  const [selectedPackage, setSelectedPackage] = useState<{ name: string; totalPrice: number } | null>(null)
 
   // PDF blob for sending after generation + preview
   const pdfBase64Ref = useRef<string | null>(null)
@@ -556,6 +557,7 @@ function InvoicePage() {
 
   const handleSkipToCustom = () => {
     setLineItems([{ id: generateId(), description: '', quantity: 1, unitPrice: 0, taxInclusive: true }])
+    setSelectedPackage(null)
     setStep('review')
   }
 
@@ -570,6 +572,7 @@ function InvoicePage() {
     if (items.length > 0) {
       setLineItems(items)
     }
+    setSelectedPackage({ name: pkg.name, totalPrice: pkg.totalPrice })
     setStep('review')
   }
 
@@ -581,6 +584,7 @@ function InvoicePage() {
       unitPrice: inst.amount,
       taxInclusive: pkg.taxInclusive,
     }])
+    setSelectedPackage({ name: pkg.name, totalPrice: pkg.totalPrice })
     setStep('review')
   }
 
@@ -619,6 +623,7 @@ function InvoicePage() {
     })
     setLineItems([{ id: generateId(), description: '', quantity: 1, unitPrice: 0, taxInclusive: true }])
     setSelectedStudent(false)
+    setSelectedPackage(null)
     setVehicleType(null)
     pdfBase64Ref.current = null
     if (pdfPreviewUrl) URL.revokeObjectURL(pdfPreviewUrl)
@@ -1026,43 +1031,61 @@ function InvoicePage() {
               </div>
 
               {/* Balance Card — top right priority */}
-              {balanceData && (
-                <Card className={`border-2 ${balanceData.openBalance > 0 ? 'border-amber-300 bg-amber-50/50 dark:bg-amber-950/20' : 'border-green-300 bg-green-50/50 dark:bg-green-950/20'}`}>
-                  <CardContent className="pt-6 pb-6">
-                    <div className="flex items-center justify-between">
-                      <div className="flex items-center gap-4">
-                        <div className={`w-14 h-14 rounded-full flex items-center justify-center ${balanceData.openBalance > 0 ? 'bg-amber-100 dark:bg-amber-900' : 'bg-green-100 dark:bg-green-900'}`}>
-                          <DollarSign className={`h-7 w-7 ${balanceData.openBalance > 0 ? 'text-amber-600' : 'text-green-600'}`} />
-                        </div>
-                        <div>
-                          <p className="text-sm text-muted-foreground font-medium">Student Balance</p>
-                          <p className={`text-3xl font-bold font-mono ${balanceData.openBalance > 0 ? 'text-amber-700 dark:text-amber-400' : 'text-green-700 dark:text-green-400'}`}>
-                            ${balanceData.openBalance.toFixed(2)}
-                          </p>
-                          {balanceData.openBalance > 0 && (
-                            <p className="text-xs text-amber-600 flex items-center gap-1 mt-0.5">
-                              <AlertTriangle className="h-3 w-3" /> Outstanding balance
+              {(balanceData || selectedPackage) && (() => {
+                const packageTotal = selectedPackage?.totalPrice || 0
+                const previousBalance = balanceData?.openBalance || 0
+                const effectiveBalance = selectedPackage ? packageTotal + previousBalance - total : previousBalance + total
+                const hasBalance = effectiveBalance > 0
+                return (
+                  <Card className={`border-2 ${hasBalance ? 'border-amber-300 bg-amber-50/50 dark:bg-amber-950/20' : 'border-green-300 bg-green-50/50 dark:bg-green-950/20'}`}>
+                    <CardContent className="pt-6 pb-6">
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-4">
+                          <div className={`w-14 h-14 rounded-full flex items-center justify-center ${hasBalance ? 'bg-amber-100 dark:bg-amber-900' : 'bg-green-100 dark:bg-green-900'}`}>
+                            <DollarSign className={`h-7 w-7 ${hasBalance ? 'text-amber-600' : 'text-green-600'}`} />
+                          </div>
+                          <div>
+                            <p className="text-sm text-muted-foreground font-medium">
+                              {selectedPackage ? 'Remaining Balance' : 'Student Balance'}
                             </p>
+                            <p className={`text-3xl font-bold font-mono ${hasBalance ? 'text-amber-700 dark:text-amber-400' : 'text-green-700 dark:text-green-400'}`}>
+                              ${effectiveBalance.toFixed(2)}
+                            </p>
+                            {selectedPackage && (
+                              <p className="text-xs text-muted-foreground flex items-center gap-1 mt-0.5">
+                                {selectedPackage.name}: ${packageTotal.toFixed(2)}
+                              </p>
+                            )}
+                          </div>
+                        </div>
+                        <div className="text-right space-y-1">
+                          {selectedPackage && (
+                            <div className="text-sm">
+                              <span className="text-muted-foreground">Package: </span>
+                              <span className="font-mono font-medium">${packageTotal.toFixed(2)}</span>
+                            </div>
                           )}
+                          {balanceData && balanceData.totalInvoiced > 0 && (
+                            <>
+                              <div className="text-sm">
+                                <span className="text-muted-foreground">Prior invoiced: </span>
+                                <span className="font-mono font-medium">${balanceData.totalInvoiced.toFixed(2)}</span>
+                              </div>
+                              <div className="text-sm">
+                                <span className="text-muted-foreground">Paid: </span>
+                                <span className="font-mono font-medium text-green-600">${balanceData.totalPaid.toFixed(2)}</span>
+                              </div>
+                            </>
+                          )}
+                          <div className="text-xs text-muted-foreground mt-1">
+                            This invoice: <span className="font-mono font-bold">${total.toFixed(2)}</span>
+                          </div>
                         </div>
                       </div>
-                      <div className="text-right space-y-1">
-                        <div className="text-sm">
-                          <span className="text-muted-foreground">Invoiced: </span>
-                          <span className="font-mono font-medium">${balanceData.totalInvoiced.toFixed(2)}</span>
-                        </div>
-                        <div className="text-sm">
-                          <span className="text-muted-foreground">Paid: </span>
-                          <span className="font-mono font-medium text-green-600">${balanceData.totalPaid.toFixed(2)}</span>
-                        </div>
-                        <div className="text-xs text-muted-foreground mt-1">
-                          + this invoice: <span className="font-mono font-bold">${total.toFixed(2)}</span>
-                        </div>
-                      </div>
-                    </div>
-                  </CardContent>
-                </Card>
-              )}
+                    </CardContent>
+                  </Card>
+                )
+              })()}
 
               {/* Invoice Details */}
               <Card>
