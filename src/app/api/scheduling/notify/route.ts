@@ -59,12 +59,12 @@ export async function POST(request: NextRequest) {
       }).catch(() => {})
     }
 
-    // Schedule a 1-hour-before reminder (with dedup — cancel any existing reminder for same phone + date first)
+    // Schedule a 3-hour-before reminder (with dedup — cancel any existing reminder for same phone + date first)
     let reminderScheduled = false
     if (classDateISO && startTime) {
       try {
         const classDateTime = new Date(`${classDateISO}T${startTime}:00`)
-        const reminderTime = new Date(classDateTime.getTime() - 1 * 60 * 60 * 1000) // 1 hour before
+        const reminderTime = new Date(classDateTime.getTime() - 3 * 60 * 60 * 1000) // 3 hours before
 
         if (reminderTime > new Date()) {
           // Cancel any existing pending reminders for this phone + classDateISO to prevent duplicates
@@ -91,7 +91,7 @@ export async function POST(request: NextRequest) {
             console.log(`[notify] Cancelled ${toCancel.length} existing reminder(s) for ${phone} on ${classDateISO} before creating new one`)
           }
 
-          const reminderMessage = `Reminder: Hi ${cleanName}, your ${moduleStr} class${teacherStr} is in 1 hour (${formatTime12h(startTime)}). See you soon!`
+          const reminderMessage = `Reminder: Hi ${cleanName}, your ${moduleStr} class${teacherStr} is in 3 hours (${formatTime12h(startTime)}). See you soon!`
 
           await prisma.scheduledMessage.create({
             data: {

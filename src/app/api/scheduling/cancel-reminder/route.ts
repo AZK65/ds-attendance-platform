@@ -31,10 +31,10 @@ export async function POST(request: NextRequest) {
         if (!phones.includes(phone)) return false
 
         // If startTime is provided, only cancel the reminder for that specific class
-        // Reminders are scheduled 1 hour before the class, so scheduledAt = classTime - 1hr
+        // Reminders are scheduled 3 hours before the class, so scheduledAt = classTime - 3hr
         if (startTime) {
           const classDateTime = new Date(`${classDateISO}T${startTime}:00`)
-          const expectedReminderTime = new Date(classDateTime.getTime() - 1 * 60 * 60 * 1000)
+          const expectedReminderTime = new Date(classDateTime.getTime() - 3 * 60 * 60 * 1000)
           // Allow 2-minute tolerance for timing differences
           const diff = Math.abs(r.scheduledAt.getTime() - expectedReminderTime.getTime())
           return diff < 2 * 60 * 1000

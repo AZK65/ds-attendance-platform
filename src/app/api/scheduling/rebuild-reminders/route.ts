@@ -111,8 +111,8 @@ export async function POST() {
         })
         created++
       } else {
-        // Car: 1 hour before
-        const reminderTime = new Date(startDt.getTime() - 1 * 60 * 60 * 1000)
+        // Car: 3 hours before
+        const reminderTime = new Date(startDt.getTime() - 3 * 60 * 60 * 1000)
         if (reminderTime <= now) continue
 
         // Parse module from title (e.g. "Session 5 - StudentName" or "Pre-Trip - StudentName")
@@ -122,7 +122,7 @@ export async function POST() {
         const endTime = event.end_dt.slice(11, 16)
         const timeStr = `from ${formatTime12h(startTime)} to ${formatTime12h(endTime)}`
 
-        const reminderMessage = `Reminder: Hi ${studentName}, your ${moduleStr} class${teacherStr} is in 1 hour (${formatTime12h(startTime)}). See you soon!`
+        const reminderMessage = `Reminder: Hi ${studentName}, your ${moduleStr} class${teacherStr} is in 3 hours (${formatTime12h(startTime)}). See you soon!`
 
         await prisma.scheduledMessage.create({
           data: {
