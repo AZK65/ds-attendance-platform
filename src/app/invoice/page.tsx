@@ -12,7 +12,7 @@ import { Checkbox } from '@/components/ui/checkbox'
 import {
   Receipt, Plus, Trash2, Download, Loader2, Settings, CheckCircle2,
   Car, Truck, ArrowLeft, ArrowRight, FileText, Package, Mail, MessageCircle, Send,
-  CreditCard, Copy, ExternalLink, Banknote, Globe, DollarSign, Clock, AlertTriangle,
+  CreditCard, Copy, ExternalLink, Banknote, Globe, DollarSign, Clock, AlertTriangle, Printer,
 } from 'lucide-react'
 import Link from 'next/link'
 import { useSearchParams } from 'next/navigation'
@@ -1366,21 +1366,42 @@ function InvoicePage() {
                             <FileText className="h-5 w-5" />
                             Invoice Preview
                           </CardTitle>
-                          <Button
-                            size="sm"
-                            variant="outline"
-                            onClick={() => {
-                              const a = document.createElement('a')
-                              a.href = pdfPreviewUrl
-                              a.download = `invoice-${invoiceNumber}.pdf`
-                              document.body.appendChild(a)
-                              a.click()
-                              document.body.removeChild(a)
-                            }}
-                          >
-                            <Download className="h-4 w-4 mr-1" />
-                            Download PDF
-                          </Button>
+                          <div className="flex gap-2">
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              onClick={() => {
+                                const a = document.createElement('a')
+                                a.href = pdfPreviewUrl
+                                a.download = `invoice-${invoiceNumber}.pdf`
+                                document.body.appendChild(a)
+                                a.click()
+                                document.body.removeChild(a)
+                              }}
+                            >
+                              <Download className="h-4 w-4 mr-1" />
+                              Download
+                            </Button>
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              onClick={() => {
+                                const printFrame = document.createElement('iframe')
+                                printFrame.style.display = 'none'
+                                printFrame.src = pdfPreviewUrl
+                                document.body.appendChild(printFrame)
+                                printFrame.onload = () => {
+                                  setTimeout(() => {
+                                    printFrame.contentWindow?.print()
+                                    setTimeout(() => document.body.removeChild(printFrame), 1000)
+                                  }, 500)
+                                }
+                              }}
+                            >
+                              <Printer className="h-4 w-4 mr-1" />
+                              Print
+                            </Button>
+                          </div>
                         </div>
                       </CardHeader>
                       <CardContent>
@@ -1531,21 +1552,45 @@ function InvoicePage() {
                             <FileText className="h-5 w-5" />
                             Invoice Preview
                           </CardTitle>
-                          <Button
-                            size="sm"
-                            variant="outline"
-                            onClick={() => {
-                              const a = document.createElement('a')
-                              a.href = pdfPreviewUrl
-                              a.download = `invoice-${invoiceNumber}.pdf`
-                              document.body.appendChild(a)
-                              a.click()
-                              document.body.removeChild(a)
-                            }}
-                          >
-                            <Download className="h-4 w-4 mr-1" />
-                            Download PDF
-                          </Button>
+                          <div className="flex gap-2">
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              onClick={() => {
+                                const a = document.createElement('a')
+                                a.href = pdfPreviewUrl
+                                a.download = `invoice-${invoiceNumber}.pdf`
+                                document.body.appendChild(a)
+                                a.click()
+                                document.body.removeChild(a)
+                              }}
+                            >
+                              <Download className="h-4 w-4 mr-1" />
+                              Download
+                            </Button>
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              onClick={() => {
+                                // Open PDF in new tab and trigger print dialog
+                                // Note: copies and B&W must be set in the print dialog
+                                const printFrame = document.createElement('iframe')
+                                printFrame.style.display = 'none'
+                                printFrame.src = pdfPreviewUrl
+                                document.body.appendChild(printFrame)
+                                printFrame.onload = () => {
+                                  setTimeout(() => {
+                                    printFrame.contentWindow?.print()
+                                    // Clean up after print dialog closes
+                                    setTimeout(() => document.body.removeChild(printFrame), 1000)
+                                  }, 500)
+                                }
+                              }}
+                            >
+                              <Printer className="h-4 w-4 mr-1" />
+                              Print
+                            </Button>
+                          </div>
                         </div>
                       </CardHeader>
                       <CardContent>
