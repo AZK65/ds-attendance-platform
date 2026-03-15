@@ -19,7 +19,7 @@ services:
     build:
       context: .
       args:
-        - NEXT_PUBLIC_GOOGLE_MAPS_KEY=AIzaSyAQfyGH0XYM3-s9I9zF-V9YA0fwUxzdKhY
+        - NEXT_PUBLIC_GOOGLE_MAPS_KEY=AIzaSyBDiQ1sfqO8lzhuLXSxAjrBuI1VSFp0oWc
     expose:
       - "3000"
     shm_size: '1gb'
