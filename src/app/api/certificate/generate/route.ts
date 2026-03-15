@@ -57,6 +57,11 @@ interface CertificateFormData {
 export async function POST(request: NextRequest) {
   try {
     const formData: CertificateFormData = await request.json()
+    console.log('=== GENERATE INPUT ===')
+    console.log('licenceNumber:', JSON.stringify(formData.licenceNumber))
+    console.log('registrationDate:', JSON.stringify(formData.registrationDate))
+    console.log('expiryDate:', JSON.stringify(formData.expiryDate))
+    console.log('name:', JSON.stringify(formData.name))
 
     if (!formData.templatePdf) {
       return NextResponse.json(
