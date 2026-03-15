@@ -39,7 +39,37 @@ export async function GET(request: NextRequest) {
     }
 
     if (!state.isConnected) {
-      return NextResponse.json({ contacts: studentContacts, disconnected: true })
+      // Search cached WhatsApp contacts from SQLite
+      let cachedContacts: Array<{ id: string; phone: string; name: string | null; pushName: string | null; source?: string }> = []
+      if (search.length >= 2) {
+        try {
+          const cached = await prisma.contact.findMany({
+            where: {
+              OR: [
+                { name: { contains: search } },
+                { pushName: { contains: search } },
+                { phone: { contains: search } },
+              ],
+            },
+            take: 20,
+            orderBy: { updatedAt: 'desc' },
+          })
+          cachedContacts = cached.map(c => ({
+            id: c.id,
+            phone: c.phone,
+            name: c.name,
+            pushName: c.pushName,
+          }))
+        } catch {
+          // Non-fatal
+        }
+      }
+
+      // Merge cached WhatsApp contacts + invoice students
+      const cachedPhones = new Set(cachedContacts.map(c => c.phone))
+      const uniqueStudents = studentContacts.filter(s => !cachedPhones.has(s.phone))
+
+      return NextResponse.json({ contacts: [...cachedContacts, ...uniqueStudents], disconnected: true })
     }
 
     // Get contacts from WhatsApp
