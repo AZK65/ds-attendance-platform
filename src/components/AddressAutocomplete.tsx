@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useRef, useState, useCallback } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { cn } from '@/lib/utils'
 
 interface AddressResult {
@@ -46,7 +46,6 @@ function loadGoogleMaps(): Promise<void> {
     script.src = `https://maps.googleapis.com/maps/api/js?key=${key}&libraries=places`
     script.async = true
     script.onload = () => {
-      // Wait for google.maps.places to be available (may take a tick)
       const waitForPlaces = () => {
         if (window.google?.maps?.places) {
           googleMapsLoaded = true
@@ -84,49 +83,11 @@ export function AddressAutocomplete({
   const autocompleteRef = useRef<google.maps.places.Autocomplete | null>(null)
   const [ready, setReady] = useState(false)
   const isSelectingRef = useRef(false)
-
-  const handlePlaceChanged = useCallback(() => {
-    const autocomplete = autocompleteRef.current
-    if (!autocomplete) return
-
-    const place = autocomplete.getPlace()
-    if (!place.address_components) return
-
-    let streetNumber = ''
-    let route = ''
-    let city = ''
-    let postalCode = ''
-
-    for (const component of place.address_components) {
-      const types = component.types
-      if (types.includes('street_number')) {
-        streetNumber = component.long_name
-      } else if (types.includes('route')) {
-        route = component.long_name
-      } else if (types.includes('locality')) {
-        city = component.long_name
-      } else if (types.includes('sublocality_level_1') && !city) {
-        city = component.long_name
-      } else if (types.includes('postal_code')) {
-        postalCode = component.long_name
-      }
-    }
-
-    const street = streetNumber ? `${streetNumber} ${route}` : route
-
-    // Flag that we're selecting so we don't overwrite the input
-    isSelectingRef.current = true
-    onChange(street)
-    onAddressSelect?.({ street, city, postalCode })
-
-    // Set input value directly (Google Places has set its own value already)
-    if (inputRef.current) {
-      inputRef.current.value = street
-    }
-
-    // Reset flag after a tick
-    setTimeout(() => { isSelectingRef.current = false }, 50)
-  }, [onChange, onAddressSelect])
+  // Store callbacks in refs so the autocomplete listener always calls the latest version
+  const onChangeRef = useRef(onChange)
+  const onAddressSelectRef = useRef(onAddressSelect)
+  onChangeRef.current = onChange
+  onAddressSelectRef.current = onAddressSelect
 
   useEffect(() => {
     loadGoogleMaps().then(() => {
@@ -145,14 +106,47 @@ export function AddressAutocomplete({
       fields: ['address_components'],
     })
 
-    autocomplete.addListener('place_changed', handlePlaceChanged)
+    autocomplete.addListener('place_changed', () => {
+      const place = autocomplete.getPlace()
+      if (!place.address_components) return
+
+      let streetNumber = ''
+      let route = ''
+      let city = ''
+      let postalCode = ''
+
+      for (const component of place.address_components) {
+        const types = component.types
+        if (types.includes('street_number')) {
+          streetNumber = component.long_name
+        } else if (types.includes('route')) {
+          route = component.long_name
+        } else if (types.includes('locality')) {
+          city = component.long_name
+        } else if (types.includes('sublocality_level_1') && !city) {
+          city = component.long_name
+        } else if (types.includes('postal_code')) {
+          postalCode = component.long_name
+        }
+      }
+
+      const street = streetNumber ? `${streetNumber} ${route}` : route
+
+      isSelectingRef.current = true
+      onChangeRef.current(street)
+      onAddressSelectRef.current?.({ street, city, postalCode })
+
+      if (inputRef.current) {
+        inputRef.current.value = street
+      }
+
+      setTimeout(() => { isSelectingRef.current = false }, 50)
+    })
+
     autocompleteRef.current = autocomplete
 
-    return () => {
-      google.maps.event.clearInstanceListeners(autocomplete)
-      autocompleteRef.current = null
-    }
-  }, [ready, handlePlaceChanged])
+    // No cleanup — keep the single autocomplete instance alive to avoid duplicate dropdowns
+  }, [ready])
 
   // Sync value prop to the uncontrolled input (for external updates like form reset)
   useEffect(() => {

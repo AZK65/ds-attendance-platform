@@ -70,6 +70,7 @@ interface LineItem {
 interface InvoiceFormData {
   studentName: string
   studentAddress: string
+  studentAddress2: string
   studentCity: string
   studentProvince: string
   studentPostalCode: string
@@ -151,6 +152,7 @@ function InvoicePage() {
   const [formData, setFormData] = useState<InvoiceFormData>({
     studentName: '',
     studentAddress: '',
+    studentAddress2: '',
     studentCity: '',
     studentProvince: 'QC',
     studentPostalCode: '',
@@ -387,7 +389,9 @@ function InvoicePage() {
         gstNumber: settings?.gstNumber || '',
         qstNumber: settings?.qstNumber || '',
         studentName: formData.studentName,
-        studentAddress: formData.studentAddress,
+        studentAddress: formData.studentAddress2
+          ? `${formData.studentAddress}, ${formData.studentAddress2}`
+          : formData.studentAddress,
         studentCity: formData.studentCity,
         studentProvince: formData.studentProvince,
         studentPostalCode: formData.studentPostalCode,
@@ -452,7 +456,9 @@ function InvoicePage() {
         body: JSON.stringify({
           invoiceNumber,
           studentName: formData.studentName,
-          studentAddress: formData.studentAddress,
+          studentAddress: formData.studentAddress2
+            ? `${formData.studentAddress}, ${formData.studentAddress2}`
+            : formData.studentAddress,
           studentCity: formData.studentCity,
           studentProvince: formData.studentProvince,
           studentPostalCode: formData.studentPostalCode,
@@ -602,6 +608,7 @@ function InvoicePage() {
       studentName: contact.name || contact.pushName || '',
       studentPhone: contact.phone || '',
       studentAddress: '',
+      studentAddress2: '',
       studentCity: '',
       studentProvince: 'QC',
       studentPostalCode: '',
@@ -673,6 +680,7 @@ function InvoicePage() {
     setFormData({
       studentName: '',
       studentAddress: '',
+      studentAddress2: '',
       studentCity: '',
       studentProvince: 'QC',
       studentPostalCode: '',
@@ -876,6 +884,15 @@ function InvoicePage() {
                           if (result.postalCode) handleFieldChange('studentPostalCode', result.postalCode)
                         }}
                         placeholder="123 Street"
+                      />
+                    </div>
+                    <div>
+                      <Label htmlFor="studentAddress2">Apt / Suite</Label>
+                      <Input
+                        id="studentAddress2"
+                        value={formData.studentAddress2}
+                        onChange={(e) => handleFieldChange('studentAddress2', e.target.value)}
+                        placeholder="Apt 4, Suite 200..."
                       />
                     </div>
                     <div>
