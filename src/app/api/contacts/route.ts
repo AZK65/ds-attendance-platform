@@ -72,26 +72,54 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ contacts: [...cachedContacts, ...uniqueStudents], disconnected: true })
     }
 
-    // Get contacts from WhatsApp
-    const allContacts = await searchContacts(search)
+    // Get contacts from WhatsApp + cached SQLite contacts
+    let waContacts: Array<{ id: string; phone: string; name: string | null; pushName: string | null }> = []
+    try {
+      const allContacts = await searchContacts(search)
+      // Get current group members to exclude them
+      let excludeIds: Set<string> = new Set()
+      if (excludeGroupId) {
+        try {
+          const participants = await getGroupParticipants(excludeGroupId)
+          excludeIds = new Set(participants.map(p => p.id))
+        } catch {
+          // Group might not exist or not accessible
+        }
+      }
+      waContacts = allContacts.filter(c => !excludeIds.has(c.id))
+    } catch {
+      // WhatsApp search failed — fall through to cached contacts
+    }
 
-    // Get current group members to exclude them
-    let excludeIds: Set<string> = new Set()
-    if (excludeGroupId) {
+    // Also search cached contacts from SQLite (fills gaps when WhatsApp contact list is incomplete)
+    if (search.length >= 2) {
       try {
-        const participants = await getGroupParticipants(excludeGroupId)
-        excludeIds = new Set(participants.map(p => p.id))
+        const cached = await prisma.contact.findMany({
+          where: {
+            OR: [
+              { name: { contains: search } },
+              { pushName: { contains: search } },
+              { phone: { contains: search } },
+            ],
+          },
+          take: 20,
+          orderBy: { updatedAt: 'desc' },
+        })
+        const waPhones = new Set(waContacts.map(c => c.phone))
+        for (const c of cached) {
+          if (!waPhones.has(c.phone)) {
+            waContacts.push({ id: c.id, phone: c.phone, name: c.name, pushName: c.pushName })
+            waPhones.add(c.phone)
+          }
+        }
       } catch {
-        // Group might not exist or not accessible
+        // Non-fatal
       }
     }
 
-    // Filter out existing group members
-    const waContacts = allContacts.filter(c => !excludeIds.has(c.id))
-
-    // Merge: WhatsApp contacts first, then Student records not already in WhatsApp results
-    const waPhones = new Set(waContacts.map(c => c.phone))
-    const uniqueStudents = studentContacts.filter(s => !waPhones.has(s.phone))
+    // Merge: WhatsApp/cached contacts first, then Student records not already present
+    const allPhones = new Set(waContacts.map(c => c.phone))
+    const uniqueStudents = studentContacts.filter(s => !allPhones.has(s.phone))
 
     const contacts = [
       ...waContacts,
