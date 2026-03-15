@@ -21,6 +21,7 @@ import Link from 'next/link'
 import { useSearchParams } from 'next/navigation'
 import { motion, AnimatePresence } from 'motion/react'
 import { StudentSearchAutocomplete, type StudentResult, type DBStudent, type WhatsAppContact } from '@/components/StudentSearchAutocomplete'
+import { AddressAutocomplete } from '@/components/AddressAutocomplete'
 import { PDFDocument } from 'pdf-lib'
 
 // Print helper: triplicates PDF pages for 3 copies and prints in B&W
@@ -846,10 +847,14 @@ function InvoicePage() {
                     </div>
                     <div>
                       <Label htmlFor="studentAddress">Address</Label>
-                      <Input
+                      <AddressAutocomplete
                         id="studentAddress"
                         value={formData.studentAddress}
-                        onChange={(e) => handleFieldChange('studentAddress', e.target.value)}
+                        onChange={(val) => handleFieldChange('studentAddress', val)}
+                        onAddressSelect={(result) => {
+                          if (result.city) handleFieldChange('studentCity', result.city)
+                          if (result.postalCode) handleFieldChange('studentPostalCode', result.postalCode)
+                        }}
                         placeholder="123 Street"
                       />
                     </div>
