@@ -354,30 +354,23 @@ function InvoicePage() {
         const balanceParams = new URLSearchParams()
         if (formData.studentPhone) balanceParams.set('phone', formData.studentPhone)
         if (formData.studentName) balanceParams.set('name', formData.studentName)
+        let previousBalance = 0
         if (balanceParams.toString()) {
           const balRes = await fetch(`/api/students/balance?${balanceParams}`)
           if (balRes.ok) {
             const balData = await balRes.json()
-            const previousBalance = balData.openBalance || 0
-            if (selectedPackage) {
-              // Package selected: remaining = package total + prior balance - this invoice
-              remainingBalance = selectedPackage.totalPrice + previousBalance - total
-            } else if (manualBalance !== null && manualBalance > 0) {
-              // Manual balance entered: use it directly
-              remainingBalance = manualBalance
-            } else {
-              // No package: remaining = prior balance + this invoice
-              remainingBalance = previousBalance + total
-            }
+            previousBalance = balData.openBalance || 0
           }
         }
-        // If no balance data but package selected, still compute package balance
-        if (remainingBalance === 0 && selectedPackage) {
-          remainingBalance = selectedPackage.totalPrice - total
-        }
-        // If manual balance set and no other balance computed
-        if (remainingBalance === 0 && manualBalance !== null && manualBalance > 0) {
-          remainingBalance = manualBalance
+        if (selectedPackage) {
+          // Package selected: remaining = package total + prior balance - this invoice
+          remainingBalance = selectedPackage.totalPrice + previousBalance - total
+        } else if (manualBalance !== null && manualBalance > 0) {
+          // Manual balance entered: remaining = manualBalance - this invoice
+          remainingBalance = manualBalance - total
+        } else if (previousBalance > 0) {
+          // Existing balance from prior invoices
+          remainingBalance = previousBalance + total
         }
       } catch { /* non-fatal */ }
 
@@ -1122,11 +1115,20 @@ function InvoicePage() {
                 </Button>
               </div>
 
-              {/* Balance Card — top right priority */}
-              {(balanceData || selectedPackage) && (() => {
+              {/* Balance Card — shows for packages, existing balance, or manual balance */}
+              {(() => {
                 const packageTotal = selectedPackage?.totalPrice || 0
                 const previousBalance = balanceData?.openBalance || 0
-                const effectiveBalance = selectedPackage ? packageTotal + previousBalance - total : previousBalance + total
+                let effectiveBalance: number
+                if (selectedPackage) {
+                  effectiveBalance = packageTotal + previousBalance - total
+                } else if (manualBalance !== null && manualBalance > 0) {
+                  effectiveBalance = manualBalance - total
+                } else if (previousBalance > 0) {
+                  effectiveBalance = previousBalance + total
+                } else {
+                  return null // No balance to show
+                }
                 const hasBalance = effectiveBalance > 0
                 return (
                   <Card className={`border-2 ${hasBalance ? 'border-amber-300 bg-amber-50/50 dark:bg-amber-950/20' : 'border-green-300 bg-green-50/50 dark:bg-green-950/20'}`}>
@@ -1138,7 +1140,7 @@ function InvoicePage() {
                           </div>
                           <div>
                             <p className="text-sm text-muted-foreground font-medium">
-                              {selectedPackage ? 'Remaining Balance' : 'Student Balance'}
+                              {selectedPackage ? 'Remaining Balance' : manualBalance !== null && manualBalance > 0 ? 'Custom Balance' : 'Student Balance'}
                             </p>
                             <p className={`text-3xl font-bold font-mono ${hasBalance ? 'text-amber-700 dark:text-amber-400' : 'text-green-700 dark:text-green-400'}`}>
                               ${effectiveBalance.toFixed(2)}
@@ -1155,6 +1157,12 @@ function InvoicePage() {
                             <div className="text-sm">
                               <span className="text-muted-foreground">Package: </span>
                               <span className="font-mono font-medium">${packageTotal.toFixed(2)}</span>
+                            </div>
+                          )}
+                          {!selectedPackage && manualBalance !== null && manualBalance > 0 && (
+                            <div className="text-sm">
+                              <span className="text-muted-foreground">Total owed: </span>
+                              <span className="font-mono font-medium">${manualBalance.toFixed(2)}</span>
                             </div>
                           )}
                           {balanceData && balanceData.totalInvoiced > 0 && (
