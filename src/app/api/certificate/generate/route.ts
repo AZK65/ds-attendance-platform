@@ -109,6 +109,11 @@ export async function POST(request: NextRequest) {
       for (const fieldName of variations) {
         try {
           const field = form.getTextField(fieldName)
+          // Remove maxLength constraint if value exceeds it
+          const maxLen = field.getMaxLength()
+          if (maxLen !== undefined && value.length > maxLen) {
+            field.setMaxLength(undefined)
+          }
           field.setText(value)
           successfulFields.push(fieldName)
           console.log('✓ Set "' + fieldName + '" = "' + value + '"')
