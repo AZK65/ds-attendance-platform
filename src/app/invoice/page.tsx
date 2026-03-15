@@ -40,7 +40,7 @@ async function printPdf3Copies(pdfBlobUrl: string) {
   }
 
   const tripleBytes = await tripleDoc.save()
-  const blob = new Blob([tripleBytes], { type: 'application/pdf' })
+  const blob = new Blob([tripleBytes as unknown as ArrayBuffer], { type: 'application/pdf' })
   const url = URL.createObjectURL(blob)
 
   const printFrame = document.createElement('iframe')
