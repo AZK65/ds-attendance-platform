@@ -124,13 +124,13 @@ async function processLicenceImage(licenceImage: string): Promise<Partial<Extrac
               text: `You are an OCR assistant specialized in reading Quebec driver's licenses. Do not think, just extract the data.
 
 Analyze this driver's license image and extract:
-1. Driver's Licence Number (Numéro de permis) - Format like "A2536-090400-01" or similar
+1. Driver's Licence Number (Numéro de permis) - This is the LARGE number at the TOP of the card, right below "Permis d'apprenti conducteur" or "Permis de conduire". Format is like "N2605-100101-07" or "A2536-090400-01" (letter followed by digits with dashes). Do NOT confuse with "No de référence" which is a shorter alphanumeric code lower on the card.
 2. Full Name (Nom complet) - Last name, First name
-3. Address (Adresse)
+3. Address (Adresse) - Full address including city and postal code
 
 Return ONLY a valid JSON object (no markdown, no code blocks, no explanation):
 {
-  "licenceNumber": "the licence number exactly as shown",
+  "licenceNumber": "the LARGE licence number at the top exactly as shown",
   "name": "LastName, FirstName",
   "address": "full address"
 }
@@ -311,13 +311,15 @@ Example: "02/02/2025" on paper → "2025-02-02" (February 2nd)
 
 The first number is DAY (01-31), second is MONTH (01-12), third is YEAR.
 
-FROM THE DRIVER'S LICENCE: Licence Number, Full Name, Address
+FROM THE DRIVER'S LICENCE:
+- Licence Number: The LARGE number at the TOP of the card, right below "Permis d'apprenti conducteur" or "Permis de conduire". Format is like "N2605-100101-07" (letter + digits with dashes). Do NOT use the "No de référence" which is a shorter alphanumeric code.
+- Full Name, Address
 
 FROM THE ATTENDANCE SHEET: Contract Number, Phone, Registration/Expiry Dates, and ALL module/session dates
 
 Return ONLY valid JSON:
 {
-  "licenceNumber": "licence number exactly as shown",
+  "licenceNumber": "the LARGE licence number at the top of the card",
   "name": "LastName, FirstName",
   "address": "full address",
   "contractNumber": "contract number",
