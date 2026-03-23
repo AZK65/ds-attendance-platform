@@ -369,8 +369,8 @@ function InvoicePage() {
           // Manual balance entered: remaining = manualBalance - this invoice
           remainingBalance = manualBalance - total
         } else if (previousBalance > 0) {
-          // Existing balance from prior invoices
-          remainingBalance = previousBalance + total
+          // Existing balance from prior invoices — subtract this invoice
+          remainingBalance = previousBalance - total
         }
       } catch { /* non-fatal */ }
 
@@ -1125,7 +1125,7 @@ function InvoicePage() {
                 } else if (manualBalance !== null && manualBalance > 0) {
                   effectiveBalance = manualBalance - total
                 } else if (previousBalance > 0) {
-                  effectiveBalance = previousBalance + total
+                  effectiveBalance = previousBalance - total
                 } else {
                   return null // No balance to show
                 }

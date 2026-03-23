@@ -28,17 +28,26 @@ export async function GET(request: NextRequest) {
 
     let totalInvoiced = 0
     let totalPaid = 0
+    let latestRemainingBalance: number | null = null
 
     if (conditions.length > 0) {
       const invoices = await prisma.invoice.findMany({
         where: { OR: conditions },
-        select: { total: true, paymentStatus: true },
+        select: { total: true, paymentStatus: true, remainingBalance: true, createdAt: true },
+        orderBy: { createdAt: 'desc' },
       })
 
       totalInvoiced = invoices.reduce((sum, inv) => sum + inv.total, 0)
       totalPaid = invoices
         .filter(inv => inv.paymentStatus === 'paid')
         .reduce((sum, inv) => sum + inv.total, 0)
+
+      // Get the remaining balance from the most recent invoice (if it had one)
+      // This captures manual/package balance context that openBalance alone can't
+      const latestWithBalance = invoices.find(inv => inv.remainingBalance != null && inv.remainingBalance > 0)
+      if (latestWithBalance) {
+        latestRemainingBalance = latestWithBalance.remainingBalance
+      }
     }
 
     // Try to resolve phone → groupId for profile linking
@@ -71,10 +80,17 @@ export async function GET(request: NextRequest) {
 
     }
 
+    // If a manual/package balance was set, use the latest remaining balance
+    // Otherwise fall back to openBalance (totalInvoiced - totalPaid)
+    const rawOpenBalance = totalInvoiced - totalPaid
+    const openBalance = latestRemainingBalance != null
+      ? latestRemainingBalance
+      : rawOpenBalance
+
     return NextResponse.json({
       totalInvoiced: Math.round(totalInvoiced * 100) / 100,
       totalPaid: Math.round(totalPaid * 100) / 100,
-      openBalance: Math.round((totalInvoiced - totalPaid) * 100) / 100,
+      openBalance: Math.round(openBalance * 100) / 100,
       groupId,
       contactId,
     })

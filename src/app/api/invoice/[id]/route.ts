@@ -75,6 +75,40 @@ export async function DELETE(
 
     await prisma.invoice.delete({ where: { id } })
 
+    // Recalculate remainingBalance on remaining invoices for this student
+    // so PDFs reflect the updated balance after deletion
+    const conditions = []
+    if (invoice.studentPhone) {
+      const phoneDigits = invoice.studentPhone.replace(/\D/g, '')
+      if (phoneDigits.length >= 7) {
+        conditions.push({ studentPhone: { contains: phoneDigits.slice(-10) } })
+      }
+    }
+    if (invoice.studentName) {
+      conditions.push({ studentName: { contains: invoice.studentName } })
+    }
+
+    if (conditions.length > 0) {
+      const remainingInvoices = await prisma.invoice.findMany({
+        where: { OR: conditions },
+        orderBy: { createdAt: 'asc' },
+      })
+
+      // Recalculate: find the latest invoice that has a remainingBalance,
+      // then adjust all subsequent invoices
+      if (remainingInvoices.length > 0) {
+        // Recalculate the last invoice's remaining balance by adding back the deleted invoice's total
+        const lastInvoice = remainingInvoices[remainingInvoices.length - 1]
+        if (lastInvoice.remainingBalance != null) {
+          const newBalance = lastInvoice.remainingBalance + invoice.total
+          await prisma.invoice.update({
+            where: { id: lastInvoice.id },
+            data: { remainingBalance: Math.round(newBalance * 100) / 100 },
+          })
+        }
+      }
+    }
+
     return NextResponse.json({ success: true })
   } catch (error) {
     console.error('Error deleting invoice:', error)

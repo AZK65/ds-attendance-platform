@@ -174,22 +174,9 @@ export default function InvoiceViewPage() {
       lineItems = []
     }
 
-    // Fetch student balance then generate PDF
+    // Use stored remainingBalance from invoice (captures manual/package balance at creation time)
     const generatePdf = async () => {
-      // Always fetch current student balance for the PDF (not the stale stored snapshot)
-      let remainingBalance = 0
-      try {
-        const balanceParams = new URLSearchParams()
-        if (invoice.studentPhone) balanceParams.set('phone', invoice.studentPhone)
-        if (invoice.studentName) balanceParams.set('name', invoice.studentName)
-        if (balanceParams.toString()) {
-          const balRes = await fetch(`/api/students/balance?${balanceParams}`)
-          if (balRes.ok) {
-            const balData = await balRes.json()
-            remainingBalance = balData.openBalance || 0
-          }
-        }
-      } catch { /* non-fatal */ }
+      const remainingBalance = invoice.remainingBalance ?? 0
 
       const payload = {
         schoolName: settings.schoolName,
