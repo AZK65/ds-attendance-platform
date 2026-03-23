@@ -3,10 +3,12 @@
 import Link from 'next/link'
 import Image from 'next/image'
 import { usePathname } from 'next/navigation'
-import { motion } from 'motion/react'
-import { Home, Users, Award, CalendarDays, Link as LinkIcon, Receipt, UserPlus, MessageCircle } from 'lucide-react'
+import { useTheme } from 'next-themes'
+import { motion, AnimatePresence } from 'motion/react'
+import { Home, Users, Award, CalendarDays, Link as LinkIcon, Receipt, UserPlus, MessageCircle, Sun, Moon } from 'lucide-react'
 import { ConnectionStatus } from './ConnectionStatus'
 import { NotificationBell } from './NotificationBell'
+import { useEffect, useState } from 'react'
 
 const NAV_ITEMS = [
   { href: '/scheduling', label: 'Home', icon: Home },
@@ -17,6 +19,49 @@ const NAV_ITEMS = [
   { href: '/students', label: 'Students', icon: UserPlus },
   { href: '/inbox', label: 'Inbox', icon: MessageCircle },
 ]
+
+function ThemeToggle() {
+  const { theme, setTheme, resolvedTheme } = useTheme()
+  const [mounted, setMounted] = useState(false)
+
+  useEffect(() => setMounted(true), [])
+
+  if (!mounted) return <div className="w-9 h-9" />
+
+  const isDark = resolvedTheme === 'dark'
+
+  return (
+    <button
+      onClick={() => setTheme(isDark ? 'light' : 'dark')}
+      className="relative w-9 h-9 flex items-center justify-center rounded-md hover:bg-muted transition-colors"
+      aria-label={`Switch to ${isDark ? 'light' : 'dark'} mode`}
+    >
+      <AnimatePresence mode="wait" initial={false}>
+        {isDark ? (
+          <motion.div
+            key="sun"
+            initial={{ rotate: -90, scale: 0, opacity: 0 }}
+            animate={{ rotate: 0, scale: 1, opacity: 1 }}
+            exit={{ rotate: 90, scale: 0, opacity: 0 }}
+            transition={{ duration: 0.25, ease: 'easeInOut' }}
+          >
+            <Sun className="h-[18px] w-[18px] text-amber-400" />
+          </motion.div>
+        ) : (
+          <motion.div
+            key="moon"
+            initial={{ rotate: 90, scale: 0, opacity: 0 }}
+            animate={{ rotate: 0, scale: 1, opacity: 1 }}
+            exit={{ rotate: -90, scale: 0, opacity: 0 }}
+            transition={{ duration: 0.25, ease: 'easeInOut' }}
+          >
+            <Moon className="h-[18px] w-[18px] text-slate-700" />
+          </motion.div>
+        )}
+      </AnimatePresence>
+    </button>
+  )
+}
 
 export function Navbar() {
   const pathname = usePathname()
@@ -68,8 +113,9 @@ export function Navbar() {
             ))}
           </div>
 
-          {/* Notification Bell + Connection Status */}
-          <div className="ml-4 flex-shrink-0 flex items-center gap-2">
+          {/* Theme Toggle + Notification Bell + Connection Status */}
+          <div className="ml-4 flex-shrink-0 flex items-center gap-1">
+            <ThemeToggle />
             <NotificationBell />
             <ConnectionStatus />
           </div>
