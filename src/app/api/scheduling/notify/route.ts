@@ -19,7 +19,7 @@ export async function POST(request: NextRequest) {
     const body = await request.json()
     phone = body.phone || 'unknown'
     studentName = body.studentName || ''
-    const { module, teacherName, date, classDateISO, startTime, endTime, reminderOnly, isEdit } = body
+    const { module, teacherName, date, classDateISO, startTime, endTime, reminderOnly, isEdit, isCancelled } = body
 
     if (!phone || phone === 'unknown' || !studentName) {
       return NextResponse.json(
@@ -43,20 +43,28 @@ export async function POST(request: NextRequest) {
     }
     const timeStr = startTime && endTime ? `from ${formatTime12h(startTime)} to ${formatTime12h(endTime)}` : ''
 
-    const message = isEdit
+    const message = isCancelled
+      ? `Hi ${cleanName}! Your ${moduleStr} class on ${dateStr} ${timeStr} has been cancelled. We'll reach out to reschedule.`.trim()
+      : isEdit
       ? `Hi ${cleanName}! Your ${moduleStr} class has been updated${teacherStr}. It is now on ${dateStr} ${timeStr}. See you there!`.trim()
       : `Hi ${cleanName}! Your ${moduleStr} class has been scheduled${teacherStr} on ${dateStr} ${timeStr}. See you there!`.trim()
 
     // Only send the instant WhatsApp message if not reminderOnly (reminderOnly = only reschedule the 1hr reminder)
+    const msgType = isCancelled ? 'class-cancelled' : isEdit ? 'class-edited' : 'class-scheduled'
     if (!reminderOnly) {
-      console.log(`[notify] Sending ${isEdit ? 'edit' : 'class'} notification to ${phone} (${studentName})`)
+      console.log(`[notify] Sending ${msgType} notification to ${phone} (${studentName})`)
       await sendPrivateMessage(phone, message)
-      console.log(`[notify] ${isEdit ? 'Edit' : 'Class'} notification sent to ${phone}`)
+      console.log(`[notify] ${msgType} notification sent to ${phone}`)
 
       // Log the sent message
       await prisma.messageLog.create({
-        data: { type: isEdit ? 'class-edited' : 'class-scheduled', to: phone, toName: studentName, message: message.slice(0, 500), status: 'sent' },
+        data: { type: msgType, to: phone, toName: studentName, message: message.slice(0, 500), status: 'sent' },
       }).catch(() => {})
+    }
+
+    // Don't schedule a reminder for cancelled classes
+    if (isCancelled) {
+      return NextResponse.json({ success: true, reminderScheduled: false })
     }
 
     // Schedule a 3-hour-before reminder (with dedup — cancel any existing reminder for same phone + date first)

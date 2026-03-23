@@ -1,6 +1,3 @@
-// This is your Prisma schema file,
-// learn more about it in the docs: https://pris.ly/d/prisma-schema
-
 generator client {
   provider = "prisma-client-js"
 }
@@ -22,14 +19,14 @@ model Group {
   id                 String           @id
   name               String
   participantCount   Int              @default(0)
+  lastSynced         DateTime         @default(now())
+  createdAt          DateTime         @default(now())
+  updatedAt          DateTime         @updatedAt
   moduleNumber       Int?
   lastMessageDate    DateTime?
   lastMessagePreview String?
-  lastSynced         DateTime         @default(now())
   attendanceSheet    AttendanceSheet?
   members            GroupMember[]
-  createdAt          DateTime         @default(now())
-  updatedAt          DateTime         @updatedAt
 }
 
 model Contact {
@@ -38,24 +35,23 @@ model Contact {
   name       String?
   pushName   String?
   lastSynced DateTime           @default(now())
-  records    AttendanceRecord[]
-  groups     GroupMember[]
   createdAt  DateTime           @default(now())
   updatedAt  DateTime           @updatedAt
+  records    AttendanceRecord[]
+  groups     GroupMember[]
 }
 
-// Cached group membership — synced from WhatsApp periodically
 model GroupMember {
-  id          String   @id @default(cuid())
-  groupId     String
-  group       Group    @relation(fields: [groupId], references: [id], onDelete: Cascade)
-  contactId   String
-  contact     Contact  @relation(fields: [contactId], references: [id], onDelete: Cascade)
-  phone       String
-  isAdmin     Boolean  @default(false)
-  isSuperAdmin Boolean @default(false)
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  id           String   @id @default(cuid())
+  groupId      String
+  contactId    String
+  phone        String
+  isAdmin      Boolean  @default(false)
+  isSuperAdmin Boolean  @default(false)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+  contact      Contact  @relation(fields: [contactId], references: [id], onDelete: Cascade)
+  group        Group    @relation(fields: [groupId], references: [id], onDelete: Cascade)
 
   @@unique([groupId, contactId])
   @@index([groupId])
@@ -65,61 +61,54 @@ model GroupMember {
 model AttendanceSheet {
   id        String             @id @default(cuid())
   groupId   String             @unique
-  group     Group              @relation(fields: [groupId], references: [id], onDelete: Cascade)
   name      String
-  records   AttendanceRecord[]
   createdAt DateTime           @default(now())
   updatedAt DateTime           @updatedAt
+  records   AttendanceRecord[]
+  group     Group              @relation(fields: [groupId], references: [id], onDelete: Cascade)
 }
 
 model AttendanceRecord {
   id                String          @id @default(cuid())
   attendanceSheetId String
-  attendanceSheet   AttendanceSheet @relation(fields: [attendanceSheetId], references: [id], onDelete: Cascade)
   contactId         String
-  contact           Contact         @relation(fields: [contactId], references: [id], onDelete: Cascade)
   status            String          @default("absent")
   notes             String?
   date              DateTime        @default(now())
   createdAt         DateTime        @default(now())
   updatedAt         DateTime        @updatedAt
+  contact           Contact         @relation(fields: [contactId], references: [id], onDelete: Cascade)
+  attendanceSheet   AttendanceSheet @relation(fields: [attendanceSheetId], references: [id], onDelete: Cascade)
 
   @@unique([attendanceSheetId, contactId, date])
 }
 
-// Stores Zoom attendance matching results for a specific meeting
 model ZoomAttendance {
-  id              String   @id @default(cuid())
-  groupId         String
-  meetingUUID     String
-  meetingDate     DateTime
-  moduleNumber    Int?
-  // JSON array of matched records
-  matchedRecords  String   // JSON: [{whatsappName, whatsappPhone, zoomName, duration}]
-  // JSON array of absent members
-  absentRecords   String   // JSON: [{name, phone}]
-  // JSON array of unmatched Zoom participants
-  unmatchedZoom   String   // JSON: [{name, duration}]
-  createdAt       DateTime @default(now())
-  updatedAt       DateTime @updatedAt
+  id             String   @id @default(cuid())
+  groupId        String
+  meetingUUID    String
+  meetingDate    DateTime
+  moduleNumber   Int?
+  matchedRecords String
+  absentRecords  String
+  unmatchedZoom  String
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
 
   @@unique([groupId, meetingUUID])
 }
 
-// Stores learned Zoom name → WhatsApp phone matches from manual matching
-// So next class, the system auto-matches "iPhone de Ahmed" → "Ahmed Khan"
 model ZoomNameMatch {
-  id             String   @id @default(cuid())
-  zoomName       String   // The Zoom display name (e.g., "iPhone de Ahmed")
-  whatsappPhone  String   // The WhatsApp phone number
-  whatsappName   String   // The WhatsApp display name (for reference)
-  createdAt      DateTime @default(now())
-  updatedAt      DateTime @updatedAt
+  id            String   @id @default(cuid())
+  zoomName      String
+  whatsappPhone String
+  whatsappName  String
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
 
   @@unique([zoomName, whatsappPhone])
 }
 
-// Certificate settings - stores configuration for auto-generating certificates
 model CertificateSettings {
   id                    String   @id @default("default")
   nextContractNumber    Int      @default(1)
@@ -135,40 +124,36 @@ model CertificateSettings {
   updatedAt             DateTime @updatedAt
 }
 
-// Teacher phone numbers for WhatsApp notifications
 model TeacherPhone {
   id            String   @id @default(cuid())
-  subcalendarId Int      @unique // Teamup subcalendar ID
-  name          String           // Teacher name (for display)
-  phone         String           // WhatsApp phone e.g. "15145551234"
+  subcalendarId Int      @unique
+  name          String
+  phone         String
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
 }
 
-// Message log for tracking all sent WhatsApp messages
 model MessageLog {
   id        String   @id @default(cuid())
-  type      String   // "student-notify", "teacher-notify", "truck-summary", "reminder", "group-message"
-  to        String   // Phone number or group ID
-  toName    String?  // Recipient name for display
-  message   String   // Message content (first 200 chars)
-  status    String   @default("sent") // sent, failed
+  type      String
+  to        String
+  toName    String?
+  message   String
+  status    String   @default("sent")
   error     String?
   createdAt DateTime @default(now())
 
   @@index([createdAt])
 }
 
-// Class attendance tracking (local, not stored in Teamup)
 model ClassAttendance {
   id        String   @id @default(cuid())
-  eventId   String   @unique // Teamup event ID
+  eventId   String   @unique
   present   Boolean  @default(true)
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 }
 
-// Student records - persists all student data from certificate generation
 model Student {
   id               String        @id @default(cuid())
   licenceNumber    String?       @unique
@@ -181,23 +166,17 @@ model Student {
   postalCode       String?
   registrationDate String?
   expiryDate       String?
-
-  // Phase 1 - Theory Modules
   module1Date      String?
   module2Date      String?
   module3Date      String?
   module4Date      String?
   module5Date      String?
-
-  // Phase 2
   module6Date      String?
   sortie1Date      String?
   sortie2Date      String?
   module7Date      String?
   sortie3Date      String?
   sortie4Date      String?
-
-  // Phase 3
   module8Date      String?
   sortie5Date      String?
   sortie6Date      String?
@@ -207,8 +186,6 @@ model Student {
   module10Date     String?
   sortie9Date      String?
   sortie10Date     String?
-
-  // Phase 4
   module11Date     String?
   sortie11Date     String?
   sortie12Date     String?
@@ -216,47 +193,43 @@ model Student {
   module12Date     String?
   sortie14Date     String?
   sortie15Date     String?
-
-  certificates     Certificate[]
   createdAt        DateTime      @default(now())
   updatedAt        DateTime      @updatedAt
+  certificates     Certificate[]
 
   @@index([name])
   @@index([phone])
 }
 
-// Certificate records - tracks each generated certificate linked to a student
 model Certificate {
-  id                 String   @id @default(cuid())
-  studentId          String
-  student            Student  @relation(fields: [studentId], references: [id], onDelete: Cascade)
-  certificateType    String   // "phase1" or "full"
-  contractNumber     String?
-  attestationNumber  String?
-  generatedAt        DateTime @default(now())
-  createdAt          DateTime @default(now())
-  updatedAt          DateTime @updatedAt
+  id                String   @id @default(cuid())
+  studentId         String
+  certificateType   String
+  contractNumber    String?
+  attestationNumber String?
+  generatedAt       DateTime @default(now())
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+  student           Student  @relation(fields: [studentId], references: [id], onDelete: Cascade)
 
   @@index([studentId])
 }
 
-// Invoice settings - stores configuration for invoice numbering and defaults
 model InvoiceSettings {
   id                String   @id @default("default")
   nextInvoiceNumber Int      @default(1)
   invoicePrefix     String   @default("INV")
   defaultGstRate    Float    @default(5.0)
   defaultQstRate    Float    @default(9.975)
-  gstNumber         String   @default("")  // TPS/GST registration number
-  qstNumber         String   @default("")  // TVQ/QST registration number
+  gstNumber         String   @default("")
+  qstNumber         String   @default("")
   taxesEnabled      Boolean  @default(true)
-  senderEmail       String   @default("")  // "from" email for sending invoices via Resend
+  senderEmail       String   @default("")
   notes             String   @default("Merci pour votre confiance! / Thank you for your business!")
   createdAt         DateTime @default(now())
   updatedAt         DateTime @updatedAt
 }
 
-// Invoice records - tracks each generated invoice
 model Invoice {
   id                String   @id @default(cuid())
   invoiceNumber     String   @unique
@@ -269,95 +242,89 @@ model Invoice {
   studentEmail      String?
   invoiceDate       String
   dueDate           String?
-  lineItems         String   // JSON: [{description, quantity, unitPrice}]
+  lineItems         String
   subtotal          Float
   gstAmount         Float    @default(0)
   qstAmount         Float    @default(0)
   total             Float
   notes             String?
-  paymentMethod     String?                  // "cash", "card", "online"
-  paymentStatus     String   @default("unpaid") // "unpaid", "paid"
-  cloverOrderId     String?  // Linked Clover order ID
-  cloverPaymentUrl  String?  // Clover Hosted Checkout link
-  cloverPaid        Boolean  @default(false) // Payment completed via Clover
-  remainingBalance  Float?   // Saved at creation: package or manual balance for PDF
+  paymentMethod     String?
+  paymentStatus     String   @default("unpaid")
+  cloverOrderId     String?
+  cloverPaymentUrl  String?
+  cloverPaid        Boolean  @default(false)
   createdAt         DateTime @default(now())
   updatedAt         DateTime @updatedAt
+  remainingBalance  Float?
 
   @@index([studentName])
   @@index([invoiceNumber])
 }
 
-// Invoice services - reusable line items for car/truck invoices
 model InvoiceService {
-  id          String   @id @default(cuid())
-  name        String                     // e.g. "Cours complet (Auto)"
-  description String?                    // optional longer description
-  price        Float                      // default price
-  vehicleType  String   @default("both")  // "car", "truck", or "both"
-  taxInclusive Boolean  @default(true)    // true = price includes taxes, false = taxes added on top
-  sortOrder    Int      @default(0)       // for display ordering
-  isActive    Boolean  @default(true)    // soft delete
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  id           String   @id @default(cuid())
+  name         String
+  description  String?
+  price        Float
+  vehicleType  String   @default("both")
+  taxInclusive Boolean  @default(true)
+  sortOrder    Int      @default(0)
+  isActive     Boolean  @default(true)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
 
   @@index([vehicleType])
 }
 
-// Invoice packages - pre-defined pricing packages with instalment plans
 model InvoicePackage {
-  id           String               @id @default(cuid())
-  name         String                     // e.g. "Car Complete Course"
-  vehicleType  String   @default("both")  // "car", "truck", "both"
-  totalPrice   Float                      // e.g. 1500.00
-  taxInclusive Boolean  @default(true)
-  isActive     Boolean  @default(true)
-  sortOrder    Int      @default(0)
-  createdAt    DateTime @default(now())
-  updatedAt    DateTime @updatedAt
+  id           String              @id @default(cuid())
+  name         String
+  vehicleType  String              @default("both")
+  totalPrice   Float
+  taxInclusive Boolean             @default(true)
+  isActive     Boolean             @default(true)
+  sortOrder    Int                 @default(0)
+  createdAt    DateTime            @default(now())
+  updatedAt    DateTime            @updatedAt
   instalments  PackageInstalment[]
 
   @@index([vehicleType])
 }
 
-// Package instalments - named payment amounts within a package
 model PackageInstalment {
   id               String         @id @default(cuid())
   packageId        String
-  package          InvoicePackage @relation(fields: [packageId], references: [id], onDelete: Cascade)
   instalmentNumber Int
-  name             String                // e.g. "Deposit", "Mid-Course Payment", "Final Payment"
-  amount           Float                 // e.g. 500.00
-  sortOrder        Int      @default(0)
+  name             String
+  amount           Float
+  sortOrder        Int            @default(0)
+  package          InvoicePackage @relation(fields: [packageId], references: [id], onDelete: Cascade)
 
   @@index([packageId])
 }
 
-// Scheduled messages for sending reminders at a specific time
 model ScheduledMessage {
-  id            String   @id @default(cuid())
-  groupId       String
-  message       String   // The message content
-  scheduledAt   DateTime // When to send the message
-  memberPhones  String   // JSON array of phone numbers (empty for group messages)
-  moduleNumber  Int?
-  classDateISO  String?  // The class date in ISO format (e.g. "2026-02-20")
-  classTime     String?  // The class time text (e.g. "5 pm to 7 pm")
-  isGroupMessage Boolean @default(false) // true = send to group, false = send to individuals
-  status        String   @default("pending") // pending, sent, failed, cancelled
-  sentAt        DateTime?
-  error         String?
-  createdAt     DateTime @default(now())
-  updatedAt     DateTime @updatedAt
+  id             String    @id @default(cuid())
+  groupId        String
+  message        String
+  scheduledAt    DateTime
+  memberPhones   String
+  moduleNumber   Int?
+  classDateISO   String?
+  classTime      String?
+  isGroupMessage Boolean   @default(false)
+  status         String    @default("pending")
+  sentAt         DateTime?
+  error          String?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
 
   @@index([status, scheduledAt])
 }
 
-// Student self-registration via QR code
-// Admin generates a token → student scans QR → fills form → admin reviews & confirms → MySQL
 model StudentRegistration {
-  id           String    @id @default(cuid()) // Also serves as the URL token
-  status       String    @default("pending_scan") // pending_scan, submitted, confirmed, expired
+  id           String    @id @default(cuid())
+  status       String    @default("pending_scan")
   fullName     String?
   phoneNumber  String?
   permitNumber String?
@@ -366,19 +333,30 @@ model StudentRegistration {
   postalCode   String?
   dob          String?
   email        String?
-  expiresAt    DateTime                        // 24h from creation
+  expiresAt    DateTime
   submittedAt  DateTime?
   confirmedAt  DateTime?
-  externalId   Int?                            // MySQL student_id after confirmation
+  externalId   Int?
   createdAt    DateTime  @default(now())
   updatedAt    DateTime  @updatedAt
 
   @@index([status])
 }
 
-// Simple key-value store for user/app preferences (synced across devices)
 model AppPreference {
   key       String   @id
   value     String
+  updatedAt DateTime @updatedAt
+}
+
+model TeamupEventSnapshot {
+  id        String   @id @default(cuid())
+  eventId   String   @unique
+  title     String
+  startDt   String
+  endDt     String
+  notes     String   @default("")
+  lastSeen  DateTime @default(now())
+  createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 }

@@ -770,6 +770,27 @@ function SchedulingPage() {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ phone: data.studentPhone, classDateISO: data.date, startTime: data.startTime }),
+        }).then(() => {
+          // Send cancellation notification to student
+          const teacher = activeTeachers.find(t => t.id.toString() === data.subcalendarId)
+          const moduleLabel = getModuleLabel(data.module)
+          const [year, month, day] = data.date.split('-').map(Number)
+          const dateObj = new Date(year, month - 1, day)
+          const dateStr = dateObj.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' })
+          fetch('/api/scheduling/notify', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              phone: data.studentPhone,
+              studentName: data.studentName,
+              module: moduleLabel,
+              teacherName: teacher?.name?.split(' ')[0] || '',
+              date: dateStr,
+              startTime: data.startTime,
+              endTime: data.endTime,
+              isCancelled: true,
+            }),
+          }).catch(() => {})
         }).catch(() => {})
       }
       setEditingEvent(null)

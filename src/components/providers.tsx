@@ -5,6 +5,7 @@ import { ThemeProvider } from 'next-themes'
 import { useState } from 'react'
 import { usePathname } from 'next/navigation'
 import { ScheduledMessageProcessor } from './ScheduledMessageProcessor'
+import { TeamupChangePoller } from './TeamupChangePoller'
 import { Navbar } from './Navbar'
 
 // Pages that should NOT show the navbar (public/student-facing)
@@ -31,6 +32,7 @@ export function Providers({ children }: { children: React.ReactNode }) {
     <ThemeProvider attribute="class" defaultTheme="system" enableSystem disableTransitionOnChange>
       <QueryClientProvider client={queryClient}>
         <ScheduledMessageProcessor />
+        <TeamupChangePoller />
         {!hideNavbar && <Navbar />}
         {children}
       </QueryClientProvider>
