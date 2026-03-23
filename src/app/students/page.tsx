@@ -572,11 +572,11 @@ function StudentsPage() {
 
   // Add student to existing group mutation
   const addToGroupMutation = useMutation({
-    mutationFn: async ({ groupId, phone }: { groupId: string; phone: string }) => {
+    mutationFn: async ({ groupId, phone, name }: { groupId: string; phone: string; name?: string }) => {
       const res = await fetch(`/api/groups/${encodeURIComponent(groupId)}/members`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ phone }),
+        body: JSON.stringify({ phone, name }),
       })
       if (!res.ok) {
         const err = await res.json()
@@ -584,8 +584,12 @@ function StudentsPage() {
       }
       return res.json()
     },
-    onSuccess: () => {
-      setSuccessMessage('Student added to group!')
+    onSuccess: (data) => {
+      if (data.whatsappWarning) {
+        setSuccessMessage(`Student added to group (Note: ${data.whatsappWarning})`)
+      } else {
+        setSuccessMessage('Student added to group!')
+      }
       setGroupAssignment(null)
       setSelectedGroupId('')
       queryClient.invalidateQueries({ queryKey: ['groups'] })
@@ -1410,7 +1414,7 @@ function StudentsPage() {
               <Button
                 onClick={() => {
                   if (selectedGroupId && groupAssignment?.phone) {
-                    addToGroupMutation.mutate({ groupId: selectedGroupId, phone: groupAssignment.phone })
+                    addToGroupMutation.mutate({ groupId: selectedGroupId, phone: groupAssignment.phone, name: groupAssignment.name })
                   }
                 }}
                 disabled={!selectedGroupId || addToGroupMutation.isPending}

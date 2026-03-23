@@ -15,35 +15,19 @@ export async function POST(
   const decodedGroupId = decodeURIComponent(groupId)
   const state = getWhatsAppState()
 
-  if (!state.isConnected) {
-    return NextResponse.json(
-      { error: 'WhatsApp not connected' },
-      { status: 400 }
-    )
-  }
-
   try {
     const body = await request.json()
-    const { contactId, phone } = body
+    const { contactId, phone, name } = body
 
     // Use phone number directly (wwebjs expects phone number, not full JID)
     const phoneToAdd = phone || contactId?.replace('@c.us', '')
 
-    const result = await addParticipantToGroup(decodedGroupId, phoneToAdd)
-
-    if (!result.success) {
-      return NextResponse.json(
-        { error: result.error || 'Failed to add member' },
-        { status: 400 }
-      )
-    }
-
-    // Sync the new member to the database so cached queries return fresh data
+    // Always save to SQLite first so the student shows up in the app
     const jid = phoneToAdd.includes('@') ? phoneToAdd : `${phoneToAdd}@c.us`
     await prisma.contact.upsert({
       where: { id: jid },
-      update: { phone: phoneToAdd, lastSynced: new Date() },
-      create: { id: jid, phone: phoneToAdd },
+      update: { phone: phoneToAdd, ...(name ? { name } : {}), lastSynced: new Date() },
+      create: { id: jid, phone: phoneToAdd, name: name || null },
     })
     await prisma.groupMember.upsert({
       where: { groupId_contactId: { groupId: decodedGroupId, contactId: jid } },
@@ -51,7 +35,22 @@ export async function POST(
       create: { groupId: decodedGroupId, contactId: jid, phone: phoneToAdd },
     })
 
-    return NextResponse.json({ success: true })
+    // Try adding to WhatsApp group (best-effort — student is already in our DB)
+    let whatsappWarning: string | undefined
+    if (state.isConnected) {
+      const result = await addParticipantToGroup(decodedGroupId, phoneToAdd)
+      if (!result.success) {
+        whatsappWarning = result.error || 'Could not add to WhatsApp group'
+        console.log(`[Add Member] WhatsApp add failed for ${phoneToAdd}: ${whatsappWarning}`)
+      }
+    } else {
+      whatsappWarning = 'WhatsApp not connected — student saved to database only'
+    }
+
+    return NextResponse.json({
+      success: true,
+      whatsappWarning,
+    })
   } catch (error) {
     console.error('Add member error:', error)
     return NextResponse.json(
