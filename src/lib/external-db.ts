@@ -310,12 +310,19 @@ function sanitizeDate(dateStr: string): string {
 export async function createStudent(data: CreateStudentData): Promise<{ insertId: number }> {
   const db = await getPool()
   const dob = sanitizeDate(data.dob)
-  const [result] = await db.execute<mysql.ResultSetHeader>(
-    `INSERT INTO student (full_name, phone_number, permit_number, full_address, city, postal_code, dob, email)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-    [data.full_name, data.phone_number, data.permit_number, data.full_address, data.city, data.postal_code, dob, data.email]
+
+  // student_id is not auto-increment — get next ID manually
+  const [maxRows] = await db.execute<mysql.RowDataPacket[]>(
+    'SELECT COALESCE(MAX(student_id), 0) + 1 AS next_id FROM student'
   )
-  return { insertId: result.insertId }
+  const nextId = (maxRows as mysql.RowDataPacket[])[0]?.next_id || 1
+
+  await db.execute(
+    `INSERT INTO student (student_id, full_name, phone_number, permit_number, full_address, city, postal_code, dob, email)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    [nextId, data.full_name, data.phone_number, data.permit_number, data.full_address, data.city, data.postal_code, dob, data.email]
+  )
+  return { insertId: nextId }
 }
 
 export async function updateStudent(id: number, data: Partial<CreateStudentData>): Promise<void> {
