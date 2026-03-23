@@ -479,11 +479,11 @@ function StudentsPage() {
 
   // Update mutation
   const updateMutation = useMutation({
-    mutationFn: async ({ student_id, ...fields }: StudentFormData & { student_id: number }) => {
+    mutationFn: async ({ student_id, old_phone, ...fields }: StudentFormData & { student_id: number; old_phone?: string }) => {
       const res = await fetch('/api/students/manage', {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ student_id, ...fields }),
+        body: JSON.stringify({ student_id, old_phone, ...fields }),
       })
       if (!res.ok) {
         const err = await res.json()
@@ -496,6 +496,7 @@ function StudentsPage() {
       setShowForm(false)
       setFormData(EMPTY_FORM)
       setEditingStudent(null)
+      queryClient.invalidateQueries({ queryKey: ['groups'] })
     },
   })
 
@@ -628,7 +629,7 @@ function StudentsPage() {
       if (!formData[field]?.trim()) return
     }
     if (editingStudent) {
-      updateMutation.mutate({ ...formData, student_id: editingStudent.student_id })
+      updateMutation.mutate({ ...formData, student_id: editingStudent.student_id, old_phone: editingStudent.phone_number })
     } else {
       createMutation.mutate(formData)
     }

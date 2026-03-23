@@ -48,7 +48,7 @@ export async function POST(request: NextRequest) {
 export async function PUT(request: NextRequest) {
   try {
     const body = await request.json()
-    const { student_id, ...fields } = body
+    const { student_id, old_phone, ...fields } = body
 
     if (!student_id) {
       return NextResponse.json(
@@ -58,6 +58,46 @@ export async function PUT(request: NextRequest) {
     }
 
     await updateStudent(student_id, fields)
+
+    // If phone changed, update SQLite Contact + GroupMember across all groups
+    const newPhone = fields.phone_number?.replace(/\D/g, '')
+    const oldPhone = old_phone?.replace(/\D/g, '')
+    if (newPhone && oldPhone && newPhone !== oldPhone) {
+      const oldJid = `${oldPhone}@c.us`
+      const newJid = `${newPhone}@c.us`
+
+      // Create/update new contact
+      await prisma.contact.upsert({
+        where: { id: newJid },
+        update: { phone: newPhone, name: fields.full_name || null, lastSynced: new Date() },
+        create: { id: newJid, phone: newPhone, name: fields.full_name || null },
+      })
+
+      // Move all group memberships from old phone to new phone
+      const oldMemberships = await prisma.groupMember.findMany({
+        where: { contactId: oldJid },
+      })
+      for (const membership of oldMemberships) {
+        await prisma.groupMember.upsert({
+          where: { groupId_contactId: { groupId: membership.groupId, contactId: newJid } },
+          update: { phone: newPhone },
+          create: { groupId: membership.groupId, contactId: newJid, phone: newPhone },
+        })
+      }
+      // Remove old memberships
+      if (oldMemberships.length > 0) {
+        await prisma.groupMember.deleteMany({ where: { contactId: oldJid } })
+      }
+    } else if (newPhone && fields.full_name) {
+      // Just update the contact name
+      const jid = `${newPhone}@c.us`
+      await prisma.contact.upsert({
+        where: { id: jid },
+        update: { name: fields.full_name, lastSynced: new Date() },
+        create: { id: jid, phone: newPhone, name: fields.full_name },
+      }).catch(() => {})
+    }
+
     return NextResponse.json({ success: true })
   } catch (error) {
     console.error('[Students Manage] Update error:', error)

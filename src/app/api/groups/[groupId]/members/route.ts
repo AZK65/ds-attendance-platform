@@ -77,42 +77,13 @@ export async function PATCH(
     }
 
     const oldPhone = contactId.replace('@c.us', '')
+    let whatsappWarning: string | undefined
 
-    // If phone changed, swap in WhatsApp group
+    // Always update SQLite first
     if (newPhone && newPhone !== oldPhone) {
-      if (!state.isConnected) {
-        return NextResponse.json({ error: 'WhatsApp not connected' }, { status: 400 })
-      }
-
-      // Step 1: Remove old number from group
-      try {
-        await removeParticipantFromGroup(decodedGroupId, contactId)
-      } catch (removeErr) {
-        console.error('Failed to remove old participant:', removeErr)
-        return NextResponse.json(
-          { error: `Failed to remove old number from group: ${removeErr instanceof Error ? removeErr.message : String(removeErr)}` },
-          { status: 500 }
-        )
-      }
-
-      // Step 2: Add new number to group
-      const addResult = await addParticipantToGroup(decodedGroupId, newPhone)
-      if (!addResult.success) {
-        // Rollback: try to re-add old number
-        console.error('Failed to add new number, rolling back...')
-        try {
-          await addParticipantToGroup(decodedGroupId, oldPhone)
-        } catch (rollbackErr) {
-          console.error('Rollback also failed:', rollbackErr)
-        }
-        return NextResponse.json(
-          { error: addResult.error || 'Failed to add new phone to group. Old number was restored.' },
-          { status: 400 }
-        )
-      }
-
-      // Step 3: Update Contact in database
       const newJid = phoneToJid(newPhone)
+
+      // Update Contact: create new, keep old for history
       await prisma.contact.upsert({
         where: { id: newJid },
         update: {
@@ -127,26 +98,49 @@ export async function PATCH(
           pushName: null,
         },
       })
+
+      // Update GroupMember: remove old, add new
+      await prisma.groupMember.deleteMany({
+        where: { groupId: decodedGroupId, contactId },
+      })
+      await prisma.groupMember.upsert({
+        where: { groupId_contactId: { groupId: decodedGroupId, contactId: newJid } },
+        update: { phone: newPhone },
+        create: { groupId: decodedGroupId, contactId: newJid, phone: newPhone },
+      })
+
+      // Try WhatsApp swap (best-effort)
+      if (state.isConnected) {
+        try {
+          await removeParticipantFromGroup(decodedGroupId, contactId)
+        } catch (removeErr) {
+          console.error('Failed to remove old participant from WhatsApp:', removeErr)
+          whatsappWarning = 'Could not remove old number from WhatsApp group'
+        }
+
+        const addResult = await addParticipantToGroup(decodedGroupId, newPhone)
+        if (!addResult.success) {
+          console.log(`[Edit Member] WhatsApp add failed for ${newPhone}: ${addResult.error}`)
+          whatsappWarning = (whatsappWarning ? whatsappWarning + '; ' : '') +
+            (addResult.error || 'Could not add new number to WhatsApp group')
+        }
+      } else {
+        whatsappWarning = 'WhatsApp not connected — database updated only'
+      }
     } else if (newName !== undefined) {
       // Only name changed — update local database
-      await prisma.contact.update({
+      await prisma.contact.upsert({
         where: { id: contactId },
-        data: { name: newName },
-      }).catch(() => {
-        // Contact might not exist in DB yet, create it
-        return prisma.contact.upsert({
-          where: { id: contactId },
-          update: { name: newName },
-          create: {
-            id: contactId,
-            phone: oldPhone,
-            name: newName,
-          },
-        })
+        update: { name: newName },
+        create: {
+          id: contactId,
+          phone: oldPhone,
+          name: newName,
+        },
       })
     }
 
-    return NextResponse.json({ success: true })
+    return NextResponse.json({ success: true, whatsappWarning })
   } catch (error) {
     console.error('Update member error:', error)
     return NextResponse.json(
