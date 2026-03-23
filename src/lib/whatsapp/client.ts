@@ -916,9 +916,10 @@ export async function createWhatsAppGroup(name: string, participantPhones: strin
     console.log(`[createGroup] Group created: ${groupId}`)
 
     // Log any participant add failures
-    for (const p of result.participants) {
+    const participants = Array.isArray(result.participants) ? result.participants : []
+    for (const p of participants) {
       if (p.statusCode !== 200) {
-        console.warn(`[createGroup] Failed to add ${p.id._serialized}: status ${p.statusCode}`)
+        console.warn(`[createGroup] Failed to add ${p.id?._serialized}: status ${p.statusCode}`)
       }
     }
 
