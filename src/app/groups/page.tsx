@@ -13,7 +13,17 @@ import {
   CommandList,
 } from '@/components/ui/command'
 import { motion, AnimatePresence } from 'motion/react'
-import { Loader2, RefreshCw, Link as LinkIcon, Search, User, Users, BookOpen, Phone } from 'lucide-react'
+import { Loader2, RefreshCw, Link as LinkIcon, Search, User, Users, BookOpen, Phone, Plus, CheckCircle, CalendarDays } from 'lucide-react'
+import { Input } from '@/components/ui/input'
+import { Label } from '@/components/ui/label'
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
+  DialogFooter,
+} from '@/components/ui/dialog'
 import Link from 'next/link'
 import Image from 'next/image'
 import { useRouter } from 'next/navigation'
@@ -56,6 +66,38 @@ export default function GroupsPage() {
   const [debouncedSearch, setDebouncedSearch] = useState('')
   const router = useRouter()
   const queryClient = useQueryClient()
+
+  // New Group dialog state
+  const [showNewGroup, setShowNewGroup] = useState(false)
+  const [newGroupName, setNewGroupName] = useState('')
+  const [selectedPending, setSelectedPending] = useState<Set<string>>(new Set())
+  const [newGroupLoading, setNewGroupLoading] = useState(false)
+  const [newGroupResult, setNewGroupResult] = useState<{ success: boolean; message: string; groupId?: string } | null>(null)
+
+  // Class setup state (after group creation)
+  const [showClassSetup, setShowClassSetup] = useState(false)
+  const [classSetupGroupId, setClassSetupGroupId] = useState('')
+  const [classSetupPhones, setClassSetupPhones] = useState<string[]>([])
+  const [classSetupModule, setClassSetupModule] = useState(1)
+  const [classSetupDate, setClassSetupDate] = useState('')
+  const [classSetupTime, setClassSetupTime] = useState('5 pm to 7 pm')
+  const [classSetupSendPdf, setClassSetupSendPdf] = useState(false)
+  const [classSetupPdfBase64, setClassSetupPdfBase64] = useState('')
+  const [classSetupPdfName, setClassSetupPdfName] = useState('')
+  const [classSetupSetDesc, setClassSetupSetDesc] = useState(true)
+  const [classSetupResults, setClassSetupResults] = useState<Array<{ action: string; status: string }> | null>(null)
+  const [classSetupLoading, setClassSetupLoading] = useState(false)
+
+  // Fetch pending students (not in any group)
+  const { data: pendingData } = useQuery<{ students: Array<{ id: string; phone: string; name: string | null; createdAt: string }> }>({
+    queryKey: ['pending-students'],
+    queryFn: async () => {
+      const res = await fetch('/api/students/pending')
+      if (!res.ok) throw new Error('Failed')
+      return res.json()
+    },
+    enabled: showNewGroup,
+  })
 
   // Debounce search for contact API calls
   useEffect(() => {
@@ -266,6 +308,15 @@ export default function GroupsPage() {
                 <kbd className="pointer-events-none ml-auto hidden sm:inline-flex h-5 select-none items-center gap-1 rounded border bg-muted px-1.5 font-mono text-[10px] font-medium text-muted-foreground">
                   <span className="text-xs">⌘</span>K
                 </kbd>
+              </Button>
+              <Button onClick={() => {
+                setShowNewGroup(true)
+                setNewGroupName('')
+                setSelectedPending(new Set())
+                setNewGroupResult(null)
+              }}>
+                <Plus className="mr-2 h-4 w-4" />
+                New Group
               </Button>
               <Button
                 variant="outline"
@@ -635,6 +686,308 @@ export default function GroupsPage() {
             Showing cached data. Connect to sync latest groups.
           </p>
         )}
+
+        {/* New Group Dialog */}
+        <Dialog open={showNewGroup} onOpenChange={(o) => { if (!o && !newGroupLoading) setShowNewGroup(false) }}>
+          <DialogContent className="sm:max-w-lg max-h-[90vh] overflow-y-auto">
+            <DialogHeader>
+              <DialogTitle className="flex items-center gap-2">
+                <Plus className="h-5 w-5" />
+                Create New Group
+              </DialogTitle>
+              <DialogDescription>
+                Name the group and select pending students to add.
+              </DialogDescription>
+            </DialogHeader>
+
+            {!newGroupResult ? (
+              <div className="space-y-4 py-2">
+                <div>
+                  <Label className="text-sm font-medium mb-1.5 block">Group Name</Label>
+                  <Input
+                    value={newGroupName}
+                    onChange={e => setNewGroupName(e.target.value)}
+                    placeholder="e.g. Qazi Theory Class #108"
+                  />
+                </div>
+
+                <div>
+                  <div className="flex items-center justify-between mb-2">
+                    <Label className="text-sm font-medium">Pending Students</Label>
+                    {(pendingData?.students?.length ?? 0) > 0 && (
+                      <div className="flex gap-2">
+                        <button
+                          type="button"
+                          className="text-xs text-primary hover:underline"
+                          onClick={() => setSelectedPending(new Set(pendingData!.students.map(s => s.phone)))}
+                        >
+                          Select All
+                        </button>
+                        <button
+                          type="button"
+                          className="text-xs text-muted-foreground hover:underline"
+                          onClick={() => setSelectedPending(new Set())}
+                        >
+                          Clear
+                        </button>
+                      </div>
+                    )}
+                  </div>
+
+                  {!pendingData ? (
+                    <div className="flex items-center justify-center py-6 text-muted-foreground">
+                      <Loader2 className="h-4 w-4 animate-spin mr-2" /> Loading...
+                    </div>
+                  ) : pendingData.students.length === 0 ? (
+                    <p className="text-sm text-muted-foreground text-center py-4">
+                      No pending students. Create students first from the Students page.
+                    </p>
+                  ) : (
+                    <div className="max-h-[250px] overflow-y-auto border rounded-md divide-y">
+                      {pendingData.students.map(s => (
+                        <label
+                          key={s.id}
+                          className={`flex items-center gap-3 px-3 py-2.5 cursor-pointer hover:bg-accent transition-colors ${
+                            selectedPending.has(s.phone) ? 'bg-primary/5' : ''
+                          }`}
+                        >
+                          <input
+                            type="checkbox"
+                            checked={selectedPending.has(s.phone)}
+                            onChange={e => {
+                              const next = new Set(selectedPending)
+                              if (e.target.checked) next.add(s.phone)
+                              else next.delete(s.phone)
+                              setSelectedPending(next)
+                            }}
+                            className="rounded"
+                          />
+                          <div className="flex-1 min-w-0">
+                            <p className="text-sm font-medium truncate">{s.name || s.phone}</p>
+                            {s.name && <p className="text-xs text-muted-foreground">{s.phone}</p>}
+                          </div>
+                        </label>
+                      ))}
+                    </div>
+                  )}
+                  <p className="text-xs text-muted-foreground mt-1">
+                    {selectedPending.size} selected
+                  </p>
+                </div>
+
+                <DialogFooter>
+                  <Button variant="outline" onClick={() => setShowNewGroup(false)}>Cancel</Button>
+                  <Button
+                    disabled={!newGroupName.trim() || selectedPending.size === 0 || newGroupLoading}
+                    onClick={async () => {
+                      setNewGroupLoading(true)
+                      try {
+                        // Create WhatsApp group with first student
+                        const phones = Array.from(selectedPending)
+                        const res = await fetch('/api/groups/create', {
+                          method: 'POST',
+                          headers: { 'Content-Type': 'application/json' },
+                          body: JSON.stringify({ name: newGroupName.trim(), participants: phones }),
+                        })
+                        if (!res.ok) {
+                          const err = await res.json()
+                          throw new Error(err.error || 'Failed to create group')
+                        }
+                        const data = await res.json()
+
+                        // Add remaining students to group (first one is already added by create)
+                        // The create endpoint already adds all participants, but let's
+                        // also send invite links for those who couldn't be added directly
+                        setNewGroupResult({
+                          success: true,
+                          message: `Group "${newGroupName}" created with ${phones.length} student(s)!`,
+                          groupId: data.groupId,
+                        })
+
+                        // Set up for class setup dialog
+                        setClassSetupGroupId(data.groupId)
+                        setClassSetupPhones(phones)
+                        setClassSetupResults(null)
+
+                        queryClient.invalidateQueries({ queryKey: ['groups'] })
+                        queryClient.invalidateQueries({ queryKey: ['pending-students'] })
+                      } catch (err) {
+                        setNewGroupResult({
+                          success: false,
+                          message: err instanceof Error ? err.message : 'Failed to create group',
+                        })
+                      } finally {
+                        setNewGroupLoading(false)
+                      }
+                    }}
+                  >
+                    {newGroupLoading ? (
+                      <><Loader2 className="h-4 w-4 animate-spin mr-2" />Creating...</>
+                    ) : (
+                      <><Plus className="h-4 w-4 mr-2" />Create Group ({selectedPending.size} students)</>
+                    )}
+                  </Button>
+                </DialogFooter>
+              </div>
+            ) : (
+              <div className="space-y-4 py-2">
+                <div className="flex items-center gap-2">
+                  {newGroupResult.success ? (
+                    <CheckCircle className="h-5 w-5 text-green-600" />
+                  ) : (
+                    <div className="h-5 w-5 text-red-600">!</div>
+                  )}
+                  <span className={`font-medium ${newGroupResult.success ? '' : 'text-destructive'}`}>
+                    {newGroupResult.message}
+                  </span>
+                </div>
+                <DialogFooter>
+                  {newGroupResult.success && newGroupResult.groupId && (
+                    <Button onClick={() => {
+                      setShowNewGroup(false)
+                      setShowClassSetup(true)
+                    }}>
+                      <CalendarDays className="h-4 w-4 mr-2" />
+                      Setup Class
+                    </Button>
+                  )}
+                  <Button variant="outline" onClick={() => setShowNewGroup(false)}>
+                    {newGroupResult.success ? 'Skip' : 'Close'}
+                  </Button>
+                </DialogFooter>
+              </div>
+            )}
+          </DialogContent>
+        </Dialog>
+
+        {/* Class Setup Dialog (after group creation) */}
+        <Dialog open={showClassSetup} onOpenChange={(o) => { if (!o && !classSetupLoading) { setShowClassSetup(false); setClassSetupResults(null) } }}>
+          <DialogContent className="sm:max-w-lg max-h-[90vh] overflow-y-auto">
+            <DialogHeader>
+              <DialogTitle className="flex items-center gap-2">
+                <CalendarDays className="h-5 w-5" />
+                Setup Class
+              </DialogTitle>
+              <DialogDescription>
+                Set group description, send course book, and schedule the first class.
+              </DialogDescription>
+            </DialogHeader>
+
+            {!classSetupResults ? (
+              <div className="space-y-5 py-2">
+                <div className="space-y-2">
+                  <div className="flex items-center gap-2">
+                    <input type="checkbox" id="gSetupDesc" checked={classSetupSetDesc} onChange={e => setClassSetupSetDesc(e.target.checked)} className="rounded" />
+                    <Label htmlFor="gSetupDesc" className="text-sm font-medium cursor-pointer">Set group description with Zoom links</Label>
+                  </div>
+                  {classSetupSetDesc && (
+                    <p className="text-xs text-muted-foreground ml-6">iOS + Android + Desktop Zoom links and password</p>
+                  )}
+                </div>
+
+                <div className="space-y-2">
+                  <div className="flex items-center gap-2">
+                    <input type="checkbox" id="gSetupPdf" checked={classSetupSendPdf} onChange={e => setClassSetupSendPdf(e.target.checked)} className="rounded" />
+                    <Label htmlFor="gSetupPdf" className="text-sm font-medium cursor-pointer">Send course book PDF</Label>
+                  </div>
+                  {classSetupSendPdf && (
+                    <div className="ml-6">
+                      <input type="file" accept=".pdf" onChange={e => {
+                        const file = e.target.files?.[0]
+                        if (!file) return
+                        setClassSetupPdfName(file.name)
+                        const reader = new FileReader()
+                        reader.onload = () => setClassSetupPdfBase64((reader.result as string).split(',')[1])
+                        reader.readAsDataURL(file)
+                      }} className="text-sm" />
+                      {classSetupPdfName && <p className="text-xs text-green-600 mt-1">{classSetupPdfName} ready</p>}
+                    </div>
+                  )}
+                </div>
+
+                <div className="space-y-3 border-t pt-4">
+                  <Label className="text-sm font-medium">Schedule First Class</Label>
+                  <div className="grid grid-cols-3 gap-3">
+                    <div>
+                      <Label className="text-xs text-muted-foreground mb-1 block">Module</Label>
+                      <Input type="number" min={1} max={12} value={classSetupModule} onChange={e => setClassSetupModule(parseInt(e.target.value) || 1)} />
+                    </div>
+                    <div>
+                      <Label className="text-xs text-muted-foreground mb-1 block">Date</Label>
+                      <Input type="date" value={classSetupDate} onChange={e => setClassSetupDate(e.target.value)} />
+                    </div>
+                    <div>
+                      <Label className="text-xs text-muted-foreground mb-1 block">Time</Label>
+                      <Input value={classSetupTime} onChange={e => setClassSetupTime(e.target.value)} placeholder="5 pm to 7 pm" />
+                    </div>
+                  </div>
+                </div>
+
+                <DialogFooter>
+                  <Button variant="outline" onClick={() => { setShowClassSetup(false); setClassSetupResults(null) }}>Skip</Button>
+                  <Button
+                    disabled={classSetupLoading || (!classSetupSetDesc && !classSetupSendPdf && !classSetupDate)}
+                    onClick={async () => {
+                      setClassSetupLoading(true)
+                      try {
+                        let classDateFormatted = ''
+                        if (classSetupDate) {
+                          const [y, m, d] = classSetupDate.split('-').map(Number)
+                          classDateFormatted = new Date(y, m - 1, d).toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' })
+                        }
+                        const description = classSetupSetDesc
+                          ? `Zoom Meeting Link:\n\niOS/Android App:\nzoom.us/j/4171672829\nMeeting ID: 417 167 2829\nPassword: qazi\n\nDesktop/Browser:\nhttps://us02web.zoom.us/j/4171672829?pwd=ZTlHSEdmTGRYV1QraU5MaThqaC9Rdz09\nPassword: qazi`
+                          : undefined
+                        const res = await fetch(`/api/groups/${encodeURIComponent(classSetupGroupId)}/setup`, {
+                          method: 'POST',
+                          headers: { 'Content-Type': 'application/json' },
+                          body: JSON.stringify({
+                            setDescription: classSetupSetDesc, description,
+                            sendPdf: classSetupSendPdf && classSetupPdfBase64, pdfBase64: classSetupPdfBase64, pdfFilename: classSetupPdfName,
+                            memberPhones: classSetupPhones,
+                            scheduleClass: !!classSetupDate, moduleNumber: classSetupModule,
+                            classDate: classDateFormatted, classDateISO: classSetupDate, classTime: classSetupTime,
+                          }),
+                        })
+                        if (res.ok) {
+                          const d = await res.json()
+                          setClassSetupResults(d.results || [])
+                        } else {
+                          const err = await res.json()
+                          setClassSetupResults([{ action: 'Setup', status: `Error: ${err.error}` }])
+                        }
+                      } catch (err) {
+                        setClassSetupResults([{ action: 'Setup', status: `Error: ${err instanceof Error ? err.message : 'unknown'}` }])
+                      } finally {
+                        setClassSetupLoading(false)
+                      }
+                    }}
+                  >
+                    {classSetupLoading ? <><Loader2 className="h-4 w-4 animate-spin mr-2" />Setting up...</> : 'Setup & Send'}
+                  </Button>
+                </DialogFooter>
+              </div>
+            ) : (
+              <div className="space-y-4 py-2">
+                <div className="flex items-center gap-2">
+                  <CheckCircle className="h-5 w-5 text-green-600" />
+                  <span className="font-medium">Setup Complete</span>
+                </div>
+                <div className="border rounded-md divide-y">
+                  {classSetupResults.map((r, i) => (
+                    <div key={i} className="flex items-center justify-between px-3 py-2 text-sm">
+                      <span>{r.action}</span>
+                      <span className={`text-xs ${r.status.includes('Failed') || r.status.includes('Error') ? 'text-red-600' : 'text-green-600'}`}>{r.status}</span>
+                    </div>
+                  ))}
+                </div>
+                <DialogFooter>
+                  <Button onClick={() => { setShowClassSetup(false); setClassSetupResults(null) }}>Done</Button>
+                </DialogFooter>
+              </div>
+            )}
+          </DialogContent>
+        </Dialog>
       </main>
     </div>
   )
