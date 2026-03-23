@@ -733,8 +733,12 @@ function StudentsPage() {
       }
       return res.json()
     },
-    onSuccess: () => {
-      setSuccessMessage('Group created and student added!')
+    onSuccess: (data) => {
+      if (data.whatsappWarning) {
+        setSuccessMessage(`Group created (Note: ${data.whatsappWarning})`)
+      } else {
+        setSuccessMessage('Group created and student added!')
+      }
       setGroupAssignment(null)
       setNewGroupName('')
       setCreatingNewGroup(false)

@@ -19,38 +19,60 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Group name is required' }, { status: 400 })
     }
 
-    const result = await createWhatsAppGroup(name.trim(), participants || [])
+    let groupId: string
+    let title: string
+    let whatsappWarning: string | undefined
 
-    // Sync new group to database
-    await prisma.group.upsert({
-      where: { id: result.groupId },
-      update: { name: result.title, lastSynced: new Date() },
-      create: {
-        id: result.groupId,
-        name: result.title,
-        participantCount: (participants?.length || 0) + 1, // +1 for self
-      },
-    })
+    try {
+      const result = await createWhatsAppGroup(name.trim(), participants || [])
+      groupId = result.groupId
+      title = result.title
+    } catch (waError) {
+      console.error('WhatsApp createGroup failed:', waError)
+      whatsappWarning = waError instanceof Error ? waError.message : 'WhatsApp group creation failed'
+      // Can't proceed without a group ID from WhatsApp
+      return NextResponse.json(
+        { error: 'Failed to create WhatsApp group: ' + whatsappWarning },
+        { status: 500 }
+      )
+    }
 
-    // Sync participants as contacts + group members
-    for (const phone of (participants || [])) {
-      const jid = phoneToJid(phone)
-      await prisma.contact.upsert({
-        where: { id: jid },
-        update: { phone, lastSynced: new Date() },
-        create: { id: jid, phone },
+    // Always sync to SQLite — even if WhatsApp had partial failures
+    try {
+      await prisma.group.upsert({
+        where: { id: groupId },
+        update: { name: title, lastSynced: new Date() },
+        create: {
+          id: groupId,
+          name: title,
+          participantCount: (participants?.length || 0) + 1,
+        },
       })
-      await prisma.groupMember.upsert({
-        where: { groupId_contactId: { groupId: result.groupId, contactId: jid } },
-        update: { phone },
-        create: { groupId: result.groupId, contactId: jid, phone },
-      })
+
+      for (const phone of (participants || [])) {
+        const jid = phoneToJid(phone)
+        await prisma.contact.upsert({
+          where: { id: jid },
+          update: { phone, lastSynced: new Date() },
+          create: { id: jid, phone },
+        })
+        await prisma.groupMember.upsert({
+          where: { groupId_contactId: { groupId, contactId: jid } },
+          update: { phone },
+          create: { groupId, contactId: jid, phone },
+        })
+      }
+    } catch (dbError) {
+      console.error('SQLite sync after group create failed:', dbError)
+      // Group was created on WhatsApp — return success with warning
+      whatsappWarning = 'Group created but database sync failed'
     }
 
     return NextResponse.json({
       success: true,
-      groupId: result.groupId,
-      title: result.title,
+      groupId,
+      title,
+      whatsappWarning,
     })
   } catch (error) {
     console.error('Create group error:', error)
