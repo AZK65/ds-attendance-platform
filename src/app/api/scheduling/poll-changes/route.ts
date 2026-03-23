@@ -93,6 +93,45 @@ export async function POST() {
 
         changes.push({ type: 'deleted', eventId: snapshot.eventId, studentName })
 
+        // Cancel any pending scheduled reminders for this student/date
+        if (phone) {
+          try {
+            // Find pending reminders that contain this phone number
+            const pendingReminders = await prisma.scheduledMessage.findMany({
+              where: { status: 'pending' },
+            })
+            const toCancel = pendingReminders.filter(r => {
+              try {
+                const phones: string[] = JSON.parse(r.memberPhones)
+                return phones.includes(phone)
+              } catch { return false }
+            })
+            // Match by class date/time
+            const classDate = snapshot.startDt.split('T')[0]
+            const classTimePart = snapshot.startDt.includes('T') ? snapshot.startDt.split('T')[1].slice(0, 5) : null
+            const matched = toCancel.filter(r => {
+              // Theory class reminders have classDateISO
+              if (r.classDateISO === classDate) return true
+              // Truck class reminders: scheduledAt + 6h = class time
+              if (r.groupId === 'truck-classes' && classTimePart) {
+                const classTime = new Date(`${classDate}T${classTimePart}:00`)
+                const expectedReminder = new Date(classTime.getTime() - 6 * 60 * 60 * 1000)
+                return Math.abs(r.scheduledAt.getTime() - expectedReminder.getTime()) < 2 * 60 * 1000
+              }
+              return false
+            })
+            if (matched.length > 0) {
+              await prisma.scheduledMessage.updateMany({
+                where: { id: { in: matched.map(m => m.id) } },
+                data: { status: 'cancelled' },
+              })
+              console.log(`[poll-changes] Cancelled ${matched.length} reminder(s) for deleted event ${snapshot.eventId}`)
+            }
+          } catch (err) {
+            console.error(`[poll-changes] Failed to cancel reminders:`, err)
+          }
+        }
+
         if (phone && state.isConnected) {
           const message = `Hi ${cleanName}! Your class on ${dateStr} ${timeStr} has been cancelled. We'll reach out to reschedule.`
           try {
