@@ -26,6 +26,7 @@ import {
   XCircle,
 } from 'lucide-react'
 import { AddressAutocomplete } from '@/components/AddressAutocomplete'
+import { PhoneInput } from '@/components/PhoneInput'
 
 type PageStatus = 'loading' | 'form' | 'submitting' | 'submitted' | 'expired' | 'error'
 
@@ -128,7 +129,7 @@ export default function EnrollPage() {
   const handleSubmit = async () => {
     // Validate all fields
     const required: (keyof FormData)[] = [
-      'fullName', 'phoneNumber', 'permitNumber', 'fullAddress',
+      'fullName', 'phoneNumber', 'fullAddress',
       'city', 'postalCode', 'dob', 'email',
     ]
     const errors: Partial<Record<keyof FormData, boolean>> = {}
@@ -262,7 +263,7 @@ export default function EnrollPage() {
         <Card>
           <CardHeader className="pb-4">
             <CardTitle className="text-lg">Your Information</CardTitle>
-            <CardDescription>All fields are required</CardDescription>
+            <CardDescription>Please fill in your details below</CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
             {/* Full Name */}
@@ -288,14 +289,10 @@ export default function EnrollPage() {
                 <Phone className="h-3.5 w-3.5" />
                 Phone Number
               </Label>
-              <Input
+              <PhoneInput
                 id="phoneNumber"
-                type="tel"
-                placeholder="514-555-1234"
                 value={formData.phoneNumber}
-                onChange={e => updateField('phoneNumber', e.target.value)}
-                className={fieldErrors.phoneNumber ? 'border-destructive' : ''}
-                autoComplete="tel"
+                onChange={val => updateField('phoneNumber', val)}
               />
               {fieldErrors.phoneNumber && <p className="text-xs text-destructive mt-1">Phone number is required</p>}
               {whatsappStatus === 'checking' && (
@@ -341,12 +338,10 @@ export default function EnrollPage() {
               </Label>
               <Input
                 id="permitNumber"
-                placeholder="Q1234-567890-01"
+                placeholder="Q1234-567890-01 (optional)"
                 value={formData.permitNumber}
                 onChange={e => updateField('permitNumber', e.target.value)}
-                className={fieldErrors.permitNumber ? 'border-destructive' : ''}
               />
-              {fieldErrors.permitNumber && <p className="text-xs text-destructive mt-1">Permit number is required</p>}
             </div>
 
             {/* Date of Birth */}
