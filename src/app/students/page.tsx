@@ -579,7 +579,7 @@ function StudentsPage() {
   })
 
   // Fetch groups list for group assignment dialog
-  const { data: groupsListData } = useQuery<{ groups: Array<{ id: string; name: string; participantCount: number }> }>({
+  const { data: groupsListData } = useQuery<{ groups: Array<{ id: string; name: string; participantCount: number; moduleNumber: number | null }> }>({
     queryKey: ['groups-list'],
     queryFn: async () => {
       const res = await fetch('/api/groups')
