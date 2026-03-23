@@ -286,6 +286,14 @@ function StudentsPage() {
   const [newGroupName, setNewGroupName] = useState('')
   const [creatingNewGroup, setCreatingNewGroup] = useState(false)
 
+  // Bulk add state
+  const [showBulkAdd, setShowBulkAdd] = useState(false)
+  const [bulkText, setBulkText] = useState('')
+  const [bulkGroupId, setBulkGroupId] = useState('')
+  const [bulkNewGroupName, setBulkNewGroupName] = useState('')
+  const [bulkCreatingGroup, setBulkCreatingGroup] = useState(false)
+  const [bulkProgress, setBulkProgress] = useState<{ current: number; total: number; results: Array<{ name: string; status: string }> } | null>(null)
+
   // Review state
   const [reviewingRegistration, setReviewingRegistration] = useState<Registration | null>(null)
   const [reviewFormData, setReviewFormData] = useState<ReviewFormData>({
@@ -519,6 +527,99 @@ function StudentsPage() {
     },
   })
 
+  // Bulk create mutation
+  const bulkCreateMutation = useMutation({
+    mutationFn: async ({ students, groupId, newGroupName: gName }: {
+      students: Array<{ name: string; phone: string }>
+      groupId?: string
+      newGroupName?: string
+    }) => {
+      const results: Array<{ name: string; status: string }> = []
+      let targetGroupId = groupId
+
+      // Create new group if needed
+      if (gName && !targetGroupId) {
+        const firstPhone = students[0]?.phone
+        if (firstPhone) {
+          const res = await fetch('/api/groups/create', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ name: gName, participants: [firstPhone] }),
+          })
+          if (res.ok) {
+            const data = await res.json()
+            targetGroupId = data.groupId
+            results.push({ name: students[0].name, status: 'Created group & added' })
+          } else {
+            results.push({ name: students[0].name, status: 'Failed to create group' })
+          }
+        }
+      }
+
+      const startIdx = (gName && !groupId) ? 1 : 0
+      for (let i = startIdx; i < students.length; i++) {
+        const s = students[i]
+        setBulkProgress({ current: i + 1, total: students.length, results: [...results] })
+
+        // Create in MySQL
+        try {
+          const createRes = await fetch('/api/students/manage', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              full_name: s.name,
+              phone_number: s.phone,
+              permit_number: '',
+              full_address: '',
+              city: 'Montréal',
+              postal_code: '',
+              dob: '2000-01-01',
+              email: '',
+            }),
+          })
+          if (!createRes.ok) {
+            const err = await createRes.json()
+            results.push({ name: s.name, status: `MySQL error: ${err.error || 'failed'}` })
+            continue
+          }
+        } catch {
+          results.push({ name: s.name, status: 'MySQL create failed' })
+          continue
+        }
+
+        // Add to group if we have one
+        if (targetGroupId) {
+          try {
+            const addRes = await fetch(`/api/groups/${encodeURIComponent(targetGroupId)}/members`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ phone: s.phone, name: s.name }),
+            })
+            const addData = await addRes.json()
+            if (addData.inviteSent) {
+              results.push({ name: s.name, status: 'Created + invite sent' })
+            } else if (addData.whatsappWarning) {
+              results.push({ name: s.name, status: `Created + ${addData.whatsappWarning}` })
+            } else {
+              results.push({ name: s.name, status: 'Created + added to group' })
+            }
+          } catch {
+            results.push({ name: s.name, status: 'Created but group add failed' })
+          }
+        } else {
+          results.push({ name: s.name, status: 'Created (no group)' })
+        }
+      }
+
+      setBulkProgress({ current: students.length, total: students.length, results })
+      return results
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['groups'] })
+      queryClient.invalidateQueries({ queryKey: ['batch-match'] })
+    },
+  })
+
   // Generate QR mutation
   const generateQRMutation = useMutation({
     mutationFn: async () => {
@@ -586,7 +687,7 @@ function StudentsPage() {
       if (!res.ok) throw new Error('Failed to fetch groups')
       return res.json()
     },
-    enabled: !!groupAssignment,
+    enabled: !!groupAssignment || showBulkAdd,
     staleTime: 60 * 1000,
   })
 
@@ -1128,6 +1229,28 @@ function StudentsPage() {
                 <p className="text-sm text-muted-foreground">Generate a QR code for the student to scan and fill out</p>
               </div>
             </button>
+
+            <button
+              type="button"
+              onClick={() => {
+                setShowNewStudentChoice(false)
+                setShowBulkAdd(true)
+                setBulkText('')
+                setBulkGroupId('')
+                setBulkNewGroupName('')
+                setBulkCreatingGroup(false)
+                setBulkProgress(null)
+              }}
+              className="flex items-center gap-4 p-4 border rounded-lg hover:bg-accent/50 transition-colors text-left"
+            >
+              <div className="flex-shrink-0 h-10 w-10 rounded-full bg-primary/10 flex items-center justify-center">
+                <Users className="h-5 w-5 text-primary" />
+              </div>
+              <div>
+                <p className="font-medium">Bulk Add</p>
+                <p className="text-sm text-muted-foreground">Add multiple students at once and assign to a group</p>
+              </div>
+            </button>
           </div>
         </DialogContent>
       </Dialog>
@@ -1360,6 +1483,208 @@ function StudentsPage() {
               Close
             </Button>
           </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Bulk Add Dialog */}
+      <Dialog open={showBulkAdd} onOpenChange={(open) => {
+        if (!open && !bulkCreateMutation.isPending) {
+          setShowBulkAdd(false)
+          setBulkProgress(null)
+        }
+      }}>
+        <DialogContent className="sm:max-w-2xl max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Users className="h-5 w-5" />
+              Bulk Add Students
+            </DialogTitle>
+            <DialogDescription>
+              Paste student names and phone numbers, one per line. Format: Name, Phone
+            </DialogDescription>
+          </DialogHeader>
+
+          {!bulkProgress ? (
+            <div className="space-y-4 py-2">
+              <div>
+                <Label className="text-sm font-medium mb-1.5 block">Students (one per line)</Label>
+                <textarea
+                  className="w-full min-h-[180px] p-3 border rounded-md bg-background text-foreground text-sm font-mono resize-y"
+                  placeholder={'Ahmed Khan, 5141234567\nSarah Johnson, 5149876543\nMohammed Ali, 4381112222'}
+                  value={bulkText}
+                  onChange={e => setBulkText(e.target.value)}
+                />
+                <p className="text-xs text-muted-foreground mt-1">
+                  {bulkText.trim() ? `${bulkText.trim().split('\n').filter(l => l.trim()).length} students` : 'Supports: Name, Phone or Name Phone'}
+                </p>
+              </div>
+
+              <div>
+                <Label className="text-sm font-medium mb-1.5 block">Assign to Group</Label>
+                {!bulkCreatingGroup ? (
+                  <div className="space-y-2">
+                    <div className="max-h-[200px] overflow-y-auto space-y-2 pr-1">
+                      {(() => {
+                        const groups = groupsListData?.groups || []
+                        const getPhase = (m: number | null | undefined) => {
+                          if (!m) return null
+                          if (m >= 1 && m <= 5) return 1
+                          if (m >= 6 && m <= 7) return 2
+                          if (m >= 8 && m <= 10) return 3
+                          if (m >= 11 && m <= 12) return 4
+                          return null
+                        }
+                        const phaseLabels: Record<string, string> = {
+                          '1': 'Phase 1', '2': 'Phase 2', '3': 'Phase 3', '4': 'Phase 4', 'other': 'Other',
+                        }
+                        const phaseColors: Record<string, string> = {
+                          '1': 'bg-blue-500', '2': 'bg-green-500', '3': 'bg-orange-500', '4': 'bg-purple-500', 'other': 'bg-gray-500',
+                        }
+                        const grouped = new Map<string, typeof groups>()
+                        for (const g of groups) {
+                          const p = getPhase(g.moduleNumber)
+                          const key = p ? String(p) : 'other'
+                          if (!grouped.has(key)) grouped.set(key, [])
+                          grouped.get(key)!.push(g)
+                        }
+                        for (const [, gs] of grouped) {
+                          gs.sort((a, b) => (a.moduleNumber ?? 99) - (b.moduleNumber ?? 99))
+                        }
+                        return ['1', '2', '3', '4', 'other'].filter(k => grouped.has(k)).map(key => (
+                          <div key={key}>
+                            <div className="flex items-center gap-1.5 mb-1">
+                              <div className={`w-1.5 h-1.5 rounded-full ${phaseColors[key]}`} />
+                              <span className="text-[10px] font-medium text-muted-foreground">{phaseLabels[key]}</span>
+                            </div>
+                            {grouped.get(key)!.map(g => (
+                              <button
+                                key={g.id}
+                                type="button"
+                                onClick={() => setBulkGroupId(g.id)}
+                                className={`w-full flex items-center justify-between p-2 rounded-md border text-left text-sm transition-all mb-1 ${
+                                  bulkGroupId === g.id
+                                    ? 'border-primary bg-primary/5 ring-1 ring-primary'
+                                    : 'border-border hover:border-primary/50 hover:bg-accent'
+                                }`}
+                              >
+                                <div className="flex items-center gap-2">
+                                  <Users className="h-3.5 w-3.5 text-muted-foreground" />
+                                  <span className="truncate">{g.name}</span>
+                                </div>
+                                <div className="flex items-center gap-1.5 shrink-0">
+                                  {g.moduleNumber && (
+                                    <span className="text-[10px] bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400 px-1 py-0.5 rounded font-medium">
+                                      M{g.moduleNumber}
+                                    </span>
+                                  )}
+                                  <span className="text-[10px] text-muted-foreground">{g.participantCount}</span>
+                                </div>
+                              </button>
+                            ))}
+                          </div>
+                        ))
+                      })()}
+                    </div>
+                    <Button variant="outline" size="sm" className="w-full" onClick={() => setBulkCreatingGroup(true)}>
+                      <Plus className="h-3.5 w-3.5 mr-1.5" />
+                      Create New Group
+                    </Button>
+                  </div>
+                ) : (
+                  <div className="space-y-2">
+                    <Input
+                      value={bulkNewGroupName}
+                      onChange={e => setBulkNewGroupName(e.target.value)}
+                      placeholder="e.g. Module 5 - March 2026"
+                    />
+                    <Button variant="outline" size="sm" onClick={() => setBulkCreatingGroup(false)}>
+                      Back to existing groups
+                    </Button>
+                  </div>
+                )}
+              </div>
+
+              <DialogFooter>
+                <Button variant="outline" onClick={() => setShowBulkAdd(false)}>Cancel</Button>
+                <Button
+                  disabled={!bulkText.trim() || bulkCreateMutation.isPending}
+                  onClick={() => {
+                    const lines = bulkText.trim().split('\n').filter(l => l.trim())
+                    const students = lines.map(line => {
+                      // Support: "Name, Phone" or "Name Phone" or "Name\tPhone"
+                      const parts = line.split(/[,\t]+/).map(s => s.trim())
+                      if (parts.length >= 2) {
+                        return { name: parts[0], phone: parts[parts.length - 1].replace(/\D/g, '') }
+                      }
+                      // Try splitting on last space group that looks like a phone
+                      const match = line.trim().match(/^(.+?)\s+([\d\s()-]{7,})$/)
+                      if (match) {
+                        return { name: match[1].trim(), phone: match[2].replace(/\D/g, '') }
+                      }
+                      return { name: line.trim(), phone: '' }
+                    }).filter(s => s.name && s.phone)
+
+                    if (students.length === 0) return
+
+                    // Add country code if missing (default Canada +1)
+                    for (const s of students) {
+                      if (s.phone.length === 10) s.phone = '1' + s.phone
+                    }
+
+                    bulkCreateMutation.mutate({
+                      students,
+                      groupId: bulkGroupId || undefined,
+                      newGroupName: bulkCreatingGroup ? bulkNewGroupName : undefined,
+                    })
+                  }}
+                >
+                  {bulkCreateMutation.isPending ? (
+                    <><Loader2 className="h-4 w-4 animate-spin mr-2" />Adding...</>
+                  ) : (
+                    <><UserPlus className="h-4 w-4 mr-2" />Add {bulkText.trim().split('\n').filter(l => l.trim()).length} Students</>
+                  )}
+                </Button>
+              </DialogFooter>
+            </div>
+          ) : (
+            <div className="space-y-4 py-2">
+              <div className="flex items-center gap-3">
+                {bulkProgress.current < bulkProgress.total ? (
+                  <Loader2 className="h-5 w-5 animate-spin text-primary" />
+                ) : (
+                  <CheckCircle className="h-5 w-5 text-green-600" />
+                )}
+                <span className="text-sm font-medium">
+                  {bulkProgress.current < bulkProgress.total
+                    ? `Processing ${bulkProgress.current}/${bulkProgress.total}...`
+                    : `Done! ${bulkProgress.total} students processed`}
+                </span>
+              </div>
+
+              <div className="max-h-[300px] overflow-y-auto border rounded-md">
+                {bulkProgress.results.map((r, i) => (
+                  <div key={i} className={`flex items-center justify-between px-3 py-2 text-sm ${i > 0 ? 'border-t' : ''}`}>
+                    <span className="font-medium">{r.name}</span>
+                    <span className={`text-xs ${r.status.includes('error') || r.status.includes('failed') || r.status.includes('Failed') ? 'text-red-600' : 'text-green-600'}`}>
+                      {r.status}
+                    </span>
+                  </div>
+                ))}
+              </div>
+
+              {bulkProgress.current >= bulkProgress.total && (
+                <DialogFooter>
+                  <Button onClick={() => {
+                    setShowBulkAdd(false)
+                    setBulkProgress(null)
+                    setBulkText('')
+                  }}>
+                    Done
+                  </Button>
+                </DialogFooter>
+              )}
+            </div>
+          )}
         </DialogContent>
       </Dialog>
 
