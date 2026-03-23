@@ -922,6 +922,28 @@ export async function addParticipantToGroup(groupId: string, phone: string): Pro
   }
 }
 
+export async function setGroupDescription(groupId: string, description: string): Promise<{ success: boolean; error?: string }> {
+  if (!state.client || !state.isConnected) {
+    throw new Error('WhatsApp not connected')
+  }
+
+  try {
+    const client = state.client as {
+      getChatById: (id: string) => Promise<{
+        setDescription: (desc: string) => Promise<boolean>
+      }>
+    }
+
+    const chat = await client.getChatById(groupId)
+    await chat.setDescription(description)
+    console.log(`[setGroupDescription] Updated description for ${groupId}`)
+    return { success: true }
+  } catch (error) {
+    console.error('Set group description error:', error)
+    return { success: false, error: error instanceof Error ? error.message : 'Failed to set description' }
+  }
+}
+
 export async function createWhatsAppGroup(name: string, participantPhones: string[]): Promise<{ groupId: string; title: string }> {
   if (!state.client || !state.isConnected) {
     throw new Error('WhatsApp not connected')

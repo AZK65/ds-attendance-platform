@@ -294,6 +294,20 @@ function StudentsPage() {
   const [bulkCreatingGroup, setBulkCreatingGroup] = useState(false)
   const [bulkProgress, setBulkProgress] = useState<{ current: number; total: number; results: Array<{ name: string; status: string }> } | null>(null)
 
+  // Class setup dialog state (shown after adding student to group)
+  const [showClassSetup, setShowClassSetup] = useState(false)
+  const [classSetupGroupId, setClassSetupGroupId] = useState('')
+  const [classSetupPhones, setClassSetupPhones] = useState<string[]>([])
+  const [classSetupModule, setClassSetupModule] = useState(1)
+  const [classSetupDate, setClassSetupDate] = useState('')
+  const [classSetupTime, setClassSetupTime] = useState('5 pm to 7 pm')
+  const [classSetupSendPdf, setClassSetupSendPdf] = useState(false)
+  const [classSetupPdfBase64, setClassSetupPdfBase64] = useState('')
+  const [classSetupPdfName, setClassSetupPdfName] = useState('')
+  const [classSetupSetDesc, setClassSetupSetDesc] = useState(true)
+  const [classSetupResults, setClassSetupResults] = useState<Array<{ action: string; status: string }> | null>(null)
+  const [classSetupLoading, setClassSetupLoading] = useState(false)
+
   // Review state
   const [reviewingRegistration, setReviewingRegistration] = useState<Registration | null>(null)
   const [reviewFormData, setReviewFormData] = useState<ReviewFormData>({
@@ -713,6 +727,14 @@ function StudentsPage() {
       } else {
         setSuccessMessage('Student added to group!')
       }
+      // Open class setup dialog
+      const phone = groupAssignment?.phone
+      if (phone && selectedGroupId) {
+        setClassSetupGroupId(selectedGroupId)
+        setClassSetupPhones([phone])
+        setClassSetupResults(null)
+        setShowClassSetup(true)
+      }
       setGroupAssignment(null)
       setSelectedGroupId('')
       queryClient.invalidateQueries({ queryKey: ['groups'] })
@@ -738,6 +760,14 @@ function StudentsPage() {
         setSuccessMessage(`Group created (Note: ${data.whatsappWarning})`)
       } else {
         setSuccessMessage('Group created and student added!')
+      }
+      // Open class setup dialog
+      const phone = groupAssignment?.phone
+      if (phone && data.groupId) {
+        setClassSetupGroupId(data.groupId)
+        setClassSetupPhones([phone])
+        setClassSetupResults(null)
+        setShowClassSetup(true)
       }
       setGroupAssignment(null)
       setNewGroupName('')
@@ -1487,6 +1517,212 @@ function StudentsPage() {
               Close
             </Button>
           </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Class Setup Dialog (after adding student to group) */}
+      <Dialog open={showClassSetup} onOpenChange={(open) => {
+        if (!open && !classSetupLoading) {
+          setShowClassSetup(false)
+          setClassSetupResults(null)
+        }
+      }}>
+        <DialogContent className="sm:max-w-lg max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <CalendarDays className="h-5 w-5" />
+              Setup Class
+            </DialogTitle>
+            <DialogDescription>
+              Set group description, send course book, and schedule the first class.
+            </DialogDescription>
+          </DialogHeader>
+
+          {!classSetupResults ? (
+            <div className="space-y-5 py-2">
+              {/* Set Group Description */}
+              <div className="space-y-2">
+                <div className="flex items-center gap-2">
+                  <input
+                    type="checkbox"
+                    id="setupDesc"
+                    checked={classSetupSetDesc}
+                    onChange={e => setClassSetupSetDesc(e.target.checked)}
+                    className="rounded"
+                  />
+                  <Label htmlFor="setupDesc" className="text-sm font-medium cursor-pointer">
+                    Set group description with Zoom links
+                  </Label>
+                </div>
+                {classSetupSetDesc && (
+                  <p className="text-xs text-muted-foreground ml-6">
+                    Will add iOS + Android Zoom links and meeting password to the group description
+                  </p>
+                )}
+              </div>
+
+              {/* Send Book PDF */}
+              <div className="space-y-2">
+                <div className="flex items-center gap-2">
+                  <input
+                    type="checkbox"
+                    id="setupPdf"
+                    checked={classSetupSendPdf}
+                    onChange={e => setClassSetupSendPdf(e.target.checked)}
+                    className="rounded"
+                  />
+                  <Label htmlFor="setupPdf" className="text-sm font-medium cursor-pointer">
+                    Send course book PDF
+                  </Label>
+                </div>
+                {classSetupSendPdf && (
+                  <div className="ml-6">
+                    <input
+                      type="file"
+                      accept=".pdf"
+                      onChange={e => {
+                        const file = e.target.files?.[0]
+                        if (!file) return
+                        setClassSetupPdfName(file.name)
+                        const reader = new FileReader()
+                        reader.onload = () => {
+                          const base64 = (reader.result as string).split(',')[1]
+                          setClassSetupPdfBase64(base64)
+                        }
+                        reader.readAsDataURL(file)
+                      }}
+                      className="text-sm"
+                    />
+                    {classSetupPdfName && (
+                      <p className="text-xs text-green-600 mt-1">{classSetupPdfName} ready to send</p>
+                    )}
+                  </div>
+                )}
+              </div>
+
+              {/* Schedule First Class */}
+              <div className="space-y-3 border-t pt-4">
+                <Label className="text-sm font-medium">Schedule First Class</Label>
+                <div className="grid grid-cols-3 gap-3">
+                  <div>
+                    <Label className="text-xs text-muted-foreground mb-1 block">Module</Label>
+                    <Input
+                      type="number"
+                      min={1}
+                      max={12}
+                      value={classSetupModule}
+                      onChange={e => setClassSetupModule(parseInt(e.target.value) || 1)}
+                    />
+                  </div>
+                  <div>
+                    <Label className="text-xs text-muted-foreground mb-1 block">Date</Label>
+                    <Input
+                      type="date"
+                      value={classSetupDate}
+                      onChange={e => setClassSetupDate(e.target.value)}
+                    />
+                  </div>
+                  <div>
+                    <Label className="text-xs text-muted-foreground mb-1 block">Time</Label>
+                    <Input
+                      value={classSetupTime}
+                      onChange={e => setClassSetupTime(e.target.value)}
+                      placeholder="5 pm to 7 pm"
+                    />
+                  </div>
+                </div>
+              </div>
+
+              <DialogFooter>
+                <Button variant="outline" onClick={() => {
+                  setShowClassSetup(false)
+                  setClassSetupResults(null)
+                }}>
+                  Skip
+                </Button>
+                <Button
+                  disabled={classSetupLoading || (!classSetupSetDesc && !classSetupSendPdf && !classSetupDate)}
+                  onClick={async () => {
+                    setClassSetupLoading(true)
+                    try {
+                      // Format date for display
+                      let classDateFormatted = ''
+                      if (classSetupDate) {
+                        const [y, m, d] = classSetupDate.split('-').map(Number)
+                        const dateObj = new Date(y, m - 1, d)
+                        classDateFormatted = dateObj.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' })
+                      }
+
+                      const description = classSetupSetDesc
+                        ? `Zoom Meeting Link:\n\niOS/Android App:\nzoom.us/j/4171672829\nMeeting ID: 417 167 2829\nPassword: qazi\n\nDesktop/Browser:\nhttps://us02web.zoom.us/j/4171672829?pwd=ZTlHSEdmTGRYV1QraU5MaThqaC9Rdz09\nPassword: qazi`
+                        : undefined
+
+                      const res = await fetch(`/api/groups/${encodeURIComponent(classSetupGroupId)}/setup`, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
+                          setDescription: classSetupSetDesc,
+                          description,
+                          sendPdf: classSetupSendPdf && classSetupPdfBase64,
+                          pdfBase64: classSetupPdfBase64,
+                          pdfFilename: classSetupPdfName,
+                          memberPhones: classSetupPhones,
+                          scheduleClass: !!classSetupDate,
+                          moduleNumber: classSetupModule,
+                          classDate: classDateFormatted,
+                          classDateISO: classSetupDate,
+                          classTime: classSetupTime,
+                        }),
+                      })
+
+                      if (res.ok) {
+                        const data = await res.json()
+                        setClassSetupResults(data.results || [])
+                      } else {
+                        const err = await res.json()
+                        setClassSetupResults([{ action: 'Setup', status: `Error: ${err.error}` }])
+                      }
+                    } catch (err) {
+                      setClassSetupResults([{ action: 'Setup', status: `Error: ${err instanceof Error ? err.message : 'unknown'}` }])
+                    } finally {
+                      setClassSetupLoading(false)
+                    }
+                  }}
+                >
+                  {classSetupLoading ? (
+                    <><Loader2 className="h-4 w-4 animate-spin mr-2" />Setting up...</>
+                  ) : (
+                    'Setup & Send'
+                  )}
+                </Button>
+              </DialogFooter>
+            </div>
+          ) : (
+            <div className="space-y-4 py-2">
+              <div className="flex items-center gap-2">
+                <CheckCircle className="h-5 w-5 text-green-600" />
+                <span className="font-medium">Setup Complete</span>
+              </div>
+              <div className="border rounded-md divide-y">
+                {classSetupResults.map((r, i) => (
+                  <div key={i} className="flex items-center justify-between px-3 py-2 text-sm">
+                    <span>{r.action}</span>
+                    <span className={`text-xs ${r.status.includes('Failed') || r.status.includes('Error') ? 'text-red-600' : 'text-green-600'}`}>
+                      {r.status}
+                    </span>
+                  </div>
+                ))}
+              </div>
+              <DialogFooter>
+                <Button onClick={() => {
+                  setShowClassSetup(false)
+                  setClassSetupResults(null)
+                }}>
+                  Done
+                </Button>
+              </DialogFooter>
+            </div>
+          )}
         </DialogContent>
       </Dialog>
 
