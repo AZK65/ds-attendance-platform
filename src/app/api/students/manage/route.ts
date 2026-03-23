@@ -9,7 +9,7 @@ export async function POST(request: NextRequest) {
 
     // Validate required fields
     const required: (keyof CreateStudentData)[] = [
-      'full_name', 'phone_number', 'permit_number', 'full_address',
+      'full_name', 'phone_number', 'full_address',
       'city', 'postal_code', 'dob', 'email',
     ]
     for (const field of required) {

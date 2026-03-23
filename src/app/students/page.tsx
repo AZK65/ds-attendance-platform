@@ -616,7 +616,7 @@ function StudentsPage() {
 
   const handleSubmit = () => {
     const required: (keyof StudentFormData)[] = [
-      'full_name', 'phone_number', 'permit_number', 'full_address',
+      'full_name', 'phone_number', 'full_address',
       'city', 'postal_code', 'dob', 'email',
     ]
     for (const field of required) {
@@ -1176,7 +1176,7 @@ function StudentsPage() {
             <div>
               <Label htmlFor="permit_number" className="text-sm font-medium flex items-center gap-1.5 mb-1.5">
                 <CreditCard className="h-3.5 w-3.5" />
-                Permit Number <span className="text-destructive">*</span>
+                Permit Number
               </Label>
               <Input
                 id="permit_number"
