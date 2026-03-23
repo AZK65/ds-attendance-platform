@@ -350,3 +350,8 @@ export async function updateStudent(id: number, data: Partial<CreateStudentData>
     values
   )
 }
+
+export async function deleteStudent(id: number): Promise<void> {
+  const db = await getPool()
+  await db.execute('DELETE FROM student WHERE student_id = ?', [id])
+}

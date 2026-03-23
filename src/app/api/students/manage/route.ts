@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { createStudent, updateStudent, type CreateStudentData } from '@/lib/external-db'
+import { createStudent, updateStudent, deleteStudent, type CreateStudentData } from '@/lib/external-db'
 import { prisma } from '@/lib/db'
 
 // POST /api/students/manage — Create a new student in external MySQL DB
@@ -103,6 +103,38 @@ export async function PUT(request: NextRequest) {
     console.error('[Students Manage] Update error:', error)
     return NextResponse.json(
       { error: 'Failed to update student', details: error instanceof Error ? error.message : 'Unknown error' },
+      { status: 500 }
+    )
+  }
+}
+
+// DELETE /api/students/manage — Delete a student from MySQL and clean up SQLite
+export async function DELETE(request: NextRequest) {
+  try {
+    const { searchParams } = new URL(request.url)
+    const studentId = searchParams.get('student_id')
+    const phone = searchParams.get('phone')
+
+    if (!studentId) {
+      return NextResponse.json({ error: 'student_id is required' }, { status: 400 })
+    }
+
+    // Delete from MySQL
+    await deleteStudent(Number(studentId))
+
+    // Clean up SQLite Contact + GroupMember if phone provided
+    if (phone) {
+      const cleaned = phone.replace(/\D/g, '')
+      const jid = `${cleaned}@c.us`
+      await prisma.groupMember.deleteMany({ where: { contactId: jid } }).catch(() => {})
+      await prisma.contact.delete({ where: { id: jid } }).catch(() => {})
+    }
+
+    return NextResponse.json({ success: true })
+  } catch (error) {
+    console.error('[Students Manage] Delete error:', error)
+    return NextResponse.json(
+      { error: 'Failed to delete student', details: error instanceof Error ? error.message : 'Unknown error' },
       { status: 500 }
     )
   }

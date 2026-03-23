@@ -500,6 +500,25 @@ function StudentsPage() {
     },
   })
 
+  // Delete mutation
+  const deleteMutation = useMutation({
+    mutationFn: async ({ student_id, phone }: { student_id: number; phone?: string }) => {
+      const params = new URLSearchParams({ student_id: String(student_id) })
+      if (phone) params.set('phone', phone)
+      const res = await fetch(`/api/students/manage?${params}`, { method: 'DELETE' })
+      if (!res.ok) {
+        const err = await res.json()
+        throw new Error(err.error || 'Failed to delete student')
+      }
+      return res.json()
+    },
+    onSuccess: () => {
+      setSuccessMessage('Student deleted')
+      queryClient.invalidateQueries({ queryKey: ['groups'] })
+      queryClient.invalidateQueries({ queryKey: ['batch-match'] })
+    },
+  })
+
   // Generate QR mutation
   const generateQRMutation = useMutation({
     mutationFn: async () => {
@@ -1034,6 +1053,19 @@ function StudentsPage() {
                                   <CalendarDays className="h-4 w-4 mr-2" />
                                   Schedule Class
                                 </DropdownMenuItem>
+                                {dbStudent && (
+                                  <DropdownMenuItem
+                                    className="text-destructive focus:text-destructive"
+                                    onClick={() => {
+                                      if (confirm(`Delete ${dbStudent.full_name}? This removes them from the database and all groups.`)) {
+                                        deleteMutation.mutate({ student_id: dbStudent.student_id, phone: dbStudent.phone_number })
+                                      }
+                                    }}
+                                  >
+                                    <Trash2 className="h-4 w-4 mr-2" />
+                                    Delete Student
+                                  </DropdownMenuItem>
+                                )}
                               </DropdownMenuContent>
                             </DropdownMenu>
                           </TableCell>
