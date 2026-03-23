@@ -1346,21 +1346,80 @@ function StudentsPage() {
           </DialogHeader>
 
           {!creatingNewGroup ? (
-            <div className="space-y-4">
-              <div>
-                <Label>Select Group</Label>
-                <select
-                  className="w-full mt-1 p-2 border rounded-md bg-background text-foreground"
-                  value={selectedGroupId}
-                  onChange={(e) => setSelectedGroupId(e.target.value)}
-                >
-                  <option value="">Choose a group...</option>
-                  {groupsListData?.groups?.map((g) => (
-                    <option key={g.id} value={g.id}>
-                      {g.name} ({g.participantCount} members)
-                    </option>
-                  ))}
-                </select>
+            <div className="space-y-3">
+              <div className="max-h-[350px] overflow-y-auto space-y-3 pr-1">
+                {(() => {
+                  const groups = groupsListData?.groups || []
+                  const getPhase = (m: number | null | undefined) => {
+                    if (!m) return null
+                    if (m >= 1 && m <= 5) return 1
+                    if (m >= 6 && m <= 7) return 2
+                    if (m >= 8 && m <= 10) return 3
+                    if (m >= 11 && m <= 12) return 4
+                    return null
+                  }
+                  const phaseLabels: Record<string, string> = {
+                    '1': 'Phase 1 — Theory (M1-M5)',
+                    '2': 'Phase 2 (M6-M7)',
+                    '3': 'Phase 3 (M8-M10)',
+                    '4': 'Phase 4 (M11-M12)',
+                    'other': 'Other Groups',
+                  }
+                  const phaseColors: Record<string, string> = {
+                    '1': 'bg-blue-500',
+                    '2': 'bg-green-500',
+                    '3': 'bg-orange-500',
+                    '4': 'bg-purple-500',
+                    'other': 'bg-gray-500',
+                  }
+                  const grouped = new Map<string, typeof groups>()
+                  for (const g of groups) {
+                    const p = getPhase(g.moduleNumber)
+                    const key = p ? String(p) : 'other'
+                    if (!grouped.has(key)) grouped.set(key, [])
+                    grouped.get(key)!.push(g)
+                  }
+                  // Sort groups within each phase by module number
+                  for (const [, gs] of grouped) {
+                    gs.sort((a, b) => (a.moduleNumber ?? 99) - (b.moduleNumber ?? 99))
+                  }
+                  const phaseOrder = ['1', '2', '3', '4', 'other']
+                  return phaseOrder.filter(k => grouped.has(k)).map(key => (
+                    <div key={key}>
+                      <div className="flex items-center gap-2 mb-1.5">
+                        <div className={`w-2 h-2 rounded-full ${phaseColors[key]}`} />
+                        <span className="text-xs font-medium text-muted-foreground">{phaseLabels[key]}</span>
+                      </div>
+                      <div className="grid gap-1.5">
+                        {grouped.get(key)!.map(g => (
+                          <button
+                            key={g.id}
+                            type="button"
+                            onClick={() => setSelectedGroupId(g.id)}
+                            className={`w-full flex items-center justify-between p-2.5 rounded-lg border text-left transition-all ${
+                              selectedGroupId === g.id
+                                ? 'border-primary bg-primary/5 ring-1 ring-primary'
+                                : 'border-border hover:border-primary/50 hover:bg-accent'
+                            }`}
+                          >
+                            <div className="flex items-center gap-2 min-w-0">
+                              <Users className="h-4 w-4 text-muted-foreground shrink-0" />
+                              <span className="text-sm truncate">{g.name}</span>
+                            </div>
+                            <div className="flex items-center gap-2 shrink-0">
+                              {g.moduleNumber && (
+                                <span className="text-xs bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400 px-1.5 py-0.5 rounded font-medium">
+                                  M{g.moduleNumber}
+                                </span>
+                              )}
+                              <span className="text-xs text-muted-foreground">{g.participantCount}</span>
+                            </div>
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  ))
+                })()}
               </div>
 
               <Button
