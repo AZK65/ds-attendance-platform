@@ -291,12 +291,29 @@ export interface CreateStudentData {
   email: string
 }
 
+// Sanitize date to YYYY-MM-DD format for MySQL
+function sanitizeDate(dateStr: string): string {
+  if (!dateStr) return ''
+  // Remove any non-digit/dash characters and try to parse
+  const clean = dateStr.replace(/[^\d-]/g, '')
+  // If already YYYY-MM-DD, return as-is
+  if (/^\d{4}-\d{2}-\d{2}$/.test(clean)) return clean
+  // Try to extract 8 digits (YYYYMMDD) and format
+  const digits = clean.replace(/-/g, '')
+  if (digits.length === 8) {
+    return `${digits.slice(0, 4)}-${digits.slice(4, 6)}-${digits.slice(6, 8)}`
+  }
+  // Fallback: return as-is and let MySQL handle it
+  return clean
+}
+
 export async function createStudent(data: CreateStudentData): Promise<{ insertId: number }> {
   const db = await getPool()
+  const dob = sanitizeDate(data.dob)
   const [result] = await db.execute<mysql.ResultSetHeader>(
     `INSERT INTO student (full_name, phone_number, permit_number, full_address, city, postal_code, dob, email)
      VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-    [data.full_name, data.phone_number, data.permit_number, data.full_address, data.city, data.postal_code, data.dob, data.email]
+    [data.full_name, data.phone_number, data.permit_number, data.full_address, data.city, data.postal_code, dob, data.email]
   )
   return { insertId: result.insertId }
 }
