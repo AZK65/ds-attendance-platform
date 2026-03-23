@@ -315,12 +315,14 @@ export async function createStudent(data: CreateStudentData): Promise<{ insertId
   const [maxRows] = await db.execute<mysql.RowDataPacket[]>(
     'SELECT COALESCE(MAX(student_id), 0) + 1 AS next_id FROM student'
   )
-  const nextId = (maxRows as mysql.RowDataPacket[])[0]?.next_id || 1
+  const nextId = Number((maxRows as mysql.RowDataPacket[])[0]?.next_id) || 1
+
+  console.log('[createStudent] nextId:', nextId, 'dob:', dob, 'name:', data.full_name)
 
   await db.execute(
-    `INSERT INTO student (student_id, full_name, phone_number, permit_number, full_address, city, postal_code, dob, email)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-    [nextId, data.full_name, data.phone_number, data.permit_number, data.full_address, data.city, data.postal_code, dob, data.email]
+    `INSERT INTO student (student_id, full_name, phone_number, permit_number, full_address, city, postal_code, dob, email, creation_date)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NOW())`,
+    [nextId, data.full_name, data.phone_number, data.permit_number || '', data.full_address || '', data.city || '', data.postal_code || '', dob || null, data.email || '']
   )
   return { insertId: nextId }
 }
