@@ -57,6 +57,17 @@ export async function POST(
       },
     })
 
+    // Save as WhatsApp contact so they show up in searches
+    if (studentData.phone_number) {
+      const phone = studentData.phone_number.replace(/\D/g, '')
+      const jid = `${phone}@c.us`
+      await prisma.contact.upsert({
+        where: { id: jid },
+        update: { name: studentData.full_name, phone, lastSynced: new Date() },
+        create: { id: jid, phone, name: studentData.full_name },
+      }).catch(() => {})
+    }
+
     return NextResponse.json({ success: true, studentId: result.insertId })
   } catch (error) {
     console.error('[Registrations] Confirm error:', error)

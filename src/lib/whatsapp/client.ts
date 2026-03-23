@@ -897,6 +897,38 @@ export async function addParticipantToGroup(groupId: string, phone: string): Pro
   }
 }
 
+export async function createWhatsAppGroup(name: string, participantPhones: string[]): Promise<{ groupId: string; title: string }> {
+  if (!state.client || !state.isConnected) {
+    throw new Error('WhatsApp not connected')
+  }
+
+  try {
+    const client = state.client as {
+      createGroup: (title: string, participants: string[]) => Promise<{ gid: { _serialized: string }; title: string; participants: Array<{ id: { _serialized: string }; statusCode: number }> }>
+    }
+
+    const participantJids = participantPhones.map(p => phoneToJid(p))
+    console.log(`[createGroup] Creating group "${name}" with ${participantJids.length} participants`)
+
+    const result = await client.createGroup(name, participantJids)
+    const groupId = result.gid._serialized
+
+    console.log(`[createGroup] Group created: ${groupId}`)
+
+    // Log any participant add failures
+    for (const p of result.participants) {
+      if (p.statusCode !== 200) {
+        console.warn(`[createGroup] Failed to add ${p.id._serialized}: status ${p.statusCode}`)
+      }
+    }
+
+    return { groupId, title: result.title }
+  } catch (error) {
+    console.error('Create group error:', error)
+    throw error
+  }
+}
+
 export async function removeParticipantFromGroup(groupId: string, participantId: string): Promise<void> {
   if (!state.client || !state.isConnected) {
     throw new Error('WhatsApp not connected')

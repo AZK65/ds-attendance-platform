@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createStudent, updateStudent, type CreateStudentData } from '@/lib/external-db'
+import { prisma } from '@/lib/db'
 
 // POST /api/students/manage — Create a new student in external MySQL DB
 export async function POST(request: NextRequest) {
@@ -21,6 +22,18 @@ export async function POST(request: NextRequest) {
     }
 
     const result = await createStudent(body)
+
+    // Save as WhatsApp contact so they show up in searches
+    if (body.phone_number) {
+      const phone = body.phone_number.replace(/\D/g, '')
+      const jid = `${phone}@c.us`
+      await prisma.contact.upsert({
+        where: { id: jid },
+        update: { name: body.full_name, phone, lastSynced: new Date() },
+        create: { id: jid, phone, name: body.full_name },
+      }).catch(() => {})
+    }
+
     return NextResponse.json({ success: true, studentId: result.insertId })
   } catch (error) {
     console.error('[Students Manage] Create error:', error)

@@ -40,6 +40,7 @@ import {
   Search,
   Loader2,
   UserPlus,
+  Plus,
   Edit3,
   Phone,
   Mail,
@@ -278,6 +279,12 @@ function StudentsPage() {
   const [qrData, setQrData] = useState<{ enrollUrl: string; qrDataUrl: string; expiresAt: string } | null>(null)
   const [copiedLink, setCopiedLink] = useState(false)
 
+  // Group assignment state (shown after creating/confirming a student)
+  const [groupAssignment, setGroupAssignment] = useState<{ name: string; phone: string } | null>(null)
+  const [selectedGroupId, setSelectedGroupId] = useState<string>('')
+  const [newGroupName, setNewGroupName] = useState('')
+  const [creatingNewGroup, setCreatingNewGroup] = useState(false)
+
   // Review state
   const [reviewingRegistration, setReviewingRegistration] = useState<Registration | null>(null)
   const [reviewFormData, setReviewFormData] = useState<ReviewFormData>({
@@ -461,6 +468,10 @@ function StudentsPage() {
     onSuccess: (data) => {
       setSuccessMessage(`Student created successfully (ID: ${data.studentId})`)
       setShowForm(false)
+      // Prompt to add to WhatsApp group
+      if (formData.phone_number) {
+        setGroupAssignment({ name: formData.full_name, phone: formData.phone_number.replace(/\D/g, '') })
+      }
       setFormData(EMPTY_FORM)
     },
   })
@@ -524,6 +535,10 @@ function StudentsPage() {
     },
     onSuccess: (data) => {
       setSuccessMessage(`Student confirmed and added to database (ID: ${data.studentId})`)
+      // Prompt to add to WhatsApp group
+      if (reviewFormData.phoneNumber) {
+        setGroupAssignment({ name: reviewFormData.fullName, phone: reviewFormData.phoneNumber.replace(/\D/g, '') })
+      }
       setReviewingRegistration(null)
       queryClient.invalidateQueries({ queryKey: ['registrations', 'submitted'] })
     },
@@ -539,6 +554,63 @@ function StudentsPage() {
     onSuccess: () => {
       setReviewingRegistration(null)
       queryClient.invalidateQueries({ queryKey: ['registrations', 'submitted'] })
+    },
+  })
+
+  // Fetch groups list for group assignment dialog
+  const { data: groupsListData } = useQuery<{ groups: Array<{ id: string; name: string; participantCount: number }> }>({
+    queryKey: ['groups-list'],
+    queryFn: async () => {
+      const res = await fetch('/api/groups')
+      if (!res.ok) throw new Error('Failed to fetch groups')
+      return res.json()
+    },
+    enabled: !!groupAssignment,
+    staleTime: 60 * 1000,
+  })
+
+  // Add student to existing group mutation
+  const addToGroupMutation = useMutation({
+    mutationFn: async ({ groupId, phone }: { groupId: string; phone: string }) => {
+      const res = await fetch(`/api/groups/${encodeURIComponent(groupId)}/members`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ phone }),
+      })
+      if (!res.ok) {
+        const err = await res.json()
+        throw new Error(err.error || 'Failed to add to group')
+      }
+      return res.json()
+    },
+    onSuccess: () => {
+      setSuccessMessage('Student added to group!')
+      setGroupAssignment(null)
+      setSelectedGroupId('')
+      queryClient.invalidateQueries({ queryKey: ['groups'] })
+    },
+  })
+
+  // Create new group mutation
+  const createGroupMutation = useMutation({
+    mutationFn: async ({ name, phone }: { name: string; phone: string }) => {
+      const res = await fetch('/api/groups/create', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name, participants: [phone] }),
+      })
+      if (!res.ok) {
+        const err = await res.json()
+        throw new Error(err.error || 'Failed to create group')
+      }
+      return res.json()
+    },
+    onSuccess: () => {
+      setSuccessMessage('Group created and student added!')
+      setGroupAssignment(null)
+      setNewGroupName('')
+      setCreatingNewGroup(false)
+      queryClient.invalidateQueries({ queryKey: ['groups'] })
     },
   })
 
@@ -1248,6 +1320,123 @@ function StudentsPage() {
             <Button variant="outline" onClick={() => { setShowQR(false); setCopiedLink(false) }}>
               Close
             </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Group Assignment Dialog */}
+      <Dialog open={!!groupAssignment} onOpenChange={(open) => {
+        if (!open) {
+          setGroupAssignment(null)
+          setSelectedGroupId('')
+          setNewGroupName('')
+          setCreatingNewGroup(false)
+        }
+      }}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Add to WhatsApp Group</DialogTitle>
+            <DialogDescription>
+              Add {groupAssignment?.name || 'student'} to an existing WhatsApp group or create a new one.
+            </DialogDescription>
+          </DialogHeader>
+
+          {!creatingNewGroup ? (
+            <div className="space-y-4">
+              <div>
+                <Label>Select Group</Label>
+                <select
+                  className="w-full mt-1 p-2 border rounded-md bg-background text-foreground"
+                  value={selectedGroupId}
+                  onChange={(e) => setSelectedGroupId(e.target.value)}
+                >
+                  <option value="">Choose a group...</option>
+                  {groupsListData?.groups?.map((g) => (
+                    <option key={g.id} value={g.id}>
+                      {g.name} ({g.participantCount} members)
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <Button
+                variant="outline"
+                className="w-full"
+                onClick={() => setCreatingNewGroup(true)}
+              >
+                <Plus className="h-4 w-4 mr-2" />
+                Create New Group
+              </Button>
+            </div>
+          ) : (
+            <div className="space-y-4">
+              <div>
+                <Label>New Group Name</Label>
+                <Input
+                  value={newGroupName}
+                  onChange={(e) => setNewGroupName(e.target.value)}
+                  placeholder="e.g. Module 5 - March 2026"
+                />
+              </div>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setCreatingNewGroup(false)}
+              >
+                Back to existing groups
+              </Button>
+            </div>
+          )}
+
+          {(addToGroupMutation.error || createGroupMutation.error) && (
+            <p className="text-sm text-destructive">
+              {(addToGroupMutation.error || createGroupMutation.error)?.message}
+            </p>
+          )}
+
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => {
+                setGroupAssignment(null)
+                setSelectedGroupId('')
+                setNewGroupName('')
+                setCreatingNewGroup(false)
+              }}
+            >
+              Skip
+            </Button>
+            {!creatingNewGroup ? (
+              <Button
+                onClick={() => {
+                  if (selectedGroupId && groupAssignment?.phone) {
+                    addToGroupMutation.mutate({ groupId: selectedGroupId, phone: groupAssignment.phone })
+                  }
+                }}
+                disabled={!selectedGroupId || addToGroupMutation.isPending}
+              >
+                {addToGroupMutation.isPending ? (
+                  <><Loader2 className="h-4 w-4 animate-spin mr-2" />Adding...</>
+                ) : (
+                  <><Users className="h-4 w-4 mr-2" />Add to Group</>
+                )}
+              </Button>
+            ) : (
+              <Button
+                onClick={() => {
+                  if (newGroupName.trim() && groupAssignment?.phone) {
+                    createGroupMutation.mutate({ name: newGroupName.trim(), phone: groupAssignment.phone })
+                  }
+                }}
+                disabled={!newGroupName.trim() || createGroupMutation.isPending}
+              >
+                {createGroupMutation.isPending ? (
+                  <><Loader2 className="h-4 w-4 animate-spin mr-2" />Creating...</>
+                ) : (
+                  <><Plus className="h-4 w-4 mr-2" />Create & Add</>
+                )}
+              </Button>
+            )}
           </DialogFooter>
         </DialogContent>
       </Dialog>
