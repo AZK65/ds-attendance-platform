@@ -38,6 +38,19 @@ export async function POST(
       )
     }
 
+    // Sync the new member to the database so cached queries return fresh data
+    const jid = phoneToAdd.includes('@') ? phoneToAdd : `${phoneToAdd}@c.us`
+    await prisma.contact.upsert({
+      where: { id: jid },
+      update: { phone: phoneToAdd, lastSynced: new Date() },
+      create: { id: jid, phone: phoneToAdd },
+    })
+    await prisma.groupMember.upsert({
+      where: { groupId_contactId: { groupId: decodedGroupId, contactId: jid } },
+      update: { phone: phoneToAdd },
+      create: { groupId: decodedGroupId, contactId: jid, phone: phoneToAdd },
+    })
+
     return NextResponse.json({ success: true })
   } catch (error) {
     console.error('Add member error:', error)
@@ -178,6 +191,11 @@ export async function DELETE(
         }
       })
     }
+
+    // Remove from GroupMember table so cached queries return fresh data
+    await prisma.groupMember.deleteMany({
+      where: { groupId: decodedGroupId, contactId },
+    })
 
     return NextResponse.json({ success: true })
   } catch (error) {

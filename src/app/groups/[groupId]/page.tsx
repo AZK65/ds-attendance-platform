@@ -142,9 +142,10 @@ export default function GroupDetailPage() {
   } = useQuery({
     queryKey: ['group', groupId],
     queryFn: async () => {
-      const res = await fetch(`/api/groups/${encodeURIComponent(groupId)}`)
+      const res = await fetch(`/api/groups/${encodeURIComponent(groupId)}?refresh=true`)
       return res.json()
-    }
+    },
+    staleTime: 0
   })
 
   const removeMemberMutation = useMutation({
