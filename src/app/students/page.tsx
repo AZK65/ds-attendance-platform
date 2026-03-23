@@ -68,6 +68,7 @@ import {
 import { useRouter } from 'next/navigation'
 import { motion } from 'motion/react'
 import { AddressAutocomplete } from '@/components/AddressAutocomplete'
+import { PhoneInput } from '@/components/PhoneInput'
 
 interface StudentRecord {
   student_id: number
@@ -1133,11 +1134,10 @@ function StudentsPage() {
                 <Phone className="h-3.5 w-3.5" />
                 Phone Number <span className="text-destructive">*</span>
               </Label>
-              <Input
+              <PhoneInput
                 id="phone_number"
-                placeholder="514-555-1234"
                 value={formData.phone_number}
-                onChange={e => updateField('phone_number', e.target.value)}
+                onChange={(val) => updateField('phone_number', val)}
               />
               {whatsappStatus === 'checking' && (
                 <p className="text-xs text-muted-foreground mt-1 flex items-center gap-1">
@@ -1480,9 +1480,9 @@ function StudentsPage() {
                   <Label className="text-sm font-medium flex items-center gap-1.5 mb-1.5">
                     <Phone className="h-3.5 w-3.5" /> Phone Number
                   </Label>
-                  <Input
+                  <PhoneInput
                     value={reviewFormData.phoneNumber}
-                    onChange={e => updateReviewField('phoneNumber', e.target.value)}
+                    onChange={(val) => updateReviewField('phoneNumber', val)}
                   />
                   {reviewWhatsappStatus === 'checking' && (
                     <p className="text-xs text-muted-foreground mt-1 flex items-center gap-1">
