@@ -37,8 +37,12 @@ export async function POST(
 
     // Try adding to WhatsApp group (best-effort — student is already in our DB)
     let whatsappWarning: string | undefined
+    let inviteSent = false
     if (state.isConnected) {
       const result = await addParticipantToGroup(decodedGroupId, phoneToAdd)
+      if (result.inviteSent) {
+        inviteSent = true
+      }
       if (!result.success) {
         whatsappWarning = result.error || 'Could not add to WhatsApp group'
         console.log(`[Add Member] WhatsApp add failed for ${phoneToAdd}: ${whatsappWarning}`)
@@ -50,6 +54,7 @@ export async function POST(
     return NextResponse.json({
       success: true,
       whatsappWarning,
+      inviteSent,
     })
   } catch (error) {
     console.error('Add member error:', error)

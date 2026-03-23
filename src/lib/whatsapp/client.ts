@@ -832,7 +832,7 @@ export async function getGroupInfo(groupId: string): Promise<{ name: string; par
   }
 }
 
-export async function addParticipantToGroup(groupId: string, phone: string): Promise<{ success: boolean; error?: string }> {
+export async function addParticipantToGroup(groupId: string, phone: string): Promise<{ success: boolean; error?: string; inviteSent?: boolean }> {
   if (!state.client || !state.isConnected) {
     throw new Error('WhatsApp not connected')
   }
@@ -841,6 +841,8 @@ export async function addParticipantToGroup(groupId: string, phone: string): Pro
     const client = state.client as {
       getChatById: (id: string) => Promise<{
         addParticipants: (participants: string[], options?: unknown) => Promise<Record<string, { code: number; message: string; isInviteV4Sent: boolean }>>
+        getInviteCode: () => Promise<string>
+        name: string
       }>
       getChats: () => Promise<unknown[]>
       pupPage?: {
@@ -859,10 +861,33 @@ export async function addParticipantToGroup(groupId: string, phone: string): Pro
     // Check if there was an error for this participant
     const participantResult = result[participantId]
     if (participantResult && participantResult.code !== 200) {
-      // Return the error message from WhatsApp
-      return {
-        success: false,
-        error: participantResult.message || `Error code ${participantResult.code}`
+      // If invite was already sent by WhatsApp via V4, report it
+      if (participantResult.isInviteV4Sent) {
+        console.log(`[addParticipant] Invite V4 sent to ${participantId}`)
+        return { success: true, inviteSent: true }
+      }
+
+      // Try sending a group invite link as fallback
+      console.log(`[addParticipant] Direct add failed (${participantResult.code}), sending invite link...`)
+      try {
+        const inviteCode = await chat.getInviteCode()
+        const inviteLink = `https://chat.whatsapp.com/${inviteCode}`
+        const groupName = chat.name || 'the group'
+        await sendPrivateMessage(
+          phone,
+          `You've been invited to join *${groupName}*!\n\nClick the link to join:\n${inviteLink}`
+        )
+        console.log(`[addParticipant] Invite link sent to ${phone}`)
+        return {
+          success: true,
+          inviteSent: true,
+        }
+      } catch (inviteErr) {
+        console.error('[addParticipant] Failed to send invite link:', inviteErr)
+        return {
+          success: false,
+          error: (participantResult.message || `Error code ${participantResult.code}`) + ' (invite link also failed)',
+        }
       }
     }
 

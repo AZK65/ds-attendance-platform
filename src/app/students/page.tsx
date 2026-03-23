@@ -605,7 +605,9 @@ function StudentsPage() {
       return res.json()
     },
     onSuccess: (data) => {
-      if (data.whatsappWarning) {
+      if (data.inviteSent) {
+        setSuccessMessage('Student couldn\'t be added directly — invite link sent via WhatsApp!')
+      } else if (data.whatsappWarning) {
         setSuccessMessage(`Student added to group (Note: ${data.whatsappWarning})`)
       } else {
         setSuccessMessage('Student added to group!')
