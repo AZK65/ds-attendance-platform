@@ -312,7 +312,7 @@ export async function POST(request: NextRequest) {
       errors: errors.length > 0 ? errors : undefined,
     })
   } catch (error) {
-    activeLocks.delete(studentPhone)
+    // Lock auto-expires after TTL
     console.error('Failed to create truck classes:', error)
     return NextResponse.json(
       { error: 'Failed to create truck classes' },
