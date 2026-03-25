@@ -5,6 +5,10 @@ import { prisma } from '@/lib/db'
 
 const BASE_URL = 'https://api.teamup.com'
 
+// Simple in-memory lock to prevent concurrent class creation for the same student
+const activeLocks = new Map<string, number>()
+const LOCK_TTL = 30000 // 30 seconds
+
 interface TruckClassInput {
   date: string       // "2026-02-20"
   startTime: string  // "09:00"
@@ -42,6 +46,17 @@ export async function POST(request: NextRequest) {
         { status: 400 }
       )
     }
+
+    // Prevent concurrent class creation for the same student (race condition guard)
+    const lockKey = studentPhone
+    const existingLock = activeLocks.get(lockKey)
+    if (existingLock && Date.now() - existingLock < LOCK_TTL) {
+      return NextResponse.json(
+        { error: 'Class creation already in progress for this student. Please wait.' },
+        { status: 429 }
+      )
+    }
+    activeLocks.set(lockKey, Date.now())
 
     const apiKey = process.env.TEAMUP_API_KEY || ''
     const calendarKey = process.env.TEAMUP_CALENDAR_KEY || ''
@@ -83,12 +98,12 @@ export async function POST(request: NextRequest) {
     // Check for duplicates before creating
     const duplicates: string[] = []
     for (const cls of classes) {
-      const clsStart = `${cls.date}T${cls.startTime}:00`
       const dup = existingEvents.find(ev => {
         const evDate = ev.start_dt.split('T')[0]
         if (evDate !== cls.date) return false
-        // Check if same student name in title
-        const hasStudent = ev.title.toLowerCase().includes(studentName.toLowerCase())
+        // Check if same student by name in title OR phone in notes
+        const hasStudent = ev.title.toLowerCase().includes(studentName.toLowerCase()) ||
+          (ev.notes || '').includes(studentPhone)
         // Check if same start time
         const evTime = ev.start_dt.slice(11, 16)
         const sameTime = evTime === cls.startTime
@@ -97,6 +112,16 @@ export async function POST(request: NextRequest) {
       if (dup) {
         duplicates.push(`${studentName} already has a class on ${formatDateDisplay(cls.date)} at ${formatTimeDisplay(cls.startTime)} (${dup.title})`)
       }
+    }
+
+    // Also check for duplicate time slots within the same request
+    const timeSlots = new Set<string>()
+    for (const cls of classes) {
+      const key = `${cls.date}-${cls.startTime}`
+      if (timeSlots.has(key)) {
+        duplicates.push(`Duplicate time slot: ${formatDateDisplay(cls.date)} at ${formatTimeDisplay(cls.startTime)}`)
+      }
+      timeSlots.add(key)
     }
 
     if (duplicates.length > 0) {
@@ -277,6 +302,8 @@ export async function POST(request: NextRequest) {
       console.error('Failed to notify teacher about truck classes:', err)
     }
 
+    activeLocks.delete(lockKey)
+
     return NextResponse.json({
       success: true,
       eventsCreated,
@@ -285,6 +312,7 @@ export async function POST(request: NextRequest) {
       errors: errors.length > 0 ? errors : undefined,
     })
   } catch (error) {
+    activeLocks.delete(studentPhone)
     console.error('Failed to create truck classes:', error)
     return NextResponse.json(
       { error: 'Failed to create truck classes' },
