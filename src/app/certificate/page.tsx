@@ -761,6 +761,30 @@ export default function CertificatePage() {
     if (!templatePdf) return
     let finalFormData = { ...formData }
 
+    // Before anything else: check if this student has a saved certificate in SQLite
+    // This overrides any stale MySQL values with the real assigned numbers
+    try {
+      const profileParams = new URLSearchParams()
+      if (finalFormData.phone) profileParams.set('phone', finalFormData.phone)
+      if (finalFormData.name) profileParams.set('studentName', finalFormData.name)
+      if (profileParams.toString()) {
+        const profileRes = await fetch(`/api/students/profile?${profileParams}`)
+        if (profileRes.ok) {
+          const profile = await profileRes.json()
+          if (profile.localStudent?.certificates?.length > 0) {
+            const latestCert = profile.localStudent.certificates[profile.localStudent.certificates.length - 1]
+            if (latestCert.contractNumber) {
+              finalFormData.contractNumber = String(latestCert.contractNumber)
+            }
+            if (latestCert.attestationNumber) {
+              const attNum = String(latestCert.attestationNumber)
+              finalFormData.attestationNumber = attNum.includes('  ') ? attNum : attNum.split('').join('  ')
+            }
+          }
+        }
+      }
+    } catch { /* non-critical — will fall through to normal logic */ }
+
     // Check if student already has contract/attestation numbers (editing existing cert)
     const hasExistingContract = finalFormData.contractNumber.replace(/\s/g, '').length > 0
     const hasExistingAttestation = finalFormData.attestationNumber.replace(/\s/g, '').length > 0
