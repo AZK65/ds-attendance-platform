@@ -34,6 +34,16 @@ export async function GET(request: NextRequest) {
       .reduce((sum, inv) => sum + inv.total, 0)
     const lastInvoice = invoices[0] || null // Already sorted desc
 
+    // For the open balance, use remainingBalance from the most recent invoice if available.
+    // This is package-aware: it captures the full package total minus what's been invoiced,
+    // so even when all current invoices are paid, it still shows what the student owes
+    // for future installments. Fall back to simple unpaid total if no remainingBalance.
+    const latestRemainingBalance = lastInvoice?.remainingBalance
+    const simpleBalance = totalInvoiced - totalPaid
+    const openBalance = (latestRemainingBalance != null && latestRemainingBalance > 0)
+      ? latestRemainingBalance
+      : simpleBalance
+
     return NextResponse.json({
       dbStudent,
       localStudent: localStudent ? {
@@ -102,7 +112,7 @@ export async function GET(request: NextRequest) {
       summary: {
         totalInvoiced: Math.round(totalInvoiced * 100) / 100,
         totalPaid: Math.round(totalPaid * 100) / 100,
-        openBalance: Math.round((totalInvoiced - totalPaid) * 100) / 100,
+        openBalance: Math.round(openBalance * 100) / 100,
         invoiceCount: invoices.length,
         lastInvoiceDate: lastInvoice?.invoiceDate || null,
       },
