@@ -639,6 +639,7 @@ export default function CertificatePage() {
       ])
 
       const dates: Record<string, string> = {}
+      const certOverrides: Record<string, string> = {}
 
       // First: load saved dates from local SQLite (lowest priority — will be overridden by Teamup/Zoom)
       if (profileRes?.ok) {
@@ -662,12 +663,11 @@ export default function CertificatePage() {
           if (s.certificates && s.certificates.length > 0) {
             const latestCert = s.certificates[s.certificates.length - 1]
             if (latestCert.contractNumber) {
-              setFormData(prev => ({ ...prev, contractNumber: String(latestCert.contractNumber) }))
+              certOverrides.contractNumber = String(latestCert.contractNumber)
             }
             if (latestCert.attestationNumber) {
               const attNum = String(latestCert.attestationNumber)
-              const formatted = attNum.includes('  ') ? attNum : attNum.split('').join('  ')
-              setFormData(prev => ({ ...prev, attestationNumber: formatted }))
+              certOverrides.attestationNumber = attNum.includes('  ') ? attNum : attNum.split('').join('  ')
             }
           }
         }
@@ -703,8 +703,8 @@ export default function CertificatePage() {
         }
       }
 
-      if (Object.keys(dates).length > 0) {
-        setFormData(prev => ({ ...prev, ...dates }))
+      if (Object.keys(dates).length > 0 || Object.keys(certOverrides).length > 0) {
+        setFormData(prev => ({ ...prev, ...dates, ...certOverrides }))
       }
     } catch { /* non-critical */ }
   }
