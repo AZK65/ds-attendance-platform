@@ -1885,8 +1885,8 @@ export default function CertificatePage() {
                                   <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted-foreground mt-1">
                                     {student.phone_number && <span>📞 {student.phone_number}</span>}
                                     {student.permit_number && <span className="font-mono">🪪 {student.permit_number}</span>}
-                                    {student.contract_number && <span className="font-mono">🔖 Att: {student.contract_number}</span>}
-                                    {student.user_defined_contract_number && <span>📄 Contract: {student.user_defined_contract_number}</span>}
+                                    {student.contract_number ? <span className="font-mono">🔖 Att: {student.contract_number}</span> : null}
+                                    {student.user_defined_contract_number ? <span>📄 Contract: {student.user_defined_contract_number}</span> : null}
                                   </div>
                                   {student.full_address && (
                                     <p className="text-xs text-muted-foreground mt-0.5">📍 {student.full_address}, {student.city} {student.postal_code}</p>
