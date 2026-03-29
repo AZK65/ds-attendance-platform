@@ -1679,13 +1679,22 @@ function SchedulingPage() {
   }
 
   // Helper: download PDF via print
+  // Opens the print window immediately (to avoid popup blocker), then writes content after async logo load
   const downloadPDF = async (
     headers: string[],
     rows: string[][],
     _summary: { totalClasses: number; presentCount: number; absentCount: number; rate: string } | null,
     meta: { title: string; subtitle: string; filename: string }
   ) => {
-    // Load logo as base64
+    // Open window immediately in the synchronous click handler context
+    // to prevent popup blockers from blocking it
+    const printWindow = window.open('', '_blank')
+    if (!printWindow) return
+
+    // Show loading state while we prepare content
+    printWindow.document.write('<html><body><p>Generating PDF...</p></body></html>')
+
+    // Load logo as base64 (async)
     const logoBase64 = await imageToBase64('/qazi-logo.png')
 
     const statusColIdx = headers.indexOf('Status')
@@ -1755,8 +1764,8 @@ function SchedulingPage() {
       </html>
     `
 
-    const printWindow = window.open('', '_blank')
-    if (!printWindow) return
+    // Replace loading content with actual PDF content
+    printWindow.document.open()
     printWindow.document.write(html)
     printWindow.document.close()
     // Wait for logo image to load before printing
