@@ -606,9 +606,9 @@ export default function CertificatePage() {
       formattedName = `${lastName}, ${firstName}`
     }
 
-    const attestationRaw = String(student.contract_number || '')
-    const formattedAttestation = attestationRaw ? attestationRaw.split('').join('  ') : ''
-
+    // Don't pre-fill contract/attestation from MySQL — those values are often stale.
+    // The correct numbers will come from SQLite certificates (fetched below),
+    // or fresh numbers will be assigned by handleGeneratePDF if no cert exists yet.
     const baseData: CertificateFormData = {
       ...initialFormData,
       name: formattedName,
@@ -618,8 +618,8 @@ export default function CertificatePage() {
       province: 'QC',
       postalCode: student.postal_code || '',
       phone: student.phone_number || '',
-      contractNumber: String(student.user_defined_contract_number || ''),
-      attestationNumber: formattedAttestation,
+      contractNumber: '',
+      attestationNumber: '',
     }
 
     setFormData(baseData)
@@ -660,8 +660,9 @@ export default function CertificatePage() {
           }
 
           // Override MySQL numbers with SQLite certificate numbers (the real assigned ones)
+          // certificates are ordered desc by generatedAt, so index 0 is the latest
           if (s.certificates && s.certificates.length > 0) {
-            const latestCert = s.certificates[s.certificates.length - 1]
+            const latestCert = s.certificates[0]
             if (latestCert.contractNumber) {
               certOverrides.contractNumber = String(latestCert.contractNumber)
             }
@@ -772,7 +773,8 @@ export default function CertificatePage() {
         if (profileRes.ok) {
           const profile = await profileRes.json()
           if (profile.localStudent?.certificates?.length > 0) {
-            const latestCert = profile.localStudent.certificates[profile.localStudent.certificates.length - 1]
+            // certificates are ordered desc by generatedAt, so index 0 is the latest
+            const latestCert = profile.localStudent.certificates[0]
             if (latestCert.contractNumber) {
               finalFormData.contractNumber = String(latestCert.contractNumber)
             }
@@ -1281,11 +1283,9 @@ export default function CertificatePage() {
       formattedName = `${lastName}, ${firstName}`
     }
 
-    // contract_number in DB = attestation number (barcode)
-    // user_defined_contract_number in DB = contract number (school's internal #)
-    const attestationRaw = String(student.contract_number || '')
-    const formattedAttestation = attestationRaw ? attestationRaw.split('').join('  ') : ''
-
+    // Don't pre-fill contract/attestation from MySQL — those values are often stale.
+    // The correct numbers will come from SQLite certificates (fetched below),
+    // or fresh numbers will be assigned during generation if no cert exists yet.
     const baseData = {
       ...initialFormData,
       name: formattedName,
@@ -1295,8 +1295,8 @@ export default function CertificatePage() {
       province: 'QC',
       postalCode: student.postal_code || '',
       phone: student.phone_number || '',
-      contractNumber: String(student.user_defined_contract_number || ''),
-      attestationNumber: formattedAttestation,
+      contractNumber: '',
+      attestationNumber: '',
     }
 
     setDbFormData(baseData)
@@ -1316,8 +1316,9 @@ export default function CertificatePage() {
       ])
 
       const dates: Record<string, string> = {}
+      const certOverrides: Record<string, string> = {}
 
-      // First: load saved dates from local SQLite (lowest priority — will be overridden by Teamup/Zoom)
+      // First: load saved dates + certificate numbers from local SQLite
       if (profileRes?.ok) {
         const profile = await profileRes.json()
         if (profile.localStudent) {
@@ -1333,6 +1334,19 @@ export default function CertificatePage() {
           ]
           for (const field of dateFields) {
             if (s[field]) dates[field] = s[field]
+          }
+
+          // Override with SQLite certificate numbers (the real assigned ones)
+          // certificates are ordered desc by generatedAt, so index 0 is the latest
+          if (s.certificates && s.certificates.length > 0) {
+            const latestCert = s.certificates[0]
+            if (latestCert.contractNumber) {
+              certOverrides.contractNumber = String(latestCert.contractNumber)
+            }
+            if (latestCert.attestationNumber) {
+              const attNum = String(latestCert.attestationNumber)
+              certOverrides.attestationNumber = attNum.includes('  ') ? attNum : attNum.split('').join('  ')
+            }
           }
         }
       }
@@ -1376,9 +1390,9 @@ export default function CertificatePage() {
         }
       }
 
-      // Update form data with auto-populated dates
-      if (Object.keys(dates).length > 0) {
-        setDbFormData(prev => ({ ...prev, ...dates }))
+      // Update form data with auto-populated dates and cert number overrides
+      if (Object.keys(dates).length > 0 || Object.keys(certOverrides).length > 0) {
+        setDbFormData(prev => ({ ...prev, ...dates, ...certOverrides }))
       }
     } catch (error) {
       console.error('Failed to fetch class dates:', error)
@@ -1396,26 +1410,79 @@ export default function CertificatePage() {
     if (!templateStatus?.template) return
     let finalFormData = { ...dbFormData }
 
-    // For database mode, attestation + contract numbers come from the DB
-    // We only need school info from settings (don't auto-increment numbers)
+    // Check SQLite for existing certificate numbers (overrides any stale form values)
     try {
-      const res = await fetch('/api/certificate/settings')
-      if (res.ok) {
-        const settings = await res.json()
+      const profileParams = new URLSearchParams()
+      if (finalFormData.phone) profileParams.set('phone', finalFormData.phone)
+      if (finalFormData.name) profileParams.set('studentName', finalFormData.name)
+      if (profileParams.toString()) {
+        const profileRes = await fetch(`/api/students/profile?${profileParams}`)
+        if (profileRes.ok) {
+          const profile = await profileRes.json()
+          if (profile.localStudent?.certificates?.length > 0) {
+            // certificates are ordered desc by generatedAt, so index 0 is the latest
+            const latestCert = profile.localStudent.certificates[0]
+            if (latestCert.contractNumber) {
+              finalFormData.contractNumber = String(latestCert.contractNumber)
+            }
+            if (latestCert.attestationNumber) {
+              const attNum = String(latestCert.attestationNumber)
+              finalFormData.attestationNumber = attNum.includes('  ') ? attNum : attNum.split('').join('  ')
+            }
+          }
+        }
+      }
+    } catch { /* non-critical — will fall through to number assignment below */ }
+
+    const hasExistingContract = finalFormData.contractNumber.replace(/\s/g, '').length > 0
+    const hasExistingAttestation = finalFormData.attestationNumber.replace(/\s/g, '').length > 0
+
+    try {
+      if (hasExistingContract && hasExistingAttestation) {
+        // Reuse existing numbers — only fetch school info without incrementing
+        const res = await fetch('/api/certificate/settings')
+        if (res.ok) {
+          const settings = await res.json()
+          finalFormData = {
+            ...finalFormData,
+            schoolName: settings.schoolName || '',
+            schoolAddress: settings.schoolAddress || '',
+            schoolCity: settings.schoolCity || '',
+            schoolProvince: settings.schoolProvince || '',
+            schoolPostalCode: settings.schoolPostalCode || '',
+            schoolNumber: settings.schoolNumber || '',
+          }
+        }
+      } else {
+        // No existing cert — get next numbers (increments counters)
+        const res = await fetch('/api/certificate/next-number', { method: 'POST' })
+        if (!res.ok) {
+          const err = await res.json().catch(() => ({ error: 'Failed to get certificate numbers' }))
+          alert(err.error || 'Failed to get certificate numbers from settings')
+          return
+        }
+        const numbers = await res.json()
+        const attestationStr = String(numbers.attestationNumber)
+        const formattedAttestation = attestationStr.split('').join('  ')
         finalFormData = {
           ...finalFormData,
-          schoolName: settings.schoolName || '',
-          schoolAddress: settings.schoolAddress || '',
-          schoolCity: settings.schoolCity || '',
-          schoolProvince: settings.schoolProvince || '',
-          schoolPostalCode: settings.schoolPostalCode || '',
-          schoolNumber: settings.schoolNumber || '',
+          contractNumber: finalFormData.contractNumber || String(numbers.contractNumber),
+          attestationNumber: hasExistingAttestation ? finalFormData.attestationNumber : formattedAttestation,
+          schoolName: numbers.schoolName || '',
+          schoolAddress: numbers.schoolAddress || '',
+          schoolCity: numbers.schoolCity || '',
+          schoolProvince: numbers.schoolProvince || '',
+          schoolPostalCode: numbers.schoolPostalCode || '',
+          schoolNumber: numbers.schoolNumber || '',
         }
       }
     } catch (error) {
-      console.error('Error fetching school settings:', error)
+      console.error('Error fetching certificate numbers:', error)
+      alert('Failed to get certificate numbers. Check settings.')
+      return
     }
 
+    finalFormDataRef.current = finalFormData
     pdfMutation.mutate({ ...finalFormData, templatePdf: templateStatus.template })
     setDbStep('download')
   }
