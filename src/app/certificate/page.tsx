@@ -657,6 +657,19 @@ export default function CertificatePage() {
           for (const field of dateFields) {
             if (s[field]) dates[field] = s[field]
           }
+
+          // Override MySQL numbers with SQLite certificate numbers (the real assigned ones)
+          if (s.certificates && s.certificates.length > 0) {
+            const latestCert = s.certificates[s.certificates.length - 1]
+            if (latestCert.contractNumber) {
+              setFormData(prev => ({ ...prev, contractNumber: String(latestCert.contractNumber) }))
+            }
+            if (latestCert.attestationNumber) {
+              const attNum = String(latestCert.attestationNumber)
+              const formatted = attNum.includes('  ') ? attNum : attNum.split('').join('  ')
+              setFormData(prev => ({ ...prev, attestationNumber: formatted }))
+            }
+          }
         }
       }
 
@@ -877,12 +890,29 @@ export default function CertificatePage() {
       if (phone) params.set('phone', phone)
       if (name) params.set('studentName', name)
 
-      const [eventsRes, theoryRes] = await Promise.all([
+      const [eventsRes, theoryRes, profileRes] = await Promise.all([
         fetch(`/api/scheduling/student-events?${params}`).catch(() => null),
         fetch(`/api/scheduling/student-theory?${params}`).catch(() => null),
+        fetch(`/api/students/profile?${params}`).catch(() => null),
       ])
 
       const dates: Record<string, string> = {}
+      let certOverrides: Record<string, string> = {}
+
+      // Check for existing certificate numbers in SQLite (override MySQL numbers)
+      if (profileRes?.ok) {
+        const profile = await profileRes.json()
+        if (profile.localStudent?.certificates?.length > 0) {
+          const latestCert = profile.localStudent.certificates[profile.localStudent.certificates.length - 1]
+          if (latestCert.contractNumber) {
+            certOverrides.contractNumber = String(latestCert.contractNumber)
+          }
+          if (latestCert.attestationNumber) {
+            const attNum = String(latestCert.attestationNumber)
+            certOverrides.attestationNumber = attNum.includes('  ') ? attNum : attNum.split('').join('  ')
+          }
+        }
+      }
 
       if (theoryRes?.ok) {
         const theoryData: { moduleNumber: number; date: string }[] = await theoryRes.json()
@@ -914,7 +944,7 @@ export default function CertificatePage() {
 
       setBulkStudents(prev => prev.map(bs =>
         bs.id === newEntry.id
-          ? { ...bs, formData: { ...bs.formData, ...dates }, datesFetched: true }
+          ? { ...bs, formData: { ...bs.formData, ...dates, ...certOverrides }, datesFetched: true }
           : bs
       ))
     } catch {
