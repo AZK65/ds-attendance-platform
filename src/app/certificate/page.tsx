@@ -748,26 +748,48 @@ export default function CertificatePage() {
     if (!templatePdf) return
     let finalFormData = { ...formData }
 
+    // Check if student already has contract/attestation numbers (editing existing cert)
+    const hasExistingContract = finalFormData.contractNumber.replace(/\s/g, '').length > 0
+    const hasExistingAttestation = finalFormData.attestationNumber.replace(/\s/g, '').length > 0
+
     try {
-      const res = await fetch('/api/certificate/next-number', { method: 'POST' })
-      if (!res.ok) {
-        const err = await res.json().catch(() => ({ error: 'Failed to get certificate numbers' }))
-        alert(err.error || 'Failed to get certificate numbers from settings')
-        return
-      }
-      const numbers = await res.json()
-      const attestationStr = String(numbers.attestationNumber)
-      const formattedAttestation = attestationStr.split('').join('  ')
-      finalFormData = {
-        ...finalFormData,
-        contractNumber: finalFormData.contractNumber || String(numbers.contractNumber),
-        attestationNumber: formattedAttestation,
-        schoolName: numbers.schoolName || '',
-        schoolAddress: numbers.schoolAddress || '',
-        schoolCity: numbers.schoolCity || '',
-        schoolProvince: numbers.schoolProvince || '',
-        schoolPostalCode: numbers.schoolPostalCode || '',
-        schoolNumber: numbers.schoolNumber || '',
+      if (hasExistingContract && hasExistingAttestation) {
+        // Reuse existing numbers — only fetch school info without incrementing
+        const settingsRes = await fetch('/api/certificate/settings')
+        if (settingsRes.ok) {
+          const settings = await settingsRes.json()
+          finalFormData = {
+            ...finalFormData,
+            schoolName: settings.schoolName || '',
+            schoolAddress: settings.schoolAddress || '',
+            schoolCity: settings.schoolCity || '',
+            schoolProvince: settings.schoolProvince || '',
+            schoolPostalCode: settings.schoolPostalCode || '',
+            schoolNumber: settings.schoolNumber || '',
+          }
+        }
+      } else {
+        // New certificate — get next numbers (increments counters)
+        const res = await fetch('/api/certificate/next-number', { method: 'POST' })
+        if (!res.ok) {
+          const err = await res.json().catch(() => ({ error: 'Failed to get certificate numbers' }))
+          alert(err.error || 'Failed to get certificate numbers from settings')
+          return
+        }
+        const numbers = await res.json()
+        const attestationStr = String(numbers.attestationNumber)
+        const formattedAttestation = attestationStr.split('').join('  ')
+        finalFormData = {
+          ...finalFormData,
+          contractNumber: finalFormData.contractNumber || String(numbers.contractNumber),
+          attestationNumber: hasExistingAttestation ? finalFormData.attestationNumber : formattedAttestation,
+          schoolName: numbers.schoolName || '',
+          schoolAddress: numbers.schoolAddress || '',
+          schoolCity: numbers.schoolCity || '',
+          schoolProvince: numbers.schoolProvince || '',
+          schoolPostalCode: numbers.schoolPostalCode || '',
+          schoolNumber: numbers.schoolNumber || '',
+        }
       }
     } catch (error) {
       console.error('Error fetching next numbers:', error)
