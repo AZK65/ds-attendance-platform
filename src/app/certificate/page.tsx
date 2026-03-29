@@ -529,13 +529,21 @@ export default function CertificatePage() {
     localStudents?: { id: string; name: string; phone: string; licenceNumber: string; address?: string; municipality?: string; postalCode?: string }[]
     whatsappContacts?: { id: string; phone: string; name: string | null; pushName: string | null; groupName: string | null; groupId: string | null }[]
   }): DBStudent[] => {
-    const results: DBStudent[] = [...(data.students || [])]
-    const seenPhones = new Set(results.map(s => s.phone_number).filter(Boolean))
+    // Dedupe MySQL results by phone number (external DB can have duplicate rows)
+    const seenPhones = new Set<string>()
+    const results: DBStudent[] = []
+    for (const s of (data.students || [])) {
+      const phone = s.phone_number?.replace(/\D/g, '').slice(-10) || ''
+      if (phone && seenPhones.has(phone)) continue
+      if (phone) seenPhones.add(phone)
+      results.push(s)
+    }
 
     // Add local students (SQLite)
     for (const ls of (data.localStudents || [])) {
-      if (ls.phone && seenPhones.has(ls.phone)) continue
-      if (ls.phone) seenPhones.add(ls.phone)
+      const lsPhone = ls.phone?.replace(/\D/g, '').slice(-10) || ''
+      if (lsPhone && seenPhones.has(lsPhone)) continue
+      if (lsPhone) seenPhones.add(lsPhone)
       results.push({
         student_id: parseInt(ls.id) || Date.now(),
         full_name: ls.name || '',
@@ -554,8 +562,9 @@ export default function CertificatePage() {
 
     // Add WhatsApp contacts
     for (const wc of (data.whatsappContacts || [])) {
-      if (wc.phone && seenPhones.has(wc.phone)) continue
-      if (wc.phone) seenPhones.add(wc.phone)
+      const wcPhone = wc.phone?.replace(/\D/g, '').slice(-10) || ''
+      if (wcPhone && seenPhones.has(wcPhone)) continue
+      if (wcPhone) seenPhones.add(wcPhone)
       results.push({
         student_id: parseInt(wc.id.replace(/\D/g, '').slice(-9)) || Date.now(),
         full_name: wc.name || wc.pushName || '',
