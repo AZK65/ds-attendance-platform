@@ -168,7 +168,7 @@ async function findExternalStudent(phone: string, name: string): Promise<Student
 
 // Find local student record with certificates (from certificate generation)
 async function findLocalStudent(phone: string, name: string) {
-  const cleanName = name.replace(/\s*#\d+$/, '').trim()
+  const cleanName = name.replace(/\s*#\d+$/, '').replace(/,/g, '').trim()
   const conditions = []
 
   if (phone) {
@@ -179,12 +179,18 @@ async function findLocalStudent(phone: string, name: string) {
   }
 
   if (cleanName && cleanName.length >= 2) {
-    conditions.push({ name: { contains: cleanName } })
+    // Also try individual name parts for better matching (e.g. "MAVIS, OLANSEY" → search "MAVIS" and "OLANSEY")
+    const nameParts = cleanName.split(/\s+/).filter(p => p.length >= 2)
+    for (const part of nameParts) {
+      conditions.push({ name: { contains: part } })
+    }
   }
 
   if (conditions.length === 0) return null
 
-  return prisma.student.findFirst({
+  console.log('[findLocalStudent] phone:', phone, 'name:', name, 'conditions:', JSON.stringify(conditions))
+
+  const result = await prisma.student.findFirst({
     where: { OR: conditions },
     include: {
       certificates: {
@@ -192,6 +198,9 @@ async function findLocalStudent(phone: string, name: string) {
       },
     },
   })
+
+  console.log('[findLocalStudent] result:', result ? `${result.name} (${result.certificates.length} certs)` : 'null')
+  return result
 }
 
 // Find invoices for a student by phone or name
