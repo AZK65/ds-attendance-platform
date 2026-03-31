@@ -18,6 +18,16 @@ export function middleware(request: NextRequest) {
     return NextResponse.next()
   }
 
+  // Allow internal server-side requests (from instrumentation.ts / scheduled processors)
+  if (request.headers.get('x-internal') === '1') {
+    const referer = request.headers.get('referer') || ''
+    const host = request.headers.get('host') || ''
+    // Only trust x-internal from localhost (server calling itself)
+    if (host.includes('localhost') || host.includes('127.0.0.1') || !referer) {
+      return NextResponse.next()
+    }
+  }
+
   // Check for auth cookie
   const authToken = request.cookies.get('auth-token')?.value
   if (authToken === 'valid') {
