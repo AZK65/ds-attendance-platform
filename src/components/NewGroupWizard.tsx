@@ -238,7 +238,7 @@ export function NewGroupWizard({ open, onOpenChange }: NewGroupWizardProps) {
     // Phase D: Send welcome message to group
     setExecutionPhase('Sending welcome message...')
     try {
-      const welcomeMessage = `Assalamu Alaikum and welcome to Qazi Driving School! 🚗\n\nThank you for choosing us for your driving education. We're excited to have you on board!\n\nA few things to know:\n📘 You will receive a PDF booklet — please keep it handy as it is required during your classes.\n💻 Classes are held on Zoom. Please download it before your first class:\n• iPhone/iPad: https://apps.apple.com/app/zoom/id546505307\n• Android: https://play.google.com/store/apps/details?id=us.zoom.videomeetings\n\nWhen joining Zoom, please use your *full name* so we can mark your attendance.\n\nIf you have any questions, feel free to message here. See you in class!`
+      const welcomeMessage = `Assalamu Alaikum and welcome to Qazi Driving School!\n\nThank you for choosing us for your driving education. We're excited to have you on board!\n\nA few things to know:\n- You will receive a PDF booklet — please keep it handy as it is required during your classes.\n- Classes are held on Zoom. Please download it before your first class.\n- When joining Zoom, please use your *full name* so we can mark your attendance.\n\nIf you have any questions, feel free to message here. See you in class!`
 
       const res = await fetch(`/api/groups/${encodeURIComponent(groupId!)}/message`, {
         method: 'POST',
@@ -259,7 +259,7 @@ export function NewGroupWizard({ open, onOpenChange }: NewGroupWizardProps) {
       setExecutionPhase('Setting up class...')
       const zoomLink = 'https://us02web.zoom.us/j/4171672829?pwd=ZTlHSEdmTGRYV1QraU5MaThqaC9Rdz09'
       const description = shouldSetDescription
-        ? `📚 Module ${moduleNumber} — ${classTimeDisplay}\n\n💻 Zoom Meeting:\n${zoomLink}\nPassword: qazi\n\n📲 Download Zoom:\niPhone: https://apps.apple.com/app/zoom/id546505307\nAndroid: https://play.google.com/store/apps/details?id=us.zoom.videomeetings\n\n⚠️ Please use your full name when joining Zoom.`
+        ? `Zoom Meeting:\n${zoomLink}\nPassword: qazi\n\nDownload Zoom:\niPhone: https://apps.apple.com/app/zoom/id546505307\nAndroid: https://play.google.com/store/apps/details?id=us.zoom.videomeetings\n\nPlease use your full name when joining Zoom.`
         : undefined
 
       try {
