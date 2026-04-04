@@ -43,9 +43,9 @@ const state: WhatsAppState = globalForWhatsApp.whatsappState ?? {
   lastGroupSync: 0
 }
 
-if (process.env.NODE_ENV !== 'production') {
-  globalForWhatsApp.whatsappState = state
-}
+// Persist state globally so multiple Next.js workers share the same WhatsApp client
+// Without this, each worker creates its own client and they fight over Chromium
+globalForWhatsApp.whatsappState = state
 
 const AUTH_FOLDER = path.join(process.cwd(), '.wwebjs-auth')
 const CACHE_TTL = 60000 // 1 minute cache
