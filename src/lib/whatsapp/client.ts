@@ -855,7 +855,13 @@ export async function addParticipantToGroup(groupId: string, phone: string): Pro
     console.log(`Adding participant ${participantId} to group ${groupId}`)
 
     const chat = await client.getChatById(groupId)
-    const result = await chat.addParticipants([participantId])
+
+    // Add timeout to prevent hanging (WhatsApp can stall on privacy-restricted numbers)
+    const addWithTimeout = Promise.race([
+      chat.addParticipants([participantId]),
+      new Promise<never>((_, reject) => setTimeout(() => reject(new Error('Add participant timed out after 15s')), 15000)),
+    ])
+    const result = await addWithTimeout
     console.log('Add participant result:', result)
 
     // Check if there was an error for this participant
@@ -888,30 +894,6 @@ export async function addParticipantToGroup(groupId: string, phone: string): Pro
           success: false,
           error: (participantResult.message || `Error code ${participantResult.code}`) + ' (invite link also failed)',
         }
-      }
-    }
-
-    // Wait for WhatsApp to process the change
-    await new Promise(resolve => setTimeout(resolve, 2000))
-
-    // Force refresh the group metadata cache using pupPage
-    if (client.pupPage) {
-      console.log('[addParticipant] Forcing cache refresh...')
-      try {
-        await client.pupPage.evaluate(`
-          (async () => {
-            const groupId = '${groupId}';
-            if (window.Store && window.Store.GroupMetadata) {
-              // Delete cached metadata
-              window.Store.GroupMetadata.delete(groupId);
-              // Re-fetch from server
-              await window.Store.GroupMetadata.find(groupId);
-            }
-            return true;
-          })()
-        `)
-      } catch (e) {
-        console.log('[addParticipant] Cache refresh failed:', e)
       }
     }
 
