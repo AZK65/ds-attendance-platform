@@ -2922,13 +2922,32 @@ function SchedulingPage() {
                 )}
 
                 {/* Date & Time */}
-                <div className="flex items-center gap-3">
-                  <Clock className="h-4 w-4 text-muted-foreground flex-shrink-0" />
-                  <div>
-                    <p className="text-sm text-muted-foreground">Date & Time</p>
-                    <p className="font-medium">{dateStr}</p>
-                    <p className="text-sm">{startTimeStr} - {endTimeStr}</p>
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-3">
+                    <Clock className="h-4 w-4 text-muted-foreground flex-shrink-0" />
+                    <div>
+                      <p className="text-sm text-muted-foreground">Date & Time</p>
+                      <p className="font-medium">{dateStr}</p>
+                      <p className="text-sm">{startTimeStr} - {endTimeStr}</p>
+                    </div>
                   </div>
+                  {phone && (
+                    <button
+                      onClick={handleRenotify}
+                      disabled={renotifyStatus === 'sending'}
+                      className={`p-2 rounded-full transition-all ${
+                        renotifyStatus === 'sent' ? 'bg-green-100 text-green-600' :
+                        renotifyStatus === 'failed' ? 'bg-red-100 text-red-600' :
+                        'hover:bg-muted text-muted-foreground hover:text-foreground'
+                      }`}
+                      title="Re-send class notification"
+                    >
+                      {renotifyStatus === 'sending' ? <Loader2 className="h-5 w-5 animate-spin" /> :
+                       renotifyStatus === 'sent' ? <CheckCircle2 className="h-5 w-5 animate-bounce" /> :
+                       renotifyStatus === 'failed' ? <AlertCircle className="h-5 w-5 animate-pulse" /> :
+                       <Bell className="h-5 w-5" />}
+                    </button>
+                  )}
                 </div>
 
                 {/* Custom title / notes */}
@@ -3003,20 +3022,6 @@ function SchedulingPage() {
             </div>
             {/* Right side buttons */}
             <div className="flex gap-2">
-              {selectedEvent && parsePhoneFromNotes(selectedEvent.notes) && (
-                <Button
-                  variant="outline"
-                  onClick={handleRenotify}
-                  disabled={renotifyStatus === 'sending'}
-                  className={renotifyStatus === 'sent' ? 'border-green-300 text-green-700' : renotifyStatus === 'failed' ? 'border-red-300 text-red-700' : ''}
-                >
-                  {renotifyStatus === 'sending' ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> :
-                   renotifyStatus === 'sent' ? <CheckCircle2 className="h-4 w-4 mr-2" /> :
-                   renotifyStatus === 'failed' ? <AlertCircle className="h-4 w-4 mr-2" /> :
-                   <Bell className="h-4 w-4 mr-2" />}
-                  {renotifyStatus === 'sent' ? 'Sent' : renotifyStatus === 'failed' ? 'Failed' : 'Re-notify'}
-                </Button>
-              )}
               <Button variant="outline" onClick={() => setShowEventDetail(false)}>Close</Button>
               <Button onClick={handleEditFromDetail}>
                 <Edit3 className="h-4 w-4 mr-2" />Edit
