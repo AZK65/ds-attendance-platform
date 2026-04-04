@@ -668,101 +668,20 @@ export async function getGroupParticipants(groupId: string): Promise<Participant
 
   console.log(`[getGroupParticipants] Fetching participants for ${groupId}`)
 
-  let chatParticipants: Array<{
-    id: { _serialized: string; user: string }
-    isAdmin: boolean
-    isSuperAdmin: boolean
-  }> = []
-
-  // Step 1: Clear any cached data using pupPage
-  if (client.pupPage) {
-    console.log('[getGroupParticipants] Step 1: Clearing WhatsApp Web cache...')
-    try {
-      await client.pupPage.evaluate(`
-        (async () => {
-          const groupId = '${groupId}';
-          // Clear GroupMetadata cache
-          if (window.Store && window.Store.GroupMetadata) {
-            const cached = window.Store.GroupMetadata.get(groupId);
-            if (cached) {
-              window.Store.GroupMetadata.delete(groupId);
-              console.log('[pupPage] Cleared GroupMetadata cache');
-            }
-          }
-          return true;
-        })()
-      `)
-    } catch (e) {
-      console.log('[getGroupParticipants] Cache clear failed (this is OK):', e)
-    }
-  }
-
-  // Step 2: Get fresh chat data via getChatById
-  console.log('[getGroupParticipants] Step 2: Fetching chat via getChatById...')
+  // Get chat data via getChatById (no pupPage cache manipulation — it causes timeouts in Docker)
   const chat = await client.getChatById(groupId)
 
   if (!chat.isGroup) {
     throw new Error('Not a group chat')
   }
 
-  // Get participants from the chat object
-  chatParticipants = chat.participants || []
-
-  // Also check groupMetadata
+  // Get participants from the chat object or groupMetadata
+  let chatParticipants = chat.participants || []
   if (chatParticipants.length === 0 && chat.groupMetadata?.participants) {
     chatParticipants = chat.groupMetadata.participants
   }
 
-  console.log(`[getGroupParticipants] getChatById returned ${chatParticipants.length} participants`)
-
-  // Step 3: If still not enough, try pupPage direct query
-  if (client.pupPage) {
-    console.log('[getGroupParticipants] Step 3: Checking via pupPage for fresh data...')
-    try {
-      const freshData = await client.pupPage.evaluate(`
-        (async () => {
-          const groupId = '${groupId}';
-          try {
-            // Try to get from GroupMetadata.find() which should fetch from server
-            if (window.Store && window.Store.GroupMetadata && window.Store.GroupMetadata.find) {
-              const meta = await window.Store.GroupMetadata.find(groupId);
-              if (meta && meta.participants) {
-                const parts = meta.participants._models || meta.participants;
-                if (parts && parts.length > 0) {
-                  return {
-                    count: parts.length,
-                    participants: (Array.isArray(parts) ? parts : []).map(p => ({
-                      id: { _serialized: p.id?._serialized || p.id?.toString?.() || '', user: p.id?.user || '' },
-                      isAdmin: p.isAdmin || false,
-                      isSuperAdmin: p.isSuperAdmin || false
-                    }))
-                  };
-                }
-              }
-            }
-            return null;
-          } catch (e) {
-            return { error: String(e) };
-          }
-        })()
-      `) as { count?: number; participants?: typeof chatParticipants; error?: string } | null
-
-      if (freshData && !freshData.error && freshData.participants && freshData.count) {
-        console.log(`[getGroupParticipants] pupPage reports ${freshData.count} participants`)
-        // Use pupPage data if it has more participants
-        if (freshData.participants.length > chatParticipants.length) {
-          chatParticipants = freshData.participants
-          console.log(`[getGroupParticipants] Using pupPage data (${chatParticipants.length} participants)`)
-        }
-      } else if (freshData?.error) {
-        console.log(`[getGroupParticipants] pupPage error: ${freshData.error}`)
-      }
-    } catch (e) {
-      console.log('[getGroupParticipants] pupPage query failed:', e)
-    }
-  }
-
-  console.log(`[getGroupParticipants] Final count: ${chatParticipants.length} participants`)
+  console.log(`[getGroupParticipants] Found ${chatParticipants.length} participants`)
 
   const participants: ParticipantInfo[] = []
 
