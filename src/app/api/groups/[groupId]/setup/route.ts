@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { setGroupDescription, sendPrivateMessage, sendDocumentToGroup, getWhatsAppState } from '@/lib/whatsapp/client'
+import { setGroupDescription, sendPrivateMessage, sendMessageToGroup, sendDocumentToGroup, getWhatsAppState } from '@/lib/whatsapp/client'
 import { prisma } from '@/lib/db'
 import { createTheoryEvent } from '@/lib/teamup'
 
@@ -74,18 +74,16 @@ export async function POST(
       const message = `Hey! Your Module ${moduleNumber} class is scheduled for ${dateStr} from ${classTime}. You'll receive another reminder on the day of the class. Please make sure to put your full name when joining Zoom. Invite Link: ${zoomLink} — Password: qazi`
 
       if (state.isConnected) {
-        for (const phone of memberPhones) {
-          try {
-            await sendPrivateMessage(phone, message)
-            results.push({ action: `Notify ${phone} about class`, status: 'Sent' })
+        // Send class notification to the group (not individually)
+        try {
+          await sendMessageToGroup(decodedGroupId, message)
+          results.push({ action: 'Class notification', status: 'Sent to group' })
 
-            await prisma.messageLog.create({
-              data: { type: 'class-notify', to: phone, message: message.slice(0, 500), status: 'sent' },
-            }).catch(() => {})
-          } catch (err) {
-            results.push({ action: `Notify ${phone}`, status: `Failed: ${err instanceof Error ? err.message : 'unknown'}` })
-          }
-          await new Promise(r => setTimeout(r, 1500))
+          await prisma.messageLog.create({
+            data: { type: 'class-notify', to: decodedGroupId, toName: 'Group', message: message.slice(0, 500), status: 'sent' },
+          }).catch(() => {})
+        } catch (err) {
+          results.push({ action: 'Class notification', status: `Failed: ${err instanceof Error ? err.message : 'unknown'}` })
         }
       }
 
