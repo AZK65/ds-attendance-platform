@@ -171,9 +171,9 @@ export function NewGroupWizard({ open, onOpenChange }: NewGroupWizardProps) {
           phones.push(s.phone) // still try to add to group
           addProgress({ action: `Create ${s.name}`, status: 'warning', detail: err.error || 'MySQL error (may already exist)' })
         }
-      } catch {
+      } catch (err) {
         phones.push(s.phone)
-        addProgress({ action: `Create ${s.name}`, status: 'error', detail: 'Network error' })
+        addProgress({ action: `Create ${s.name}`, status: 'error', detail: err instanceof Error ? err.message : 'Network error' })
       }
     }
 
@@ -203,11 +203,14 @@ export function NewGroupWizard({ open, onOpenChange }: NewGroupWizardProps) {
         setStep('done')
         return
       }
-    } catch {
-      addProgress({ action: `Create group "${groupName}"`, status: 'error', detail: 'Network error creating group' })
+    } catch (err) {
+      addProgress({ action: `Create group "${groupName}"`, status: 'error', detail: err instanceof Error ? err.message : 'Network error creating group' })
       setStep('done')
       return
     }
+
+    // Wait for WhatsApp to register the new group before adding members
+    await new Promise(r => setTimeout(r, 3000))
 
     // Phase C: Add remaining students to group
     if (phones.length > 1) {
@@ -228,8 +231,8 @@ export function NewGroupWizard({ open, onOpenChange }: NewGroupWizardProps) {
           } else {
             addProgress({ action: `Add ${students[i].name}`, status: 'success', detail: 'Added to group' })
           }
-        } catch {
-          addProgress({ action: `Add ${students[i].name}`, status: 'error', detail: 'Failed to add to group' })
+        } catch (err) {
+          addProgress({ action: `Add ${students[i].name}`, status: 'error', detail: err instanceof Error ? err.message : 'Failed to add to group' })
         }
         await new Promise(r => setTimeout(r, 1000))
       }
