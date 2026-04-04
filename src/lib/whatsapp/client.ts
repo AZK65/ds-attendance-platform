@@ -972,7 +972,35 @@ export async function createWhatsAppGroup(name: string, participantPhones: strin
 
     return { groupId, title: result.title }
   } catch (error) {
+    const errMsg = error instanceof Error ? error.message : String(error)
     console.error('Create group error:', error)
+
+    // "Lid is missing in chat table" is a known whatsapp-web.js bug where
+    // the group IS created on WhatsApp but the library fails to parse the response.
+    // Try to recover by finding the newly created group in the chat list.
+    if (errMsg.includes('Lid is missing') || errMsg.includes('lid')) {
+      console.log(`[createGroup] Attempting recovery — searching for group "${name}" in chats...`)
+      try {
+        await new Promise(r => setTimeout(r, 3000))
+
+        const chatClient = state.client as {
+          getChats: () => Promise<Array<{ id: { _serialized: string }; name: string; isGroup: boolean; timestamp: number }>>
+        }
+        const chats = await chatClient.getChats()
+        const recentGroups = chats
+          .filter(c => c.isGroup && c.name === name)
+          .sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0))
+
+        if (recentGroups.length > 0) {
+          const recovered = recentGroups[0]
+          console.log(`[createGroup] Recovered group ID: ${recovered.id._serialized}`)
+          return { groupId: recovered.id._serialized, title: recovered.name }
+        }
+      } catch (recoveryErr) {
+        console.error('[createGroup] Recovery failed:', recoveryErr)
+      }
+    }
+
     throw error
   }
 }
