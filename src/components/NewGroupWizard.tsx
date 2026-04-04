@@ -183,20 +183,20 @@ export function NewGroupWizard({ open, onOpenChange }: NewGroupWizardProps) {
       return
     }
 
-    // Phase B: Create WhatsApp group (with first student)
-    setExecutionPhase('Creating WhatsApp group...')
+    // Phase B: Create WhatsApp group with ALL students at once
+    setExecutionPhase(`Creating group with ${phones.length} members...`)
     let groupId: string | null = null
     try {
       const res = await fetch('/api/groups/create', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name: groupName, participants: [phones[0]] }),
+        body: JSON.stringify({ name: groupName, participants: phones }),
       })
       if (res.ok) {
         const data = await res.json()
         groupId = data.groupId
         setCreatedGroupId(groupId)
-        addProgress({ action: `Create group "${groupName}"`, status: 'success', detail: data.whatsappWarning || 'Group created' })
+        addProgress({ action: `Create group "${groupName}" with ${phones.length} members`, status: 'success', detail: data.whatsappWarning || 'Group created' })
       } else {
         const err = await res.json().catch(() => ({ error: 'failed' }))
         addProgress({ action: `Create group "${groupName}"`, status: 'error', detail: err.error || 'Failed to create group' })
@@ -209,40 +209,8 @@ export function NewGroupWizard({ open, onOpenChange }: NewGroupWizardProps) {
       return
     }
 
-    // Wait for WhatsApp to register the new group before adding members
+    // Wait for WhatsApp to settle after group creation
     await new Promise(r => setTimeout(r, 3000))
-
-    // Phase C: Add remaining students to group (bulk — single WhatsApp call)
-    if (phones.length > 1) {
-      setExecutionPhase(`Adding ${phones.length - 1} members...`)
-      try {
-        const bulkMembers = students.slice(1).map((s, i) => ({ phone: phones[i + 1], name: s.name }))
-        const res = await fetch(`/api/groups/${encodeURIComponent(groupId!)}/members-bulk`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ members: bulkMembers }),
-        })
-        if (res.ok) {
-          const data = await res.json()
-          for (const r of (data.results || [])) {
-            if (r.inviteSent) {
-              addProgress({ action: `Add ${r.name}`, status: 'warning', detail: 'Invite sent (needs to accept)' })
-            } else if (r.error) {
-              addProgress({ action: `Add ${r.name}`, status: 'error', detail: r.error })
-            } else if (r.warning) {
-              addProgress({ action: `Add ${r.name}`, status: 'warning', detail: r.warning })
-            } else {
-              addProgress({ action: `Add ${r.name}`, status: 'success', detail: 'Added to group' })
-            }
-          }
-        } else {
-          const err = await res.json().catch(() => ({ error: 'failed' }))
-          addProgress({ action: 'Add members', status: 'error', detail: err.error || 'Bulk add failed' })
-        }
-      } catch (err) {
-        addProgress({ action: 'Add members', status: 'error', detail: err instanceof Error ? err.message : 'Bulk add failed' })
-      }
-    }
 
     // Phase D: Send welcome message to group
     setExecutionPhase('Sending welcome message...')
@@ -263,7 +231,32 @@ export function NewGroupWizard({ open, onOpenChange }: NewGroupWizardProps) {
       addProgress({ action: 'Welcome message', status: 'warning', detail: 'Failed to send' })
     }
 
-    // Phase E: Class setup
+    // Phase E: Send PDF to group (separate from setup to avoid 10MB body limit)
+    if (shouldSendPdf && pdfFile) {
+      setExecutionPhase('Sending PDF to group...')
+      try {
+        // Strip the data URL prefix to get raw base64
+        const rawBase64 = pdfFile.base64.replace(/^data:[^;]+;base64,/, '')
+        const res = await fetch(`/api/groups/${encodeURIComponent(groupId!)}/setup`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            sendPdf: true,
+            pdfBase64: rawBase64,
+            pdfFilename: pdfFile.filename,
+          }),
+        })
+        if (res.ok) {
+          addProgress({ action: 'Send PDF to group', status: 'success', detail: 'Sent' })
+        } else {
+          addProgress({ action: 'Send PDF to group', status: 'warning', detail: 'Failed to send' })
+        }
+      } catch {
+        addProgress({ action: 'Send PDF to group', status: 'warning', detail: 'Failed to send' })
+      }
+    }
+
+    // Phase F: Class setup (description, notifications, reminders, calendar — no PDF)
     if (classDate) {
       setExecutionPhase('Setting up class...')
       const zoomLink = 'https://us02web.zoom.us/j/4171672829?pwd=ZTlHSEdmTGRYV1QraU5MaThqaC9Rdz09'
@@ -278,9 +271,6 @@ export function NewGroupWizard({ open, onOpenChange }: NewGroupWizardProps) {
           body: JSON.stringify({
             setDescription: shouldSetDescription,
             description,
-            sendPdf: shouldSendPdf && pdfFile,
-            pdfBase64: pdfFile?.base64,
-            pdfFilename: pdfFile?.filename,
             memberPhones: phones,
             scheduleClass: true,
             moduleNumber,
