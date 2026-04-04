@@ -328,6 +328,7 @@ export function NewGroupWizard({ open, onOpenChange }: NewGroupWizardProps) {
       queryClient.invalidateQueries({ queryKey: ['groups'] })
       queryClient.invalidateQueries({ queryKey: ['groups-list'] })
       queryClient.invalidateQueries({ queryKey: ['batch-match'] })
+      queryClient.invalidateQueries({ queryKey: ['groups', 'participants'] })
     }
     onOpenChange(false)
   }
