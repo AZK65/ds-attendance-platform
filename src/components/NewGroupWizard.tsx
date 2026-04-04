@@ -238,7 +238,7 @@ export function NewGroupWizard({ open, onOpenChange }: NewGroupWizardProps) {
     // Phase D: Send welcome message to group
     setExecutionPhase('Sending welcome message...')
     try {
-      const welcomeMessage = `Assalamu Alaikum and welcome to Qazi Driving School!\n\nThank you for choosing us for your driving education. We're excited to have you on board!\n\nA few things to know:\n- You will receive a PDF booklet — please keep it handy as it is required during your classes.\n- Classes are held on Zoom. Please download it before your first class.\n- When joining Zoom, please use your *full name* so we can mark your attendance.\n\nIf you have any questions, feel free to message here. See you in class!`
+      const welcomeMessage = `Welcome to Qazi Driving School!\n\nThank you for choosing us for your driving education. We're excited to have you on board!\n\nA few things to know:\n- You will receive a PDF booklet — please keep it handy as it is required during your classes.\n- Classes are held on Zoom. Please download it before your first class.\n- When joining Zoom, please use your *full name* so we can mark your attendance.\n\nIf you have any questions, feel free to message here. See you in class!`
 
       const res = await fetch(`/api/groups/${encodeURIComponent(groupId!)}/message`, {
         method: 'POST',
