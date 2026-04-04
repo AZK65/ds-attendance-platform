@@ -477,91 +477,9 @@ async function syncGroups(): Promise<void> {
       }
     }
 
-    // If getChats failed or returned no groups, try pupPage fallback
-    if (groups.length === 0 && client.pupPage) {
-      // First verify page is still attached
-      if (!await isPageAttached()) {
-        console.log('[syncGroups] Skipping pupPage fallback - page is detached')
-        state.isConnected = false
-        return
-      }
-
-      console.log('Trying pupPage fallback to get groups...')
-
-      try {
-        // First wait for Store to be available
-        const storeReady = await client.pupPage.evaluate<boolean>(`
-          (async () => {
-            const maxWait = 15000;
-            const start = Date.now();
-            while ((!window.Store || !window.Store.Chat) && Date.now() - start < maxWait) {
-              await new Promise(r => setTimeout(r, 500));
-            }
-            return !!(window.Store && window.Store.Chat);
-          })()
-        `)
-
-        if (!storeReady) {
-          console.log('Store.Chat not available after waiting')
-        } else {
-          console.log('Store.Chat is available, fetching groups...')
-
-          const rawGroups = await client.pupPage.evaluate<Array<{ id: string; name: string; participantCount: number }>>(`
-            (async () => {
-              const groups = [];
-              try {
-                // Try getModelsArray first
-                let chats = [];
-                if (window.Store.Chat.getModelsArray) {
-                  chats = window.Store.Chat.getModelsArray();
-                } else if (window.Store.Chat.models) {
-                  chats = Array.from(window.Store.Chat.models.values());
-                } else if (window.Store.Chat._models) {
-                  chats = window.Store.Chat._models;
-                }
-
-                console.log('[pupPage] Found ' + chats.length + ' total chats');
-
-                for (const chat of chats) {
-                  if (chat.isGroup) {
-                    groups.push({
-                      id: chat.id._serialized || chat.id.toString(),
-                      name: chat.name || chat.formattedTitle || 'Unknown Group',
-                      participantCount: chat.groupMetadata?.participants?.length || 0
-                    });
-                  }
-                }
-                console.log('[pupPage] Found ' + groups.length + ' groups');
-              } catch (e) {
-                console.log('[pupPage] Error getting chats:', e);
-              }
-              return groups;
-            })()
-          `)
-
-          if (rawGroups && rawGroups.length > 0) {
-            groups = rawGroups.map(g => ({
-              id: { _serialized: g.id },
-              name: g.name,
-              isGroup: true,
-              groupMetadata: { participants: new Array(g.participantCount) }
-            }))
-            console.log(`Got ${groups.length} groups via pupPage fallback`)
-          } else {
-            console.log('pupPage fallback returned no groups')
-          }
-        }
-      } catch (pupPageError) {
-        const errorMsg = String(pupPageError)
-        console.log('pupPage fallback error:', errorMsg)
-
-        // Check if this is a frame detachment error
-        if (errorMsg.includes('detached') || errorMsg.includes('Target closed') || errorMsg.includes('context was destroyed')) {
-          console.log('[syncGroups] Frame detached during pupPage fallback, marking disconnected')
-          state.isConnected = false
-          return
-        }
-      }
+    // If getChats returned no groups, just log it — database groups are still available
+    if (groups.length === 0) {
+      console.log('[syncGroups] getChats returned 0 groups — will use database cache')
     }
 
     const groupInfos: GroupInfo[] = []
@@ -1016,57 +934,13 @@ export async function sendMessageToGroup(groupId: string, message: string): Prom
 
   const client = state.client as {
     sendMessage: (chatId: string, content: string) => Promise<unknown>
-    pupPage?: {
-      evaluate: <T>(fn: string) => Promise<T>
-    }
   }
 
   console.log(`Sending message to group ${groupId}`)
 
-  // Try pupPage first, then fall back to client.sendMessage
-  if (client.pupPage) {
-    try {
-      const result = await client.pupPage.evaluate(`
-        (async () => {
-          try {
-            const chatId = '${groupId}';
-            const message = ${JSON.stringify(message)};
-
-            const chat = await window.Store.Chat.find(chatId);
-            if (!chat) {
-              return { error: 'Chat not found for ' + chatId };
-            }
-
-            await window.WWebJS.sendMessage(chat, message, {});
-            return { success: true };
-          } catch (e) {
-            return { error: String(e) };
-          }
-        })()
-      `) as { success?: boolean; error?: string }
-
-      if (result.error) {
-        console.warn(`pupPage group send error for ${groupId}: ${result.error}, falling back to client.sendMessage`)
-        // Fall through to client.sendMessage below
-      } else {
-        console.log(`Group message sent to ${groupId} via pupPage`)
-        return
-      }
-    } catch (pupError) {
-      const pupErrMsg = pupError instanceof Error ? pupError.message : String(pupError)
-      console.warn(`pupPage.evaluate failed for group ${groupId}: ${pupErrMsg}, falling back to client.sendMessage`)
-      if (pupErrMsg.includes('detached') || pupErrMsg.includes('Target closed') || pupErrMsg.includes('destroyed')) {
-        state.isConnected = false
-        throw new Error(`WhatsApp browser session lost: ${pupErrMsg}`)
-      }
-      // Fall through to client.sendMessage below
-    }
-  }
-
-  // Fallback: use the standard client.sendMessage method
   try {
     await client.sendMessage(groupId, message)
-    console.log(`Group message sent to ${groupId} via client.sendMessage`)
+    console.log(`Group message sent to ${groupId}`)
   } catch (error) {
     const errMsg = error instanceof Error ? error.message : typeof error === 'object' ? JSON.stringify(error) : String(error)
     console.error(`Send group message error for ${groupId}:`, errMsg)
@@ -1243,88 +1117,6 @@ export async function getGroupsWithDetails(): Promise<GroupInfo[]> {
         // fetchMessages might fail for some groups, that's OK
       }
 
-      // Also use pupPage to search WhatsApp's internal message store for higher modules
-      if (client.pupPage) {
-        try {
-          const currentModule = moduleNumber
-          const result = await client.pupPage.evaluate(`
-            (async () => {
-              const chatId = '${group.id._serialized}';
-              const currentHighest = ${moduleNumber || 0};
-              try {
-                let highestModule = currentHighest || null;
-                let highestTimestamp = null;
-                let highestBody = null;
-                let source = null;
-
-                // Try using WhatsApp's built-in search
-                if (window.Store.Search && window.Store.Search.findMessages) {
-                  const searchResults = await window.Store.Search.findMessages('module', { chatId });
-                  if (searchResults && searchResults.length > 0) {
-                    for (const msg of searchResults) {
-                      const body = msg.body || '';
-                      const match = body.match(/module\\s*(\\d+)/i);
-                      if (match) {
-                        const num = parseInt(match[1], 10);
-                        if (highestModule === null || num > highestModule) {
-                          highestModule = num;
-                          highestTimestamp = msg.t || msg.timestamp;
-                          highestBody = body.substring(0, 100);
-                          source = 'search';
-                        }
-                      }
-                    }
-                  }
-                }
-
-                // Also check loaded messages in case search missed some
-                const chat = window.Store.Chat.get(chatId);
-                if (chat) {
-                  const msgs = chat.msgs?._models || chat.msgs || [];
-                  for (const msg of msgs) {
-                    const body = msg.body || '';
-                    const match = body.match(/module\\s*(\\d+)/i);
-                    if (match) {
-                      const num = parseInt(match[1], 10);
-                      if (highestModule === null || num > highestModule) {
-                        highestModule = num;
-                        highestTimestamp = msg.t || msg.timestamp;
-                        highestBody = body.substring(0, 100);
-                        source = 'cache';
-                      }
-                    }
-                  }
-                }
-
-                if (highestModule !== null && highestModule > currentHighest) {
-                  return {
-                    moduleNumber: highestModule,
-                    timestamp: highestTimestamp,
-                    body: highestBody,
-                    source: source
-                  };
-                }
-
-                return { msgCount: chat?.msgs?.length || 0, currentHighest };
-              } catch (e) {
-                return { error: String(e) };
-              }
-            })()
-          `) as { moduleNumber?: number; timestamp?: number; body?: string; error?: string; msgCount?: number; source?: string; currentHighest?: number } | null
-
-          if (result && result.moduleNumber && (currentModule === null || result.moduleNumber > currentModule)) {
-            moduleNumber = result.moduleNumber
-            console.log(`[Module Search] pupPage found higher Module ${result.moduleNumber} via ${result.source}`)
-            if (result.timestamp) {
-              moduleMessageDate = new Date(result.timestamp * 1000)
-            }
-            lastMessagePreview = result.body || null
-          }
-        } catch {
-          // pupPage search might fail, that's OK
-        }
-      }
-
       groupInfos.push({
         id: group.id._serialized,
         name: group.name,
@@ -1471,58 +1263,13 @@ export async function sendPrivateMessage(phone: string, message: string): Promis
 
   const client = state.client as {
     sendMessage: (chatId: string, content: string) => Promise<unknown>
-    pupPage?: {
-      evaluate: <T>(fn: string) => Promise<T>
-    }
   }
 
   console.log(`Sending private message to ${chatId}`)
 
-  // Try pupPage first, then fall back to client.sendMessage
-  if (client.pupPage) {
-    try {
-      const result = await client.pupPage.evaluate(`
-        (async () => {
-          try {
-            const chatId = '${chatId}';
-            const message = ${JSON.stringify(message)};
-
-            const chat = await window.Store.Chat.find(chatId);
-            if (!chat) {
-              return { error: 'Chat not found for ' + chatId };
-            }
-
-            await window.WWebJS.sendMessage(chat, message, {});
-            return { success: true };
-          } catch (e) {
-            return { error: String(e) };
-          }
-        })()
-      `) as { success?: boolean; error?: string }
-
-      if (result.error) {
-        console.warn(`pupPage send error for ${chatId}: ${result.error}, falling back to client.sendMessage`)
-        // Fall through to client.sendMessage below
-      } else {
-        console.log(`Private message sent to ${chatId} via pupPage`)
-        return
-      }
-    } catch (pupError) {
-      const pupErrMsg = pupError instanceof Error ? pupError.message : String(pupError)
-      console.warn(`pupPage.evaluate failed for ${chatId}: ${pupErrMsg}, falling back to client.sendMessage`)
-      // If frame is detached, mark it so we know
-      if (pupErrMsg.includes('detached') || pupErrMsg.includes('Target closed') || pupErrMsg.includes('destroyed')) {
-        state.isConnected = false
-        throw new Error(`WhatsApp browser session lost: ${pupErrMsg}`)
-      }
-      // Fall through to client.sendMessage below
-    }
-  }
-
-  // Fallback: use the standard client.sendMessage method
   try {
     await client.sendMessage(chatId, message)
-    console.log(`Private message sent to ${chatId} via client.sendMessage`)
+    console.log(`Private message sent to ${chatId}`)
   } catch (error) {
     const errMsg = error instanceof Error ? error.message : typeof error === 'object' ? JSON.stringify(error) : String(error)
     console.error(`Send private message error to ${chatId}:`, errMsg)
@@ -1581,58 +1328,6 @@ export async function sendDocumentToContact(
 
   console.log(`[WhatsApp] Sending document "${filename}" to ${chatId}`)
 
-  // Try pupPage first (avoids "No LID for user" error)
-  if (client.pupPage) {
-    try {
-      const result = await client.pupPage.evaluate(`
-        (async () => {
-          try {
-            const chatId = '${chatId}';
-            const base64Data = '${base64Data}';
-            const mimetype = '${mimetype}';
-            const filename = ${JSON.stringify(filename)};
-            const caption = ${JSON.stringify(caption || '')};
-
-            const chat = await window.Store.Chat.find(chatId);
-            if (!chat) {
-              return { error: 'Chat not found for ' + chatId };
-            }
-
-            // Create media message via WWebJS
-            const dataUrl = 'data:' + mimetype + ';base64,' + base64Data;
-            const media = await window.WWebJS.mediaFromURL(dataUrl);
-            media.filename = filename;
-
-            const options = {
-              sendMediaAsDocument: true,
-              caption: caption || undefined,
-            };
-
-            await window.WWebJS.sendMessage(chat, media, options);
-            return { success: true };
-          } catch (e) {
-            return { error: String(e) };
-          }
-        })()
-      `) as { success?: boolean; error?: string }
-
-      if (result.error) {
-        console.warn(`[WhatsApp] pupPage doc send error for ${chatId}: ${result.error}, trying client.sendMessage`)
-      } else {
-        console.log(`[WhatsApp] Document "${filename}" sent to ${chatId} via pupPage`)
-        return
-      }
-    } catch (pupError) {
-      const pupErrMsg = pupError instanceof Error ? pupError.message : String(pupError)
-      console.warn(`[WhatsApp] pupPage.evaluate failed for doc to ${chatId}: ${pupErrMsg}`)
-      if (pupErrMsg.includes('detached') || pupErrMsg.includes('Target closed') || pupErrMsg.includes('destroyed')) {
-        state.isConnected = false
-        throw new Error(`WhatsApp browser session lost: ${pupErrMsg}`)
-      }
-    }
-  }
-
-  // Fallback: use MessageMedia with client.sendMessage
   try {
     const { MessageMedia } = await import('whatsapp-web.js')
     const media = new MessageMedia(mimetype, base64Data, filename)
