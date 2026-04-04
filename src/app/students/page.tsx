@@ -69,6 +69,7 @@ import { useRouter } from 'next/navigation'
 import { motion } from 'motion/react'
 import { AddressAutocomplete } from '@/components/AddressAutocomplete'
 import { PhoneInput } from '@/components/PhoneInput'
+import { NewGroupWizard } from '@/components/NewGroupWizard'
 
 interface StudentRecord {
   student_id: number
@@ -274,6 +275,7 @@ function StudentsPage() {
 
   // New student choice dialog state
   const [showNewStudentChoice, setShowNewStudentChoice] = useState(false)
+  const [showNewGroupWizard, setShowNewGroupWizard] = useState(false)
 
   // QR state
   const [showQR, setShowQR] = useState(false)
@@ -1285,6 +1287,23 @@ function StudentsPage() {
                 <p className="text-sm text-muted-foreground">Add multiple students at once and assign to a group</p>
               </div>
             </button>
+
+            <button
+              type="button"
+              onClick={() => {
+                setShowNewStudentChoice(false)
+                setShowNewGroupWizard(true)
+              }}
+              className="flex items-center gap-4 p-4 border rounded-lg hover:bg-accent/50 transition-colors text-left border-blue-200 bg-blue-50/30"
+            >
+              <div className="flex-shrink-0 h-10 w-10 rounded-full bg-blue-100 flex items-center justify-center">
+                <CalendarDays className="h-5 w-5 text-blue-600" />
+              </div>
+              <div>
+                <p className="font-medium text-blue-900">New Group + Class Setup</p>
+                <p className="text-sm text-muted-foreground">Add students, create WhatsApp group, schedule class & send reminders</p>
+              </div>
+            </button>
           </div>
         </DialogContent>
       </Dialog>
@@ -1725,6 +1744,9 @@ function StudentsPage() {
           )}
         </DialogContent>
       </Dialog>
+
+      {/* New Group Wizard */}
+      <NewGroupWizard open={showNewGroupWizard} onOpenChange={setShowNewGroupWizard} />
 
       {/* Bulk Add Dialog */}
       <Dialog open={showBulkAdd} onOpenChange={(open) => {
