@@ -618,15 +618,14 @@ export async function getGroupParticipants(groupId: string): Promise<Participant
         isSuperAdmin: participant.isSuperAdmin || false
       })
 
-      // Sync to database
+      // Sync to database — never overwrite existing names with null
+      const contactUpdate: Record<string, unknown> = { phone, lastSynced: new Date() }
+      if (contact.name) contactUpdate.name = contact.name
+      if (contact.pushname) contactUpdate.pushName = contact.pushname
+
       await prisma.contact.upsert({
         where: { id: participant.id._serialized },
-        update: {
-          phone,
-          name: contact.name || null,
-          pushName: contact.pushname || null,
-          lastSynced: new Date()
-        },
+        update: contactUpdate,
         create: {
           id: participant.id._serialized,
           phone,
