@@ -56,6 +56,7 @@ import { Checkbox } from '@/components/ui/checkbox'
 import { motion, AnimatePresence } from 'motion/react'
 import Link from 'next/link'
 import { ContactSearchAutocomplete, type StudentGroupInfo } from '@/components/ContactSearchAutocomplete'
+import { NewGroupWizard } from '@/components/NewGroupWizard'
 
 type ViewMode = 'day' | 'week' | 'month'
 
@@ -350,6 +351,7 @@ function SchedulingPage() {
   type ExportFormat = 'pdf' | 'csv'
   type ExportClassType = 'all' | 'car' | 'truck'
   const [showExportDialog, setShowExportDialog] = useState(false)
+  const [showNewGroupWizard, setShowNewGroupWizard] = useState(false)
   const [exportTeacher, setExportTeacher] = useState<string>('all')
   const [exportView, setExportView] = useState<ExportView>('day')
   const [exportMode, setExportMode] = useState<ExportMode>('schedule')
@@ -2229,6 +2231,11 @@ function SchedulingPage() {
               <Plus className="h-4 w-4 mr-1" />
               New Class
             </Button>
+            <Button size="sm" variant="outline" onClick={() => setShowNewGroupWizard(true)}
+              className="border-blue-300 text-blue-700 hover:bg-blue-50">
+              <Users className="h-4 w-4 mr-1" />
+              New Group
+            </Button>
             <Button size="sm" variant="outline" onClick={() => {
               // Only reset truck form if no student data entered (preserve data on accidental close)
               if (!truckForm.studentName && !truckForm.studentPhone) {
@@ -3387,6 +3394,9 @@ function SchedulingPage() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {/* New Group Wizard */}
+      <NewGroupWizard open={showNewGroupWizard} onOpenChange={setShowNewGroupWizard} />
 
       {/* Export Dialog */}
       <Dialog open={showExportDialog} onOpenChange={setShowExportDialog}>

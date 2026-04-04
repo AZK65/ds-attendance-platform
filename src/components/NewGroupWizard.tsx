@@ -1,0 +1,551 @@
+'use client'
+
+import { useState, useRef } from 'react'
+import { useQueryClient } from '@tanstack/react-query'
+import { Button } from '@/components/ui/button'
+import { Input } from '@/components/ui/input'
+import { Label } from '@/components/ui/label'
+import { Checkbox } from '@/components/ui/checkbox'
+import {
+  Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter,
+} from '@/components/ui/dialog'
+import {
+  Users, Loader2, CheckCircle2, AlertCircle, ArrowLeft, ArrowRight,
+  UserPlus, CalendarDays, BookOpen, FileText,
+} from 'lucide-react'
+
+interface ParsedStudent {
+  name: string
+  phone: string
+}
+
+interface ProgressEntry {
+  action: string
+  status: 'pending' | 'success' | 'warning' | 'error'
+  detail: string
+}
+
+type WizardStep = 'students' | 'group' | 'setup' | 'executing' | 'done'
+
+interface NewGroupWizardProps {
+  open: boolean
+  onOpenChange: (open: boolean) => void
+}
+
+export function NewGroupWizard({ open, onOpenChange }: NewGroupWizardProps) {
+  const queryClient = useQueryClient()
+
+  // Step state
+  const [step, setStep] = useState<WizardStep>('students')
+
+  // Step 1: Students
+  const [bulkText, setBulkText] = useState('')
+
+  // Step 2: Group
+  const [groupName, setGroupName] = useState('')
+
+  // Step 3: Setup
+  const [moduleNumber, setModuleNumber] = useState(1)
+  const [classDate, setClassDate] = useState('')
+  const [classTimeStart, setClassTimeStart] = useState('17:00')
+  const [classTimeEnd, setClassTimeEnd] = useState('19:00')
+  const [shouldSetDescription, setShouldSetDescription] = useState(true)
+  const [shouldSendPdf, setShouldSendPdf] = useState(false)
+  const [pdfFile, setPdfFile] = useState<{ base64: string; filename: string } | null>(null)
+  const pdfInputRef = useRef<HTMLInputElement>(null)
+
+  // Execution
+  const [progress, setProgress] = useState<ProgressEntry[]>([])
+  const [executionPhase, setExecutionPhase] = useState('')
+  const [createdGroupId, setCreatedGroupId] = useState<string | null>(null)
+
+  // Parse bulk text into students
+  const parsedStudents: ParsedStudent[] = bulkText
+    .split('\n')
+    .map(line => line.trim())
+    .filter(line => line.length > 0)
+    .map(line => {
+      // Try "Name, Phone" or "Name Phone" — phone is the last token that looks like a number
+      const parts = line.split(/[,\t]+/).map(p => p.trim())
+      if (parts.length >= 2) {
+        const phone = parts[parts.length - 1].replace(/\D/g, '')
+        const name = parts.slice(0, -1).join(' ').trim()
+        if (phone.length >= 7 && name) {
+          return { name, phone: phone.length === 10 ? '1' + phone : phone }
+        }
+      }
+      // Fallback: split on last space-separated number
+      const match = line.match(/^(.+?)\s+([\d\s()-]{7,})$/)
+      if (match) {
+        const phone = match[2].replace(/\D/g, '')
+        return { name: match[1].trim(), phone: phone.length === 10 ? '1' + phone : phone }
+      }
+      return null
+    })
+    .filter((s): s is ParsedStudent => s !== null)
+
+  const formatTime12h = (time24: string) => {
+    const [h, m] = time24.split(':').map(Number)
+    const ampm = h >= 12 ? 'PM' : 'AM'
+    const hour12 = h === 0 ? 12 : h > 12 ? h - 12 : h
+    return `${hour12}:${m.toString().padStart(2, '0')} ${ampm}`
+  }
+
+  const classTimeDisplay = `${formatTime12h(classTimeStart)} to ${formatTime12h(classTimeEnd)}`
+
+  const handlePdfUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    if (!file) return
+    const reader = new FileReader()
+    reader.onload = (ev) => {
+      setPdfFile({ base64: ev.target?.result as string, filename: file.name })
+    }
+    reader.readAsDataURL(file)
+  }
+
+  const addProgress = (entry: ProgressEntry) => {
+    setProgress(prev => [...prev, entry])
+  }
+
+  const handleExecute = async () => {
+    setStep('executing')
+    setProgress([])
+    const students = [...parsedStudents]
+    const phones: string[] = []
+
+    // Phase A: Create students in MySQL
+    setExecutionPhase(`Creating students (0/${students.length})`)
+    for (let i = 0; i < students.length; i++) {
+      const s = students[i]
+      setExecutionPhase(`Creating students (${i + 1}/${students.length})`)
+      try {
+        const res = await fetch('/api/students/manage', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            full_name: s.name,
+            phone_number: s.phone,
+            permit_number: '',
+            full_address: '',
+            city: 'Montréal',
+            postal_code: '',
+            dob: '2000-01-01',
+            email: '',
+          }),
+        })
+        if (res.ok) {
+          phones.push(s.phone)
+          addProgress({ action: `Create ${s.name}`, status: 'success', detail: 'Added to database' })
+        } else {
+          const err = await res.json().catch(() => ({ error: 'failed' }))
+          phones.push(s.phone) // still try to add to group
+          addProgress({ action: `Create ${s.name}`, status: 'warning', detail: err.error || 'MySQL error (may already exist)' })
+        }
+      } catch {
+        phones.push(s.phone)
+        addProgress({ action: `Create ${s.name}`, status: 'error', detail: 'Network error' })
+      }
+    }
+
+    if (phones.length === 0) {
+      addProgress({ action: 'Abort', status: 'error', detail: 'No students to add' })
+      setStep('done')
+      return
+    }
+
+    // Phase B: Create WhatsApp group (with first student)
+    setExecutionPhase('Creating WhatsApp group...')
+    let groupId: string | null = null
+    try {
+      const res = await fetch('/api/groups/create', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: groupName, participants: [phones[0]] }),
+      })
+      if (res.ok) {
+        const data = await res.json()
+        groupId = data.groupId
+        setCreatedGroupId(groupId)
+        addProgress({ action: `Create group "${groupName}"`, status: 'success', detail: data.whatsappWarning || 'Group created' })
+      } else {
+        const err = await res.json().catch(() => ({ error: 'failed' }))
+        addProgress({ action: `Create group "${groupName}"`, status: 'error', detail: err.error || 'Failed to create group' })
+        setStep('done')
+        return
+      }
+    } catch {
+      addProgress({ action: `Create group "${groupName}"`, status: 'error', detail: 'Network error creating group' })
+      setStep('done')
+      return
+    }
+
+    // Phase C: Add remaining students to group
+    if (phones.length > 1) {
+      setExecutionPhase(`Adding members (1/${phones.length - 1})`)
+      for (let i = 1; i < phones.length; i++) {
+        setExecutionPhase(`Adding members (${i}/${phones.length - 1})`)
+        try {
+          const res = await fetch(`/api/groups/${encodeURIComponent(groupId!)}/members`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ phone: phones[i], name: students[i].name }),
+          })
+          const data = await res.json()
+          if (data.inviteSent) {
+            addProgress({ action: `Add ${students[i].name}`, status: 'warning', detail: 'Invite sent (needs to accept)' })
+          } else if (data.whatsappWarning) {
+            addProgress({ action: `Add ${students[i].name}`, status: 'warning', detail: data.whatsappWarning })
+          } else {
+            addProgress({ action: `Add ${students[i].name}`, status: 'success', detail: 'Added to group' })
+          }
+        } catch {
+          addProgress({ action: `Add ${students[i].name}`, status: 'error', detail: 'Failed to add to group' })
+        }
+        await new Promise(r => setTimeout(r, 1000))
+      }
+    }
+
+    // Phase D: Class setup
+    if (classDate) {
+      setExecutionPhase('Setting up class...')
+      const zoomLink = 'https://us02web.zoom.us/j/4171672829?pwd=ZTlHSEdmTGRYV1QraU5MaThqaC9Rdz09'
+      const description = shouldSetDescription
+        ? `Module ${moduleNumber} — ${classTimeDisplay}\nZoom: ${zoomLink}\nPassword: qazi`
+        : undefined
+
+      try {
+        const res = await fetch(`/api/groups/${encodeURIComponent(groupId!)}/setup`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            setDescription: shouldSetDescription,
+            description,
+            sendPdf: shouldSendPdf && pdfFile,
+            pdfBase64: pdfFile?.base64,
+            pdfFilename: pdfFile?.filename,
+            memberPhones: phones,
+            scheduleClass: true,
+            moduleNumber,
+            classDate: new Date(classDate + 'T12:00:00').toLocaleDateString('en-US', {
+              weekday: 'long', month: 'long', day: 'numeric',
+            }),
+            classDateISO: classDate,
+            classTime: classTimeDisplay,
+          }),
+        })
+        if (res.ok) {
+          const data = await res.json()
+          for (const r of (data.results || [])) {
+            addProgress({
+              action: r.action,
+              status: r.status.startsWith('Failed') ? 'error' : 'success',
+              detail: r.status,
+            })
+          }
+        } else {
+          addProgress({ action: 'Class setup', status: 'error', detail: 'Setup request failed' })
+        }
+      } catch {
+        addProgress({ action: 'Class setup', status: 'error', detail: 'Network error during setup' })
+      }
+    }
+
+    setExecutionPhase('')
+    setStep('done')
+  }
+
+  const handleClose = () => {
+    if (step === 'executing') return // don't close during execution
+    // Reset everything
+    setStep('students')
+    setBulkText('')
+    setGroupName('')
+    setModuleNumber(1)
+    setClassDate('')
+    setClassTimeStart('17:00')
+    setClassTimeEnd('19:00')
+    setShouldSetDescription(true)
+    setShouldSendPdf(false)
+    setPdfFile(null)
+    setProgress([])
+    setExecutionPhase('')
+    setCreatedGroupId(null)
+    if (step === 'done') {
+      queryClient.invalidateQueries({ queryKey: ['groups'] })
+      queryClient.invalidateQueries({ queryKey: ['groups-list'] })
+      queryClient.invalidateQueries({ queryKey: ['batch-match'] })
+    }
+    onOpenChange(false)
+  }
+
+  const stepNumber = step === 'students' ? 1 : step === 'group' ? 2 : step === 'setup' ? 3 : step === 'executing' ? 4 : 4
+
+  return (
+    <Dialog open={open} onOpenChange={step === 'executing' ? () => {} : handleClose}>
+      <DialogContent className="sm:max-w-lg max-h-[90vh] overflow-hidden flex flex-col">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2">
+            <Users className="h-5 w-5" />
+            New Group
+          </DialogTitle>
+          <DialogDescription>
+            {step === 'students' && 'Step 1/3 — Add students'}
+            {step === 'group' && 'Step 2/3 — Name the group'}
+            {step === 'setup' && 'Step 3/3 — Schedule first class'}
+            {step === 'executing' && 'Creating...'}
+            {step === 'done' && 'Complete'}
+          </DialogDescription>
+        </DialogHeader>
+
+        {/* Step indicators */}
+        {(step === 'students' || step === 'group' || step === 'setup') && (
+          <div className="flex items-center gap-2 px-1">
+            {[
+              { n: 1, label: 'Students', icon: UserPlus },
+              { n: 2, label: 'Group', icon: Users },
+              { n: 3, label: 'Class', icon: CalendarDays },
+            ].map(({ n, label, icon: Icon }) => (
+              <div key={n} className={`flex items-center gap-1.5 text-xs font-medium px-2 py-1 rounded-full ${
+                n === stepNumber ? 'bg-primary text-primary-foreground' : n < stepNumber ? 'bg-green-100 text-green-700' : 'bg-muted text-muted-foreground'
+              }`}>
+                {n < stepNumber ? <CheckCircle2 className="h-3 w-3" /> : <Icon className="h-3 w-3" />}
+                {label}
+              </div>
+            ))}
+          </div>
+        )}
+
+        <div className="flex-1 overflow-y-auto py-2 space-y-4">
+          {/* Step 1: Add Students */}
+          {step === 'students' && (
+            <>
+              <div>
+                <Label>Students (one per line: Name, Phone)</Label>
+                <textarea
+                  className="w-full mt-1.5 rounded-md border border-input bg-background px-3 py-2 text-sm min-h-[200px] font-mono resize-none focus:outline-none focus:ring-2 focus:ring-ring"
+                  placeholder={"Ahmed Khan, 5141234567\nSara Mohamed, 4389876543\nAli Hassan, 5147654321"}
+                  value={bulkText}
+                  onChange={e => setBulkText(e.target.value)}
+                />
+                <p className="text-xs text-muted-foreground mt-1">
+                  {parsedStudents.length > 0 ? (
+                    <span className="text-green-600 font-medium">{parsedStudents.length} student{parsedStudents.length !== 1 ? 's' : ''} detected</span>
+                  ) : 'Enter name and phone number separated by comma or tab'}
+                </p>
+              </div>
+
+              {parsedStudents.length > 0 && (
+                <div className="border rounded-lg divide-y max-h-[150px] overflow-y-auto">
+                  {parsedStudents.map((s, i) => (
+                    <div key={i} className="flex items-center justify-between px-3 py-1.5 text-sm">
+                      <span className="font-medium">{s.name}</span>
+                      <span className="text-muted-foreground font-mono text-xs">{s.phone}</span>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </>
+          )}
+
+          {/* Step 2: Group Name */}
+          {step === 'group' && (
+            <>
+              <div>
+                <Label>WhatsApp Group Name</Label>
+                <Input
+                  className="mt-1.5"
+                  placeholder={`Module ${moduleNumber} - ${new Date().toLocaleDateString('en-US', { month: 'short', year: 'numeric' })}`}
+                  value={groupName}
+                  onChange={e => setGroupName(e.target.value)}
+                />
+              </div>
+
+              <div>
+                <Label className="text-muted-foreground text-xs">Members ({parsedStudents.length})</Label>
+                <div className="border rounded-lg divide-y max-h-[200px] overflow-y-auto mt-1.5">
+                  {parsedStudents.map((s, i) => (
+                    <div key={i} className="flex items-center justify-between px-3 py-1.5 text-sm">
+                      <span>{s.name}</span>
+                      <span className="text-muted-foreground font-mono text-xs">{s.phone}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </>
+          )}
+
+          {/* Step 3: Class Setup */}
+          {step === 'setup' && (
+            <>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <Label>Module Number</Label>
+                  <Input
+                    type="number"
+                    min={1}
+                    max={12}
+                    className="mt-1.5"
+                    value={moduleNumber}
+                    onChange={e => setModuleNumber(parseInt(e.target.value) || 1)}
+                  />
+                </div>
+                <div>
+                  <Label>Class Date</Label>
+                  <Input
+                    type="date"
+                    className="mt-1.5"
+                    value={classDate}
+                    onChange={e => setClassDate(e.target.value)}
+                  />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <Label>Start Time</Label>
+                  <Input
+                    type="time"
+                    className="mt-1.5"
+                    value={classTimeStart}
+                    onChange={e => setClassTimeStart(e.target.value)}
+                  />
+                </div>
+                <div>
+                  <Label>End Time</Label>
+                  <Input
+                    type="time"
+                    className="mt-1.5"
+                    value={classTimeEnd}
+                    onChange={e => setClassTimeEnd(e.target.value)}
+                  />
+                </div>
+              </div>
+
+              <div className="space-y-3 pt-2">
+                <div className="flex items-center gap-2">
+                  <Checkbox
+                    id="set-desc"
+                    checked={shouldSetDescription}
+                    onCheckedChange={v => setShouldSetDescription(!!v)}
+                  />
+                  <label htmlFor="set-desc" className="text-sm cursor-pointer">Set group description with Zoom link</label>
+                </div>
+
+                <div className="flex items-center gap-2">
+                  <Checkbox
+                    id="send-pdf"
+                    checked={shouldSendPdf}
+                    onCheckedChange={v => setShouldSendPdf(!!v)}
+                  />
+                  <label htmlFor="send-pdf" className="text-sm cursor-pointer">Send course book PDF</label>
+                </div>
+
+                {shouldSendPdf && (
+                  <div className="pl-6">
+                    <input
+                      ref={pdfInputRef}
+                      type="file"
+                      accept=".pdf"
+                      className="hidden"
+                      onChange={handlePdfUpload}
+                    />
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => pdfInputRef.current?.click()}
+                    >
+                      <FileText className="h-4 w-4 mr-1" />
+                      {pdfFile ? pdfFile.filename : 'Choose PDF'}
+                    </Button>
+                  </div>
+                )}
+              </div>
+            </>
+          )}
+
+          {/* Executing / Done */}
+          {(step === 'executing' || step === 'done') && (
+            <>
+              {executionPhase && (
+                <div className="flex items-center gap-2 text-sm font-medium">
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                  {executionPhase}
+                </div>
+              )}
+
+              <div className="border rounded-lg divide-y max-h-[350px] overflow-y-auto">
+                {progress.map((p, i) => (
+                  <div key={i} className="flex items-start gap-2 px-3 py-2 text-sm">
+                    {p.status === 'success' && <CheckCircle2 className="h-4 w-4 text-green-600 mt-0.5 shrink-0" />}
+                    {p.status === 'warning' && <AlertCircle className="h-4 w-4 text-amber-500 mt-0.5 shrink-0" />}
+                    {p.status === 'error' && <AlertCircle className="h-4 w-4 text-red-500 mt-0.5 shrink-0" />}
+                    {p.status === 'pending' && <Loader2 className="h-4 w-4 animate-spin mt-0.5 shrink-0" />}
+                    <div className="min-w-0">
+                      <span className="font-medium">{p.action}</span>
+                      <span className={`ml-2 ${
+                        p.status === 'success' ? 'text-green-600' :
+                        p.status === 'warning' ? 'text-amber-600' :
+                        p.status === 'error' ? 'text-red-600' : 'text-muted-foreground'
+                      }`}>{p.detail}</span>
+                    </div>
+                  </div>
+                ))}
+              </div>
+
+              {step === 'done' && (
+                <div className="text-center pt-2">
+                  <div className="flex items-center justify-center w-12 h-12 rounded-full bg-green-100 mx-auto mb-2">
+                    <CheckCircle2 className="h-6 w-6 text-green-600" />
+                  </div>
+                  <p className="text-sm font-medium">
+                    {createdGroupId ? 'Group created and class scheduled!' : 'Completed with errors'}
+                  </p>
+                </div>
+              )}
+            </>
+          )}
+        </div>
+
+        <DialogFooter>
+          {step === 'students' && (
+            <>
+              <Button variant="outline" onClick={handleClose}>Cancel</Button>
+              <Button onClick={() => setStep('group')} disabled={parsedStudents.length === 0}>
+                Next <ArrowRight className="h-4 w-4 ml-1" />
+              </Button>
+            </>
+          )}
+          {step === 'group' && (
+            <>
+              <Button variant="outline" onClick={() => setStep('students')}>
+                <ArrowLeft className="h-4 w-4 mr-1" /> Back
+              </Button>
+              <Button onClick={() => setStep('setup')} disabled={!groupName.trim()}>
+                Next <ArrowRight className="h-4 w-4 ml-1" />
+              </Button>
+            </>
+          )}
+          {step === 'setup' && (
+            <>
+              <Button variant="outline" onClick={() => setStep('group')}>
+                <ArrowLeft className="h-4 w-4 mr-1" /> Back
+              </Button>
+              <Button onClick={handleExecute}>
+                <BookOpen className="h-4 w-4 mr-1" />
+                Create Group & Setup
+              </Button>
+            </>
+          )}
+          {step === 'executing' && (
+            <Button disabled>
+              <Loader2 className="h-4 w-4 mr-1 animate-spin" /> Working...
+            </Button>
+          )}
+          {step === 'done' && (
+            <Button onClick={handleClose}>Done</Button>
+          )}
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  )
+}
