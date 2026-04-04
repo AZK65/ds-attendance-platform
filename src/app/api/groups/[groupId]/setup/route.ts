@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { setGroupDescription, sendPrivateMessage, sendDocumentToContact, getWhatsAppState } from '@/lib/whatsapp/client'
+import { setGroupDescription, sendPrivateMessage, sendDocumentToGroup, getWhatsAppState } from '@/lib/whatsapp/client'
 import { prisma } from '@/lib/db'
 import { createTheoryEvent } from '@/lib/teamup'
 
@@ -52,21 +52,18 @@ export async function POST(
       })
     }
 
-    // 2. Send book PDF to members
-    if (sendPdf && pdfBase64 && memberPhones && memberPhones.length > 0 && state.isConnected) {
+    // 2. Send book PDF to the group (once, not to each member individually)
+    if (sendPdf && pdfBase64 && state.isConnected) {
       const filename = pdfFilename || 'driving-book.pdf'
-      for (const phone of memberPhones) {
-        try {
-          await sendDocumentToContact(phone, pdfBase64, filename, 'application/pdf', 'Here is your driving course book!')
-          results.push({ action: `Send PDF to ${phone}`, status: 'Sent' })
+      try {
+        await sendDocumentToGroup(decodedGroupId, pdfBase64, filename, 'application/pdf', 'Here is your driving course book!')
+        results.push({ action: 'Send PDF to group', status: 'Sent' })
 
-          await prisma.messageLog.create({
-            data: { type: 'book-pdf', to: phone, message: `Sent ${filename}`, status: 'sent' },
-          }).catch(() => {})
-        } catch (err) {
-          results.push({ action: `Send PDF to ${phone}`, status: `Failed: ${err instanceof Error ? err.message : 'unknown'}` })
-        }
-        await new Promise(r => setTimeout(r, 1500))
+        await prisma.messageLog.create({
+          data: { type: 'book-pdf', to: decodedGroupId, toName: 'Group', message: `Sent ${filename}`, status: 'sent' },
+        }).catch(() => {})
+      } catch (err) {
+        results.push({ action: 'Send PDF to group', status: `Failed: ${err instanceof Error ? err.message : 'unknown'}` })
       }
     }
 

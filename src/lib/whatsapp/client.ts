@@ -1304,8 +1304,42 @@ export async function checkWhatsAppNumber(phone: string): Promise<{ registered: 
 }
 
 /**
+ * Send a document (e.g. PDF) to a group chat
+ */
+export async function sendDocumentToGroup(
+  groupId: string,
+  base64Data: string,
+  filename: string,
+  mimetype: string,
+  caption?: string
+): Promise<void> {
+  if (!state.client || !state.isConnected) {
+    throw new Error('WhatsApp not connected')
+  }
+
+  const client = state.client as {
+    sendMessage: (chatId: string, content: unknown, options?: Record<string, unknown>) => Promise<unknown>
+  }
+
+  console.log(`[WhatsApp] Sending document "${filename}" to group ${groupId}`)
+
+  try {
+    const { MessageMedia } = await import('whatsapp-web.js')
+    const media = new MessageMedia(mimetype, base64Data, filename)
+    await client.sendMessage(groupId, media, {
+      caption: caption || undefined,
+      sendMediaAsDocument: true,
+    })
+    console.log(`[WhatsApp] Document "${filename}" sent to group ${groupId}`)
+  } catch (error) {
+    const errMsg = error instanceof Error ? error.message : String(error)
+    console.error(`[WhatsApp] Failed to send document to group ${groupId}:`, errMsg)
+    throw new Error(`Failed to send document: ${errMsg}`)
+  }
+}
+
+/**
  * Send a document (e.g. PDF) to a contact via WhatsApp
- * Uses pupPage approach to avoid "No LID for user" errors
  */
 export async function sendDocumentToContact(
   phone: string,
