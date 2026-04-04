@@ -212,29 +212,35 @@ export function NewGroupWizard({ open, onOpenChange }: NewGroupWizardProps) {
     // Wait for WhatsApp to register the new group before adding members
     await new Promise(r => setTimeout(r, 3000))
 
-    // Phase C: Add remaining students to group
+    // Phase C: Add remaining students to group (bulk — single WhatsApp call)
     if (phones.length > 1) {
-      setExecutionPhase(`Adding members (1/${phones.length - 1})`)
-      for (let i = 1; i < phones.length; i++) {
-        setExecutionPhase(`Adding members (${i}/${phones.length - 1})`)
-        try {
-          const res = await fetch(`/api/groups/${encodeURIComponent(groupId!)}/members`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ phone: phones[i], name: students[i].name }),
-          })
+      setExecutionPhase(`Adding ${phones.length - 1} members...`)
+      try {
+        const bulkMembers = students.slice(1).map((s, i) => ({ phone: phones[i + 1], name: s.name }))
+        const res = await fetch(`/api/groups/${encodeURIComponent(groupId!)}/members-bulk`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ members: bulkMembers }),
+        })
+        if (res.ok) {
           const data = await res.json()
-          if (data.inviteSent) {
-            addProgress({ action: `Add ${students[i].name}`, status: 'warning', detail: 'Invite sent (needs to accept)' })
-          } else if (data.whatsappWarning) {
-            addProgress({ action: `Add ${students[i].name}`, status: 'warning', detail: data.whatsappWarning })
-          } else {
-            addProgress({ action: `Add ${students[i].name}`, status: 'success', detail: 'Added to group' })
+          for (const r of (data.results || [])) {
+            if (r.inviteSent) {
+              addProgress({ action: `Add ${r.name}`, status: 'warning', detail: 'Invite sent (needs to accept)' })
+            } else if (r.error) {
+              addProgress({ action: `Add ${r.name}`, status: 'error', detail: r.error })
+            } else if (r.warning) {
+              addProgress({ action: `Add ${r.name}`, status: 'warning', detail: r.warning })
+            } else {
+              addProgress({ action: `Add ${r.name}`, status: 'success', detail: 'Added to group' })
+            }
           }
-        } catch (err) {
-          addProgress({ action: `Add ${students[i].name}`, status: 'error', detail: err instanceof Error ? err.message : 'Failed to add to group' })
+        } else {
+          const err = await res.json().catch(() => ({ error: 'failed' }))
+          addProgress({ action: 'Add members', status: 'error', detail: err.error || 'Bulk add failed' })
         }
-        await new Promise(r => setTimeout(r, 1000))
+      } catch (err) {
+        addProgress({ action: 'Add members', status: 'error', detail: err instanceof Error ? err.message : 'Bulk add failed' })
       }
     }
 

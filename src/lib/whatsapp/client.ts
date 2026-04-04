@@ -778,7 +778,7 @@ export async function addParticipantToGroup(groupId: string, phone: string): Pro
     // Add timeout to prevent hanging (WhatsApp can stall on privacy-restricted numbers)
     const addWithTimeout = Promise.race([
       chat.addParticipants([participantId]),
-      new Promise<never>((_, reject) => setTimeout(() => reject(new Error('Add participant timed out after 15s')), 15000)),
+      new Promise<never>((_, reject) => setTimeout(() => reject(new Error('Add participant timed out after 8s')), 8000)),
     ])
     const result = await addWithTimeout
     console.log('Add participant result:', result)
@@ -821,6 +821,70 @@ export async function addParticipantToGroup(groupId: string, phone: string): Pro
     console.error('Add participant error:', error)
     throw error
   }
+}
+
+// Bulk add multiple participants to a group in a single call (much faster than one-by-one)
+export async function addParticipantsToGroupBulk(
+  groupId: string,
+  phones: string[]
+): Promise<Array<{ phone: string; success: boolean; inviteSent?: boolean; error?: string }>> {
+  if (!state.client || !state.isConnected) {
+    throw new Error('WhatsApp not connected')
+  }
+
+  const client = state.client as {
+    getChatById: (id: string) => Promise<{
+      addParticipants: (participants: string[], options?: unknown) => Promise<Record<string, { code: number; message: string; isInviteV4Sent: boolean }>>
+      getInviteCode: () => Promise<string>
+      name: string
+    }>
+  }
+
+  const chat = await client.getChatById(groupId)
+  const jids = phones.map(p => phoneToJid(p))
+
+  console.log(`[addParticipantsBulk] Adding ${jids.length} participants to group ${groupId}`)
+
+  const addWithTimeout = Promise.race([
+    chat.addParticipants(jids),
+    new Promise<never>((_, reject) => setTimeout(() => reject(new Error('Bulk add timed out after 30s')), 30000)),
+  ])
+
+  let result: Record<string, { code: number; message: string; isInviteV4Sent: boolean }>
+  try {
+    result = await addWithTimeout
+  } catch (err) {
+    console.error('[addParticipantsBulk] Bulk add failed:', err)
+    return phones.map(p => ({ phone: p, success: false, error: err instanceof Error ? err.message : 'Bulk add failed' }))
+  }
+
+  console.log('[addParticipantsBulk] Result:', JSON.stringify(result))
+
+  const results: Array<{ phone: string; success: boolean; inviteSent?: boolean; error?: string }> = []
+
+  for (let i = 0; i < phones.length; i++) {
+    const jid = jids[i]
+    const phone = phones[i]
+    const r = result[jid]
+
+    if (!r || r.code === 200) {
+      results.push({ phone, success: true })
+    } else if (r.isInviteV4Sent) {
+      results.push({ phone, success: true, inviteSent: true })
+    } else {
+      // Try sending invite link as fallback
+      try {
+        const inviteCode = await chat.getInviteCode()
+        const inviteLink = `https://chat.whatsapp.com/${inviteCode}`
+        await sendPrivateMessage(phone, `You've been invited to join *${chat.name}*!\n\nClick the link to join:\n${inviteLink}`)
+        results.push({ phone, success: true, inviteSent: true })
+      } catch {
+        results.push({ phone, success: false, error: r.message || `Code ${r.code}` })
+      }
+    }
+  }
+
+  return results
 }
 
 export async function setGroupDescription(groupId: string, description: string): Promise<{ success: boolean; error?: string }> {
