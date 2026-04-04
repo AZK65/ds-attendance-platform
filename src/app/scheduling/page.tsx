@@ -51,6 +51,7 @@ import {
   Save,
   Check,
   Download,
+  Bell,
 } from 'lucide-react'
 import { Checkbox } from '@/components/ui/checkbox'
 import { motion, AnimatePresence } from 'motion/react'
@@ -1408,6 +1409,44 @@ function SchedulingPage() {
     setDuplicateError(null)
     setShowEventDetail(false)
     setShowEditDialog(true)
+  }
+
+  const [renotifyStatus, setRenotifyStatus] = useState<null | 'sending' | 'sent' | 'failed'>(null)
+  const handleRenotify = async () => {
+    if (!selectedEvent) return
+    const phone = parsePhoneFromNotes(selectedEvent.notes)
+    const studentName = parseStudentFromNotes(selectedEvent.notes) || parseModuleFromTitle(selectedEvent.title).studentName || ''
+    if (!phone) return
+    const parsed = parseModuleFromTitle(selectedEvent.title)
+    const moduleLabel = parsed.module ? getModuleLabel(parsed.module) : selectedEvent.title
+    const startDt = new Date(selectedEvent.start_dt)
+    const endDt = new Date(selectedEvent.end_dt)
+    const teacher = activeTeachers.find(t => t.id === selectedEvent.subcalendar_ids[0])
+    const [year, month, day] = selectedEvent.start_dt.split('T')[0].split('-').map(Number)
+    const dateObj = new Date(year, month - 1, day)
+    const dateStr = dateObj.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' })
+
+    setRenotifyStatus('sending')
+    try {
+      const res = await fetch('/api/scheduling/notify', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          phone,
+          studentName,
+          module: moduleLabel,
+          teacherName: teacher?.name?.split(' ')[0] || '',
+          date: dateStr,
+          classDateISO: selectedEvent.start_dt.split('T')[0],
+          startTime: startDt.toTimeString().slice(0, 5),
+          endTime: endDt.toTimeString().slice(0, 5),
+        }),
+      })
+      setRenotifyStatus(res.ok ? 'sent' : 'failed')
+    } catch {
+      setRenotifyStatus('failed')
+    }
+    setTimeout(() => setRenotifyStatus(null), 3000)
   }
 
   // Get events for a specific date
@@ -2964,6 +3003,20 @@ function SchedulingPage() {
             </div>
             {/* Right side buttons */}
             <div className="flex gap-2">
+              {selectedEvent && parsePhoneFromNotes(selectedEvent.notes) && (
+                <Button
+                  variant="outline"
+                  onClick={handleRenotify}
+                  disabled={renotifyStatus === 'sending'}
+                  className={renotifyStatus === 'sent' ? 'border-green-300 text-green-700' : renotifyStatus === 'failed' ? 'border-red-300 text-red-700' : ''}
+                >
+                  {renotifyStatus === 'sending' ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> :
+                   renotifyStatus === 'sent' ? <CheckCircle2 className="h-4 w-4 mr-2" /> :
+                   renotifyStatus === 'failed' ? <AlertCircle className="h-4 w-4 mr-2" /> :
+                   <Bell className="h-4 w-4 mr-2" />}
+                  {renotifyStatus === 'sent' ? 'Sent' : renotifyStatus === 'failed' ? 'Failed' : 'Re-notify'}
+                </Button>
+              )}
               <Button variant="outline" onClick={() => setShowEventDetail(false)}>Close</Button>
               <Button onClick={handleEditFromDetail}>
                 <Edit3 className="h-4 w-4 mr-2" />Edit
