@@ -463,8 +463,9 @@ async function syncGroups(): Promise<void> {
     // First try the standard getChats method
     try {
       const chats = await client.getChats()
-      groups = chats.filter(chat => chat.isGroup)
-      console.log(`getChats returned ${groups.length} groups`)
+      // Filter groups by isGroup flag OR by @g.us suffix (more reliable)
+      groups = chats.filter(chat => chat.isGroup || chat.id._serialized.endsWith('@g.us'))
+      console.log(`getChats returned ${groups.length} groups (from ${chats.length} total chats)`)
     } catch (getChatsError) {
       const errorMsg = String(getChatsError)
       console.log('getChats failed:', errorMsg)
