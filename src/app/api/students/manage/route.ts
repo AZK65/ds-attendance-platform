@@ -16,24 +16,94 @@ export async function POST(request: NextRequest) {
     }
 
     // Default optional fields to empty strings for MySQL
+    body.permit_number = body.permit_number || ''
+    body.dob = body.dob || ''
+    body.email = body.email || ''
+
+    // Before creating, check if this student already has data in SQLite
+    // (from invoices or prior certificate generation) and merge missing fields
+    const phoneDigits = body.phone_number.replace(/\D/g, '')
+    const phoneSearch = phoneDigits.length > 10 ? phoneDigits.slice(-10) : phoneDigits
+
+    try {
+      // Check local Student table (populated by invoice saves)
+      let localStudent = null
+      if (phoneSearch.length >= 7) {
+        localStudent = await prisma.student.findFirst({
+          where: { phone: { contains: phoneSearch } },
+        })
+      }
+      if (!localStudent) {
+        localStudent = await prisma.student.findFirst({
+          where: { name: { contains: body.full_name } },
+        })
+      }
+
+      if (localStudent) {
+        // Fill in missing fields from the local record
+        body.full_address = body.full_address || localStudent.address || ''
+        body.city = body.city || localStudent.municipality || ''
+        body.postal_code = body.postal_code || localStudent.postalCode || ''
+      }
+
+      // Also check invoices for address data if still missing
+      if (!body.full_address || !body.city) {
+        const invoice = await prisma.invoice.findFirst({
+          where: phoneSearch.length >= 7
+            ? { studentPhone: { contains: phoneSearch } }
+            : { studentName: { contains: body.full_name } },
+          orderBy: { createdAt: 'desc' },
+        })
+        if (invoice) {
+          body.full_address = body.full_address || invoice.studentAddress || ''
+          body.city = body.city || invoice.studentCity || ''
+          body.postal_code = body.postal_code || invoice.studentPostalCode || ''
+          body.email = body.email || invoice.studentEmail || ''
+        }
+      }
+    } catch {
+      // Non-critical — proceed with whatever data we have
+    }
+
     body.full_address = body.full_address || ''
     body.city = body.city || ''
     body.postal_code = body.postal_code || ''
-    body.dob = body.dob || ''
-    body.email = body.email || ''
-    body.permit_number = body.permit_number || ''
 
     const result = await createStudent(body)
 
-    // Save as WhatsApp contact so they show up in searches
+    // Save/update WhatsApp contact and merge with local Student record
     if (body.phone_number) {
-      const phone = body.phone_number.replace(/\D/g, '')
+      const phone = phoneDigits
       const jid = `${phone}@c.us`
       await prisma.contact.upsert({
         where: { id: jid },
         update: { name: body.full_name, phone, lastSynced: new Date() },
         create: { id: jid, phone, name: body.full_name },
       }).catch(() => {})
+
+      // Update local Student record with the MySQL data (so they're linked)
+      try {
+        const existing = await prisma.student.findFirst({
+          where: {
+            OR: [
+              ...(phoneSearch.length >= 7 ? [{ phone: { contains: phoneSearch } }] : []),
+              { name: { contains: body.full_name } },
+            ],
+          },
+        })
+        if (existing) {
+          await prisma.student.update({
+            where: { id: existing.id },
+            data: {
+              name: body.full_name,
+              phone: existing.phone || phone,
+              address: existing.address || body.full_address || null,
+              municipality: existing.municipality || body.city || null,
+              postalCode: existing.postalCode || body.postal_code || null,
+            },
+          })
+        }
+      } catch { /* non-critical */ }
     }
 
     return NextResponse.json({ success: true, studentId: result.insertId })
