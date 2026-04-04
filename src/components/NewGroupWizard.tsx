@@ -190,7 +190,7 @@ export function NewGroupWizard({ open, onOpenChange }: NewGroupWizardProps) {
       const res = await fetch('/api/groups/create', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name: groupName, participants: phones }),
+        body: JSON.stringify({ name: groupName, participants: phones, participantNames: students.map(s => s.name) }),
       })
       if (res.ok) {
         const data = await res.json()

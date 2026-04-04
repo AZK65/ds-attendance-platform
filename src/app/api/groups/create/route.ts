@@ -10,9 +10,10 @@ export async function POST(request: NextRequest) {
   }
 
   try {
-    const { name, participants } = await request.json() as {
+    const { name, participants, participantNames } = await request.json() as {
       name: string
       participants: string[]
+      participantNames?: string[]
     }
 
     if (!name || !name.trim()) {
@@ -49,12 +50,14 @@ export async function POST(request: NextRequest) {
         },
       })
 
-      for (const phone of (participants || [])) {
+      for (let i = 0; i < (participants || []).length; i++) {
+        const phone = participants[i]
+        const memberName = participantNames?.[i] || null
         const jid = phoneToJid(phone)
         await prisma.contact.upsert({
           where: { id: jid },
-          update: { phone, lastSynced: new Date() },
-          create: { id: jid, phone },
+          update: { phone, ...(memberName ? { name: memberName } : {}), lastSynced: new Date() },
+          create: { id: jid, phone, name: memberName },
         })
         await prisma.groupMember.upsert({
           where: { groupId_contactId: { groupId, contactId: jid } },
