@@ -7,19 +7,21 @@ export async function POST(request: NextRequest) {
   try {
     const body: CreateStudentData = await request.json()
 
-    // Validate required fields
-    const required: (keyof CreateStudentData)[] = [
-      'full_name', 'phone_number', 'full_address',
-      'city', 'postal_code', 'dob', 'email',
-    ]
-    for (const field of required) {
-      if (!body[field]?.trim()) {
-        return NextResponse.json(
-          { error: `${field.replace(/_/g, ' ')} is required` },
-          { status: 400 }
-        )
-      }
+    // Validate required fields (only name and phone are strictly required)
+    if (!body.full_name?.trim()) {
+      return NextResponse.json({ error: 'full name is required' }, { status: 400 })
     }
+    if (!body.phone_number?.trim()) {
+      return NextResponse.json({ error: 'phone number is required' }, { status: 400 })
+    }
+
+    // Default optional fields to empty strings for MySQL
+    body.full_address = body.full_address || ''
+    body.city = body.city || ''
+    body.postal_code = body.postal_code || ''
+    body.dob = body.dob || ''
+    body.email = body.email || ''
+    body.permit_number = body.permit_number || ''
 
     const result = await createStudent(body)
 
