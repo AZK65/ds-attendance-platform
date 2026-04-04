@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useRef } from 'react'
+import { useState, useRef, useCallback } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -11,7 +11,7 @@ import {
 } from '@/components/ui/dialog'
 import {
   Users, Loader2, CheckCircle2, AlertCircle, ArrowLeft, ArrowRight,
-  UserPlus, CalendarDays, BookOpen, FileText,
+  UserPlus, CalendarDays, BookOpen, FileText, XCircle, Phone,
 } from 'lucide-react'
 
 interface ParsedStudent {
@@ -58,6 +58,36 @@ export function NewGroupWizard({ open, onOpenChange }: NewGroupWizardProps) {
   const [progress, setProgress] = useState<ProgressEntry[]>([])
   const [executionPhase, setExecutionPhase] = useState('')
   const [createdGroupId, setCreatedGroupId] = useState<string | null>(null)
+
+  // WhatsApp verification
+  // Map of phone → 'checking' | 'valid' | 'invalid' | 'error'
+  const [waStatus, setWaStatus] = useState<Record<string, 'checking' | 'valid' | 'invalid' | 'error'>>({})
+  const [verifying, setVerifying] = useState(false)
+
+  const verifyNumbers = useCallback(async (students: ParsedStudent[]) => {
+    setVerifying(true)
+    const newStatus: Record<string, 'checking' | 'valid' | 'invalid' | 'error'> = {}
+    for (const s of students) {
+      newStatus[s.phone] = 'checking'
+    }
+    setWaStatus({ ...newStatus })
+
+    for (const s of students) {
+      try {
+        const res = await fetch(`/api/whatsapp/check-number?phone=${encodeURIComponent(s.phone)}`)
+        if (res.ok) {
+          const data = await res.json()
+          newStatus[s.phone] = data.registered ? 'valid' : 'invalid'
+        } else {
+          newStatus[s.phone] = 'error'
+        }
+      } catch {
+        newStatus[s.phone] = 'error'
+      }
+      setWaStatus({ ...newStatus })
+    }
+    setVerifying(false)
+  }, [])
 
   // Parse bulk text into students
   const parsedStudents: ParsedStudent[] = bulkText
@@ -270,6 +300,8 @@ export function NewGroupWizard({ open, onOpenChange }: NewGroupWizardProps) {
     setProgress([])
     setExecutionPhase('')
     setCreatedGroupId(null)
+    setWaStatus({})
+    setVerifying(false)
     if (step === 'done') {
       queryClient.invalidateQueries({ queryKey: ['groups'] })
       queryClient.invalidateQueries({ queryKey: ['groups-list'] })
@@ -335,14 +367,44 @@ export function NewGroupWizard({ open, onOpenChange }: NewGroupWizardProps) {
               </div>
 
               {parsedStudents.length > 0 && (
-                <div className="border rounded-lg divide-y max-h-[150px] overflow-y-auto">
-                  {parsedStudents.map((s, i) => (
-                    <div key={i} className="flex items-center justify-between px-3 py-1.5 text-sm">
-                      <span className="font-medium">{s.name}</span>
-                      <span className="text-muted-foreground font-mono text-xs">{s.phone}</span>
-                    </div>
-                  ))}
-                </div>
+                <>
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs text-muted-foreground">
+                      {Object.values(waStatus).filter(s => s === 'valid').length > 0 && (
+                        <span className="text-green-600">{Object.values(waStatus).filter(s => s === 'valid').length} valid</span>
+                      )}
+                      {Object.values(waStatus).filter(s => s === 'invalid').length > 0 && (
+                        <span className="text-red-600 ml-2">{Object.values(waStatus).filter(s => s === 'invalid').length} not on WhatsApp</span>
+                      )}
+                    </span>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => verifyNumbers(parsedStudents)}
+                      disabled={verifying}
+                    >
+                      {verifying ? <Loader2 className="h-3 w-3 animate-spin mr-1" /> : <Phone className="h-3 w-3 mr-1" />}
+                      {verifying ? 'Verifying...' : 'Verify WhatsApp'}
+                    </Button>
+                  </div>
+                  <div className="border rounded-lg divide-y max-h-[150px] overflow-y-auto">
+                    {parsedStudents.map((s, i) => (
+                      <div key={i} className="flex items-center justify-between px-3 py-1.5 text-sm">
+                        <div className="flex items-center gap-2">
+                          {waStatus[s.phone] === 'checking' && <Loader2 className="h-3.5 w-3.5 animate-spin text-muted-foreground" />}
+                          {waStatus[s.phone] === 'valid' && <CheckCircle2 className="h-3.5 w-3.5 text-green-600" />}
+                          {waStatus[s.phone] === 'invalid' && <XCircle className="h-3.5 w-3.5 text-red-500" />}
+                          {waStatus[s.phone] === 'error' && <AlertCircle className="h-3.5 w-3.5 text-amber-500" />}
+                          <span className="font-medium">{s.name}</span>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          {waStatus[s.phone] === 'invalid' && <span className="text-red-500 text-xs">No WhatsApp</span>}
+                          <span className="text-muted-foreground font-mono text-xs">{s.phone}</span>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </>
               )}
             </>
           )}
@@ -510,7 +572,7 @@ export function NewGroupWizard({ open, onOpenChange }: NewGroupWizardProps) {
           {step === 'students' && (
             <>
               <Button variant="outline" onClick={handleClose}>Cancel</Button>
-              <Button onClick={() => setStep('group')} disabled={parsedStudents.length === 0}>
+              <Button onClick={() => setStep('group')} disabled={parsedStudents.length === 0 || verifying}>
                 Next <ArrowRight className="h-4 w-4 ml-1" />
               </Button>
             </>
