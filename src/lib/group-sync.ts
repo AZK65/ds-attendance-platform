@@ -86,14 +86,14 @@ export async function syncGroupMembers(
 ) {
   // Upsert all contacts
   for (const m of members) {
+    // Only update name/pushName if WhatsApp provides a value — never overwrite existing names with null
+    const updateData: Record<string, unknown> = { phone: m.phone, lastSynced: new Date() }
+    if (m.name) updateData.name = m.name
+    if (m.pushName) updateData.pushName = m.pushName
+
     await prisma.contact.upsert({
       where: { id: m.id },
-      update: {
-        phone: m.phone,
-        name: m.name || undefined,
-        pushName: m.pushName || undefined,
-        lastSynced: new Date(),
-      },
+      update: updateData,
       create: {
         id: m.id,
         phone: m.phone,
