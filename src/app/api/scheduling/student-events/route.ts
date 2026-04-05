@@ -10,10 +10,11 @@ export async function GET(request: NextRequest) {
     const { searchParams } = new URL(request.url)
     const studentName = searchParams.get('studentName')
     const phone = searchParams.get('phone')
+    const groupName = searchParams.get('groupName')
 
-    if (!studentName && !phone) {
+    if (!studentName && !phone && !groupName) {
       return NextResponse.json(
-        { error: 'studentName or phone is required' },
+        { error: 'studentName, phone, or groupName is required' },
         { status: 400 }
       )
     }
@@ -66,6 +67,23 @@ export async function GET(request: NextRequest) {
       }
     }
 
+    // Search by group name to find theory classes for the student's group
+    if (groupName) {
+      const groupUrl = `${BASE_URL}/${calendarKey}/events?startDate=${formatDate(startDate)}&endDate=${formatDate(endDate)}&query=${encodeURIComponent(groupName)}`
+      const groupRes = await fetch(groupUrl, {
+        headers: { 'Teamup-Token': apiKey },
+      })
+      if (groupRes.ok) {
+        const groupData = await groupRes.json()
+        for (const ev of (groupData.events || [])) {
+          if (!seenIds.has(ev.id)) {
+            seenIds.add(ev.id)
+            allEvents.push(ev)
+          }
+        }
+      }
+    }
+
     // Now filter to only events that actually belong to this student
     // Match by phone in notes (most reliable) or by name in title/notes
     let events = allEvents.filter((event) => {
@@ -92,6 +110,14 @@ export async function GET(request: NextRequest) {
       // Check name in title
       if (studentName && title.toLowerCase().includes(studentName.trim().toLowerCase())) {
         return true
+      }
+
+      // Check if this is a theory class for the student's group
+      if (groupName) {
+        const groupClean = groupName.trim().toLowerCase()
+        if (title.toLowerCase().includes(groupClean) || (notes && notes.toLowerCase().includes(groupClean))) {
+          return true
+        }
       }
 
       return false

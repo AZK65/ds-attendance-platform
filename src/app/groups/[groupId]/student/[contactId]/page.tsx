@@ -303,13 +303,15 @@ export default function StudentDetailPage() {
   const displayName = participant?.name || participant?.pushName || participant?.phone || 'Unknown'
   const phone = participant?.phone || contactId.replace('@c.us', '')
 
-  // Fetch student's scheduled classes from Teamup
+  // Fetch student's scheduled classes from Teamup (include group name for theory classes)
+  const groupName = groupData?.group?.name || ''
   const { data: studentEvents = [], isLoading: loadingEvents } = useQuery<TeamupEvent[]>({
-    queryKey: ['student-events', displayName, phone],
+    queryKey: ['student-events', displayName, phone, groupName],
     queryFn: async () => {
       const params = new URLSearchParams()
       if (displayName && displayName !== phone) params.set('studentName', displayName)
       params.set('phone', phone)
+      if (groupName) params.set('groupName', groupName)
       const res = await fetch(`/api/scheduling/student-events?${params}`)
       if (!res.ok) throw new Error('Failed to fetch student events')
       return res.json()
