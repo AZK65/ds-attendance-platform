@@ -553,31 +553,12 @@ function StudentsPage() {
       const results: Array<{ name: string; status: string }> = []
       let targetGroupId = groupId
 
-      // Create new group if needed
-      if (gName && !targetGroupId) {
-        const firstPhone = students[0]?.phone
-        if (firstPhone) {
-          const res = await fetch('/api/groups/create', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ name: gName, participants: [firstPhone] }),
-          })
-          if (res.ok) {
-            const data = await res.json()
-            targetGroupId = data.groupId
-            results.push({ name: students[0].name, status: 'Created group & added' })
-          } else {
-            results.push({ name: students[0].name, status: 'Failed to create group' })
-          }
-        }
-      }
-
-      const startIdx = (gName && !groupId) ? 1 : 0
-      for (let i = startIdx; i < students.length; i++) {
+      // Phase 1: Create all students in MySQL
+      const successfulStudents: Array<{ name: string; phone: string }> = []
+      for (let i = 0; i < students.length; i++) {
         const s = students[i]
         setBulkProgress({ current: i + 1, total: students.length, results: [...results] })
 
-        // Create in MySQL
         try {
           const createRes = await fetch('/api/students/manage', {
             method: 'POST',
@@ -593,37 +574,73 @@ function StudentsPage() {
               email: '',
             }),
           })
-          if (!createRes.ok) {
-            const err = await createRes.json()
-            results.push({ name: s.name, status: `MySQL error: ${err.error || 'failed'}` })
-            continue
+          if (createRes.ok) {
+            successfulStudents.push(s)
+            results.push({ name: s.name, status: 'Created in database' })
+          } else {
+            const err = await createRes.json().catch(() => ({ error: 'failed' }))
+            successfulStudents.push(s) // still try to add to group
+            results.push({ name: s.name, status: err.error || 'May already exist' })
           }
         } catch {
-          results.push({ name: s.name, status: 'MySQL create failed' })
-          continue
+          successfulStudents.push(s)
+          results.push({ name: s.name, status: 'DB error (will still try group)' })
         }
+      }
 
-        // Add to group if we have one
-        if (targetGroupId) {
-          try {
-            const addRes = await fetch(`/api/groups/${encodeURIComponent(targetGroupId)}/members`, {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ phone: s.phone, name: s.name }),
-            })
-            const addData = await addRes.json()
-            if (addData.inviteSent) {
-              results.push({ name: s.name, status: 'Created + invite sent' })
-            } else if (addData.whatsappWarning) {
-              results.push({ name: s.name, status: `Created + ${addData.whatsappWarning}` })
-            } else {
-              results.push({ name: s.name, status: 'Created + added to group' })
-            }
-          } catch {
-            results.push({ name: s.name, status: 'Created but group add failed' })
+      // Phase 2: Create new group with ALL students at once (if creating new group)
+      if (gName && !targetGroupId && successfulStudents.length > 0) {
+        setBulkProgress({ current: students.length, total: students.length, results: [...results, { name: 'Group', status: 'Creating...' }] })
+        try {
+          const res = await fetch('/api/groups/create', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              name: gName,
+              participants: successfulStudents.map(s => s.phone),
+              participantNames: successfulStudents.map(s => s.name),
+            }),
+          })
+          if (res.ok) {
+            const data = await res.json()
+            targetGroupId = data.groupId
+            const warning = data.whatsappWarning ? ` (${data.whatsappWarning})` : ''
+            results.push({ name: 'Group', status: `Created "${gName}"${warning}` })
+          } else {
+            results.push({ name: 'Group', status: 'Failed to create group' })
           }
-        } else {
-          results.push({ name: s.name, status: 'Created (no group)' })
+        } catch {
+          results.push({ name: 'Group', status: 'Network error creating group' })
+        }
+      }
+
+      // Phase 2b: Add to existing group via bulk endpoint
+      if (targetGroupId && !gName && successfulStudents.length > 0) {
+        setBulkProgress({ current: students.length, total: students.length, results: [...results, { name: 'Group', status: 'Adding members...' }] })
+        try {
+          const res = await fetch(`/api/groups/${encodeURIComponent(targetGroupId)}/members-bulk`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              members: successfulStudents.map(s => ({ phone: s.phone, name: s.name })),
+            }),
+          })
+          if (res.ok) {
+            const data = await res.json()
+            for (const r of (data.results || [])) {
+              if (r.inviteSent) {
+                results.push({ name: r.name, status: 'Invite sent' })
+              } else if (r.error) {
+                results.push({ name: r.name, status: r.error })
+              } else {
+                results.push({ name: r.name, status: 'Added to group' })
+              }
+            }
+          } else {
+            results.push({ name: 'Group', status: 'Failed to add members' })
+          }
+        } catch {
+          results.push({ name: 'Group', status: 'Network error adding members' })
         }
       }
 
@@ -633,6 +650,7 @@ function StudentsPage() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['groups'] })
       queryClient.invalidateQueries({ queryKey: ['batch-match'] })
+      queryClient.invalidateQueries({ queryKey: ['groups', 'participants'] })
     },
   })
 
