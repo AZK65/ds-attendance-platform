@@ -1893,6 +1893,16 @@ function StudentsPage() {
                       if (s.phone.length === 10) s.phone = '1' + s.phone
                     }
 
+                    // Dedupe by phone number
+                    const seen = new Set<string>()
+                    const deduped = students.filter(s => {
+                      if (seen.has(s.phone)) return false
+                      seen.add(s.phone)
+                      return true
+                    })
+                    students.length = 0
+                    students.push(...deduped)
+
                     bulkCreateMutation.mutate({
                       students,
                       groupId: bulkGroupId || undefined,
