@@ -305,10 +305,10 @@ export default function AnalyticsPage() {
                   <Button
                     variant="ghost"
                     size="sm"
-                    className="h-6 w-6 p-0 opacity-0 hover:opacity-100 shrink-0"
+                    className="h-6 w-6 p-0 shrink-0 text-muted-foreground hover:text-red-500"
                     onClick={(e) => { e.stopPropagation(); deleteChat(chat.id) }}
                   >
-                    <Trash2 className="h-3 w-3" />
+                    <Trash2 className="h-3.5 w-3.5" />
                   </Button>
                 </div>
               ))}
