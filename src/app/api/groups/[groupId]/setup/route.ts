@@ -101,6 +101,17 @@ export async function POST(
         const reminderTime = new Date(classDateTime.getTime() - 3 * 60 * 60 * 1000)
 
         if (reminderTime > new Date()) {
+          // Cancel existing reminders for same group + date to prevent duplicates
+          await prisma.scheduledMessage.updateMany({
+            where: {
+              status: 'pending',
+              groupId: decodedGroupId,
+              classDateISO,
+              isGroupMessage: false,
+            },
+            data: { status: 'cancelled' },
+          })
+
           const reminderMessage = `Reminder: Your Module ${moduleNumber} class is TODAY at ${classTime}! Please make sure to put your full name when joining Zoom. Invite Link: ${zoomLink} — Password: qazi`
 
           await prisma.scheduledMessage.create({
@@ -123,6 +134,17 @@ export async function POST(
       if (classDateISO) {
         const groupReminderTime = new Date(`${classDateISO}T12:00:00`)
         if (groupReminderTime > new Date()) {
+          // Cancel existing group reminders for same group + date
+          await prisma.scheduledMessage.updateMany({
+            where: {
+              status: 'pending',
+              groupId: decodedGroupId,
+              classDateISO,
+              isGroupMessage: true,
+            },
+            data: { status: 'cancelled' },
+          })
+
           const groupMessage = `Reminder: Your Module ${moduleNumber} class is TODAY at ${classTime}! Please make sure to put your full name when joining Zoom. Invite Link: https://us02web.zoom.us/j/4171672829?pwd=ZTlHSEdmTGRYV1QraU5MaThqaC9Rdz09 — Password: qazi`
 
           await prisma.scheduledMessage.create({
