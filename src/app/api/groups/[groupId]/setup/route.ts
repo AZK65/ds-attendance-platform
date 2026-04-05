@@ -87,50 +87,7 @@ export async function POST(
         }
       }
 
-      // Schedule a reminder 3 hours before class
-      const parseTime = classTime.match(/(\d{1,2})(?::(\d{2}))?\s*(am|pm)/i)
-      if (parseTime && classDateISO) {
-        let hour = parseInt(parseTime[1])
-        const minute = parseTime[2] ? parseInt(parseTime[2]) : 0
-        const period = parseTime[3].toLowerCase()
-        if (period === 'pm' && hour !== 12) hour += 12
-        if (period === 'am' && hour === 12) hour = 0
-        const startTime = `${hour.toString().padStart(2, '0')}:${minute.toString().padStart(2, '0')}`
-
-        const classDateTime = new Date(`${classDateISO}T${startTime}:00`)
-        const reminderTime = new Date(classDateTime.getTime() - 3 * 60 * 60 * 1000)
-
-        if (reminderTime > new Date()) {
-          // Cancel existing reminders for same group + date to prevent duplicates
-          await prisma.scheduledMessage.updateMany({
-            where: {
-              status: 'pending',
-              groupId: decodedGroupId,
-              classDateISO,
-              isGroupMessage: false,
-            },
-            data: { status: 'cancelled' },
-          })
-
-          const reminderMessage = `Reminder: Your Module ${moduleNumber} class is TODAY at ${classTime}! Please make sure to put your full name when joining Zoom. Invite Link: ${zoomLink} — Password: qazi`
-
-          await prisma.scheduledMessage.create({
-            data: {
-              groupId: decodedGroupId,
-              message: reminderMessage,
-              scheduledAt: reminderTime,
-              memberPhones: JSON.stringify(memberPhones),
-              moduleNumber,
-              classDateISO,
-              classTime,
-              status: 'pending',
-            },
-          })
-          results.push({ action: 'Schedule reminder', status: `Set for ${reminderTime.toLocaleString()}` })
-        }
-      }
-
-      // Also schedule a group reminder at 12 PM on class day
+      // Schedule a group reminder at 12 PM on class day (theory classes only need this one)
       if (classDateISO) {
         const groupReminderTime = new Date(`${classDateISO}T12:00:00`)
         if (groupReminderTime > new Date()) {
