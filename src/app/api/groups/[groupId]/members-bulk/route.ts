@@ -21,6 +21,13 @@ export async function POST(
       return NextResponse.json({ error: 'No members provided' }, { status: 400 })
     }
 
+    // Check who's already in the group BEFORE saving new ones
+    const existingMembers = await prisma.groupMember.findMany({
+      where: { groupId: decodedGroupId },
+      select: { phone: true },
+    })
+    const existingPhones = new Set(existingMembers.map(m => m.phone))
+
     // Save all to SQLite (so they show up in the app)
     for (const m of members) {
       const jid = phoneToJid(m.phone)
@@ -36,14 +43,27 @@ export async function POST(
       })
     }
 
-    // Send invite links via private message (safe — doesn't crash WhatsApp)
+    // Only send invite links to members NOT already in the group
     const results: Array<{ phone: string; name: string; success: boolean; inviteSent?: boolean; error?: string }> = []
 
-    if (state.isConnected) {
+    // Filter to only new members (not already in group before this request)
+    const newMembers = members.filter(m => {
+      const phone = m.phone.replace(/\D/g, '')
+      return !existingPhones.has(phone) && !existingPhones.has('1' + phone) && !existingPhones.has(phone.replace(/^1/, ''))
+    })
+
+    // Mark existing ones as already in group
+    for (const m of members) {
+      if (!newMembers.includes(m)) {
+        results.push({ phone: m.phone, name: m.name, success: true, error: 'Already in group' })
+      }
+    }
+
+    if (state.isConnected && newMembers.length > 0) {
       // Get group invite link once
       const inviteLink = await getGroupInviteLink(decodedGroupId) || ''
 
-      for (const m of members) {
+      for (const m of newMembers) {
         if (inviteLink) {
           try {
             await sendPrivateMessage(m.phone, `You've been added to a class group!\n\nClick to join:\n${inviteLink}`)
