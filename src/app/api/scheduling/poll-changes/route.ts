@@ -55,9 +55,11 @@ export async function POST() {
   }
 
   try {
-    // Fetch all events from today to 3 months forward
+    // Fetch events from yesterday (to catch today's events that may have passed) to 3 months forward
     const now = new Date()
-    const startDate = now.toISOString().split('T')[0]
+    const yesterday = new Date(now)
+    yesterday.setDate(yesterday.getDate() - 1)
+    const startDate = yesterday.toISOString().split('T')[0]
     const threeMonths = new Date(now)
     threeMonths.setMonth(threeMonths.getMonth() + 3)
     const endDate = threeMonths.toISOString().split('T')[0]
@@ -85,6 +87,15 @@ export async function POST() {
     // 1. Detect DELETED events (snapshot exists but not in live events)
     for (const snapshot of snapshots) {
       if (!liveEventIds.has(snapshot.eventId)) {
+        // Only treat as cancelled if the event is in the future
+        // Past events disappearing from the API is normal, not a cancellation
+        const eventTime = new Date(snapshot.startDt)
+        if (eventTime < now) {
+          // Past event — just clean up the snapshot, don't notify
+          await prisma.teamupEventSnapshot.delete({ where: { eventId: snapshot.eventId } }).catch(() => {})
+          continue
+        }
+
         const phone = extractPhone(snapshot.notes)
         const studentName = extractStudentName(snapshot.notes) || 'Student'
         const cleanName = studentName.replace(/\s*#\d+$/, '').trim()

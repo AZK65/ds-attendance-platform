@@ -28,6 +28,12 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ processed: 0 })
     }
 
+    // Immediately mark as 'processing' to prevent duplicate sends from concurrent calls
+    await prisma.scheduledMessage.updateMany({
+      where: { id: { in: pendingMessages.map(m => m.id) } },
+      data: { status: 'processing' },
+    })
+
     console.log(`[ScheduledProcessor] Processing ${pendingMessages.length} pending messages`)
 
     const results: Array<{ id: string; sent: number; failed: number }> = []
