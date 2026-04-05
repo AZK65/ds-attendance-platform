@@ -741,6 +741,21 @@ export async function addParticipantToGroup(groupId: string, phone: string): Pro
   }
 }
 
+export async function getGroupInviteLink(groupId: string): Promise<string | null> {
+  if (!state.client || !state.isConnected) return null
+  try {
+    const client = state.client as {
+      getChatById: (id: string) => Promise<{ getInviteCode: () => Promise<string> }>
+    }
+    const chat = await client.getChatById(groupId)
+    const code = await chat.getInviteCode()
+    return `https://chat.whatsapp.com/${code}`
+  } catch (err) {
+    console.error('[getGroupInviteLink] Failed:', err)
+    return null
+  }
+}
+
 // Add multiple participants to a group in batches of 3 (prevents Chromium OOM on low-memory servers)
 export async function addParticipantsToGroupBulk(
   groupId: string,

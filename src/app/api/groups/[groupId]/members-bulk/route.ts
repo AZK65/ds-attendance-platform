@@ -1,9 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { addParticipantsToGroupBulk, getWhatsAppState, phoneToJid } from '@/lib/whatsapp/client'
+import { getWhatsAppState, phoneToJid, sendPrivateMessage, getGroupInviteLink } from '@/lib/whatsapp/client'
 import { prisma } from '@/lib/db'
 
 // POST /api/groups/[groupId]/members-bulk
-// Adds multiple members to a group in a single WhatsApp call
+// Saves members to SQLite and sends invite links (no addParticipants — it crashes Chromium)
 export async function POST(
   request: NextRequest,
   { params }: { params: Promise<{ groupId: string }> }
@@ -21,7 +21,7 @@ export async function POST(
       return NextResponse.json({ error: 'No members provided' }, { status: 400 })
     }
 
-    // Save all to SQLite first (so they show up in the app regardless of WhatsApp result)
+    // Save all to SQLite (so they show up in the app)
     for (const m of members) {
       const jid = phoneToJid(m.phone)
       await prisma.contact.upsert({
@@ -36,29 +36,31 @@ export async function POST(
       })
     }
 
-    // Bulk add to WhatsApp
-    if (!state.isConnected) {
-      return NextResponse.json({
-        results: members.map(m => ({
-          phone: m.phone,
-          name: m.name,
-          success: true,
-          warning: 'WhatsApp not connected — saved to database only',
-        })),
-      })
+    // Send invite links via private message (safe — doesn't crash WhatsApp)
+    const results: Array<{ phone: string; name: string; success: boolean; inviteSent?: boolean; error?: string }> = []
+
+    if (state.isConnected) {
+      // Get group invite link once
+      const inviteLink = await getGroupInviteLink(decodedGroupId) || ''
+
+      for (const m of members) {
+        if (inviteLink) {
+          try {
+            await sendPrivateMessage(m.phone, `You've been added to a class group!\n\nClick to join:\n${inviteLink}`)
+            results.push({ phone: m.phone, name: m.name, success: true, inviteSent: true })
+          } catch {
+            results.push({ phone: m.phone, name: m.name, success: true, error: 'Saved but invite failed' })
+          }
+          await new Promise(r => setTimeout(r, 1500))
+        } else {
+          results.push({ phone: m.phone, name: m.name, success: true, error: 'Saved (no invite link)' })
+        }
+      }
+    } else {
+      for (const m of members) {
+        results.push({ phone: m.phone, name: m.name, success: true, error: 'WhatsApp not connected — saved to database only' })
+      }
     }
-
-    const phones = members.map(m => m.phone)
-    const waResults = await addParticipantsToGroupBulk(decodedGroupId, phones)
-
-    // Merge results with names
-    const results = waResults.map((r, i) => ({
-      phone: r.phone,
-      name: members[i].name,
-      success: r.success,
-      inviteSent: r.inviteSent,
-      error: r.error,
-    }))
 
     return NextResponse.json({ results })
   } catch (error) {
