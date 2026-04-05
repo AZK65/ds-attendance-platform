@@ -647,6 +647,17 @@ export async function getGroupParticipants(groupId: string): Promise<Participant
     }
   }
 
+  // Enrich: fill in missing names from SQLite Contact table
+  // (names set by wizard or manual entry that WhatsApp doesn't know about)
+  for (const p of participants) {
+    if (!p.name) {
+      const savedContact = await prisma.contact.findUnique({ where: { id: p.id } })
+      if (savedContact?.name) {
+        p.name = savedContact.name
+      }
+    }
+  }
+
   return participants
 }
 

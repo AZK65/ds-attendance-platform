@@ -130,29 +130,17 @@ export async function GET(
       }
     })
 
-    // Cache participants
+    // Cache participants (names already enriched by getGroupParticipants)
     await syncGroupMembers(decodedGroupId, participants)
-
-    // Merge in names from SQLite Contact table (may have names set by wizard that WhatsApp doesn't know)
-    const enrichedParticipants = await Promise.all(
-      participants.map(async (p) => {
-        if (p.name) return p
-        const contact = await prisma.contact.findUnique({ where: { id: p.id } })
-        if (contact?.name) {
-          return { ...p, name: contact.name }
-        }
-        return p
-      })
-    )
 
     return NextResponse.json({
       group: {
         id: decodedGroupId,
         name: groupInfo.name,
-        participantCount: enrichedParticipants.length,
+        participantCount: participants.length,
         lastSynced: new Date(),
       },
-      participants: enrichedParticipants,
+      participants,
       moduleNumber,
       lastModuleMessageDate,
       fromCache: false,
