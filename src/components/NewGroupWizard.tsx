@@ -113,6 +113,7 @@ export function NewGroupWizard({ open, onOpenChange }: NewGroupWizardProps) {
       return null
     })
     .filter((s): s is ParsedStudent => s !== null)
+    .filter((s, i, arr) => arr.findIndex(x => x.phone === s.phone) === i) // dedupe by phone
 
   const formatTime12h = (time24: string) => {
     const [h, m] = time24.split(':').map(Number)
