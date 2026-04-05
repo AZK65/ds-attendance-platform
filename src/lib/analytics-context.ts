@@ -192,15 +192,159 @@ Sent: ${sentMessages} | Failed: ${failedMessages}`)
     sections.push('=== MESSAGES === Data unavailable')
   }
 
-  // Invoice services
+  // Invoice services & packages
   try {
     const services = await prisma.invoiceService.findMany({
-      select: { name: true, price: true },
+      select: { name: true, price: true, vehicleType: true },
       orderBy: { sortOrder: 'asc' },
     })
-    if (services.length > 0) {
+    const packages = await prisma.invoicePackage.findMany({
+      select: { name: true, totalPrice: true, vehicleType: true },
+      where: { isActive: true },
+    })
+    if (services.length > 0 || packages.length > 0) {
       sections.push(`=== SERVICES & PRICING ===
-${services.map(s => `${s.name}: $${s.price.toFixed(2)}`).join('\n')}`)
+Services:
+${services.map(s => `${s.name} (${s.vehicleType}): $${s.price.toFixed(2)}`).join('\n')}
+${packages.length > 0 ? `\nPackages:\n${packages.map(p => `${p.name} (${p.vehicleType}): $${p.totalPrice.toFixed(2)}`).join('\n')}` : ''}`)
+    }
+  } catch {
+    // skip
+  }
+
+  // Teamup calendar — upcoming classes
+  try {
+    const apiKey = process.env.TEAMUP_API_KEY || ''
+    const calendarKey = process.env.TEAMUP_CALENDAR_KEY || ''
+    if (apiKey && calendarKey) {
+      const today = now.toISOString().split('T')[0]
+      const twoWeeks = new Date(now)
+      twoWeeks.setDate(twoWeeks.getDate() + 14)
+      const endDate = twoWeeks.toISOString().split('T')[0]
+
+      // Also get past 2 weeks
+      const twoWeeksAgo = new Date(now)
+      twoWeeksAgo.setDate(twoWeeksAgo.getDate() - 14)
+      const pastStart = twoWeeksAgo.toISOString().split('T')[0]
+
+      // Fetch subcalendars (teachers)
+      const subCalRes = await fetch(`https://api.teamup.com/${calendarKey}/subcalendars`, {
+        headers: { 'Teamup-Token': apiKey },
+      })
+      const subCalData = subCalRes.ok ? await subCalRes.json() : { subcalendars: [] }
+      const teacherMap = new Map((subCalData.subcalendars || []).map((s: { id: number; name: string }) => [s.id, s.name]))
+
+      // Fetch events
+      const eventsRes = await fetch(
+        `https://api.teamup.com/${calendarKey}/events?startDate=${pastStart}&endDate=${endDate}`,
+        { headers: { 'Teamup-Token': apiKey } }
+      )
+
+      if (eventsRes.ok) {
+        const eventsData = await eventsRes.json()
+        const events: Array<{ title: string; start_dt: string; end_dt: string; subcalendar_ids: number[]; notes?: string }> = eventsData.events || []
+
+        const upcoming = events.filter(e => new Date(e.start_dt) >= now)
+        const past = events.filter(e => new Date(e.start_dt) < now)
+
+        // Count classes by teacher
+        const classesByTeacher: Record<string, number> = {}
+        for (const e of events) {
+          const teacher = teacherMap.get(e.subcalendar_ids[0]) || 'Unknown'
+          classesByTeacher[teacher as string] = ((classesByTeacher[teacher as string]) || 0) + 1
+        }
+
+        // Count classes by day of week
+        const classesByDay: Record<string, number> = {}
+        for (const e of events) {
+          const day = new Date(e.start_dt).toLocaleDateString('en-US', { weekday: 'long' })
+          classesByDay[day] = (classesByDay[day] || 0) + 1
+        }
+
+        const eventList = upcoming.slice(0, 30).map(e => {
+          const teacher = teacherMap.get(e.subcalendar_ids[0]) || 'Unknown'
+          const date = new Date(e.start_dt).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })
+          const time = new Date(e.start_dt).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true })
+          return `${date} ${time} | ${e.title} | ${teacher}`
+        }).join('\n')
+
+        sections.push(`=== CLASS SCHEDULE (Teamup Calendar) ===
+Total events (past 2 weeks + next 2 weeks): ${events.length}
+Upcoming classes (next 2 weeks): ${upcoming.length}
+Past classes (last 2 weeks): ${past.length}
+
+Teachers:
+${Array.from(teacherMap.values()).join(', ')}
+
+Classes by teacher (last/next 2 weeks):
+${Object.entries(classesByTeacher).sort((a, b) => b[1] - a[1]).map(([t, c]) => `${t}: ${c}`).join('\n')}
+
+Classes by day of week:
+${Object.entries(classesByDay).sort((a, b) => b[1] - a[1]).map(([d, c]) => `${d}: ${c}`).join('\n')}
+
+Upcoming classes:
+${eventList || 'None scheduled'}`)
+      }
+    }
+  } catch {
+    sections.push('=== SCHEDULE === Data unavailable')
+  }
+
+  // Clover payments
+  try {
+    const merchantId = process.env.CLOVER_MERCHANT_ID
+    const apiToken = process.env.CLOVER_API_TOKEN
+    const cloverBase = process.env.CLOVER_SANDBOX === 'true'
+      ? 'https://sandbox.dev.clover.com'
+      : 'https://api.clover.com'
+
+    if (merchantId && apiToken) {
+      // Get recent orders (last 30 days)
+      const thirtyDaysAgo = new Date(now)
+      thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30)
+      const fromMs = thirtyDaysAgo.getTime()
+
+      const res = await fetch(
+        `${cloverBase}/v3/merchants/${merchantId}/orders?expand=lineItems&limit=100&orderBy=createdTime+DESC&filter=createdTime>=${fromMs}`,
+        { headers: { Authorization: `Bearer ${apiToken}`, Accept: 'application/json' } }
+      )
+
+      if (res.ok) {
+        const data = await res.json()
+        const orders = (data.elements || []).map((o: { id: string; total: number; createdTime: number; state: string }) => ({
+          id: o.id,
+          total: (o.total || 0) / 100,
+          date: new Date(o.createdTime).toISOString().split('T')[0],
+          state: o.state,
+        }))
+
+        const totalCloverRevenue = orders.reduce((s: number, o: { total: number }) => s + o.total, 0)
+        const paidOrders = orders.filter((o: { state: string }) => o.state === 'locked' || o.state === 'paid')
+
+        sections.push(`=== CLOVER PAYMENTS (Last 30 Days) ===
+Total orders: ${orders.length}
+Total amount: $${totalCloverRevenue.toFixed(2)}
+Paid/completed orders: ${paidOrders.length}
+
+Recent orders:
+${orders.slice(0, 20).map((o: { date: string; total: number; state: string; id: string }) => `${o.date} | $${o.total.toFixed(2)} | ${o.state} | ${o.id}`).join('\n')}`)
+      }
+    }
+  } catch {
+    sections.push('=== CLOVER === Data unavailable')
+  }
+
+  // Zoom attendance data
+  try {
+    const zoomRecords = await prisma.zoomAttendance.findMany({
+      orderBy: { meetingDate: 'desc' },
+      take: 20,
+      select: { groupId: true, meetingDate: true, moduleNumber: true },
+    })
+    if (zoomRecords.length > 0) {
+      sections.push(`=== ZOOM ATTENDANCE ===
+Recent Zoom meetings tracked: ${zoomRecords.length}
+${zoomRecords.map(z => `Module ${z.moduleNumber || '?'} | ${z.meetingDate} | Group: ${z.groupId.slice(0, 20)}...`).join('\n')}`)
     }
   } catch {
     // skip
