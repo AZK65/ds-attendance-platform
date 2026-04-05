@@ -14,6 +14,15 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ processed: 0, skipped: true, reason: 'WhatsApp not connected' })
     }
 
+    // Recover any messages stuck in 'processing' for more than 5 minutes (server crashed mid-send)
+    await prisma.scheduledMessage.updateMany({
+      where: {
+        status: 'processing',
+        scheduledAt: { lte: new Date(Date.now() - 5 * 60 * 1000) },
+      },
+      data: { status: 'pending' },
+    })
+
     // Find all pending messages that are due (scheduledAt <= now)
     const pendingMessages = await prisma.scheduledMessage.findMany({
       where: {
@@ -28,17 +37,36 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ processed: 0 })
     }
 
+    // Expire reminders that are more than 2 hours overdue — sending them now would be confusing
+    const twoHoursAgo = new Date(Date.now() - 2 * 60 * 60 * 1000)
+    const expired = pendingMessages.filter(m => m.scheduledAt < twoHoursAgo)
+    const current = pendingMessages.filter(m => m.scheduledAt >= twoHoursAgo)
+
+    if (expired.length > 0) {
+      await prisma.scheduledMessage.updateMany({
+        where: { id: { in: expired.map(m => m.id) } },
+        data: { status: 'expired', error: 'Skipped — more than 2 hours overdue' },
+      })
+      console.log(`[ScheduledProcessor] Expired ${expired.length} overdue messages`)
+    }
+
+    if (current.length === 0) {
+      return NextResponse.json({ processed: 0, expired: expired.length })
+    }
+
     // Immediately mark as 'processing' to prevent duplicate sends from concurrent calls
     await prisma.scheduledMessage.updateMany({
-      where: { id: { in: pendingMessages.map(m => m.id) } },
+      where: { id: { in: current.map(m => m.id) } },
       data: { status: 'processing' },
     })
 
-    console.log(`[ScheduledProcessor] Processing ${pendingMessages.length} pending messages`)
+    const pendingToProcess = current
+
+    console.log(`[ScheduledProcessor] Processing ${pendingToProcess.length} pending messages`)
 
     const results: Array<{ id: string; sent: number; failed: number }> = []
 
-    for (const scheduled of pendingMessages) {
+    for (const scheduled of pendingToProcess) {
       let sent = 0
       let failed = 0
       const errors: string[] = []
@@ -166,7 +194,8 @@ export async function POST(request: NextRequest) {
     }
 
     return NextResponse.json({
-      processed: pendingMessages.length,
+      processed: pendingToProcess.length,
+      expired: expired.length,
       results
     })
   } catch (error) {
