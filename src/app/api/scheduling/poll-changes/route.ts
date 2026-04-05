@@ -172,26 +172,11 @@ export async function POST() {
         const titleChanged = existing.title !== event.title
 
         if (timeChanged || titleChanged) {
-          const phone = extractPhone(event.notes || '')
           const studentName = extractStudentName(event.notes || '') || 'Student'
-          const cleanName = studentName.replace(/\s*#\d+$/, '').trim()
-          const dateStr = formatDateDisplay(event.start_dt)
-          const timeStr = `from ${formatTime12h(event.start_dt)} to ${formatTime12h(event.end_dt)}`
-
           changes.push({ type: 'modified', eventId, studentName })
 
-          if (phone && state.isConnected) {
-            const message = `Hi ${cleanName}! Your class has been updated. It is now on ${dateStr} ${timeStr}. See you there!`
-            try {
-              await sendPrivateMessage(phone, message)
-              await prisma.messageLog.create({
-                data: { type: 'class-edited', to: phone, toName: studentName, message: message.slice(0, 500), status: 'sent' },
-              }).catch(() => {})
-              console.log(`[poll-changes] Sent edit notification to ${phone} for event ${eventId}`)
-            } catch (err) {
-              console.error(`[poll-changes] Failed to notify ${phone}:`, err)
-            }
-          }
+          // Don't send notification here — the UI already sends one when editing a class.
+          // This poller just keeps the snapshot in sync.
 
           // Update the snapshot
           await prisma.teamupEventSnapshot.update({
