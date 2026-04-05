@@ -5,7 +5,7 @@ import Image from 'next/image'
 import { usePathname } from 'next/navigation'
 import { useTheme } from 'next-themes'
 import { motion, AnimatePresence } from 'motion/react'
-import { Home, Users, Award, CalendarDays, Link as LinkIcon, Receipt, UserPlus, MessageCircle, Sun, Moon } from 'lucide-react'
+import { Home, Users, Award, CalendarDays, Link as LinkIcon, Receipt, UserPlus, MessageCircle, Sun, Moon, BarChart3 } from 'lucide-react'
 import { ConnectionStatus } from './ConnectionStatus'
 import { NotificationBell } from './NotificationBell'
 import { useEffect, useState } from 'react'
@@ -18,6 +18,7 @@ const NAV_ITEMS = [
   { href: '/invoice', label: 'Invoices', icon: Receipt },
   { href: '/students', label: 'Students', icon: UserPlus },
   { href: '/inbox', label: 'Inbox', icon: MessageCircle },
+  { href: '/analytics', label: 'Analytics', icon: BarChart3 },
 ]
 
 function ThemeToggle() {

@@ -322,6 +322,26 @@ model ScheduledMessage {
   @@index([status, scheduledAt])
 }
 
+model AnalyticsChat {
+  id        String                 @id @default(cuid())
+  title     String                 @default("New Chat")
+  createdAt DateTime               @default(now())
+  updatedAt DateTime               @updatedAt
+  messages  AnalyticsChatMessage[]
+}
+
+model AnalyticsChatMessage {
+  id        String        @id @default(cuid())
+  chatId    String
+  role      String // "user" or "assistant"
+  content   String
+  chartData String? // JSON chart config for assistant messages
+  createdAt DateTime      @default(now())
+  chat      AnalyticsChat @relation(fields: [chatId], references: [id], onDelete: Cascade)
+
+  @@index([chatId, createdAt])
+}
+
 model StudentRegistration {
   id           String    @id @default(cuid())
   status       String    @default("pending_scan")
