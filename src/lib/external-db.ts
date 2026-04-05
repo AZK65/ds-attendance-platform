@@ -200,6 +200,16 @@ export async function searchStudents(query: string): Promise<StudentRecord[]> {
   return rows as StudentRecord[]
 }
 
+export async function getAllStudents(): Promise<StudentRecord[]> {
+  const db = await getPool()
+  const [rows] = await db.execute<mysql.RowDataPacket[]>(
+    `SELECT student_id, full_name, permit_number, full_address, city, postal_code,
+            phone_number, email, contract_number, dob, status, user_defined_contract_number
+     FROM student ORDER BY student_id DESC`
+  )
+  return rows as StudentRecord[]
+}
+
 export async function getStudentById(id: number): Promise<StudentRecord | null> {
   const db = await getPool()
 

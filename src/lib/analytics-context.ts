@@ -1,5 +1,5 @@
 import { prisma } from '@/lib/db'
-import { searchStudents, countStudentsByDateRange } from '@/lib/external-db'
+import { getAllStudents, countStudentsByDateRange } from '@/lib/external-db'
 
 let cachedContext: string | null = null
 let cacheTimestamp = 0
@@ -28,13 +28,39 @@ export async function buildDataContext(): Promise<string> {
       countStudentsByDateRange(lastMonthStart, thisMonthStart).catch(() => [{ count: 0 }]),
     ])
 
-    // Get total student count
-    const allStudents = await searchStudents('%').catch(() => [])
+    // Get all students with details
+    const allStudents = await getAllStudents().catch(() => [])
+
+    // Build city/neighbourhood breakdown
+    const cityBreakdown: Record<string, number> = {}
+    for (const s of allStudents) {
+      const city = (s.city || 'Unknown').trim() || 'Unknown'
+      cityBreakdown[city] = (cityBreakdown[city] || 0) + 1
+    }
+
+    // Build monthly enrollment from creation dates
+    const enrollmentByMonth: Record<string, number> = {}
+    for (const s of allStudents) {
+      if (s.dob) { // dob field is actually used, creation_date would be better but not in StudentRecord
+        // We use the countStudentsByDateRange for accurate monthly data
+      }
+    }
+
+    // Include student list with addresses (for location-based queries)
+    const studentList = allStudents.slice(0, 500).map(s =>
+      `${s.full_name} | ${s.phone_number} | ${s.city || '-'} | ${s.full_address || '-'} | ${s.postal_code || '-'}`
+    ).join('\n')
 
     sections.push(`=== STUDENTS (MySQL) ===
 Total students in database: ${allStudents.length}
 New enrollments this month (${thisMonth}): ${(thisMonthCount as Array<{ count: number }>)[0]?.count || 0}
-New enrollments last month (${lastMonthStr}): ${(lastMonthCount as Array<{ count: number }>)[0]?.count || 0}`)
+New enrollments last month (${lastMonthStr}): ${(lastMonthCount as Array<{ count: number }>)[0]?.count || 0}
+
+City/Area breakdown:
+${Object.entries(cityBreakdown).sort((a, b) => b[1] - a[1]).map(([city, count]) => `${city}: ${count}`).join('\n')}
+
+Student details (Name | Phone | City | Address | Postal Code):
+${studentList}`)
   } catch {
     sections.push('=== STUDENTS === Data unavailable')
   }
@@ -72,13 +98,35 @@ New enrollments last month (${lastMonthStr}): ${(lastMonthCount as Array<{ count
       monthlyRevenue[month] = (monthlyRevenue[month] || 0) + inv.total
     }
 
+    // Get recent invoices for detail
+    const allInvoices = await prisma.invoice.findMany({
+      orderBy: { createdAt: 'desc' },
+      take: 200,
+      select: {
+        invoiceNumber: true, studentName: true, total: true,
+        paymentStatus: true, invoiceDate: true, lineItems: true,
+      },
+    })
+
+    const invoiceList = allInvoices.slice(0, 100).map(inv => {
+      let items = ''
+      try {
+        const parsed = JSON.parse(inv.lineItems)
+        items = parsed.map((li: { description: string }) => li.description).join(', ')
+      } catch { items = '' }
+      return `#${inv.invoiceNumber} | ${inv.studentName} | $${inv.total.toFixed(2)} | ${inv.paymentStatus} | ${inv.invoiceDate} | ${items}`
+    }).join('\n')
+
     sections.push(`=== INVOICES & REVENUE (SQLite) ===
 Total invoices: ${totalInvoices}
 Paid: ${paidInvoices} | Unpaid: ${unpaidInvoices}
 Total revenue (all time): $${(invoiceRevenue._sum.total || 0).toFixed(2)}
 Paid revenue: $${(paidRevenue._sum.total || 0).toFixed(2)}
 Outstanding (unpaid): $${(unpaidTotal._sum.total || 0).toFixed(2)}
-Monthly revenue (last 6 months): ${JSON.stringify(monthlyRevenue)}`)
+Monthly revenue (last 6 months): ${JSON.stringify(monthlyRevenue)}
+
+Recent invoices (Invoice# | Student | Total | Status | Date | Items):
+${invoiceList}`)
   } catch {
     sections.push('=== INVOICES === Data unavailable')
   }
