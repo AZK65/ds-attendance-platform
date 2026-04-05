@@ -307,9 +307,24 @@ function sanitizeDate(dateStr: string): string {
   return clean
 }
 
-export async function createStudent(data: CreateStudentData): Promise<{ insertId: number }> {
+export async function createStudent(data: CreateStudentData): Promise<{ insertId: number; alreadyExists?: boolean }> {
   const db = await getPool()
   const dob = sanitizeDate(data.dob)
+
+  // Check if student already exists by phone number — skip insert if so
+  const phoneDigits = (data.phone_number || '').replace(/\D/g, '')
+  if (phoneDigits.length >= 7) {
+    const searchPhone = phoneDigits.slice(-10)
+    const [existing] = await db.execute<mysql.RowDataPacket[]>(
+      'SELECT student_id FROM student WHERE phone_number LIKE ? LIMIT 1',
+      [`%${searchPhone}%`]
+    )
+    if ((existing as mysql.RowDataPacket[]).length > 0) {
+      const existingId = Number((existing as mysql.RowDataPacket[])[0].student_id)
+      console.log('[createStudent] Already exists:', data.full_name, 'id:', existingId)
+      return { insertId: existingId, alreadyExists: true }
+    }
+  }
 
   // student_id is not auto-increment — get next ID manually
   const [maxRows] = await db.execute<mysql.RowDataPacket[]>(
