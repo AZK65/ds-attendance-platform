@@ -108,18 +108,32 @@ function MessageBubble({ msg }: { msg: ChatMessage }) {
 
   return (
     <motion.div
-      initial={{ opacity: 0, y: 10 }}
-      animate={{ opacity: 1, y: 0 }}
+      initial={{ opacity: 0, y: 20, scale: 0.95 }}
+      animate={{ opacity: 1, y: 0, scale: 1 }}
+      transition={{ type: 'spring', stiffness: 500, damping: 30 }}
       className={`flex ${isUser ? 'justify-end' : 'justify-start'}`}
     >
-      <div className={`max-w-[85%] rounded-2xl px-4 py-3 ${
-        isUser
-          ? 'bg-primary text-primary-foreground'
-          : 'bg-muted'
-      }`}>
+      <motion.div
+        initial={{ opacity: 0 }}
+        animate={{ opacity: 1 }}
+        transition={{ delay: 0.1 }}
+        className={`max-w-[85%] rounded-2xl px-4 py-3 ${
+          isUser
+            ? 'bg-primary text-primary-foreground rounded-br-sm'
+            : 'bg-muted rounded-bl-sm'
+        }`}
+      >
         <div className="text-sm whitespace-pre-wrap leading-relaxed">{displayContent}</div>
-        {chartConfig && <ChartBlock config={chartConfig} />}
-      </div>
+        {chartConfig && (
+          <motion.div
+            initial={{ opacity: 0, height: 0 }}
+            animate={{ opacity: 1, height: 'auto' }}
+            transition={{ delay: 0.3, duration: 0.4 }}
+          >
+            <ChartBlock config={chartConfig} />
+          </motion.div>
+        )}
+      </motion.div>
     </motion.div>
   )
 }
@@ -290,30 +304,43 @@ export default function AnalyticsPage() {
               </Button>
             </div>
             <div className="flex-1 overflow-y-auto">
-              {chats.map(chat => (
-                <div
-                  key={chat.id}
-                  className={`flex items-center justify-between px-3 py-2.5 cursor-pointer hover:bg-muted/50 border-b border-muted/50 ${
-                    activeChatId === chat.id ? 'bg-muted' : ''
-                  }`}
-                  onClick={() => { setActiveChatId(chat.id); setStreamContent('') }}
-                >
-                  <div className="min-w-0 flex-1">
-                    <p className="text-sm font-medium truncate">{chat.title}</p>
-                    <p className="text-xs text-muted-foreground">{timeAgo(chat.updatedAt)}</p>
-                  </div>
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    className="h-6 w-6 p-0 shrink-0 text-muted-foreground hover:text-red-500"
-                    onClick={(e) => { e.stopPropagation(); deleteChat(chat.id) }}
+              <AnimatePresence>
+                {chats.map((chat, i) => (
+                  <motion.div
+                    key={chat.id}
+                    initial={{ opacity: 0, x: -20 }}
+                    animate={{ opacity: 1, x: 0 }}
+                    exit={{ opacity: 0, x: -20, height: 0 }}
+                    transition={{ delay: i * 0.03, type: 'spring', stiffness: 400, damping: 30 }}
+                    className={`flex items-center justify-between px-3 py-2.5 cursor-pointer hover:bg-muted/50 border-b border-muted/50 transition-colors ${
+                      activeChatId === chat.id ? 'bg-muted border-l-2 border-l-primary' : ''
+                    }`}
+                    onClick={() => { setActiveChatId(chat.id); setStreamContent('') }}
                   >
-                    <Trash2 className="h-3.5 w-3.5" />
-                  </Button>
-                </div>
-              ))}
+                    <div className="min-w-0 flex-1">
+                      <p className="text-sm font-medium truncate">{chat.title}</p>
+                      <p className="text-xs text-muted-foreground">{timeAgo(chat.updatedAt)}</p>
+                    </div>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="h-6 w-6 p-0 shrink-0 text-muted-foreground hover:text-red-500"
+                      onClick={(e) => { e.stopPropagation(); deleteChat(chat.id) }}
+                    >
+                      <Trash2 className="h-3.5 w-3.5" />
+                    </Button>
+                  </motion.div>
+                ))}
+              </AnimatePresence>
               {chats.length === 0 && (
-                <p className="text-xs text-muted-foreground text-center py-8">No chats yet</p>
+                <motion.p
+                  initial={{ opacity: 0 }}
+                  animate={{ opacity: 1 }}
+                  transition={{ delay: 0.3 }}
+                  className="text-xs text-muted-foreground text-center py-8"
+                >
+                  No chats yet
+                </motion.p>
               )}
             </div>
           </motion.div>
@@ -335,55 +362,95 @@ export default function AnalyticsPage() {
         {/* Messages or welcome */}
         <div className="flex-1 overflow-y-auto px-4 py-6">
           {!activeChatId && messages.length === 0 && !streamContent ? (
-            <div className="max-w-2xl mx-auto space-y-8">
-              <div className="text-center pt-12">
-                <BarChart3 className="h-12 w-12 mx-auto text-muted-foreground mb-4" />
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              className="max-w-2xl mx-auto space-y-8"
+            >
+              <motion.div
+                initial={{ opacity: 0, y: 30 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ duration: 0.5, ease: 'easeOut' }}
+                className="text-center pt-12"
+              >
+                <motion.div
+                  initial={{ scale: 0 }}
+                  animate={{ scale: 1 }}
+                  transition={{ type: 'spring', stiffness: 200, damping: 15, delay: 0.2 }}
+                >
+                  <BarChart3 className="h-12 w-12 mx-auto text-muted-foreground mb-4" />
+                </motion.div>
                 <h2 className="text-2xl font-bold mb-2">Analytics</h2>
                 <p className="text-muted-foreground">Ask anything about your business data</p>
-              </div>
+              </motion.div>
               <div className="grid grid-cols-2 gap-3">
                 {SUGGESTED_PROMPTS.map((sp, i) => (
-                  <button
+                  <motion.button
                     key={i}
+                    initial={{ opacity: 0, y: 20 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    transition={{ delay: 0.3 + i * 0.08, type: 'spring', stiffness: 300, damping: 25 }}
+                    whileHover={{ scale: 1.03, y: -2 }}
+                    whileTap={{ scale: 0.97 }}
                     onClick={() => handleSuggestedPrompt(sp.prompt)}
-                    className="flex items-center gap-3 p-3 rounded-lg border hover:bg-muted/50 transition-colors text-left"
+                    className="flex items-center gap-3 p-3 rounded-lg border hover:bg-muted/50 hover:border-primary/30 transition-colors text-left"
                   >
                     <sp.icon className="h-5 w-5 text-muted-foreground shrink-0" />
                     <span className="text-sm">{sp.label}</span>
-                  </button>
+                  </motion.button>
                 ))}
               </div>
-            </div>
+            </motion.div>
           ) : (
             <div className="max-w-3xl mx-auto space-y-4">
               {messages.map(msg => (
                 <MessageBubble key={msg.id} msg={msg} />
               ))}
-              {streamContent && (
-                <motion.div
-                  initial={{ opacity: 0, y: 10 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  className="flex justify-start"
-                >
-                  <div className="max-w-[85%] rounded-2xl px-4 py-3 bg-muted">
-                    <div className="text-sm whitespace-pre-wrap leading-relaxed">{streamContent}</div>
-                  </div>
-                </motion.div>
-              )}
-              {streaming && !streamContent && (
-                <div className="flex justify-start">
-                  <div className="rounded-2xl px-4 py-3 bg-muted">
-                    <Loader2 className="h-4 w-4 animate-spin" />
-                  </div>
-                </div>
-              )}
+              <AnimatePresence>
+                {streamContent && (
+                  <motion.div
+                    initial={{ opacity: 0, y: 20, scale: 0.95 }}
+                    animate={{ opacity: 1, y: 0, scale: 1 }}
+                    transition={{ type: 'spring', stiffness: 500, damping: 30 }}
+                    className="flex justify-start"
+                  >
+                    <div className="max-w-[85%] rounded-2xl rounded-bl-sm px-4 py-3 bg-muted">
+                      <div className="text-sm whitespace-pre-wrap leading-relaxed">{streamContent}</div>
+                    </div>
+                  </motion.div>
+                )}
+                {streaming && !streamContent && (
+                  <motion.div
+                    initial={{ opacity: 0, y: 10 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    exit={{ opacity: 0, scale: 0.8 }}
+                    className="flex justify-start"
+                  >
+                    <div className="rounded-2xl rounded-bl-sm px-5 py-4 bg-muted flex gap-1.5">
+                      {[0, 1, 2].map(i => (
+                        <motion.div
+                          key={i}
+                          className="w-2 h-2 rounded-full bg-muted-foreground/40"
+                          animate={{ y: [0, -6, 0] }}
+                          transition={{ duration: 0.6, repeat: Infinity, delay: i * 0.15, ease: 'easeInOut' }}
+                        />
+                      ))}
+                    </div>
+                  </motion.div>
+                )}
+              </AnimatePresence>
               <div ref={messagesEndRef} />
             </div>
           )}
         </div>
 
         {/* Input */}
-        <div className="border-t p-4">
+        <motion.div
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ delay: 0.2, type: 'spring', stiffness: 300, damping: 25 }}
+          className="border-t p-4"
+        >
           <div className="max-w-3xl mx-auto flex gap-2">
             <textarea
               ref={inputRef}
@@ -391,20 +458,22 @@ export default function AnalyticsPage() {
               onChange={e => setInput(e.target.value)}
               onKeyDown={handleKeyDown}
               placeholder="Ask about revenue, students, attendance..."
-              className="flex-1 resize-none rounded-xl border bg-background px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-ring min-h-[44px] max-h-[120px]"
+              className="flex-1 resize-none rounded-xl border bg-background px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-ring min-h-[44px] max-h-[120px] transition-shadow"
               rows={1}
               disabled={streaming}
             />
-            <Button
-              size="icon"
-              className="rounded-xl h-[44px] w-[44px] shrink-0"
-              onClick={() => sendMessage(input)}
-              disabled={!input.trim() || streaming}
-            >
-              {streaming ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
-            </Button>
+            <motion.div whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.9 }}>
+              <Button
+                size="icon"
+                className="rounded-xl h-[44px] w-[44px] shrink-0"
+                onClick={() => sendMessage(input)}
+                disabled={!input.trim() || streaming}
+              >
+                {streaming ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
+              </Button>
+            </motion.div>
           </div>
-        </div>
+        </motion.div>
       </div>
     </div>
   )
