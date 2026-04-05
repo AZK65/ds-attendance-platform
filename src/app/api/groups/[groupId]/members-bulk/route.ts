@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { getWhatsAppState, phoneToJid, sendPrivateMessage, getGroupInviteLink } from '@/lib/whatsapp/client'
+import { getWhatsAppState, phoneToJid, sendPrivateMessage, getGroupInviteLink, getGroupParticipants } from '@/lib/whatsapp/client'
 import { prisma } from '@/lib/db'
 
 // POST /api/groups/[groupId]/members-bulk
@@ -21,15 +21,33 @@ export async function POST(
       return NextResponse.json({ error: 'No members provided' }, { status: 400 })
     }
 
-    // Get who's already in the group
-    const existingMembers = await prisma.groupMember.findMany({
-      where: { groupId: decodedGroupId },
-      select: { phone: true },
-    })
+    // Get who's already in the group — check ACTUAL WhatsApp group, not just SQLite
     const existingPhones = new Set<string>()
-    for (const m of existingMembers) {
-      existingPhones.add(m.phone)
-      existingPhones.add(m.phone.slice(-10))
+
+    // First: check WhatsApp group directly
+    if (state.isConnected) {
+      try {
+        const waParticipants = await getGroupParticipants(decodedGroupId)
+        for (const p of waParticipants) {
+          existingPhones.add(p.phone)
+          existingPhones.add(p.phone.slice(-10))
+        }
+        console.log(`[members-bulk] WhatsApp group has ${waParticipants.length} members`)
+      } catch {
+        console.log('[members-bulk] Could not fetch WhatsApp participants, falling back to SQLite')
+      }
+    }
+
+    // Fallback: also check SQLite if WhatsApp check returned nothing
+    if (existingPhones.size === 0) {
+      const sqliteMembers = await prisma.groupMember.findMany({
+        where: { groupId: decodedGroupId },
+        select: { phone: true },
+      })
+      for (const m of sqliteMembers) {
+        existingPhones.add(m.phone)
+        existingPhones.add(m.phone.slice(-10))
+      }
     }
 
     // Split into existing vs new
