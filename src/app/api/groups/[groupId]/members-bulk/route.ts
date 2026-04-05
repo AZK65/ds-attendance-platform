@@ -3,7 +3,7 @@ import { getWhatsAppState, phoneToJid, sendPrivateMessage, getGroupInviteLink } 
 import { prisma } from '@/lib/db'
 
 // POST /api/groups/[groupId]/members-bulk
-// Saves members to SQLite and sends invite links (no addParticipants — it crashes Chromium)
+// Adds ONLY new members to a group — skips anyone already in it
 export async function POST(
   request: NextRequest,
   { params }: { params: Promise<{ groupId: string }> }
@@ -21,15 +21,39 @@ export async function POST(
       return NextResponse.json({ error: 'No members provided' }, { status: 400 })
     }
 
-    // Check who's already in the group BEFORE saving new ones
+    // Get who's already in the group
     const existingMembers = await prisma.groupMember.findMany({
       where: { groupId: decodedGroupId },
       select: { phone: true },
     })
-    const existingPhones = new Set(existingMembers.map(m => m.phone))
+    const existingPhones = new Set<string>()
+    for (const m of existingMembers) {
+      existingPhones.add(m.phone)
+      existingPhones.add(m.phone.slice(-10))
+    }
 
-    // Save all to SQLite (so they show up in the app)
-    for (const m of members) {
+    // Split into existing vs new
+    const isExisting = (phone: string) => {
+      const cleaned = phone.replace(/\D/g, '')
+      return existingPhones.has(cleaned) || existingPhones.has(cleaned.slice(-10))
+    }
+
+    const newMembers = members.filter(m => !isExisting(m.phone))
+    const skipped = members.filter(m => isExisting(m.phone))
+
+    const results: Array<{ phone: string; name: string; success: boolean; inviteSent?: boolean; error?: string }> = []
+
+    // Report skipped members
+    for (const m of skipped) {
+      results.push({ phone: m.phone, name: m.name, success: true, error: 'Already in group' })
+    }
+
+    if (newMembers.length === 0) {
+      return NextResponse.json({ results })
+    }
+
+    // Save ONLY new members to SQLite
+    for (const m of newMembers) {
       const jid = phoneToJid(m.phone)
       await prisma.contact.upsert({
         where: { id: jid },
@@ -43,24 +67,8 @@ export async function POST(
       })
     }
 
-    // Only send invite links to members NOT already in the group
-    const results: Array<{ phone: string; name: string; success: boolean; inviteSent?: boolean; error?: string }> = []
-
-    // Filter to only new members (not already in group before this request)
-    const newMembers = members.filter(m => {
-      const phone = m.phone.replace(/\D/g, '')
-      return !existingPhones.has(phone) && !existingPhones.has('1' + phone) && !existingPhones.has(phone.replace(/^1/, ''))
-    })
-
-    // Mark existing ones as already in group
-    for (const m of members) {
-      if (!newMembers.includes(m)) {
-        results.push({ phone: m.phone, name: m.name, success: true, error: 'Already in group' })
-      }
-    }
-
-    if (state.isConnected && newMembers.length > 0) {
-      // Get group invite link once
+    // Send invite links ONLY to new members
+    if (state.isConnected) {
       const inviteLink = await getGroupInviteLink(decodedGroupId) || ''
 
       for (const m of newMembers) {
@@ -77,8 +85,8 @@ export async function POST(
         }
       }
     } else {
-      for (const m of members) {
-        results.push({ phone: m.phone, name: m.name, success: true, error: 'WhatsApp not connected — saved to database only' })
+      for (const m of newMembers) {
+        results.push({ phone: m.phone, name: m.name, success: true, error: 'Saved — WhatsApp not connected' })
       }
     }
 
