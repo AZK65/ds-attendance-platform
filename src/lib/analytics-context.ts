@@ -46,20 +46,39 @@ export async function buildDataContext(): Promise<string> {
       }
     }
 
-    // Include student list with addresses (for location-based queries)
+    // Include student list with all fields (for demographics, age, location queries)
     const studentList = allStudents.slice(0, 500).map(s =>
-      `${s.full_name} | ${s.phone_number} | ${s.city || '-'} | ${s.full_address || '-'} | ${s.postal_code || '-'}`
+      `${s.full_name} | ${s.phone_number} | ${s.dob || '-'} | ${s.city || '-'} | ${s.full_address || '-'} | ${s.postal_code || '-'} | ${s.email || '-'} | ${s.status || '-'}`
     ).join('\n')
+
+    // Age stats
+    const studentsWithDob = allStudents.filter(s => s.dob && s.dob !== '' && s.dob !== '0000-00-00' && s.dob !== '2000-01-01')
+    const ages = studentsWithDob.map(s => {
+      const birth = new Date(s.dob)
+      const age = Math.floor((now.getTime() - birth.getTime()) / (365.25 * 24 * 60 * 60 * 1000))
+      return age
+    }).filter(a => a > 0 && a < 120)
+    const avgAge = ages.length > 0 ? Math.round(ages.reduce((s, a) => s + a, 0) / ages.length) : null
+    const ageBreakdown: Record<string, number> = {}
+    for (const age of ages) {
+      const bracket = age < 20 ? 'Under 20' : age < 25 ? '20-24' : age < 30 ? '25-29' : age < 35 ? '30-34' : age < 40 ? '35-39' : age < 50 ? '40-49' : '50+'
+      ageBreakdown[bracket] = (ageBreakdown[bracket] || 0) + 1
+    }
 
     sections.push(`=== STUDENTS (MySQL) ===
 Total students in database: ${allStudents.length}
 New enrollments this month (${thisMonth}): ${(thisMonthCount as Array<{ count: number }>)[0]?.count || 0}
 New enrollments last month (${lastMonthStr}): ${(lastMonthCount as Array<{ count: number }>)[0]?.count || 0}
 
+${avgAge ? `Average student age: ${avgAge} years (based on ${ages.length} students with valid DOB)` : 'Age data: most students have placeholder DOB'}
+
+Age breakdown:
+${Object.entries(ageBreakdown).map(([bracket, count]) => `${bracket}: ${count}`).join('\n') || 'No valid age data'}
+
 City/Area breakdown:
 ${Object.entries(cityBreakdown).sort((a, b) => b[1] - a[1]).map(([city, count]) => `${city}: ${count}`).join('\n')}
 
-Student details (Name | Phone | City | Address | Postal Code):
+Student details (Name | Phone | DOB | City | Address | Postal Code | Email | Status):
 ${studentList}`)
   } catch {
     sections.push('=== STUDENTS === Data unavailable')
