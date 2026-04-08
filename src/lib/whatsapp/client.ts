@@ -970,6 +970,14 @@ export async function sendMessageToGroup(groupId: string, message: string): Prom
   } catch (error) {
     const errMsg = error instanceof Error ? error.message : typeof error === 'object' ? JSON.stringify(error) : String(error)
     console.error(`Send group message error for ${groupId}:`, errMsg)
+
+    // Detect detached frame / dead Chromium session — mark as disconnected so next reconnect triggers
+    if (errMsg.includes('detached') || errMsg.includes('Target closed') || errMsg.includes('Execution context was destroyed') || errMsg.includes('Protocol error')) {
+      console.log('[sendMessageToGroup] Detected dead frame, marking WhatsApp as disconnected for reconnect')
+      state.isConnected = false
+      fullReconnect().catch(err => console.error('[sendMessageToGroup] Reconnect failed:', err))
+    }
+
     throw new Error(errMsg)
   }
 }
@@ -1299,6 +1307,14 @@ export async function sendPrivateMessage(phone: string, message: string): Promis
   } catch (error) {
     const errMsg = error instanceof Error ? error.message : typeof error === 'object' ? JSON.stringify(error) : String(error)
     console.error(`Send private message error to ${chatId}:`, errMsg)
+
+    // Detect detached frame / dead Chromium session — mark as disconnected so next reconnect triggers
+    if (errMsg.includes('detached') || errMsg.includes('Target closed') || errMsg.includes('Execution context was destroyed') || errMsg.includes('Protocol error')) {
+      console.log('[sendPrivateMessage] Detected dead frame, marking WhatsApp as disconnected for reconnect')
+      state.isConnected = false
+      fullReconnect().catch(err => console.error('[sendPrivateMessage] Reconnect failed:', err))
+    }
+
     throw new Error(errMsg)
   }
 }

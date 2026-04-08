@@ -164,12 +164,22 @@ export async function POST(request: NextRequest) {
       }
 
       // Update the scheduled message status
-      const messageStatus = failed > 0 && sent === 0 ? 'failed' : 'sent'
+      // If failures were due to detached frame / dead session, reset to 'pending' for retry
+      const hasDetachedError = errors.some(e =>
+        e.includes('detached') || e.includes('Target closed') || e.includes('Execution context') || e.includes('Protocol error')
+      )
+      let messageStatus: string
+      if (failed > 0 && sent === 0 && hasDetachedError) {
+        messageStatus = 'pending' // Retry after WhatsApp reconnects
+        console.log(`[ScheduledProcessor] Message ${scheduled.id} failed due to dead frame, resetting to pending for retry`)
+      } else {
+        messageStatus = failed > 0 && sent === 0 ? 'failed' : 'sent'
+      }
       await prisma.scheduledMessage.update({
         where: { id: scheduled.id },
         data: {
           status: messageStatus,
-          sentAt: new Date(),
+          sentAt: messageStatus === 'pending' ? null : new Date(),
           error: errors.length > 0 ? errors.join('; ') : null
         }
       })
