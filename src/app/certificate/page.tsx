@@ -1420,10 +1420,12 @@ export default function CertificatePage() {
     let finalFormData = { ...dbFormData }
 
     // Check SQLite for existing certificate numbers (overrides any stale form values)
+    // Use the original student name (without comma) for better matching
+    const originalName = dbSelectedStudent?.full_name || finalFormData.name
     try {
       const profileParams = new URLSearchParams()
       if (finalFormData.phone) profileParams.set('phone', finalFormData.phone)
-      if (finalFormData.name) profileParams.set('studentName', finalFormData.name)
+      if (originalName) profileParams.set('studentName', originalName)
       if (profileParams.toString()) {
         const profileRes = await fetch(`/api/students/profile?${profileParams}`)
         if (profileRes.ok) {
@@ -1441,10 +1443,13 @@ export default function CertificatePage() {
           }
         }
       }
-    } catch { /* non-critical — will fall through to number assignment below */ }
+    } catch (profileErr) {
+      console.error('[handleDbGeneratePDF] Profile lookup failed:', profileErr)
+    }
 
     const hasExistingContract = finalFormData.contractNumber.replace(/\s/g, '').length > 0
     const hasExistingAttestation = finalFormData.attestationNumber.replace(/\s/g, '').length > 0
+    console.log('[handleDbGeneratePDF] contractNumber:', JSON.stringify(finalFormData.contractNumber), 'attestationNumber:', JSON.stringify(finalFormData.attestationNumber), 'hasExisting:', hasExistingContract, hasExistingAttestation)
 
     try {
       if (hasExistingContract && hasExistingAttestation) {
