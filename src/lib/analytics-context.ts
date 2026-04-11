@@ -46,9 +46,9 @@ export async function buildDataContext(): Promise<string> {
       }
     }
 
-    // Include student list with all fields (for demographics, age, location queries)
-    const studentList = allStudents.slice(0, 500).map(s =>
-      `${s.full_name} | ${s.phone_number} | ${s.dob || '-'} | ${s.city || '-'} | ${s.full_address || '-'} | ${s.postal_code || '-'} | ${s.email || '-'} | ${s.status || '-'}`
+    // Include recent students (limit to avoid memory issues)
+    const studentList = allStudents.slice(0, 100).map(s =>
+      `${s.full_name} | ${s.phone_number} | ${s.dob || '-'} | ${s.city || '-'} | ${s.postal_code || '-'}`
     ).join('\n')
 
     // Age stats
