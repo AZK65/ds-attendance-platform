@@ -1420,12 +1420,14 @@ export default function CertificatePage() {
     let finalFormData = { ...dbFormData }
 
     // Check SQLite for existing certificate numbers (overrides any stale form values)
-    // Use the original student name (without comma) for better matching
+    // Use original student data for reliable matching
     const originalName = dbSelectedStudent?.full_name || finalFormData.name
+    const originalPhone = dbSelectedStudent?.phone_number || finalFormData.phone
     try {
       const profileParams = new URLSearchParams()
-      if (finalFormData.phone) profileParams.set('phone', finalFormData.phone)
+      if (originalPhone) profileParams.set('phone', originalPhone)
       if (originalName) profileParams.set('studentName', originalName)
+      console.log('[handleDbGeneratePDF] Looking up profile with phone:', originalPhone, 'name:', originalName)
       if (profileParams.toString()) {
         const profileRes = await fetch(`/api/students/profile?${profileParams}`)
         if (profileRes.ok) {
