@@ -56,7 +56,7 @@ RUN mkdir -p /app/data
 EXPOSE 3000
 
 # Increase Node.js heap limit (default ~1.5GB is too small for WhatsApp + analytics)
-ENV NODE_OPTIONS="--max-old-space-size=2048"
+ENV NODE_OPTIONS="--max-old-space-size=3072"
 
 # Start the app
 CMD ["sh", "-c", "npx prisma db push --skip-generate --accept-data-loss && npm start"]

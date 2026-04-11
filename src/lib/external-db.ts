@@ -205,7 +205,7 @@ export async function getAllStudents(): Promise<StudentRecord[]> {
   const [rows] = await db.execute<mysql.RowDataPacket[]>(
     `SELECT student_id, full_name, permit_number, full_address, city, postal_code,
             phone_number, email, contract_number, dob, status, user_defined_contract_number
-     FROM student ORDER BY student_id DESC`
+     FROM student ORDER BY student_id DESC LIMIT 1000`
   )
   return rows as StudentRecord[]
 }
