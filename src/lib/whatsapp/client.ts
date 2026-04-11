@@ -1297,6 +1297,8 @@ export async function sendPrivateMessage(phone: string, message: string): Promis
 
   const client = state.client as {
     sendMessage: (chatId: string, content: string) => Promise<unknown>
+    getChatById: (id: string) => Promise<{ sendSeen: () => Promise<unknown> }>
+    getNumberId: (number: string) => Promise<{ _serialized: string } | null>
   }
 
   console.log(`Sending private message to ${chatId}`)
@@ -1307,6 +1309,35 @@ export async function sendPrivateMessage(phone: string, message: string): Promis
   } catch (error) {
     const errMsg = error instanceof Error ? error.message : typeof error === 'object' ? JSON.stringify(error) : String(error)
     console.error(`Send private message error to ${chatId}:`, errMsg)
+
+    // "No LID for user" — WhatsApp needs to resolve the user's LID first
+    // Force it by getting the chat and retrying
+    if (errMsg.includes('No LID') || errMsg.includes('lid')) {
+      console.log(`[sendPrivateMessage] No LID error, trying to resolve for ${chatId}...`)
+      try {
+        // Try getNumberId to force WhatsApp to resolve the contact
+        const numberId = await client.getNumberId(phone)
+        const resolvedId = numberId?._serialized || chatId
+
+        // Try getChatById to force LID resolution
+        try {
+          const chat = await client.getChatById(resolvedId)
+          await chat.sendSeen().catch(() => {})
+        } catch { /* ignore */ }
+
+        // Small delay for LID to propagate
+        await new Promise(r => setTimeout(r, 1000))
+
+        // Retry send
+        await client.sendMessage(resolvedId, message)
+        console.log(`Private message sent to ${resolvedId} (after LID resolve)`)
+        return
+      } catch (retryError) {
+        const retryMsg = retryError instanceof Error ? retryError.message : String(retryError)
+        console.error(`[sendPrivateMessage] Retry after LID resolve failed:`, retryMsg)
+        throw new Error(retryMsg)
+      }
+    }
 
     // Detect detached frame / dead Chromium session — mark as disconnected so next reconnect triggers
     if (errMsg.includes('detached') || errMsg.includes('Target closed') || errMsg.includes('Execution context was destroyed') || errMsg.includes('Protocol error')) {
