@@ -1292,9 +1292,11 @@ export default function CertificatePage() {
       formattedName = `${lastName}, ${firstName}`
     }
 
-    // Don't pre-fill contract/attestation from MySQL — those values are often stale.
-    // The correct numbers will come from SQLite certificates (fetched below),
-    // or fresh numbers will be assigned during generation if no cert exists yet.
+    // Pre-fill contract/attestation from MySQL (the source of truth for assigned numbers)
+    const contractFromDb = String(student.user_defined_contract_number || '')
+    const attestationRaw = String(student.contract_number || '')
+    const formattedAttestation = attestationRaw && attestationRaw !== '0' ? attestationRaw.split('').join('  ') : ''
+
     const baseData = {
       ...initialFormData,
       name: formattedName,
@@ -1304,8 +1306,8 @@ export default function CertificatePage() {
       province: 'QC',
       postalCode: student.postal_code || '',
       phone: student.phone_number || '',
-      contractNumber: '',
-      attestationNumber: '',
+      contractNumber: contractFromDb && contractFromDb !== '0' ? contractFromDb : '',
+      attestationNumber: formattedAttestation,
     }
 
     setDbFormData(baseData)
@@ -1345,14 +1347,13 @@ export default function CertificatePage() {
             if (s[field]) dates[field] = s[field]
           }
 
-          // Override with SQLite certificate numbers (the real assigned ones)
-          // certificates are ordered desc by generatedAt, so index 0 is the latest
+          // Only use SQLite certificate numbers if MySQL didn't have any
           if (s.certificates && s.certificates.length > 0) {
             const latestCert = s.certificates[0]
-            if (latestCert.contractNumber) {
+            if (!contractFromDb && latestCert.contractNumber) {
               certOverrides.contractNumber = String(latestCert.contractNumber)
             }
-            if (latestCert.attestationNumber) {
+            if (!attestationRaw && latestCert.attestationNumber) {
               const attNum = String(latestCert.attestationNumber)
               certOverrides.attestationNumber = attNum.includes('  ') ? attNum : attNum.split('').join('  ')
             }
@@ -1428,19 +1429,24 @@ export default function CertificatePage() {
       if (originalPhone) profileParams.set('phone', originalPhone)
       if (originalName) profileParams.set('studentName', originalName)
       console.log('[handleDbGeneratePDF] Looking up profile with phone:', originalPhone, 'name:', originalName)
-      if (profileParams.toString()) {
-        const profileRes = await fetch(`/api/students/profile?${profileParams}`)
-        if (profileRes.ok) {
-          const profile = await profileRes.json()
-          if (profile.localStudent?.certificates?.length > 0) {
-            // certificates are ordered desc by generatedAt, so index 0 is the latest
-            const latestCert = profile.localStudent.certificates[0]
-            if (latestCert.contractNumber) {
-              finalFormData.contractNumber = String(latestCert.contractNumber)
-            }
-            if (latestCert.attestationNumber) {
-              const attNum = String(latestCert.attestationNumber)
-              finalFormData.attestationNumber = attNum.includes('  ') ? attNum : attNum.split('').join('  ')
+      // Only look up SQLite certs if the form doesn't already have numbers (from MySQL)
+      const alreadyHasContract = finalFormData.contractNumber.replace(/\s/g, '').length > 0
+      const alreadyHasAttestation = finalFormData.attestationNumber.replace(/\s/g, '').length > 0
+
+      if (!alreadyHasContract || !alreadyHasAttestation) {
+        if (profileParams.toString()) {
+          const profileRes = await fetch(`/api/students/profile?${profileParams}`)
+          if (profileRes.ok) {
+            const profile = await profileRes.json()
+            if (profile.localStudent?.certificates?.length > 0) {
+              const latestCert = profile.localStudent.certificates[0]
+              if (!alreadyHasContract && latestCert.contractNumber) {
+                finalFormData.contractNumber = String(latestCert.contractNumber)
+              }
+              if (!alreadyHasAttestation && latestCert.attestationNumber) {
+                const attNum = String(latestCert.attestationNumber)
+                finalFormData.attestationNumber = attNum.includes('  ') ? attNum : attNum.split('').join('  ')
+              }
             }
           }
         }
