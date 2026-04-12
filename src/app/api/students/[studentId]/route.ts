@@ -52,9 +52,17 @@ export async function GET(
         : [],
     ])
 
-    // Fetch exam attempts by student name
+    // Fetch exam attempts by student name or phone
+    const nameParts = dbStudent.full_name.trim().split(/\s+/).filter((p: string) => p.length >= 2)
+    const examNameConditions = [
+      { studentName: { contains: dbStudent.full_name } },
+      ...nameParts.map((part: string) => ({ studentName: { contains: part } })),
+    ]
+    const examPhoneConditions = phoneSearch.length >= 7
+      ? [{ studentPhone: { contains: phoneSearch } }]
+      : []
     const examAttempts = await prisma.examAttempt.findMany({
-      where: { studentName: { contains: dbStudent.full_name.split(' ').pop() || dbStudent.full_name } },
+      where: { OR: [...examNameConditions, ...examPhoneConditions] },
       include: { exam: { select: { code: true, groupName: true } } },
       orderBy: { startedAt: 'desc' },
     })
