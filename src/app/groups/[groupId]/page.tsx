@@ -46,7 +46,9 @@ import {
   Bell,
   Check,
   XCircle,
-  CalendarDays
+  CalendarDays,
+  ClipboardList,
+  Copy,
 } from 'lucide-react'
 import { Input } from '@/components/ui/input'
 import Link from 'next/link'
@@ -108,6 +110,35 @@ export default function GroupDetailPage() {
   const [saveSuccess, setSaveSuccess] = useState(false)
   const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false)
   const [loadedFromSave, setLoadedFromSave] = useState(false)
+
+  // Exam state
+  const [examCode, setExamCode] = useState<string | null>(null)
+  const [examGenerating, setExamGenerating] = useState(false)
+  const [examCopied, setExamCopied] = useState(false)
+
+  const generateExam = async () => {
+    setExamGenerating(true)
+    try {
+      const res = await fetch('/api/exam', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ groupId, groupName: group?.name }),
+      })
+      if (res.ok) {
+        const data = await res.json()
+        setExamCode(data.exam.code)
+      }
+    } catch { /* ignore */ }
+    setExamGenerating(false)
+  }
+
+  const copyExamCode = () => {
+    if (examCode) {
+      navigator.clipboard.writeText(`https://qazidrivingschool.ca/exam?code=${examCode}`)
+      setExamCopied(true)
+      setTimeout(() => setExamCopied(false), 2000)
+    }
+  }
 
   // Send Reminder state
   const [showSendReminder, setShowSendReminder] = useState(false)
@@ -648,6 +679,27 @@ export default function GroupDetailPage() {
                 <Bell className="mr-2 h-4 w-4" />
                 Send Reminder
               </Button>
+            </motion.div>
+
+            {/* Exam */}
+            <motion.div variants={fadeSlideUp}>
+              {examCode ? (
+                <div className="flex items-center gap-2">
+                  <code className="px-3 py-2 bg-muted rounded-lg text-sm font-mono">{examCode}</code>
+                  <Button variant="outline" size="sm" onClick={copyExamCode}>
+                    {examCopied ? <Check className="h-4 w-4" /> : <Copy className="h-4 w-4" />}
+                  </Button>
+                </div>
+              ) : (
+                <Button
+                  variant="outline"
+                  onClick={generateExam}
+                  disabled={examGenerating}
+                >
+                  {examGenerating ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <ClipboardList className="mr-2 h-4 w-4" />}
+                  Generate Exam
+                </Button>
+              )}
             </motion.div>
             <motion.div variants={fadeSlideUp}>
               <Link href={`/groups/${encodeURIComponent(groupId)}/attendance`}>

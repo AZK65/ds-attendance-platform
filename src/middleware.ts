@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 
-const PUBLIC_PATHS = ['/login', '/api/auth', '/camera', '/enroll', '/api/enroll', '/api/zoom/webhook', '/register', '/api/register']
+const PUBLIC_PATHS = ['/login', '/api/auth', '/camera', '/enroll', '/api/enroll', '/api/zoom/webhook', '/register', '/api/register', '/exam', '/api/exam']
 const IGNORED_PREFIXES = ['/_next', '/favicon.ico']
 const PUBLIC_FILE_EXTENSIONS = ['.png', '.jpg', '.jpeg', '.svg', '.ico', '.webp', '.gif']
 

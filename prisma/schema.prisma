@@ -368,6 +368,38 @@ model StudentRegistration {
   @@index([status])
 }
 
+model Exam {
+  id            String        @id @default(cuid())
+  code          String        @unique
+  groupId       String
+  groupName     String
+  active        Boolean       @default(true)
+  questionOrder String        // JSON array of shuffled question indices
+  createdAt     DateTime      @default(now())
+  expiresAt     DateTime      // exam link expiry
+  attempts      ExamAttempt[]
+
+  @@index([code])
+  @@index([groupId])
+}
+
+model ExamAttempt {
+  id            String    @id @default(cuid())
+  examId        String
+  studentName   String
+  studentPhone  String?
+  answers       String    // JSON: { questionIndex: selectedAnswer }
+  score         Int?
+  passed        Boolean?
+  startedAt     DateTime  @default(now())
+  submittedAt   DateTime?
+  timeExpired   Boolean   @default(false)
+  exam          Exam      @relation(fields: [examId], references: [id], onDelete: Cascade)
+
+  @@index([examId])
+  @@unique([examId, studentName])
+}
+
 model AppPreference {
   key       String   @id
   value     String
