@@ -1124,7 +1124,13 @@ function StudentsPage() {
                         <TableRow
                           key={student.phone}
                           className="cursor-pointer hover:bg-accent/50"
-                          onClick={() => router.push(`/groups/${encodeURIComponent(student.groupId)}/student/${encodeURIComponent(student.id)}`)}
+                          onClick={() => {
+                            if (dbStudent?.student_id) {
+                              router.push(`/students/${dbStudent.student_id}`)
+                            } else {
+                              router.push(`/groups/${encodeURIComponent(student.groupId)}/student/${encodeURIComponent(student.id)}`)
+                            }
+                          }}
                         >
                           <TableCell className="font-medium">{displayName}</TableCell>
                           <TableCell className="text-sm">{formatPhoneNumber(student.phone)}</TableCell>
