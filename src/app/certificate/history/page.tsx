@@ -6,14 +6,13 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Badge } from '@/components/ui/badge'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog'
 import {
-  Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter,
-} from '@/components/ui/dialog'
-import {
-  Award, Search, Edit3, Trash2, Download, Loader2, CheckCircle2,
-  Phone, MapPin, ArrowLeft, Save, X,
+  Award, Search, Edit3, Trash2, Download, Loader2,
+  Phone, MapPin, ArrowLeft, Database,
 } from 'lucide-react'
 import Link from 'next/link'
+import { useRouter } from 'next/navigation'
 import { motion, AnimatePresence } from 'motion/react'
 
 interface CertificateRecord {
@@ -23,6 +22,7 @@ interface CertificateRecord {
   contractNumber: string | null
   attestationNumber: string | null
   generatedAt: string
+  source?: string
   student: {
     id: string
     name: string
@@ -36,10 +36,8 @@ interface CertificateRecord {
 
 export default function CertificateHistoryPage() {
   const queryClient = useQueryClient()
+  const router = useRouter()
   const [search, setSearch] = useState('')
-  const [editingCert, setEditingCert] = useState<CertificateRecord | null>(null)
-  const [editContract, setEditContract] = useState('')
-  const [editAttestation, setEditAttestation] = useState('')
   const [deleteConfirm, setDeleteConfirm] = useState<string | null>(null)
 
   const { data, isLoading } = useQuery<{ certificates: CertificateRecord[] }>({
@@ -63,24 +61,6 @@ export default function CertificateHistoryPage() {
         )
       })
     : certificates
-
-  const updateMutation = useMutation({
-    mutationFn: async ({ certificateId, contractNumber, attestationNumber }: {
-      certificateId: string; contractNumber: string; attestationNumber: string
-    }) => {
-      const res = await fetch('/api/certificate/history', {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ certificateId, contractNumber, attestationNumber }),
-      })
-      if (!res.ok) throw new Error('Failed to update')
-      return res.json()
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['certificate-history'] })
-      setEditingCert(null)
-    },
-  })
 
   const deleteMutation = useMutation({
     mutationFn: async (id: string) => {
@@ -120,10 +100,9 @@ export default function CertificateHistoryPage() {
     },
   })
 
-  const openEdit = (cert: CertificateRecord) => {
-    setEditingCert(cert)
-    setEditContract(cert.contractNumber || '')
-    setEditAttestation(cert.attestationNumber || '')
+  const handleEdit = (cert: CertificateRecord) => {
+    // Redirect to certificate page in Database mode with this student pre-loaded
+    router.push(`/certificate?mode=database&search=${encodeURIComponent(cert.student.name)}`)
   }
 
   const formatDate = (dateStr: string) => {
@@ -205,6 +184,9 @@ export default function CertificateHistoryPage() {
                           <Badge variant={cert.certificateType === 'full' ? 'default' : 'secondary'} className="text-xs shrink-0">
                             {cert.certificateType === 'full' ? 'Full' : 'Phase 1'}
                           </Badge>
+                          {cert.source === 'mysql' && (
+                            <Badge variant="outline" className="text-xs shrink-0"><Database className="h-3 w-3 mr-1" />MySQL</Badge>
+                          )}
                         </div>
 
                         <div className="flex flex-wrap gap-x-4 gap-y-1 text-sm text-muted-foreground">
@@ -236,8 +218,8 @@ export default function CertificateHistoryPage() {
                           variant="ghost"
                           size="sm"
                           className="h-8 w-8 p-0"
-                          onClick={() => openEdit(cert)}
-                          title="Edit numbers"
+                          onClick={() => handleEdit(cert)}
+                          title="Edit in certificate maker"
                         >
                           <Edit3 className="h-4 w-4" />
                         </Button>
@@ -273,53 +255,6 @@ export default function CertificateHistoryPage() {
           </AnimatePresence>
         </div>
       )}
-
-      {/* Edit Dialog */}
-      <Dialog open={!!editingCert} onOpenChange={() => setEditingCert(null)}>
-        <DialogContent className="sm:max-w-md">
-          <DialogHeader>
-            <DialogTitle>Edit Certificate Numbers</DialogTitle>
-          </DialogHeader>
-          {editingCert && (
-            <div className="space-y-4 py-2">
-              <p className="text-sm text-muted-foreground">{editingCert.student.name}</p>
-              <div>
-                <label className="text-sm font-medium">Contract Number</label>
-                <Input
-                  value={editContract}
-                  onChange={e => setEditContract(e.target.value)}
-                  className="mt-1"
-                />
-              </div>
-              <div>
-                <label className="text-sm font-medium">Attestation Number</label>
-                <Input
-                  value={editAttestation}
-                  onChange={e => setEditAttestation(e.target.value)}
-                  className="mt-1"
-                  placeholder="e.g. 5190352"
-                />
-              </div>
-            </div>
-          )}
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setEditingCert(null)}>
-              <X className="h-4 w-4 mr-1" /> Cancel
-            </Button>
-            <Button
-              onClick={() => editingCert && updateMutation.mutate({
-                certificateId: editingCert.id,
-                contractNumber: editContract,
-                attestationNumber: editAttestation,
-              })}
-              disabled={updateMutation.isPending}
-            >
-              {updateMutation.isPending ? <Loader2 className="h-4 w-4 mr-1 animate-spin" /> : <Save className="h-4 w-4 mr-1" />}
-              Save
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
 
       {/* Delete Confirmation */}
       <Dialog open={!!deleteConfirm} onOpenChange={() => setDeleteConfirm(null)}>
