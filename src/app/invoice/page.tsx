@@ -149,6 +149,67 @@ function InvoicePage() {
   const [cloverMatching, setCloverMatching] = useState(false)
   const [cloverMatches, setCloverMatches] = useState<Array<{ orderId: string; total: number; date: string; score: string; diff: number; lineItems: Array<{ name: string; price: number; quantity: number }> }>>([])
 
+  // Student search for pre-fill
+  const [studentSearchResults, setStudentSearchResults] = useState<Array<{ student_id: number; full_name: string; phone_number: string; full_address: string; city: string; postal_code: string; email: string }>>([])
+  const [showStudentDropdown, setShowStudentDropdown] = useState(false)
+  const studentSearchRef = useRef<NodeJS.Timeout | null>(null)
+
+  const searchStudents = (query: string) => {
+    if (studentSearchRef.current) clearTimeout(studentSearchRef.current)
+    if (query.length < 2) { setStudentSearchResults([]); setShowStudentDropdown(false); return }
+    studentSearchRef.current = setTimeout(async () => {
+      try {
+        const res = await fetch(`/api/students/search?q=${encodeURIComponent(query)}`)
+        if (res.ok) {
+          const data = await res.json()
+          setStudentSearchResults(data.students || [])
+          setShowStudentDropdown((data.students || []).length > 0)
+        }
+      } catch { /* ignore */ }
+    }, 300)
+  }
+
+  const selectStudent = async (student: { full_name: string; phone_number: string; full_address: string; city: string; postal_code: string; email: string }) => {
+    setShowStudentDropdown(false)
+    setStudentSearchResults([])
+
+    // Pre-fill from MySQL student
+    setFormData(prev => ({
+      ...prev,
+      studentName: student.full_name || prev.studentName,
+      studentPhone: student.phone_number || prev.studentPhone,
+      studentAddress: student.full_address || prev.studentAddress,
+      studentCity: student.city || prev.studentCity,
+      studentPostalCode: student.postal_code || prev.studentPostalCode,
+      studentEmail: student.email || prev.studentEmail,
+    }))
+
+    // Also check past invoices for additional data
+    try {
+      const phone = (student.phone_number || '').replace(/\D/g, '')
+      if (phone.length >= 7) {
+        const params = new URLSearchParams()
+        params.set('phone', phone)
+        params.set('name', student.full_name)
+        const res = await fetch(`/api/students/profile?${params}`)
+        if (res.ok) {
+          const profile = await res.json()
+          // Fill in any missing fields from past invoices
+          if (profile.invoices?.length > 0) {
+            const lastInvoice = profile.invoices[0]
+            setFormData(prev => ({
+              ...prev,
+              studentAddress: prev.studentAddress || lastInvoice.studentAddress || '',
+              studentCity: prev.studentCity || lastInvoice.studentCity || '',
+              studentPostalCode: prev.studentPostalCode || lastInvoice.studentPostalCode || '',
+              studentEmail: prev.studentEmail || lastInvoice.studentEmail || '',
+            }))
+          }
+        }
+      }
+    } catch { /* non-critical */ }
+  }
+
   // Form state
   const [formData, setFormData] = useState<InvoiceFormData>({
     studentName: '',
@@ -845,12 +906,36 @@ function InvoicePage() {
                           </Link>
                         )}
                       </div>
-                      <Input
-                        id="studentName"
-                        value={formData.studentName}
-                        onChange={(e) => handleFieldChange('studentName', e.target.value)}
-                        placeholder="Student name"
-                      />
+                      <div className="relative">
+                        <Input
+                          id="studentName"
+                          value={formData.studentName}
+                          onChange={(e) => {
+                            handleFieldChange('studentName', e.target.value)
+                            searchStudents(e.target.value)
+                          }}
+                          onFocus={() => { if (studentSearchResults.length > 0) setShowStudentDropdown(true) }}
+                          onBlur={() => setTimeout(() => setShowStudentDropdown(false), 200)}
+                          placeholder="Search student name..."
+                          autoComplete="off"
+                        />
+                        {showStudentDropdown && studentSearchResults.length > 0 && (
+                          <div className="absolute top-full left-0 right-0 z-50 mt-1 bg-background border rounded-lg shadow-lg max-h-48 overflow-y-auto">
+                            {studentSearchResults.map((s) => (
+                              <button
+                                key={s.student_id}
+                                type="button"
+                                className="w-full text-left px-3 py-2 hover:bg-muted text-sm border-b last:border-b-0"
+                                onMouseDown={() => selectStudent(s)}
+                              >
+                                <span className="font-medium">{s.full_name}</span>
+                                <span className="text-muted-foreground ml-2">{s.phone_number}</span>
+                                {s.city && <span className="text-muted-foreground ml-2">{s.city}</span>}
+                              </button>
+                            ))}
+                          </div>
+                        )}
+                      </div>
                     </div>
                     <div>
                       <Label htmlFor="studentEmail">Email</Label>
