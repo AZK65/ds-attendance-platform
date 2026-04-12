@@ -27,6 +27,9 @@ export async function GET(request: NextRequest) {
       findLocalStudent(phone, name),
     ])
 
+    // Fetch exam attempts for this student
+    const examAttempts = await findExamAttempts(phone, name)
+
     // Compute invoice summary with balance
     const totalInvoiced = invoices.reduce((sum, inv) => sum + inv.total, 0)
     const totalPaid = invoices
@@ -108,6 +111,17 @@ export async function GET(request: NextRequest) {
         paymentStatus: inv.paymentStatus,
         paymentMethod: inv.paymentMethod,
         createdAt: inv.createdAt,
+      })),
+      exams: examAttempts.map(ea => ({
+        id: ea.id,
+        examCode: ea.exam.code,
+        groupName: ea.exam.groupName,
+        score: ea.score,
+        passed: ea.passed,
+        totalQuestions: 24,
+        startedAt: ea.startedAt,
+        submittedAt: ea.submittedAt,
+        timeExpired: ea.timeExpired,
       })),
       summary: {
         totalInvoiced: Math.round(totalInvoiced * 100) / 100,
@@ -235,5 +249,34 @@ async function findStudentInvoices(phone: string, name: string) {
   return prisma.invoice.findMany({
     where: { OR: conditions },
     orderBy: { invoiceDate: 'desc' },
+  })
+}
+
+// Find exam attempts for a student by name parts or phone
+async function findExamAttempts(phone: string, name: string) {
+  const cleanName = name.replace(/\s*#\d+$/, '').replace(/,/g, '').trim()
+  const nameParts = cleanName.split(/\s+/).filter(p => p.length >= 2)
+  const conditions: Array<{ studentName?: { contains: string }; studentPhone?: { contains: string } }> = []
+
+  for (const part of nameParts) {
+    conditions.push({ studentName: { contains: part } })
+  }
+  if (cleanName.length >= 2) {
+    conditions.push({ studentName: { contains: cleanName } })
+  }
+
+  if (phone) {
+    const phoneDigits = phone.replace(/\D/g, '')
+    if (phoneDigits.length >= 7) {
+      conditions.push({ studentPhone: { contains: phoneDigits.slice(-10) } })
+    }
+  }
+
+  if (conditions.length === 0) return []
+
+  return prisma.examAttempt.findMany({
+    where: { OR: conditions },
+    include: { exam: { select: { code: true, groupName: true } } },
+    orderBy: { startedAt: 'desc' },
   })
 }
