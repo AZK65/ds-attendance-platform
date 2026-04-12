@@ -471,17 +471,17 @@ function SchedulingPage() {
     staleTime: 5 * 60 * 1000,
   })
 
-  // Resolve phone/name → { groupId, contactId } from group participants
-  const getStudentProfileLink = (studentPhone: string | undefined, studentName?: string): { groupId: string; contactId: string } | null => {
+  // Resolve phone/name → profile link (group-based or standalone)
+  const getStudentProfileLink = (studentPhone: string | undefined, studentName?: string): { href: string } | null => {
     const participants = groupParticipantsData?.participants || []
-    // Try phone match first
+    // Try phone match first (group-based profile)
     if (studentPhone) {
       const match = participants.find(p => p.phone === studentPhone)
       if (match) {
-        return { groupId: match.groupId, contactId: match.id }
+        return { href: `/students/${match.id.replace('@c.us', '')}` }
       }
     }
-    // Fall back to name match (strip #number suffix that may be appended to names)
+    // Fall back to name match
     if (studentName) {
       const nameLower = studentName.toLowerCase().replace(/\s*#\d+$/, '').trim()
       const match = participants.find(p => {
@@ -491,8 +491,13 @@ function SchedulingPage() {
           || (nameLower.length >= 3 && (pName.includes(nameLower) || pPush.includes(nameLower)))
       })
       if (match) {
-        return { groupId: match.groupId, contactId: match.id }
+        return { href: `/students/${match.id.replace('@c.us', '')}` }
       }
+    }
+    // Fall back to search-based link (works for any student in MySQL)
+    if (studentName || studentPhone) {
+      const searchTerm = studentName || studentPhone || ''
+      return { href: `/students?search=${encodeURIComponent(searchTerm)}` }
     }
     return null
   }
@@ -2846,7 +2851,7 @@ function SchedulingPage() {
                                 <p className="text-sm text-muted-foreground">Student</p>
                                 {profileLink ? (
                                   <Link
-                                    href={`/groups/${encodeURIComponent(profileLink.groupId)}/student/${encodeURIComponent(profileLink.contactId)}`}
+                                    href={profileLink.href}
                                     className="font-medium text-primary hover:underline truncate block"
                                     onClick={() => setShowEventDetail(false)}
                                   >
@@ -3011,7 +3016,7 @@ function SchedulingPage() {
                 const profileLink = getStudentProfileLink(evPhone, evStudentName)
                 if (!profileLink) return null
                 return (
-                  <Link href={`/groups/${encodeURIComponent(profileLink.groupId)}/student/${encodeURIComponent(profileLink.contactId)}`}>
+                  <Link href={profileLink.href}>
                     <Button variant="outline" onClick={() => setShowEventDetail(false)}>
                       <User className="h-4 w-4 mr-2" />
                       View Profile
