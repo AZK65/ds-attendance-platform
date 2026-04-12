@@ -106,19 +106,45 @@ export default function StudentProfilePage() {
   const groupNames = data?.groups?.map(g => g.groupName) || []
 
   // Fetch Teamup events for this student
+  // Search by full name, individual name parts, and phone — some events use shortened names
   const { data: studentEvents = [], isLoading: loadingEvents } = useQuery<TeamupEvent[]>({
     queryKey: ['student-events-standalone', student?.full_name, phone, groupNames],
     queryFn: async () => {
-      const params = new URLSearchParams()
-      if (student?.full_name) params.set('studentName', student.full_name)
-      if (phone) params.set('phone', phone)
-      // Include all group names for theory class matching
-      for (const gn of groupNames) {
-        if (gn) params.set('groupName', gn)
+      const allEvents: TeamupEvent[] = []
+      const seenIds = new Set<string>()
+
+      // Helper to fetch and merge
+      const fetchEvents = async (p: URLSearchParams) => {
+        const res = await fetch(`/api/scheduling/student-events?${p}`)
+        if (!res.ok) return
+        const events: TeamupEvent[] = await res.json()
+        for (const e of events) {
+          if (!seenIds.has(e.id)) { seenIds.add(e.id); allEvents.push(e) }
+        }
       }
-      const res = await fetch(`/api/scheduling/student-events?${params}`)
-      if (!res.ok) return []
-      return res.json()
+
+      // Search by full name + phone + group names
+      const params1 = new URLSearchParams()
+      if (student?.full_name) params1.set('studentName', student.full_name)
+      if (phone) params1.set('phone', phone)
+      for (const gn of groupNames) { if (gn) params1.set('groupName', gn) }
+      await fetchEvents(params1)
+
+      // Also search by individual name parts (catches "Andres Inaki" when MySQL has "Aguilar Trejo Andres Inaki")
+      if (student?.full_name) {
+        const parts = student.full_name.trim().split(/\s+/).filter(p => p.length >= 3)
+        // Try last 2 parts (usually first + last name used for booking)
+        if (parts.length >= 2) {
+          const shortName = parts.slice(-2).join(' ')
+          if (shortName !== student.full_name) {
+            const params2 = new URLSearchParams()
+            params2.set('studentName', shortName)
+            await fetchEvents(params2)
+          }
+        }
+      }
+
+      return allEvents
     },
     enabled: !!student,
   })
