@@ -155,8 +155,14 @@ export default function ExamPage() {
   const answeredCount = Object.keys(answers).length
 
   return (
-    <div className="min-h-screen bg-gradient-to-b from-gray-50 to-white dark:from-gray-950 dark:to-gray-900">
-      <div className="max-w-2xl mx-auto px-4 py-6">
+    <div className="min-h-screen bg-gray-50 dark:bg-gray-950">
+      {/* Logo header */}
+      {step !== 'exam' && (
+        <div className="text-center pt-6 pb-2">
+          <img src="/qazi-logo.png" alt="Qazi Driving School" className="h-12 mx-auto" onError={(e) => { (e.target as HTMLImageElement).style.display = 'none' }} />
+        </div>
+      )}
+      <div className="max-w-3xl mx-auto px-4 sm:px-8 py-6">
 
         {/* Error banner */}
         <AnimatePresence>
@@ -269,20 +275,21 @@ export default function ExamPage() {
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
             >
-              {/* Top bar — timer + progress */}
-              <div className="sticky top-0 bg-background/95 backdrop-blur-sm z-10 py-3 border-b mb-6">
+              {/* Top bar — logo + timer + progress */}
+              <div className="sticky top-0 bg-gray-50 dark:bg-gray-950 z-10 py-3 border-b border-gray-200 dark:border-gray-800 mb-8 -mx-4 sm:-mx-8 px-4 sm:px-8">
                 <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-2">
+                  <div className="flex items-center gap-3">
+                    <img src="/qazi-logo.png" alt="" className="h-8" onError={(e) => { (e.target as HTMLImageElement).style.display = 'none' }} />
                     <span className="text-sm font-medium">Q{currentQuestion + 1}/{questions.length}</span>
                     <span className="text-xs text-muted-foreground">({answeredCount} answered)</span>
                   </div>
-                  <div className={`flex items-center gap-1.5 font-mono text-sm font-bold ${timeLeft < 300 ? 'text-red-500 animate-pulse' : timeLeft < 600 ? 'text-amber-500' : ''}`}>
-                    <Clock className="h-4 w-4" />
+                  <div className={`flex items-center gap-1.5 font-mono text-lg font-bold ${timeLeft < 300 ? 'text-red-500 animate-pulse' : timeLeft < 600 ? 'text-amber-500' : ''}`}>
+                    <Clock className="h-5 w-5" />
                     {formatTime(timeLeft)}
                   </div>
                 </div>
                 {/* Progress bar */}
-                <div className="mt-2 h-1.5 bg-muted rounded-full overflow-hidden">
+                <div className="mt-3 h-2 bg-gray-200 dark:bg-gray-800 rounded-full overflow-hidden">
                   <motion.div
                     className="h-full bg-primary rounded-full"
                     animate={{ width: `${(answeredCount / questions.length) * 100}%` }}
@@ -300,8 +307,8 @@ export default function ExamPage() {
                   exit={{ opacity: 0, x: -30 }}
                   transition={{ duration: 0.2 }}
                 >
-                  <div className="mb-6">
-                    <h3 className="text-lg font-semibold mb-4">
+                  <div className="mb-8">
+                    <h3 className="text-xl sm:text-2xl font-semibold mb-6 leading-relaxed">
                       {currentQuestion + 1}. {questions[currentQuestion].question}
                     </h3>
 
@@ -309,31 +316,32 @@ export default function ExamPage() {
                       <img
                         src={questions[currentQuestion].image!}
                         alt="Question image"
-                        className="w-full max-w-md mx-auto rounded-lg border mb-4"
+                        className="w-full max-w-lg mx-auto rounded-lg border mb-6"
                       />
                     )}
 
-                    <div className="space-y-2">
+                    <div className="space-y-3">
                       {questions[currentQuestion].options.map((option, optIdx) => {
                         const isSelected = answers[String(currentQuestion)] === optIdx
                         return (
                           <motion.button
                             key={optIdx}
+                            whileHover={{ scale: 1.01 }}
                             whileTap={{ scale: 0.98 }}
                             onClick={() => selectAnswer(currentQuestion, optIdx)}
-                            className={`w-full text-left p-4 rounded-xl border-2 transition-all ${
+                            className={`w-full text-left p-5 rounded-xl border-2 transition-all ${
                               isSelected
-                                ? 'border-primary bg-primary/5 shadow-sm'
-                                : 'border-muted hover:border-primary/30 hover:bg-muted/50'
+                                ? 'border-primary bg-primary/5 shadow-md'
+                                : 'border-gray-200 dark:border-gray-800 hover:border-primary/30 hover:bg-white dark:hover:bg-gray-900 bg-white dark:bg-gray-900'
                             }`}
                           >
-                            <div className="flex items-start gap-3">
-                              <div className={`flex items-center justify-center w-7 h-7 rounded-full text-sm font-medium shrink-0 ${
-                                isSelected ? 'bg-primary text-primary-foreground' : 'bg-muted'
+                            <div className="flex items-start gap-4">
+                              <div className={`flex items-center justify-center w-9 h-9 rounded-full text-sm font-bold shrink-0 ${
+                                isSelected ? 'bg-primary text-primary-foreground' : 'bg-gray-100 dark:bg-gray-800'
                               }`}>
                                 {String.fromCharCode(65 + optIdx)}
                               </div>
-                              <span className="text-sm pt-0.5">{option}</span>
+                              <span className="text-base pt-1">{option}</span>
                             </div>
                           </motion.button>
                         )
@@ -343,59 +351,43 @@ export default function ExamPage() {
                 </motion.div>
               </AnimatePresence>
 
+              {/* Question dots */}
+              <div className="mt-8 flex gap-1.5 flex-wrap justify-center">
+                {questions.map((_, i) => (
+                  <button
+                    key={i}
+                    onClick={() => setCurrentQuestion(i)}
+                    className={`w-9 h-9 sm:w-8 sm:h-8 rounded-full text-xs font-bold transition-all ${
+                      i === currentQuestion ? 'bg-primary text-primary-foreground scale-110 shadow-md' :
+                      answers[String(i)] !== undefined ? 'bg-green-500 text-white' :
+                      'bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 hover:border-primary/50'
+                    }`}
+                  >
+                    {i + 1}
+                  </button>
+                ))}
+              </div>
+
               {/* Navigation */}
-              <div className="flex items-center justify-between mt-6 pt-4 border-t">
+              <div className="flex items-center justify-between mt-8 pt-6 border-t border-gray-200 dark:border-gray-800">
                 <Button
                   variant="outline"
+                  size="lg"
                   onClick={() => setCurrentQuestion(Math.max(0, currentQuestion - 1))}
                   disabled={currentQuestion === 0}
                 >
                   <ChevronLeft className="h-4 w-4 mr-1" /> Previous
                 </Button>
 
-                {/* Question dots */}
-                <div className="hidden sm:flex gap-1 flex-wrap justify-center max-w-xs">
-                  {questions.map((_, i) => (
-                    <button
-                      key={i}
-                      onClick={() => setCurrentQuestion(i)}
-                      className={`w-6 h-6 rounded-full text-xs font-medium transition-all ${
-                        i === currentQuestion ? 'bg-primary text-primary-foreground scale-110' :
-                        answers[String(i)] !== undefined ? 'bg-green-500 text-white' :
-                        'bg-muted hover:bg-muted-foreground/20'
-                      }`}
-                    >
-                      {i + 1}
-                    </button>
-                  ))}
-                </div>
-
                 {currentQuestion < questions.length - 1 ? (
-                  <Button onClick={() => setCurrentQuestion(currentQuestion + 1)}>
+                  <Button size="lg" onClick={() => setCurrentQuestion(currentQuestion + 1)}>
                     Next <ChevronRight className="h-4 w-4 ml-1" />
                   </Button>
                 ) : (
-                  <Button onClick={() => handleSubmit(false)} className="bg-green-600 hover:bg-green-700">
-                    <Send className="h-4 w-4 mr-1" /> Submit
+                  <Button size="lg" onClick={() => handleSubmit(false)} className="bg-green-600 hover:bg-green-700">
+                    <Send className="h-4 w-4 mr-1" /> Submit Exam
                   </Button>
                 )}
-              </div>
-
-              {/* Mobile question nav */}
-              <div className="sm:hidden mt-4 flex gap-1 flex-wrap justify-center">
-                {questions.map((_, i) => (
-                  <button
-                    key={i}
-                    onClick={() => setCurrentQuestion(i)}
-                    className={`w-8 h-8 rounded-full text-xs font-medium ${
-                      i === currentQuestion ? 'bg-primary text-primary-foreground' :
-                      answers[String(i)] !== undefined ? 'bg-green-500 text-white' :
-                      'bg-muted'
-                    }`}
-                  >
-                    {i + 1}
-                  </button>
-                ))}
               </div>
             </motion.div>
           )}
