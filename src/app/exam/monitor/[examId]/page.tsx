@@ -30,9 +30,16 @@ interface StudentStatus {
   status: 'in-progress' | 'passed' | 'failed'
 }
 
+interface NotStartedStudent {
+  name: string
+  phone: string
+}
+
 interface ExamStatus {
   exam: { id: string; code: string; groupName: string; active: boolean; createdAt: string }
   students: StudentStatus[]
+  notStarted: NotStartedStudent[]
+  groupTotal: number
   summary: { total: number; inProgress: number; completed: number; passed: number; failed: number }
 }
 
@@ -112,9 +119,10 @@ export default function ExamMonitorPage() {
       )}
 
       {/* Summary Cards */}
-      <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.1 }} className="grid grid-cols-2 sm:grid-cols-5 gap-3">
+      <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.1 }} className="grid grid-cols-3 sm:grid-cols-6 gap-3">
         {[
-          { label: 'Total', value: summary.total, icon: Users, color: 'text-blue-600' },
+          { label: 'Group', value: data.groupTotal, icon: Users, color: 'text-blue-600' },
+          { label: 'Not Started', value: data.notStarted.length, icon: AlertTriangle, color: data.notStarted.length > 0 ? 'text-gray-500' : 'text-green-600' },
           { label: 'In Progress', value: summary.inProgress, icon: Clock, color: 'text-amber-600' },
           { label: 'Completed', value: summary.completed, icon: CheckCircle2, color: 'text-indigo-600' },
           { label: 'Passed', value: summary.passed, icon: CheckCircle2, color: 'text-green-600' },
@@ -218,6 +226,36 @@ export default function ExamMonitorPage() {
           </CardContent>
         </Card>
       </motion.div>
+
+      {/* Not Started */}
+      {data.notStarted.length > 0 && (
+        <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.3 }}>
+          <Card className="border-dashed">
+            <CardHeader>
+              <CardTitle className="text-base flex items-center gap-2 text-muted-foreground">
+                <AlertTriangle className="h-4 w-4" />
+                Not Started ({data.notStarted.length})
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                {data.notStarted.map((student, i) => (
+                  <motion.div
+                    key={student.phone}
+                    initial={{ opacity: 0 }}
+                    animate={{ opacity: 1 }}
+                    transition={{ delay: i * 0.03 }}
+                    className="flex items-center justify-between p-3 rounded-lg bg-muted/30"
+                  >
+                    <span className="text-sm font-medium">{student.name}</span>
+                    <span className="text-xs text-muted-foreground">{student.phone}</span>
+                  </motion.div>
+                ))}
+              </div>
+            </CardContent>
+          </Card>
+        </motion.div>
+      )}
     </main>
   )
 }

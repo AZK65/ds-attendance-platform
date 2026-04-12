@@ -23,6 +23,18 @@ export async function GET(
       return NextResponse.json({ error: 'Exam not found' }, { status: 404 })
     }
 
+    // Fetch group members to show who hasn't started
+    const groupMembers = await prisma.groupMember.findMany({
+      where: { groupId: exam.groupId },
+      include: { contact: true },
+    })
+    // Filter out the admin/owner
+    const studentMembers = groupMembers.filter(m => {
+      const phone = m.phone
+      // Skip the school's own number
+      return !m.contact.name?.toLowerCase().includes('qazi driving') && phone !== '15142746948'
+    })
+
     const now = Date.now()
     const durationMs = EXAM_DURATION_MINUTES * 60 * 1000
 
@@ -55,6 +67,19 @@ export async function GET(
     const passedCount = students.filter(s => s.passed).length
     const failedCount = students.filter(s => s.submittedAt && !s.passed).length
 
+    // Find group members who haven't started the exam
+    const startedNames = new Set(exam.attempts.map(a => a.studentName.toLowerCase()))
+    const startedPhones = new Set(exam.attempts.map(a => a.studentPhone).filter(Boolean))
+    const notStarted = studentMembers
+      .filter(m => {
+        const name = (m.contact.name || m.contact.pushName || '').toLowerCase()
+        return !startedNames.has(name) && !startedPhones.has(m.phone)
+      })
+      .map(m => ({
+        name: m.contact.name || m.contact.pushName || m.phone,
+        phone: m.phone,
+      }))
+
     return NextResponse.json({
       exam: {
         id: exam.id,
@@ -64,6 +89,8 @@ export async function GET(
         createdAt: exam.createdAt,
       },
       students,
+      notStarted,
+      groupTotal: studentMembers.length,
       summary: {
         total: students.length,
         inProgress,
