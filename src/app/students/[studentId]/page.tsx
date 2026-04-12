@@ -9,7 +9,7 @@ import { Badge } from '@/components/ui/badge'
 import {
   ArrowLeft, Loader2, Phone, MapPin, Mail, Calendar, CreditCard,
   Award, Users, DollarSign, FileText, Receipt, Clock, ChevronDown,
-  ChevronUp, BookOpen, User, CheckCircle2, XCircle,
+  ChevronUp, BookOpen, User, CheckCircle2, XCircle, ClipboardList,
 } from 'lucide-react'
 import Link from 'next/link'
 import { motion, AnimatePresence } from 'motion/react'
@@ -65,6 +65,17 @@ interface StudentProfile {
     groupId: string
     groupName: string
     moduleNumber: number | null
+  }>
+  exams: Array<{
+    id: string
+    examCode: string
+    groupName: string
+    score: number | null
+    passed: boolean | null
+    totalQuestions: number
+    startedAt: string
+    submittedAt: string | null
+    timeExpired: boolean
   }>
   summary: {
     totalInvoiced: number
@@ -472,6 +483,45 @@ export default function StudentProfilePage() {
                     </div>
                   )
                 })}
+              </div>
+            </CardContent>
+          </Card>
+        </motion.div>
+      )}
+
+      {/* Exam Results */}
+      {data.exams && data.exams.length > 0 && (
+        <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.5 }}>
+          <Card>
+            <CardHeader><CardTitle className="text-base flex items-center gap-2"><ClipboardList className="h-4 w-4" /> Exam Results</CardTitle></CardHeader>
+            <CardContent>
+              <div className="space-y-2">
+                {data.exams.map(exam => (
+                  <div key={exam.id} className={`flex items-center justify-between p-3 rounded-lg ${
+                    exam.passed ? 'bg-green-50 dark:bg-green-950/10 border border-green-200' :
+                    exam.passed === false ? 'bg-red-50 dark:bg-red-950/10 border border-red-200' :
+                    'bg-muted/50 border'
+                  }`}>
+                    <div>
+                      <p className="font-medium text-sm">{exam.groupName}</p>
+                      <p className="text-xs text-muted-foreground">
+                        Code: {exam.examCode} — {exam.submittedAt
+                          ? new Date(exam.submittedAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
+                          : 'In progress'
+                        }
+                        {exam.timeExpired && ' (time expired)'}
+                      </p>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      {exam.score !== null && (
+                        <span className="font-mono font-bold text-sm">{exam.score}/{exam.totalQuestions}</span>
+                      )}
+                      {exam.passed === true && <Badge className="bg-green-600">Passed</Badge>}
+                      {exam.passed === false && <Badge variant="destructive">Failed</Badge>}
+                      {exam.passed === null && <Badge variant="secondary">In Progress</Badge>}
+                    </div>
+                  </div>
+                ))}
               </div>
             </CardContent>
           </Card>

@@ -113,6 +113,7 @@ export default function GroupDetailPage() {
 
   // Exam state
   const [examCode, setExamCode] = useState<string | null>(null)
+  const [examIdState, setExamIdState] = useState<string | null>(null)
   const [examGenerating, setExamGenerating] = useState(false)
   const [examCopied, setExamCopied] = useState(false)
 
@@ -127,6 +128,7 @@ export default function GroupDetailPage() {
       if (res.ok) {
         const data = await res.json()
         setExamCode(data.exam.code)
+        setExamIdState(data.exam.id)
       }
     } catch { /* ignore */ }
     setExamGenerating(false)
@@ -683,8 +685,13 @@ export default function GroupDetailPage() {
 
             {/* Exam */}
             <motion.div variants={fadeSlideUp}>
-              {examCode ? (
+              {examCode && examIdState ? (
                 <div className="flex items-center gap-2">
+                  <Link href={`/exam/monitor/${examIdState}`}>
+                    <Button variant="outline" size="sm">
+                      <ClipboardList className="h-4 w-4 mr-1" /> Monitor
+                    </Button>
+                  </Link>
                   <code className="px-3 py-2 bg-muted rounded-lg text-sm font-mono">{examCode}</code>
                   <Button variant="outline" size="sm" onClick={copyExamCode}>
                     {examCopied ? <Check className="h-4 w-4" /> : <Copy className="h-4 w-4" />}

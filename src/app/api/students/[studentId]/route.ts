@@ -52,6 +52,13 @@ export async function GET(
         : [],
     ])
 
+    // Fetch exam attempts by student name
+    const examAttempts = await prisma.examAttempt.findMany({
+      where: { studentName: { contains: dbStudent.full_name.split(' ').pop() || dbStudent.full_name } },
+      include: { exam: { select: { code: true, groupName: true } } },
+      orderBy: { startedAt: 'desc' },
+    })
+
     // Invoice summary
     const totalInvoiced = invoices.reduce((s, inv) => s + inv.total, 0)
     const totalPaid = invoices.filter(inv => inv.paymentStatus === 'paid').reduce((s, inv) => s + inv.total, 0)
@@ -80,6 +87,17 @@ export async function GET(
         groupId: gm.groupId,
         groupName: gm.group.name,
         moduleNumber: gm.group.moduleNumber,
+      })),
+      exams: examAttempts.map(ea => ({
+        id: ea.id,
+        examCode: ea.exam.code,
+        groupName: ea.exam.groupName,
+        score: ea.score,
+        passed: ea.passed,
+        totalQuestions: 24,
+        startedAt: ea.startedAt,
+        submittedAt: ea.submittedAt,
+        timeExpired: ea.timeExpired,
       })),
       summary: {
         totalInvoiced: Math.round(totalInvoiced * 100) / 100,
