@@ -60,6 +60,81 @@ export default function ExamPage() {
     return () => clearInterval(interval)
   }, [step, startedAt]) // eslint-disable-line react-hooks/exhaustive-deps
 
+  // Anti-cheat: tab switch detection
+  const [tabSwitches, setTabSwitches] = useState(0)
+  const [showTabWarning, setShowTabWarning] = useState(false)
+
+  useEffect(() => {
+    if (step !== 'exam') return
+    const handleVisibility = () => {
+      if (document.hidden) {
+        setTabSwitches(prev => {
+          const newCount = prev + 1
+          // Report to server
+          fetch(`/api/exam/${examId}`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ action: 'save', attemptId, answers, tabSwitches: newCount }),
+          }).catch(() => {})
+          return newCount
+        })
+        setShowTabWarning(true)
+        setTimeout(() => setShowTabWarning(false), 5000)
+      }
+    }
+    document.addEventListener('visibilitychange', handleVisibility)
+    return () => document.removeEventListener('visibilitychange', handleVisibility)
+  }, [step, examId, attemptId, answers])
+
+  // Anti-cheat: request fullscreen when exam starts
+  useEffect(() => {
+    if (step !== 'exam') return
+    const requestFs = () => {
+      document.documentElement.requestFullscreen?.().catch(() => {})
+    }
+    // Small delay so the UI renders first
+    const timer = setTimeout(requestFs, 500)
+
+    const handleFsChange = () => {
+      if (!document.fullscreenElement && step === 'exam') {
+        setTabSwitches(prev => prev + 1)
+        setShowTabWarning(true)
+        setTimeout(() => setShowTabWarning(false), 5000)
+      }
+    }
+    document.addEventListener('fullscreenchange', handleFsChange)
+    return () => {
+      clearTimeout(timer)
+      document.removeEventListener('fullscreenchange', handleFsChange)
+    }
+  }, [step])
+
+  // Anti-cheat: disable copy/paste/select
+  useEffect(() => {
+    if (step !== 'exam') return
+    const prevent = (e: Event) => e.preventDefault()
+    document.addEventListener('copy', prevent)
+    document.addEventListener('cut', prevent)
+    document.addEventListener('paste', prevent)
+    document.addEventListener('selectstart', prevent)
+    // Disable right-click
+    document.addEventListener('contextmenu', prevent)
+    return () => {
+      document.removeEventListener('copy', prevent)
+      document.removeEventListener('cut', prevent)
+      document.removeEventListener('paste', prevent)
+      document.removeEventListener('selectstart', prevent)
+      document.removeEventListener('contextmenu', prevent)
+    }
+  }, [step])
+
+  // Exit fullscreen when exam ends
+  useEffect(() => {
+    if (step === 'result' || step === 'submitting') {
+      document.exitFullscreen?.().catch(() => {})
+    }
+  }, [step])
+
   // Auto-save every 30 seconds
   useEffect(() => {
     if (step !== 'exam' || !attemptId) return
@@ -67,11 +142,11 @@ export default function ExamPage() {
       fetch(`/api/exam/${examId}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action: 'save', attemptId, answers }),
+        body: JSON.stringify({ action: 'save', attemptId, answers, tabSwitches }),
       }).catch(() => {})
     }, 30000)
     return () => { if (autoSaveRef.current) clearInterval(autoSaveRef.current) }
-  }, [step, attemptId, examId, answers])
+  }, [step, attemptId, examId, answers, tabSwitches])
 
   const handleCodeSubmit = async () => {
     if (!examCode.trim()) return
@@ -275,6 +350,20 @@ export default function ExamPage() {
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
             >
+              {/* Tab switch warning */}
+              <AnimatePresence>
+                {showTabWarning && (
+                  <motion.div
+                    initial={{ opacity: 0, y: -20 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    exit={{ opacity: 0, y: -20 }}
+                    className="mb-4 p-3 rounded-lg bg-red-500 text-white text-sm font-medium text-center"
+                  >
+                    Warning: Leaving the exam has been recorded ({tabSwitches} time{tabSwitches !== 1 ? 's' : ''})
+                  </motion.div>
+                )}
+              </AnimatePresence>
+
               {/* Top bar — logo + timer + progress */}
               <div className="sticky top-0 bg-gray-50 dark:bg-gray-950 z-10 py-3 border-b border-gray-200 dark:border-gray-800 mb-8 -mx-4 sm:-mx-8 px-4 sm:px-8">
                 <div className="flex items-center justify-between">

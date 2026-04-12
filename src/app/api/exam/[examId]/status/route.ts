@@ -45,6 +45,7 @@ export async function GET(
         score: a.score,
         passed: a.passed,
         timeExpired: a.timeExpired,
+        tabSwitches: a.tabSwitches,
         status: a.submittedAt ? (a.passed ? 'passed' : 'failed') : 'in-progress',
       }
     })

@@ -26,6 +26,7 @@ interface StudentStatus {
   score: number | null
   passed: boolean | null
   timeExpired: boolean
+  tabSwitches: number
   status: 'in-progress' | 'passed' | 'failed'
 }
 
@@ -192,9 +193,17 @@ export default function ExamMonitorPage() {
                       />
                     </div>
                     <div className="flex justify-between mt-1">
-                      <span className="text-xs text-muted-foreground">
-                        {student.answeredCount}/{student.totalQuestions} answered
-                      </span>
+                      <div className="flex items-center gap-3">
+                        <span className="text-xs text-muted-foreground">
+                          {student.answeredCount}/{student.totalQuestions} answered
+                        </span>
+                        {student.tabSwitches > 0 && (
+                          <span className="text-xs text-red-500 font-medium flex items-center gap-1">
+                            <AlertTriangle className="h-3 w-3" />
+                            {student.tabSwitches} tab switch{student.tabSwitches !== 1 ? 'es' : ''}
+                          </span>
+                        )}
+                      </div>
                       {student.submittedAt && (
                         <span className="text-xs text-muted-foreground">
                           Submitted {new Date(student.submittedAt).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })}

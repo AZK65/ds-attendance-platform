@@ -391,6 +391,7 @@ model ExamAttempt {
   answers       String    // JSON: { questionIndex: selectedAnswer }
   score         Int?
   passed        Boolean?
+  tabSwitches   Int       @default(0)
   startedAt     DateTime  @default(now())
   submittedAt   DateTime?
   timeExpired   Boolean   @default(false)

@@ -109,7 +109,7 @@ export async function POST(
 
     // SAVE — save progress (auto-save)
     if (action === 'save') {
-      const { attemptId, answers } = body
+      const { attemptId, answers, tabSwitches } = body
 
       if (!attemptId) {
         return NextResponse.json({ error: 'attemptId required' }, { status: 400 })
@@ -122,7 +122,10 @@ export async function POST(
 
       await prisma.examAttempt.update({
         where: { id: attemptId },
-        data: { answers: JSON.stringify(answers) },
+        data: {
+          answers: JSON.stringify(answers),
+          ...(tabSwitches !== undefined ? { tabSwitches } : {}),
+        },
       })
 
       return NextResponse.json({ success: true })
