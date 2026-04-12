@@ -9,7 +9,7 @@ import { Badge } from '@/components/ui/badge'
 import {
   ArrowLeft, Loader2, Phone, MapPin, Mail, Calendar, CreditCard,
   Award, Users, DollarSign, FileText, Receipt, Clock, ChevronDown,
-  ChevronUp, BookOpen, User,
+  ChevronUp, BookOpen, User, CheckCircle2, XCircle,
 } from 'lucide-react'
 import Link from 'next/link'
 import { motion, AnimatePresence } from 'motion/react'
@@ -149,6 +149,19 @@ export default function StudentProfilePage() {
     enabled: !!student,
   })
 
+  // Fetch attendance for these events
+  const eventIds = studentEvents.map(e => e.id).join(',')
+  const { data: attendanceMap = {} } = useQuery<Record<string, boolean>>({
+    queryKey: ['class-attendance-standalone', eventIds],
+    queryFn: async () => {
+      if (!eventIds) return {}
+      const res = await fetch(`/api/scheduling/attendance?eventIds=${eventIds}`)
+      if (!res.ok) return {}
+      return res.json()
+    },
+    enabled: studentEvents.length > 0,
+  })
+
   // Fetch teachers
   const { data: subcalendars = [] } = useQuery<SubCalendar[]>({
     queryKey: ['subcalendars'],
@@ -223,14 +236,20 @@ export default function StudentProfilePage() {
       </motion.div>
 
       {/* Stats Cards */}
-      <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.1 }} className="grid grid-cols-2 sm:grid-cols-5 gap-3">
-        {[
-          { label: 'Groups', value: summary.groupCount, icon: Users, color: 'text-blue-600' },
-          { label: 'Classes', value: upcomingEvents.length + pastEvents.length, icon: BookOpen, color: 'text-indigo-600' },
-          { label: 'Invoiced', value: formatCurrency(summary.totalInvoiced), icon: DollarSign, color: 'text-green-600' },
-          { label: 'Balance', value: summary.openBalance > 0 ? formatCurrency(summary.openBalance) : 'Paid up', icon: CreditCard, color: summary.openBalance > 0 ? 'text-amber-600' : 'text-green-600' },
-          { label: 'Certificates', value: summary.certificateCount, icon: Award, color: 'text-purple-600' },
-        ].map((stat, i) => (
+      <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.1 }} className="grid grid-cols-2 sm:grid-cols-6 gap-3">
+        {(() => {
+          const presentCount = Object.values(attendanceMap).filter(v => v === true).length
+          const totalAttendance = Object.keys(attendanceMap).length
+          const attendanceRate = totalAttendance > 0 ? `${Math.round((presentCount / totalAttendance) * 100)}%` : '-'
+          return [
+            { label: 'Groups', value: summary.groupCount, icon: Users, color: 'text-blue-600' },
+            { label: 'Classes', value: upcomingEvents.length + pastEvents.length, icon: BookOpen, color: 'text-indigo-600' },
+            { label: 'Attendance', value: attendanceRate, icon: CheckCircle2, color: 'text-emerald-600' },
+            { label: 'Invoiced', value: formatCurrency(summary.totalInvoiced), icon: DollarSign, color: 'text-green-600' },
+            { label: 'Balance', value: summary.openBalance > 0 ? formatCurrency(summary.openBalance) : 'Paid up', icon: CreditCard, color: summary.openBalance > 0 ? 'text-amber-600' : 'text-green-600' },
+            { label: 'Certificates', value: summary.certificateCount, icon: Award, color: 'text-purple-600' },
+          ]
+        })().map((stat, i) => (
           <motion.div key={stat.label} initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.15 + i * 0.04 }}>
             <Card><CardContent className="p-3 text-center">
               <stat.icon className={`h-5 w-5 mx-auto mb-1 ${stat.color}`} />
@@ -312,13 +331,29 @@ export default function StudentProfilePage() {
                 {(showAllPast ? pastEvents : pastEvents.slice(0, 5)).map(event => {
                   const module = parseModuleFromTitle(event.title)
                   const teacher = getTeacherName(event.subcalendar_ids)
+                  const isPresent = attendanceMap[event.id]
+                  const hasAttendance = event.id in attendanceMap
                   return (
                     <div key={event.id} className="flex items-center justify-between p-2.5 rounded-lg hover:bg-muted/50 transition-colors">
-                      <div>
-                        <p className="font-medium text-sm">{event.title}</p>
-                        <p className="text-xs text-muted-foreground">{formatEventDate(event.start_dt)} {formatEventTime(event.start_dt)} - {formatEventTime(event.end_dt)}{teacher ? ` with ${teacher}` : ''}</p>
+                      <div className="flex items-center gap-2">
+                        {hasAttendance ? (
+                          isPresent ? <CheckCircle2 className="h-4 w-4 text-green-600 shrink-0" /> : <XCircle className="h-4 w-4 text-red-500 shrink-0" />
+                        ) : (
+                          <div className="w-4 h-4 rounded-full border border-muted-foreground/30 shrink-0" />
+                        )}
+                        <div>
+                          <p className="font-medium text-sm">{event.title}</p>
+                          <p className="text-xs text-muted-foreground">{formatEventDate(event.start_dt)} {formatEventTime(event.start_dt)} - {formatEventTime(event.end_dt)}{teacher ? ` with ${teacher}` : ''}</p>
+                        </div>
                       </div>
-                      {module && <Badge variant="outline" className="text-xs">M{module}</Badge>}
+                      <div className="flex items-center gap-2">
+                        {hasAttendance && (
+                          <Badge variant={isPresent ? 'default' : 'destructive'} className="text-xs">
+                            {isPresent ? 'Present' : 'Absent'}
+                          </Badge>
+                        )}
+                        {module && <Badge variant="outline" className="text-xs">M{module}</Badge>}
+                      </div>
                     </div>
                   )
                 })}
