@@ -1614,8 +1614,13 @@ export default function CertificatePage() {
     <div className="min-h-screen bg-background">
       <main className="container mx-auto px-4 py-8">
         <div className="max-w-4xl mx-auto">
-          {/* Mode Toggle */}
-          <div className="flex justify-center mb-6">
+          {/* Mode Toggle + Links */}
+          <div className="flex items-center justify-between mb-6">
+            <Link href="/certificate/history">
+              <Button variant="outline" size="sm" className="gap-1.5">
+                <Archive className="h-3.5 w-3.5" /> History
+              </Button>
+            </Link>
             <div className="flex gap-1 bg-muted rounded-lg p-1">
               <Button variant={pageMode === 'single' ? 'default' : 'ghost'} size="sm" onClick={() => setPageMode('single')} className="gap-1.5">
                 <User className="h-3.5 w-3.5" /> Single
@@ -1627,6 +1632,11 @@ export default function CertificatePage() {
                 <Users className="h-3.5 w-3.5" /> Bulk
               </Button>
             </div>
+            <Link href="/certificate/settings">
+              <Button variant="outline" size="sm" className="gap-1.5">
+                <Settings className="h-3.5 w-3.5" /> Settings
+              </Button>
+            </Link>
           </div>
 
           {/* ═══════════════════ SINGLE MODE ═══════════════════ */}
