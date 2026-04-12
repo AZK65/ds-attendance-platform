@@ -59,7 +59,20 @@ export async function register() {
     const MESSAGE_INTERVAL = 30_000 // 30 seconds
     const POLL_INTERVAL = 2 * 60_000 // 2 minutes
 
-    setTimeout(() => {
+    setTimeout(async () => {
+      // Auto-connect WhatsApp on startup
+      console.log('[AutoConnect] Triggering WhatsApp connection...')
+      try {
+        await fetch(`${BASE_URL}/api/whatsapp/connect`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'x-internal': '1' },
+          body: JSON.stringify({}),
+        })
+        console.log('[AutoConnect] WhatsApp connect triggered')
+      } catch {
+        console.log('[AutoConnect] WhatsApp connect failed — will retry when first request comes in')
+      }
+
       console.log('[ServerProcessor] Starting server-side scheduled message processor (every 30s)')
       console.log('[ServerPoller] Starting server-side Teamup change poller (every 2m)')
 
