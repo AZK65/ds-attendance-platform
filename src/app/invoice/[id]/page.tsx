@@ -6,12 +6,15 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import {
-  Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription,
+  Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter,
 } from '@/components/ui/dialog'
+import { Input } from '@/components/ui/input'
+import { Label } from '@/components/ui/label'
 import {
   ArrowLeft, Download, Loader2, Mail, MessageCircle, Printer,
   CreditCard, Copy, ExternalLink, CheckCircle2, Banknote, Globe, Link2,
-  FileText, DollarSign, TrendingDown, AlertTriangle,
+  FileText, DollarSign, TrendingDown, AlertTriangle, Edit3, RotateCcw,
+  Plus, Trash2, Save,
 } from 'lucide-react'
 import Link from 'next/link'
 import { useParams } from 'next/navigation'
@@ -108,6 +111,17 @@ export default function InvoiceViewPage() {
   // Mark as Paid dialog state
   const [showPayDialog, setShowPayDialog] = useState(false)
   const [payStep, setPayStep] = useState<'method' | 'match'>('method')
+
+  // Edit dialog state
+  const [showEditDialog, setShowEditDialog] = useState(false)
+  const [editLineItems, setEditLineItems] = useState<Array<{ description: string; quantity: number; unitPrice: number }>>([])
+  const [editNotes, setEditNotes] = useState('')
+  const [editSaving, setEditSaving] = useState(false)
+
+  // Refund dialog state
+  const [showRefundDialog, setShowRefundDialog] = useState(false)
+  const [refundReason, setRefundReason] = useState('')
+  const [refunding, setRefunding] = useState(false)
 
   // Clover match types
   interface CloverMatch {
@@ -448,6 +462,36 @@ export default function InvoiceViewPage() {
                 <Link2 className="h-3 w-3 mr-1" />
                 Clover Matched
               </Badge>
+            )}
+            {invoice.paymentStatus === 'refunded' && (
+              <Badge className="bg-purple-100 text-purple-700 border-purple-200">
+                <RotateCcw className="h-3 w-3 mr-1" />
+                Refunded
+              </Badge>
+            )}
+            <Button
+              size="sm"
+              variant="outline"
+              className="h-7 text-xs"
+              onClick={() => {
+                try {
+                  setEditLineItems(JSON.parse(invoice.lineItems))
+                } catch { setEditLineItems([]) }
+                setEditNotes(invoice.notes || '')
+                setShowEditDialog(true)
+              }}
+            >
+              <Edit3 className="h-3 w-3 mr-1" /> Edit
+            </Button>
+            {invoice.paymentStatus !== 'refunded' && (
+              <Button
+                size="sm"
+                variant="outline"
+                className="h-7 text-xs text-red-600 hover:text-red-700"
+                onClick={() => { setRefundReason(''); setShowRefundDialog(true) }}
+              >
+                <RotateCcw className="h-3 w-3 mr-1" /> Refund
+              </Button>
             )}
           </div>
         </motion.div>
@@ -943,6 +987,141 @@ export default function InvoiceViewPage() {
               )}
             </>
           )}
+        </DialogContent>
+      </Dialog>
+      {/* Edit Invoice Dialog */}
+      <Dialog open={showEditDialog} onOpenChange={setShowEditDialog}>
+        <DialogContent className="sm:max-w-lg max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>Edit Invoice {invoice.invoiceNumber}</DialogTitle>
+            <DialogDescription>Modify line items and amounts</DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 py-2">
+            {editLineItems.map((item, i) => (
+              <div key={i} className="flex items-end gap-2">
+                <div className="flex-1">
+                  <Label className="text-xs">Description</Label>
+                  <Input value={item.description} onChange={e => {
+                    const updated = [...editLineItems]
+                    updated[i] = { ...updated[i], description: e.target.value }
+                    setEditLineItems(updated)
+                  }} />
+                </div>
+                <div className="w-16">
+                  <Label className="text-xs">Qty</Label>
+                  <Input type="number" min={1} value={item.quantity} onChange={e => {
+                    const updated = [...editLineItems]
+                    updated[i] = { ...updated[i], quantity: parseInt(e.target.value) || 1 }
+                    setEditLineItems(updated)
+                  }} />
+                </div>
+                <div className="w-24">
+                  <Label className="text-xs">Price</Label>
+                  <Input type="number" step="0.01" value={item.unitPrice} onChange={e => {
+                    const updated = [...editLineItems]
+                    updated[i] = { ...updated[i], unitPrice: parseFloat(e.target.value) || 0 }
+                    setEditLineItems(updated)
+                  }} />
+                </div>
+                <Button variant="ghost" size="sm" className="text-red-500 h-9 w-9 p-0" onClick={() => {
+                  setEditLineItems(editLineItems.filter((_, j) => j !== i))
+                }}>
+                  <Trash2 className="h-4 w-4" />
+                </Button>
+              </div>
+            ))}
+            <Button variant="outline" size="sm" onClick={() => {
+              setEditLineItems([...editLineItems, { description: '', quantity: 1, unitPrice: 0 }])
+            }}>
+              <Plus className="h-4 w-4 mr-1" /> Add Line Item
+            </Button>
+
+            <div className="pt-2 border-t">
+              <div className="text-right font-mono font-bold text-lg">
+                Total: ${editLineItems.reduce((s, li) => s + li.quantity * li.unitPrice, 0).toFixed(2)}
+              </div>
+            </div>
+
+            <div>
+              <Label>Notes</Label>
+              <Input value={editNotes} onChange={e => setEditNotes(e.target.value)} className="mt-1" />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowEditDialog(false)}>Cancel</Button>
+            <Button disabled={editSaving} onClick={async () => {
+              setEditSaving(true)
+              const subtotal = editLineItems.reduce((s, li) => s + li.quantity * li.unitPrice, 0)
+              const gstRate = settings?.taxesEnabled ? (settings.defaultGstRate / 100) : 0
+              const qstRate = settings?.taxesEnabled ? (settings.defaultQstRate / 100) : 0
+              const gstAmount = Math.round(subtotal * gstRate * 100) / 100
+              const qstAmount = Math.round(subtotal * qstRate * 100) / 100
+              const total = Math.round((subtotal + gstAmount + qstAmount) * 100) / 100
+
+              try {
+                const res = await fetch('/api/invoice/edit', {
+                  method: 'PUT',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({
+                    invoiceId: invoice.id,
+                    lineItems: editLineItems,
+                    subtotal, gstAmount, qstAmount, total,
+                    notes: editNotes,
+                  }),
+                })
+                if (res.ok) {
+                  queryClient.invalidateQueries({ queryKey: ['invoice', invoiceId] })
+                  setShowEditDialog(false)
+                }
+              } catch { /* ignore */ }
+              setEditSaving(false)
+            }}>
+              {editSaving ? <Loader2 className="h-4 w-4 mr-1 animate-spin" /> : <Save className="h-4 w-4 mr-1" />}
+              Save Changes
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Refund Dialog */}
+      <Dialog open={showRefundDialog} onOpenChange={setShowRefundDialog}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-red-600">
+              <RotateCcw className="h-5 w-5" /> Issue Refund
+            </DialogTitle>
+            <DialogDescription>
+              This will create a credit note for Invoice {invoice.invoiceNumber} ({formatCurrency(invoice.total)}) and mark it as refunded.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="py-2">
+            <Label>Reason (optional)</Label>
+            <Input value={refundReason} onChange={e => setRefundReason(e.target.value)} placeholder="e.g., Student withdrew from course" className="mt-1" />
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowRefundDialog(false)}>Cancel</Button>
+            <Button variant="destructive" disabled={refunding} onClick={async () => {
+              setRefunding(true)
+              try {
+                const res = await fetch('/api/invoice/refund', {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({ invoiceId: invoice.id, reason: refundReason }),
+                })
+                if (res.ok) {
+                  const data = await res.json()
+                  queryClient.invalidateQueries({ queryKey: ['invoice', invoiceId] })
+                  setShowRefundDialog(false)
+                  // Redirect to the credit note
+                  window.location.href = `/invoice/${data.creditNote.id}`
+                }
+              } catch { /* ignore */ }
+              setRefunding(false)
+            }}>
+              {refunding ? <Loader2 className="h-4 w-4 mr-1 animate-spin" /> : <RotateCcw className="h-4 w-4 mr-1" />}
+              Issue Credit Note
+            </Button>
+          </DialogFooter>
         </DialogContent>
       </Dialog>
     </div>
