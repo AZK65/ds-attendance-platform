@@ -14,8 +14,10 @@ export async function POST(request: NextRequest) {
     // Generate a short unique code
     const code = `EXAM-${Date.now().toString(36).toUpperCase().slice(-4)}-${Math.random().toString(36).slice(2, 5).toUpperCase()}`
 
-    // Shuffle question order for this exam
-    const questionOrder = shuffleArray(MODULE_5_QUESTIONS.map((_, i) => i))
+    // Shuffle question order AND option order per question for this exam
+    const questionIndices = shuffleArray(MODULE_5_QUESTIONS.map((_, i) => i))
+    const optionOrders: number[][] = questionIndices.map(() => shuffleArray([0, 1, 2, 3]))
+    const questionOrder = { questions: questionIndices, options: optionOrders }
 
     const exam = await prisma.exam.create({
       data: {

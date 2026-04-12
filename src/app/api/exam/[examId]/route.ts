@@ -28,14 +28,19 @@ export async function GET(
     }
 
     // For public access, only return basic info (no answers)
-    const questionOrder: number[] = JSON.parse(exam.questionOrder)
-    const questions = questionOrder.map(idx => {
+    const parsed = JSON.parse(exam.questionOrder)
+    // Support both old format (array) and new format (object with questions + options)
+    const questionIndices: number[] = Array.isArray(parsed) ? parsed : parsed.questions
+    const optionOrders: number[][] | null = Array.isArray(parsed) ? null : parsed.options
+
+    const questions = questionIndices.map((idx, i) => {
       const q = MODULE_5_QUESTIONS[idx]
+      const optOrder = optionOrders?.[i] || [0, 1, 2, 3]
       return {
         id: q.id,
         question: q.question,
         image: q.image || null,
-        options: q.options,
+        options: optOrder.map(oi => q.options[oi]),
         // Don't send correctAnswer to the client!
       }
     })
@@ -147,15 +152,21 @@ export async function POST(
         return NextResponse.json({ error: 'Already submitted' }, { status: 409 })
       }
 
-      // Grade the exam
-      const questionOrder: number[] = JSON.parse(exam.questionOrder)
+      // Grade the exam — account for shuffled options
+      const parsedOrder = JSON.parse(exam.questionOrder)
+      const qIndices: number[] = Array.isArray(parsedOrder) ? parsedOrder : parsedOrder.questions
+      const optOrders: number[][] | null = Array.isArray(parsedOrder) ? null : parsedOrder.options
       const studentAnswers: Record<string, number> = answers || JSON.parse(attempt.answers)
       let score = 0
 
-      for (let i = 0; i < questionOrder.length; i++) {
-        const questionIdx = questionOrder[i]
-        const correct = MODULE_5_QUESTIONS[questionIdx].correctAnswer
-        if (studentAnswers[String(i)] === correct) {
+      for (let i = 0; i < qIndices.length; i++) {
+        const questionIdx = qIndices[i]
+        const correctOriginalIdx = MODULE_5_QUESTIONS[questionIdx].correctAnswer
+        const optOrder = optOrders?.[i] || [0, 1, 2, 3]
+        // The student selected an index in the shuffled options
+        // We need to map it back: optOrder[studentAnswer] === correctOriginalIdx
+        const studentAnswer = studentAnswers[String(i)]
+        if (studentAnswer !== undefined && optOrder[studentAnswer] === correctOriginalIdx) {
           score++
         }
       }

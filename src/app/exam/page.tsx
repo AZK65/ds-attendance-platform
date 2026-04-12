@@ -86,29 +86,6 @@ export default function ExamPage() {
     return () => document.removeEventListener('visibilitychange', handleVisibility)
   }, [step, examId, attemptId, answers])
 
-  // Anti-cheat: request fullscreen when exam starts
-  useEffect(() => {
-    if (step !== 'exam') return
-    const requestFs = () => {
-      document.documentElement.requestFullscreen?.().catch(() => {})
-    }
-    // Small delay so the UI renders first
-    const timer = setTimeout(requestFs, 500)
-
-    const handleFsChange = () => {
-      if (!document.fullscreenElement && step === 'exam') {
-        setTabSwitches(prev => prev + 1)
-        setShowTabWarning(true)
-        setTimeout(() => setShowTabWarning(false), 5000)
-      }
-    }
-    document.addEventListener('fullscreenchange', handleFsChange)
-    return () => {
-      clearTimeout(timer)
-      document.removeEventListener('fullscreenchange', handleFsChange)
-    }
-  }, [step])
-
   // Anti-cheat: disable copy/paste/select
   useEffect(() => {
     if (step !== 'exam') return
@@ -125,13 +102,6 @@ export default function ExamPage() {
       document.removeEventListener('paste', prevent)
       document.removeEventListener('selectstart', prevent)
       document.removeEventListener('contextmenu', prevent)
-    }
-  }, [step])
-
-  // Exit fullscreen when exam ends
-  useEffect(() => {
-    if (step === 'result' || step === 'submitting') {
-      document.exitFullscreen?.().catch(() => {})
     }
   }, [step])
 
