@@ -47,7 +47,7 @@ export default function ExamMonitorPage() {
       if (!res.ok) throw new Error('Failed to fetch')
       return res.json()
     },
-    refetchInterval: 5000, // Poll every 5 seconds for live updates
+    refetchInterval: 2000, // Poll every 2 seconds for near-realtime updates
   })
 
   const copyLink = () => {
