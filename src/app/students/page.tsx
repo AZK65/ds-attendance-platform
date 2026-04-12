@@ -263,6 +263,18 @@ function StudentsPage() {
     }).catch(() => {})
   }
 
+  // MySQL database search (for students not in active groups)
+  const { data: dbSearchResults } = useQuery<{ students: Array<{ student_id: number; full_name: string; phone_number: string; city: string; permit_number: string }> }>({
+    queryKey: ['db-student-search', searchQuery],
+    queryFn: async () => {
+      const res = await fetch(`/api/students/search?q=${encodeURIComponent(searchQuery)}`)
+      if (!res.ok) return { students: [] }
+      return res.json()
+    },
+    enabled: searchQuery.trim().length >= 2,
+    staleTime: 30000,
+  })
+
   // Form state (manual add/edit)
   const [showForm, setShowForm] = useState(false)
   const [formData, setFormData] = useState<StudentFormData>(EMPTY_FORM)
@@ -1094,7 +1106,7 @@ function StudentsPage() {
               <div className="text-center py-8">
                 <p className="text-muted-foreground">No active students found in WhatsApp groups.</p>
               </div>
-            ) : filteredStudents.length === 0 ? (
+            ) : filteredStudents.length === 0 && (!dbSearchResults?.students?.length) ? (
               <div className="text-center py-8">
                 <p className="text-muted-foreground">No students match &ldquo;{searchQuery}&rdquo;</p>
               </div>
@@ -1239,6 +1251,37 @@ function StudentsPage() {
                 </Table>
               </div>
             )}
+
+            {/* MySQL Database Results — students not in active groups */}
+            {searchQuery.trim().length >= 2 && dbSearchResults?.students && dbSearchResults.students.length > 0 && (() => {
+              const activePhones = new Set(activeStudents.map(s => s.phone.slice(-10)))
+              const dbOnly = dbSearchResults.students.filter(s => {
+                const ph = (s.phone_number || '').replace(/\D/g, '').slice(-10)
+                return !activePhones.has(ph)
+              })
+              if (dbOnly.length === 0) return null
+              return (
+                <div className="mt-4 border-t pt-4">
+                  <p className="text-xs text-muted-foreground font-medium mb-2 uppercase tracking-wider">Also found in database ({dbOnly.length})</p>
+                  <div className="space-y-1">
+                    {dbOnly.map(s => (
+                      <div
+                        key={s.student_id}
+                        className="flex items-center justify-between p-2 rounded-lg hover:bg-accent/50 cursor-pointer transition-colors"
+                        onClick={() => router.push(`/students/${s.student_id}`)}
+                      >
+                        <div>
+                          <span className="font-medium text-sm">{s.full_name}</span>
+                          <span className="text-xs text-muted-foreground ml-2">{s.phone_number}</span>
+                          {s.city && <span className="text-xs text-muted-foreground ml-2">{s.city}</span>}
+                        </div>
+                        <Badge variant="outline" className="text-xs">DB Only</Badge>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )
+            })()}
           </CardContent>
         </Card>
       </motion.div>
