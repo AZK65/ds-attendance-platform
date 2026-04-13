@@ -24,7 +24,7 @@ import {
 import {
   Search, Loader2, FileText, ArrowLeft, X, Calendar,
   CreditCard, Link2, Eye, Copy, ExternalLink, CheckCircle2,
-  Banknote, Globe, User, Trash2, MoreVertical,
+  Banknote, Globe, User, Trash2, MoreVertical, Plus,
 } from 'lucide-react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
@@ -39,6 +39,7 @@ interface Invoice {
   studentAddress: string | null
   studentCity: string | null
   studentProvince: string | null
+  studentPostalCode: string | null
   invoiceDate: string
   dueDate: string | null
   lineItems: string
@@ -501,6 +502,25 @@ export default function InvoiceHistoryPage() {
                               </Button>
                               {menuOpenId === inv.id && (
                                 <div className="absolute right-0 top-8 z-50 bg-popover border rounded-lg shadow-lg py-1 min-w-[180px]">
+                                  {/* New invoice for same student */}
+                                  <button
+                                    className="w-full flex items-center gap-2 px-3 py-2 text-sm hover:bg-muted transition-colors"
+                                    onClick={() => {
+                                      setMenuOpenId(null)
+                                      const params = new URLSearchParams()
+                                      if (inv.studentName) params.set('studentName', inv.studentName)
+                                      if (inv.studentPhone) params.set('studentPhone', inv.studentPhone)
+                                      if (inv.studentAddress) params.set('studentAddress', inv.studentAddress)
+                                      if (inv.studentCity) params.set('studentCity', inv.studentCity)
+                                      if (inv.studentProvince) params.set('studentProvince', inv.studentProvince)
+                                      if (inv.studentPostalCode) params.set('studentPostalCode', inv.studentPostalCode)
+                                      if (inv.studentEmail) params.set('studentEmail', inv.studentEmail)
+                                      router.push(`/invoice?${params.toString()}`)
+                                    }}
+                                  >
+                                    <Plus className="h-3.5 w-3.5" />
+                                    New Invoice
+                                  </button>
                                   {/* View student profile */}
                                   {(() => {
                                     const profileLink = getStudentProfileLink(inv.studentPhone)
