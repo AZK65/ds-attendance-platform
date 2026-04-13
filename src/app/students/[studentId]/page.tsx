@@ -1,18 +1,23 @@
 'use client'
 
 import { useState, useMemo } from 'react'
-import { useParams } from 'next/navigation'
+import { useParams, useRouter } from 'next/navigation'
 import { useQuery } from '@tanstack/react-query'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import {
+  Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
+} from '@/components/ui/table'
+import {
   ArrowLeft, Loader2, Phone, MapPin, Mail, Calendar, CreditCard,
-  Award, Users, DollarSign, FileText, Receipt, Clock, ChevronDown,
-  ChevronUp, BookOpen, User, CheckCircle2, XCircle, ClipboardList,
+  Award, Users, DollarSign, FileText, Receipt, Clock, Plus,
+  BookOpen, GraduationCap, Database, CalendarDays, Download,
+  CheckCircle, XCircle, ChevronDown, ChevronUp, ClipboardList,
+  Shield,
 } from 'lucide-react'
 import Link from 'next/link'
-import { motion, AnimatePresence } from 'motion/react'
+import { motion } from 'motion/react'
 
 interface TeamupEvent {
   id: string
@@ -23,67 +28,34 @@ interface TeamupEvent {
   notes?: string
 }
 
-interface SubCalendar {
-  id: number
-  name: string
-}
+interface SubCalendar { id: number; name: string }
 
 interface StudentProfile {
   student: {
-    student_id: number
-    full_name: string
-    phone_number: string
-    permit_number: string
-    full_address: string
-    city: string
-    postal_code: string
-    email: string
-    dob: string
-    status: string
-    contract_number: number
-    user_defined_contract_number: number | null
+    student_id: number; full_name: string; phone_number: string; permit_number: string;
+    full_address: string; city: string; postal_code: string; email: string; dob: string;
+    status: string; contract_number: number; user_defined_contract_number: number | null;
   }
   localStudent: {
     id: string
     certificates: Array<{
-      id: string
-      certificateType: string
-      contractNumber: string | null
-      attestationNumber: string | null
-      generatedAt: string
+      id: string; certificateType: string; contractNumber: string | null;
+      attestationNumber: string | null; generatedAt: string;
     }>
   } | null
   invoices: Array<{
-    id: string
-    invoiceNumber: string
-    invoiceDate: string
-    total: number
-    paymentStatus: string
-    lineItems: string
+    id: string; invoiceNumber: string; invoiceDate: string; total: number;
+    paymentStatus: string; lineItems: string;
   }>
-  groups: Array<{
-    groupId: string
-    groupName: string
-    moduleNumber: number | null
-  }>
-  exams: Array<{
-    id: string
-    examCode: string
-    groupName: string
-    score: number | null
-    passed: boolean | null
-    totalQuestions: number
-    startedAt: string
-    submittedAt: string | null
-    timeExpired: boolean
+  groups: Array<{ groupId: string; groupName: string; moduleNumber: number | null }>
+  exams?: Array<{
+    id: string; examCode: string; groupName: string; score: number | null;
+    passed: boolean | null; totalQuestions: number; startedAt: string;
+    submittedAt: string | null; timeExpired: boolean;
   }>
   summary: {
-    totalInvoiced: number
-    totalPaid: number
-    openBalance: number
-    invoiceCount: number
-    certificateCount: number
-    groupCount: number
+    totalInvoiced: number; totalPaid: number; openBalance: number;
+    invoiceCount: number; certificateCount: number; groupCount: number;
   }
 }
 
@@ -98,11 +70,10 @@ function parseModuleFromTitle(title: string) {
 
 export default function StudentProfilePage() {
   const params = useParams()
+  const router = useRouter()
   const studentId = params.studentId as string
-  const [showAllPast, setShowAllPast] = useState(false)
   const [expandedInvoice, setExpandedInvoice] = useState<string | null>(null)
 
-  // Fetch student data from MySQL + SQLite
   const { data, isLoading } = useQuery<StudentProfile>({
     queryKey: ['student-profile', studentId],
     queryFn: async () => {
@@ -114,53 +85,43 @@ export default function StudentProfilePage() {
 
   const student = data?.student
   const phone = student?.phone_number?.replace(/\D/g, '') || ''
+  const displayName = student?.full_name || 'Unknown'
   const groupNames = data?.groups?.map(g => g.groupName) || []
 
-  // Fetch Teamup events for this student
-  // Search by full name, individual name parts, and phone — some events use shortened names
+  // Fetch Teamup events
   const { data: studentEvents = [], isLoading: loadingEvents } = useQuery<TeamupEvent[]>({
-    queryKey: ['student-events-standalone', student?.full_name, phone, groupNames],
+    queryKey: ['student-events-standalone', displayName, phone, groupNames],
     queryFn: async () => {
       const allEvents: TeamupEvent[] = []
       const seenIds = new Set<string>()
-
-      // Helper to fetch and merge
       const fetchEvents = async (p: URLSearchParams) => {
         const res = await fetch(`/api/scheduling/student-events?${p}`)
         if (!res.ok) return
         const events: TeamupEvent[] = await res.json()
-        for (const e of events) {
-          if (!seenIds.has(e.id)) { seenIds.add(e.id); allEvents.push(e) }
-        }
+        for (const e of events) { if (!seenIds.has(e.id)) { seenIds.add(e.id); allEvents.push(e) } }
       }
-
-      // Search by full name + phone + group names
-      const params1 = new URLSearchParams()
-      if (student?.full_name) params1.set('studentName', student.full_name)
-      if (phone) params1.set('phone', phone)
-      for (const gn of groupNames) { if (gn) params1.set('groupName', gn) }
-      await fetchEvents(params1)
-
-      // Also search by individual name parts (catches "Andres Inaki" when MySQL has "Aguilar Trejo Andres Inaki")
+      const p1 = new URLSearchParams()
+      if (student?.full_name) p1.set('studentName', student.full_name)
+      if (phone) p1.set('phone', phone)
+      for (const gn of groupNames) { if (gn) p1.set('groupName', gn) }
+      await fetchEvents(p1)
       if (student?.full_name) {
         const parts = student.full_name.trim().split(/\s+/).filter(p => p.length >= 3)
-        // Try last 2 parts (usually first + last name used for booking)
         if (parts.length >= 2) {
           const shortName = parts.slice(-2).join(' ')
           if (shortName !== student.full_name) {
-            const params2 = new URLSearchParams()
-            params2.set('studentName', shortName)
-            await fetchEvents(params2)
+            const p2 = new URLSearchParams()
+            p2.set('studentName', shortName)
+            await fetchEvents(p2)
           }
         }
       }
-
       return allEvents
     },
     enabled: !!student,
   })
 
-  // Fetch attendance for these events
+  // Fetch attendance
   const eventIds = studentEvents.map(e => e.id).join(',')
   const { data: attendanceMap = {} } = useQuery<Record<string, boolean>>({
     queryKey: ['class-attendance-standalone', eventIds],
@@ -184,239 +145,210 @@ export default function StudentProfilePage() {
     staleTime: 5 * 60 * 1000,
   })
 
-  const getTeacherName = (ids: number[]) => {
-    const t = subcalendars.find(s => ids.includes(s.id))
-    return t?.name?.split(' ')[0] || ''
-  }
+  const getTeacherName = (ids: number[]) => subcalendars.find(s => ids.includes(s.id))?.name?.split(' ')[0] || ''
 
-  // Split events
   const { upcomingEvents, pastEvents } = useMemo(() => {
     const now = new Date()
-    const upcoming = studentEvents.filter(e => new Date(e.start_dt) >= now)
-      .sort((a, b) => new Date(a.start_dt).getTime() - new Date(b.start_dt).getTime())
-    const past = studentEvents.filter(e => new Date(e.start_dt) < now)
-      .sort((a, b) => new Date(b.start_dt).getTime() - new Date(a.start_dt).getTime())
+    const upcoming = studentEvents.filter(e => new Date(e.start_dt) >= now).sort((a, b) => new Date(a.start_dt).getTime() - new Date(b.start_dt).getTime())
+    const past = studentEvents.filter(e => new Date(e.start_dt) < now).sort((a, b) => new Date(b.start_dt).getTime() - new Date(a.start_dt).getTime())
     return { upcomingEvents: upcoming, pastEvents: past }
   }, [studentEvents])
 
-  const age = student?.dob && student.dob !== '0000-00-00' && student.dob !== '2000-01-01'
-    ? Math.floor((Date.now() - new Date(student.dob).getTime()) / (365.25 * 24 * 60 * 60 * 1000))
-    : null
-
-  if (isLoading) {
-    return <main className="max-w-4xl mx-auto p-6 flex justify-center py-20"><Loader2 className="h-8 w-8 animate-spin text-muted-foreground" /></main>
-  }
-
-  if (!data || !student) {
-    return <main className="max-w-4xl mx-auto p-6"><p className="text-center text-muted-foreground py-20">Student not found</p></main>
-  }
+  if (isLoading) return <main className="max-w-3xl mx-auto p-6 flex justify-center py-20"><Loader2 className="h-8 w-8 animate-spin text-muted-foreground" /></main>
+  if (!data || !student) return <main className="max-w-3xl mx-auto p-6"><p className="text-center text-muted-foreground py-20">Student not found</p></main>
 
   const { invoices, groups, summary } = data
 
-  const formatEventDate = (dt: string) => {
-    const d = new Date(dt)
-    return d.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })
-  }
-  const formatEventTime = (dt: string) => {
-    return new Date(dt).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true })
+  const renderEventCard = (event: TeamupEvent) => {
+    const module = parseModuleFromTitle(event.title)
+    const teacher = getTeacherName(event.subcalendar_ids)
+    const startDt = new Date(event.start_dt)
+    const endDt = new Date(event.end_dt)
+    const dateStr = startDt.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })
+    const startTime = startDt.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true })
+    const endTime = endDt.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true })
+    const isPast = startDt < new Date()
+    const hasAttendance = event.id in attendanceMap
+    const isPresent = attendanceMap[event.id]
+
+    return (
+      <div key={event.id} className={`flex items-center justify-between p-3 rounded-lg border ${
+        isPast ? (hasAttendance ? (isPresent ? 'bg-green-50/50 dark:bg-green-950/10 border-green-200' : 'bg-red-50/50 dark:bg-red-950/10 border-red-200') : '') : 'bg-blue-50/50 dark:bg-blue-950/10 border-blue-200'
+      }`}>
+        <div className="flex items-center gap-3 min-w-0">
+          {isPast && hasAttendance ? (
+            isPresent ? <CheckCircle className="h-4 w-4 text-green-600 shrink-0" /> : <XCircle className="h-4 w-4 text-red-500 shrink-0" />
+          ) : isPast ? <div className="w-4 h-4 rounded-full border border-muted-foreground/30 shrink-0" /> : <CalendarDays className="h-4 w-4 text-blue-600 shrink-0" />}
+          <div className="min-w-0">
+            <p className="text-sm font-medium truncate">{event.title}</p>
+            <p className="text-xs text-muted-foreground">{dateStr} {startTime} - {endTime}{teacher ? ` with ${teacher}` : ''}</p>
+          </div>
+        </div>
+        <div className="flex items-center gap-2 shrink-0">
+          {hasAttendance && <Badge variant={isPresent ? 'default' : 'destructive'} className="text-xs">{isPresent ? 'Present' : 'Absent'}</Badge>}
+          {module && <Badge variant="outline" className="text-xs">M{module}</Badge>}
+        </div>
+      </div>
+    )
   }
 
   return (
-    <main className="max-w-4xl mx-auto p-4 sm:p-6 space-y-6">
-      {/* Header */}
-      <motion.div initial={{ opacity: 0, y: -10 }} animate={{ opacity: 1, y: 0 }} className="flex items-center gap-3">
-        <Link href="/students"><Button variant="ghost" size="icon"><ArrowLeft className="h-5 w-5" /></Button></Link>
-        <div className="flex-1">
-          <h1 className="text-2xl font-bold">{student.full_name}</h1>
-          <div className="flex items-center gap-3 text-sm text-muted-foreground mt-1">
-            {student.phone_number && <span className="flex items-center gap-1"><Phone className="h-3.5 w-3.5" /> {student.phone_number}</span>}
-            {student.city && <span className="flex items-center gap-1"><MapPin className="h-3.5 w-3.5" /> {student.city}</span>}
+    <main className="max-w-3xl mx-auto p-4 sm:p-6 space-y-6">
+      {/* Header — same as group profile */}
+      <motion.div initial={{ opacity: 0, y: -10 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.25 }}>
+        <Button variant="ghost" size="sm" asChild className="mb-4">
+          <Link href="/students"><ArrowLeft className="h-4 w-4 mr-1" /> Back to Students</Link>
+        </Button>
+
+        <div className="flex items-start justify-between gap-4">
+          <div className="min-w-0">
+            <h1 className="text-2xl font-bold truncate">{displayName}</h1>
+            <a href={`tel:+${phone}`} className="text-muted-foreground hover:text-primary flex items-center gap-1 mt-1">
+              <Phone className="h-4 w-4" /> +{phone}
+            </a>
+          </div>
+          <div className="flex gap-2 flex-wrap">
+            <Button variant="default" size="sm" asChild>
+              <Link href={`/scheduling?bookFor=${encodeURIComponent(displayName)}&phone=${encodeURIComponent(phone)}`}>
+                <CalendarDays className="h-4 w-4 mr-1" /> Book Class
+              </Link>
+            </Button>
+            <Button variant="outline" size="sm" asChild>
+              <Link href={`/certificate?studentName=${encodeURIComponent(displayName)}&studentPhone=${encodeURIComponent(phone)}`}>
+                <Award className="h-4 w-4 mr-1" /> Certificate
+              </Link>
+            </Button>
+            <Button variant="outline" size="sm" asChild>
+              <Link href={`/invoice?studentName=${encodeURIComponent(student.full_name)}&studentPhone=${encodeURIComponent(student.phone_number)}&studentAddress=${encodeURIComponent(student.full_address || '')}&studentCity=${encodeURIComponent(student.city || '')}&studentPostalCode=${encodeURIComponent(student.postal_code || '')}&studentEmail=${encodeURIComponent(student.email || '')}`}>
+                <Receipt className="h-4 w-4 mr-1" /> Invoice
+              </Link>
+            </Button>
           </div>
         </div>
-        <div className="flex gap-2">
-          <Link href={`/scheduling?bookFor=${encodeURIComponent(student.full_name)}&phone=${encodeURIComponent(student.phone_number)}`}>
-            <Button size="sm"><Calendar className="h-4 w-4 mr-1" /> Book Class</Button>
+      </motion.div>
+
+      {/* Info Cards — same 6-column layout */}
+      <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.1, duration: 0.25 }} className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
+        {groups.length > 0 ? (
+          <Link href={`/groups/${encodeURIComponent(groups[0].groupId)}`} className="p-3 border rounded-lg text-center hover:bg-accent/50 transition-colors cursor-pointer block">
+            <Users className="h-5 w-5 mx-auto text-muted-foreground mb-1" />
+            <p className="text-xs text-muted-foreground">Group</p>
+            <p className="font-medium text-sm truncate text-primary">{groups[0].groupName}</p>
           </Link>
-          <Link href={`/certificate?mode=database&search=${encodeURIComponent(student.full_name)}`}>
-            <Button variant="outline" size="sm"><Award className="h-4 w-4 mr-1" /> Certificate</Button>
-          </Link>
-          <Link href={`/invoice?studentName=${encodeURIComponent(student.full_name)}&studentPhone=${encodeURIComponent(student.phone_number)}`}>
-            <Button variant="outline" size="sm"><Receipt className="h-4 w-4 mr-1" /> Invoice</Button>
-          </Link>
+        ) : (
+          <div className="p-3 border rounded-lg text-center">
+            <Users className="h-5 w-5 mx-auto text-muted-foreground mb-1" />
+            <p className="text-xs text-muted-foreground">Group</p>
+            <p className="font-medium text-sm text-muted-foreground">None</p>
+          </div>
+        )}
+        <div className="p-3 border rounded-lg text-center">
+          <Shield className="h-5 w-5 mx-auto text-muted-foreground mb-1" />
+          <p className="text-xs text-muted-foreground">Status</p>
+          <p className="font-medium text-sm">{student.status || 'Active'}</p>
+        </div>
+        <div className="p-3 border rounded-lg text-center">
+          <CalendarDays className="h-5 w-5 mx-auto text-muted-foreground mb-1" />
+          <p className="text-xs text-muted-foreground">Classes</p>
+          <p className="font-medium text-sm">{studentEvents.length}</p>
+        </div>
+        <div className="p-3 border rounded-lg text-center">
+          <GraduationCap className="h-5 w-5 mx-auto text-muted-foreground mb-1" />
+          <p className="text-xs text-muted-foreground">Attendance</p>
+          <p className="font-medium text-sm">{Object.keys(attendanceMap).length > 0 ? `${Math.round((Object.values(attendanceMap).filter(v => v).length / Object.keys(attendanceMap).length) * 100)}%` : '-'}</p>
+        </div>
+        <div className="p-3 border rounded-lg text-center">
+          <DollarSign className="h-5 w-5 mx-auto text-muted-foreground mb-1" />
+          <p className="text-xs text-muted-foreground">Invoiced</p>
+          <p className="font-medium text-sm">${summary.totalInvoiced.toFixed(2)}</p>
+        </div>
+        <div className={`p-3 border rounded-lg text-center ${summary.openBalance > 0 ? 'border-amber-300 bg-amber-50 dark:bg-amber-950/30' : ''}`}>
+          <CreditCard className={`h-5 w-5 mx-auto mb-1 ${summary.openBalance > 0 ? 'text-amber-600' : 'text-green-600'}`} />
+          <p className="text-xs text-muted-foreground">Balance</p>
+          <p className={`font-medium text-sm ${summary.openBalance > 0 ? 'text-amber-700' : 'text-green-700'}`}>
+            {summary.openBalance > 0 ? `$${summary.openBalance.toFixed(2)}` : 'Paid up'}
+          </p>
         </div>
       </motion.div>
 
-      {/* Stats Cards */}
-      <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.1 }} className="grid grid-cols-2 sm:grid-cols-6 gap-3">
-        {(() => {
-          const presentCount = Object.values(attendanceMap).filter(v => v === true).length
-          const totalAttendance = Object.keys(attendanceMap).length
-          const attendanceRate = totalAttendance > 0 ? `${Math.round((presentCount / totalAttendance) * 100)}%` : '-'
-          return [
-            { label: 'Groups', value: summary.groupCount, icon: Users, color: 'text-blue-600' },
-            { label: 'Classes', value: upcomingEvents.length + pastEvents.length, icon: BookOpen, color: 'text-indigo-600' },
-            { label: 'Attendance', value: attendanceRate, icon: CheckCircle2, color: 'text-emerald-600' },
-            { label: 'Invoiced', value: formatCurrency(summary.totalInvoiced), icon: DollarSign, color: 'text-green-600' },
-            { label: 'Balance', value: summary.openBalance > 0 ? formatCurrency(summary.openBalance) : 'Paid up', icon: CreditCard, color: summary.openBalance > 0 ? 'text-amber-600' : 'text-green-600' },
-            { label: 'Certificates', value: summary.certificateCount, icon: Award, color: 'text-purple-600' },
-          ]
-        })().map((stat, i) => (
-          <motion.div key={stat.label} initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.15 + i * 0.04 }}>
-            <Card><CardContent className="p-3 text-center">
-              <stat.icon className={`h-5 w-5 mx-auto mb-1 ${stat.color}`} />
-              <p className="text-xs text-muted-foreground">{stat.label}</p>
-              <p className="font-semibold text-sm">{stat.value}</p>
-            </CardContent></Card>
-          </motion.div>
-        ))}
-      </motion.div>
-
-      {/* Student Details */}
-      <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.2 }}>
-        <Card>
-          <CardHeader><CardTitle className="text-base flex items-center gap-2"><User className="h-4 w-4" /> Student Profile</CardTitle></CardHeader>
-          <CardContent>
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-sm">
-              <div><p className="text-muted-foreground">Full Name</p><p className="font-medium">{student.full_name}</p></div>
-              <div><p className="text-muted-foreground">Phone</p><p className="font-medium">{student.phone_number || '-'}</p></div>
-              <div><p className="text-muted-foreground">Email</p><p className="font-medium">{student.email ? <span className="flex items-center gap-1"><Mail className="h-3.5 w-3.5" /> {student.email}</span> : '-'}</p></div>
-              <div><p className="text-muted-foreground">Date of Birth</p><p className="font-medium">{student.dob && student.dob !== '0000-00-00' ? student.dob : '-'}{age ? <span className="text-muted-foreground ml-1">({age} yrs)</span> : ''}</p></div>
-              <div className="sm:col-span-2"><p className="text-muted-foreground">Address</p><p className="font-medium">{[student.full_address, student.city, student.postal_code].filter(Boolean).join(', ') || '-'}</p></div>
-              <div><p className="text-muted-foreground">Permit Number</p><p className="font-mono font-medium">{student.permit_number || '-'}</p></div>
-              <div><p className="text-muted-foreground">Contract / Attestation</p><p className="font-mono font-medium">{student.user_defined_contract_number || '-'} / {student.contract_number || '-'}</p></div>
-            </div>
-          </CardContent>
-        </Card>
-      </motion.div>
-
-      {/* Upcoming Classes */}
-      <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.25 }}>
-        <Card>
-          <CardHeader><CardTitle className="text-base flex items-center gap-2"><Calendar className="h-4 w-4" /> Upcoming Classes</CardTitle></CardHeader>
-          <CardContent>
-            {loadingEvents ? (
-              <div className="flex justify-center py-4"><Loader2 className="h-5 w-5 animate-spin text-muted-foreground" /></div>
-            ) : upcomingEvents.length === 0 ? (
-              <p className="text-sm text-muted-foreground text-center py-4">No upcoming classes scheduled</p>
-            ) : (
-              <div className="space-y-2">
-                {upcomingEvents.map(event => {
-                  const module = parseModuleFromTitle(event.title)
-                  const teacher = getTeacherName(event.subcalendar_ids)
-                  return (
-                    <div key={event.id} className="flex items-center justify-between p-3 rounded-lg bg-green-50 dark:bg-green-950/20 border border-green-200 dark:border-green-900">
-                      <div>
-                        <p className="font-medium text-sm">{event.title}</p>
-                        <p className="text-xs text-muted-foreground">{formatEventDate(event.start_dt)} {formatEventTime(event.start_dt)} - {formatEventTime(event.end_dt)}{teacher ? ` with ${teacher}` : ''}</p>
-                      </div>
-                      {module && <Badge variant="secondary">M{module}</Badge>}
-                    </div>
-                  )
-                })}
-              </div>
-            )}
-          </CardContent>
-        </Card>
-      </motion.div>
-
-      {/* Past Classes */}
-      <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.3 }}>
+      {/* Database Profile Card */}
+      <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.15, duration: 0.25 }}>
         <Card>
           <CardHeader>
-            <div className="flex items-center justify-between">
-              <CardTitle className="text-base flex items-center gap-2"><Clock className="h-4 w-4" /> Past Classes</CardTitle>
-              {pastEvents.length > 5 && (
-                <Button variant="ghost" size="sm" onClick={() => setShowAllPast(!showAllPast)}>
-                  {showAllPast ? <><ChevronUp className="h-4 w-4 mr-1" /> Show Less</> : <><ChevronDown className="h-4 w-4 mr-1" /> Show All ({pastEvents.length})</>}
-                </Button>
-              )}
-            </div>
+            <CardTitle className="flex items-center gap-2 text-lg">
+              <Database className="h-5 w-5" /> Student Profile
+              <Badge variant="outline" className="ml-auto text-xs text-blue-600 border-blue-200">Matched from DB</Badge>
+            </CardTitle>
           </CardHeader>
           <CardContent>
-            {loadingEvents ? (
-              <div className="flex justify-center py-4"><Loader2 className="h-5 w-5 animate-spin text-muted-foreground" /></div>
-            ) : pastEvents.length === 0 ? (
-              <p className="text-sm text-muted-foreground text-center py-4">No past classes found</p>
-            ) : (
-              <div className="space-y-1.5">
-                {(showAllPast ? pastEvents : pastEvents.slice(0, 5)).map(event => {
-                  const module = parseModuleFromTitle(event.title)
-                  const teacher = getTeacherName(event.subcalendar_ids)
-                  const isPresent = attendanceMap[event.id]
-                  const hasAttendance = event.id in attendanceMap
-                  return (
-                    <div key={event.id} className="flex items-center justify-between p-2.5 rounded-lg hover:bg-muted/50 transition-colors">
-                      <div className="flex items-center gap-2">
-                        {hasAttendance ? (
-                          isPresent ? <CheckCircle2 className="h-4 w-4 text-green-600 shrink-0" /> : <XCircle className="h-4 w-4 text-red-500 shrink-0" />
-                        ) : (
-                          <div className="w-4 h-4 rounded-full border border-muted-foreground/30 shrink-0" />
-                        )}
-                        <div>
-                          <p className="font-medium text-sm">{event.title}</p>
-                          <p className="text-xs text-muted-foreground">{formatEventDate(event.start_dt)} {formatEventTime(event.start_dt)} - {formatEventTime(event.end_dt)}{teacher ? ` with ${teacher}` : ''}</p>
-                        </div>
-                      </div>
-                      <div className="flex items-center gap-2">
-                        {hasAttendance && (
-                          <Badge variant={isPresent ? 'default' : 'destructive'} className="text-xs">
-                            {isPresent ? 'Present' : 'Absent'}
-                          </Badge>
-                        )}
-                        {module && <Badge variant="outline" className="text-xs">M{module}</Badge>}
-                      </div>
-                    </div>
-                  )
-                })}
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div className="space-y-3">
+                <div><p className="text-xs text-muted-foreground">Full Name</p><p className="font-medium">{student.full_name}</p></div>
+                {student.permit_number && (
+                  <div className="flex items-center gap-2">
+                    <CreditCard className="h-4 w-4 text-muted-foreground" />
+                    <div><p className="text-xs text-muted-foreground">Permit Number</p><p className="text-sm">{student.permit_number}</p></div>
+                  </div>
+                )}
+                {(student.contract_number || student.user_defined_contract_number) && (
+                  <div className="flex items-center gap-2">
+                    <FileText className="h-4 w-4 text-muted-foreground" />
+                    <div><p className="text-xs text-muted-foreground">Contract #</p><p className="text-sm">{student.user_defined_contract_number || student.contract_number}</p></div>
+                  </div>
+                )}
+                {student.dob && student.dob !== '0000-00-00' && (
+                  <div><p className="text-xs text-muted-foreground">Date of Birth</p><p className="text-sm">{new Date(student.dob).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })}</p></div>
+                )}
               </div>
-            )}
+              <div className="space-y-3">
+                {student.email && (
+                  <div className="flex items-center gap-2">
+                    <Mail className="h-4 w-4 text-muted-foreground" />
+                    <div><p className="text-xs text-muted-foreground">Email</p><p className="text-sm">{student.email}</p></div>
+                  </div>
+                )}
+                {(student.full_address || student.city) && (
+                  <div className="flex items-center gap-2">
+                    <MapPin className="h-4 w-4 text-muted-foreground flex-shrink-0" />
+                    <div><p className="text-xs text-muted-foreground">Address</p><p className="text-sm">{[student.full_address, student.city, student.postal_code].filter(Boolean).join(', ')}</p></div>
+                  </div>
+                )}
+                {student.status && (
+                  <div><p className="text-xs text-muted-foreground">Status</p><Badge variant="secondary" className="text-xs mt-0.5">{student.status}</Badge></div>
+                )}
+              </div>
+            </div>
           </CardContent>
         </Card>
       </motion.div>
 
-      {/* Groups */}
-      {groups.length > 0 && (
-        <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.35 }}>
-          <Card>
-            <CardHeader><CardTitle className="text-base flex items-center gap-2"><Users className="h-4 w-4" /> Groups</CardTitle></CardHeader>
-            <CardContent>
-              <div className="space-y-1.5">
-                {groups.map(g => (
-                  <Link key={g.groupId} href={`/groups/${encodeURIComponent(g.groupId)}`}>
-                    <div className="flex items-center justify-between p-2.5 rounded-lg hover:bg-muted transition-colors">
-                      <span className="font-medium text-sm">{g.groupName}</span>
-                      {g.moduleNumber && <Badge variant="secondary">Module {g.moduleNumber}</Badge>}
-                    </div>
-                  </Link>
-                ))}
-              </div>
-            </CardContent>
-          </Card>
-        </motion.div>
-      )}
-
-      {/* Certificates */}
+      {/* Certificate Info */}
       {data.localStudent && data.localStudent.certificates.length > 0 && (
-        <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.4 }}>
+        <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.2, duration: 0.25 }}>
           <Card>
-            <CardHeader><CardTitle className="text-base flex items-center gap-2"><Award className="h-4 w-4" /> Certificates</CardTitle></CardHeader>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2 text-lg">
+                <Award className="h-5 w-5" /> Certificate Info
+                <Badge variant="secondary" className="ml-auto text-xs">{data.localStudent.certificates.length}</Badge>
+              </CardTitle>
+            </CardHeader>
             <CardContent>
-              <div className="space-y-1.5">
+              <div className="space-y-3">
                 {data.localStudent.certificates.map(cert => (
-                  <div key={cert.id} className="flex items-center justify-between p-2.5 rounded-lg bg-muted/50">
-                    <div className="flex items-center gap-2">
-                      <Badge variant={cert.certificateType === 'full' ? 'default' : 'secondary'} className="text-xs">
-                        {cert.certificateType === 'full' ? 'Full' : 'Phase 1'}
-                      </Badge>
-                      <span className="text-sm">
-                        Contract: <span className="font-mono">{cert.contractNumber || '-'}</span>
-                        {' / '}
-                        Att: <span className="font-mono">{cert.attestationNumber || '-'}</span>
-                      </span>
+                  <div key={cert.id} className="flex items-center justify-between p-3 rounded-lg border bg-muted/30 gap-3">
+                    <div className="flex items-center gap-3 min-w-0">
+                      <div className={`w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0 ${cert.certificateType === 'full' ? 'bg-green-100 dark:bg-green-950' : 'bg-blue-100 dark:bg-blue-950'}`}>
+                        <GraduationCap className={`h-4 w-4 ${cert.certificateType === 'full' ? 'text-green-600' : 'text-blue-600'}`} />
+                      </div>
+                      <div className="min-w-0">
+                        <p className="text-sm font-medium">{cert.certificateType === 'full' ? 'Full Certificate' : 'Learners Certificate'}</p>
+                        <p className="text-xs text-muted-foreground">{new Date(cert.generatedAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}</p>
+                        <div className="flex flex-wrap gap-x-3 mt-0.5">
+                          {cert.contractNumber && <p className="text-xs"><span className="text-muted-foreground">Contract: </span><span className="font-mono font-medium">{cert.contractNumber}</span></p>}
+                          {cert.attestationNumber && <p className="text-xs"><span className="text-muted-foreground">Attestation: </span><span className="font-mono font-medium">{cert.attestationNumber}</span></p>}
+                        </div>
+                      </div>
                     </div>
-                    <span className="text-xs text-muted-foreground">
-                      {new Date(cert.generatedAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
-                    </span>
                   </div>
                 ))}
               </div>
@@ -425,64 +357,120 @@ export default function StudentProfilePage() {
         </motion.div>
       )}
 
-      {/* Invoices */}
+      {/* Upcoming Classes */}
+      <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.2, duration: 0.25 }}>
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2 text-lg">
+              <CalendarDays className="h-5 w-5" /> Upcoming Classes
+              {upcomingEvents.length > 0 && <Badge variant="secondary" className="ml-auto">{upcomingEvents.length}</Badge>}
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            {loadingEvents ? (
+              <div className="flex items-center justify-center py-8"><Loader2 className="h-5 w-5 animate-spin mr-2" /><span className="text-muted-foreground">Loading schedule...</span></div>
+            ) : upcomingEvents.length === 0 ? (
+              <p className="text-muted-foreground text-center py-6">No upcoming classes scheduled</p>
+            ) : (
+              <div className="space-y-2">{upcomingEvents.map(renderEventCard)}</div>
+            )}
+          </CardContent>
+        </Card>
+      </motion.div>
+
+      {/* Past Classes */}
+      <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.3, duration: 0.25 }}>
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2 text-lg">
+              <Clock className="h-5 w-5" /> Past Classes
+              {pastEvents.length > 0 && <Badge variant="secondary" className="ml-auto">{pastEvents.length}</Badge>}
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            {loadingEvents ? (
+              <div className="flex items-center justify-center py-8"><Loader2 className="h-5 w-5 animate-spin mr-2" /><span className="text-muted-foreground">Loading...</span></div>
+            ) : pastEvents.length === 0 ? (
+              <p className="text-muted-foreground text-center py-6">No past classes found</p>
+            ) : (
+              <div className="space-y-2">
+                {pastEvents.slice(0, 20).map(renderEventCard)}
+                {pastEvents.length > 20 && <p className="text-sm text-muted-foreground text-center pt-2">Showing 20 of {pastEvents.length} past classes</p>}
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      </motion.div>
+
+      {/* Invoice History */}
       {invoices.length > 0 && (
-        <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.45 }}>
+        <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.4, duration: 0.25 }}>
           <Card>
             <CardHeader>
-              <CardTitle className="text-base flex items-center gap-2">
-                <FileText className="h-4 w-4" /> Invoices
-                <Badge variant="secondary" className="ml-auto">{formatCurrency(summary.totalInvoiced)}</Badge>
+              <CardTitle className="flex items-center gap-2 text-lg">
+                <Receipt className="h-5 w-5" /> Invoice History
+                <Badge variant="secondary" className="ml-auto">{invoices.length}</Badge>
+                <span className="text-sm font-normal text-muted-foreground ml-2">
+                  Total: {formatCurrency(summary.totalInvoiced)} | Paid: {formatCurrency(summary.totalPaid)}
+                </span>
               </CardTitle>
             </CardHeader>
             <CardContent>
-              <div className="space-y-1.5">
+              <div className="space-y-2">
                 {invoices.map(inv => {
-                  let items: Array<{ description: string; quantity: number; unitPrice: number }> = []
-                  try { items = JSON.parse(inv.lineItems) } catch { /* skip */ }
+                  let lineItems: Array<{ description: string; quantity: number; unitPrice: number }> = []
+                  try { lineItems = JSON.parse(inv.lineItems) } catch { /* skip */ }
+                  const isExpanded = expandedInvoice === inv.id
 
                   return (
                     <div key={inv.id}>
-                      <Link href={`/invoice/${inv.id}`}>
-                        <div
-                          className="flex items-center justify-between p-2.5 rounded-lg hover:bg-muted transition-colors cursor-pointer"
-                          onClick={(e) => { if (items.length > 0) { e.preventDefault(); setExpandedInvoice(expandedInvoice === inv.id ? null : inv.id) } }}
-                        >
-                          <div className="flex items-center gap-3">
-                            <span className="font-mono text-sm font-medium">#{inv.invoiceNumber}</span>
-                            <span className="text-xs text-muted-foreground">{inv.invoiceDate}</span>
-                          </div>
-                          <div className="flex items-center gap-2">
-                            <span className="font-medium text-sm">{formatCurrency(inv.total)}</span>
-                            <Badge variant={inv.paymentStatus === 'paid' ? 'default' : 'secondary'} className="text-xs">
-                              {inv.paymentStatus}
-                            </Badge>
-                            {items.length > 0 && (expandedInvoice === inv.id ? <ChevronUp className="h-3.5 w-3.5" /> : <ChevronDown className="h-3.5 w-3.5" />)}
+                      <div
+                        className="flex items-center justify-between p-3 rounded-lg border hover:bg-muted/50 transition-colors cursor-pointer"
+                        onClick={() => setExpandedInvoice(isExpanded ? null : inv.id)}
+                      >
+                        <div className="flex items-center gap-3 min-w-0">
+                          <FileText className="h-4 w-4 text-muted-foreground flex-shrink-0" />
+                          <div className="min-w-0">
+                            <p className="text-sm font-medium">Invoice #{inv.invoiceNumber}</p>
+                            <p className="text-xs text-muted-foreground">{inv.invoiceDate}</p>
                           </div>
                         </div>
-                      </Link>
-                      <AnimatePresence>
-                        {expandedInvoice === inv.id && items.length > 0 && (
-                          <motion.div
-                            initial={{ height: 0, opacity: 0 }}
-                            animate={{ height: 'auto', opacity: 1 }}
-                            exit={{ height: 0, opacity: 0 }}
-                            className="overflow-hidden"
-                          >
-                            <div className="pl-6 pr-2 pb-2 space-y-1">
-                              {items.map((li, i) => (
-                                <div key={i} className="flex justify-between text-xs text-muted-foreground">
-                                  <span>{li.description} x{li.quantity}</span>
-                                  <span>{formatCurrency(li.unitPrice * li.quantity)}</span>
-                                </div>
+                        <div className="flex items-center gap-2 shrink-0">
+                          <span className="font-medium text-sm">{formatCurrency(inv.total)}</span>
+                          <Badge variant={inv.paymentStatus === 'paid' ? 'default' : inv.paymentStatus === 'refunded' ? 'secondary' : 'outline'}
+                            className={`text-xs ${inv.paymentStatus === 'paid' ? 'bg-green-100 text-green-800' : inv.paymentStatus === 'refunded' ? 'bg-purple-100 text-purple-800' : 'text-orange-600'}`}>
+                            {inv.paymentStatus}
+                          </Badge>
+                          {lineItems.length > 0 && (isExpanded ? <ChevronUp className="h-3.5 w-3.5" /> : <ChevronDown className="h-3.5 w-3.5" />)}
+                        </div>
+                      </div>
+                      {isExpanded && lineItems.length > 0 && (
+                        <div className="ml-7 mr-3 mt-1 mb-2 p-2 bg-muted/30 rounded text-xs">
+                          <table className="w-full">
+                            <thead><tr className="text-muted-foreground"><th className="text-left py-1">Item</th><th className="text-center py-1">Qty</th><th className="text-right py-1">Price</th><th className="text-right py-1">Total</th></tr></thead>
+                            <tbody>
+                              {lineItems.map((item, idx) => (
+                                <tr key={idx} className="border-t border-muted">
+                                  <td className="py-1">{item.description}</td>
+                                  <td className="text-center py-1">{item.quantity}</td>
+                                  <td className="text-right py-1">${item.unitPrice.toFixed(2)}</td>
+                                  <td className="text-right py-1">${(item.quantity * item.unitPrice).toFixed(2)}</td>
+                                </tr>
                               ))}
-                            </div>
-                          </motion.div>
-                        )}
-                      </AnimatePresence>
+                            </tbody>
+                          </table>
+                        </div>
+                      )}
                     </div>
                   )
                 })}
+                <div className="flex justify-center">
+                  <Button variant="outline" size="sm" asChild>
+                    <Link href={`/invoice?studentName=${encodeURIComponent(student.full_name)}&studentPhone=${encodeURIComponent(student.phone_number)}&studentAddress=${encodeURIComponent(student.full_address || '')}&studentCity=${encodeURIComponent(student.city || '')}&studentPostalCode=${encodeURIComponent(student.postal_code || '')}&studentEmail=${encodeURIComponent(student.email || '')}`}>
+                      <Plus className="h-4 w-4 mr-1" /> Create Invoice
+                    </Link>
+                  </Button>
+                </div>
               </div>
             </CardContent>
           </Card>
@@ -491,31 +479,27 @@ export default function StudentProfilePage() {
 
       {/* Exam Results */}
       {data.exams && data.exams.length > 0 && (
-        <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.5 }}>
+        <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.5, duration: 0.25 }}>
           <Card>
-            <CardHeader><CardTitle className="text-base flex items-center gap-2"><ClipboardList className="h-4 w-4" /> Exam Results</CardTitle></CardHeader>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2 text-lg"><ClipboardList className="h-5 w-5" /> Exam Results</CardTitle>
+            </CardHeader>
             <CardContent>
               <div className="space-y-2">
                 {data.exams.map(exam => (
                   <div key={exam.id} className={`flex items-center justify-between p-3 rounded-lg ${
                     exam.passed ? 'bg-green-50 dark:bg-green-950/10 border border-green-200' :
-                    exam.passed === false ? 'bg-red-50 dark:bg-red-950/10 border border-red-200' :
-                    'bg-muted/50 border'
+                    exam.passed === false ? 'bg-red-50 dark:bg-red-950/10 border border-red-200' : 'bg-muted/50 border'
                   }`}>
                     <div>
                       <p className="font-medium text-sm">{exam.groupName}</p>
                       <p className="text-xs text-muted-foreground">
-                        Code: {exam.examCode} — {exam.submittedAt
-                          ? new Date(exam.submittedAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
-                          : 'In progress'
-                        }
+                        Code: {exam.examCode} — {exam.submittedAt ? new Date(exam.submittedAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : 'In progress'}
                         {exam.timeExpired && ' (time expired)'}
                       </p>
                     </div>
                     <div className="flex items-center gap-2">
-                      {exam.score !== null && (
-                        <span className="font-mono font-bold text-sm">{exam.score}/{exam.totalQuestions}</span>
-                      )}
+                      {exam.score !== null && <span className="font-mono font-bold text-sm">{exam.score}/{exam.totalQuestions}</span>}
                       {exam.passed === true && <Badge className="bg-green-600">Passed</Badge>}
                       {exam.passed === false && <Badge variant="destructive">Failed</Badge>}
                       {exam.passed === null && <Badge variant="secondary">In Progress</Badge>}
