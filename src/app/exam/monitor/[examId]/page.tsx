@@ -161,7 +161,11 @@ export default function ExamMonitorPage() {
                   >
                     <div className="flex items-center justify-between mb-2">
                       <div className="flex items-center gap-2">
-                        <span className="font-medium">{student.name}</span>
+                        {student.submittedAt ? (
+                          <Link href={`/exam/review/${student.id}`} className="font-medium text-primary hover:underline">{student.name}</Link>
+                        ) : (
+                          <span className="font-medium">{student.name}</span>
+                        )}
                         {student.phone && <span className="text-xs text-muted-foreground">{student.phone}</span>}
                       </div>
                       <div className="flex items-center gap-2">

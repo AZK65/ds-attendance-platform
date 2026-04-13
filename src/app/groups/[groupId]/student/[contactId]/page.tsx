@@ -832,11 +832,11 @@ export default function StudentDetailPage() {
           {(() => {
             const exams = profileData?.exams || []
             const latestExam = exams[0]
-            return (
+            const cardContent = (
               <div className={`p-3 border rounded-lg text-center ${
                 latestExam?.passed ? 'border-green-300 bg-green-50 dark:bg-green-950/30' :
                 latestExam?.passed === false ? 'border-red-300 bg-red-50 dark:bg-red-950/30' : ''
-              }`}>
+              } ${latestExam?.id ? 'hover:bg-accent/50 transition-colors cursor-pointer' : ''}`}>
                 <ClipboardList className={`h-5 w-5 mx-auto mb-1 ${
                   latestExam?.passed ? 'text-green-600' :
                   latestExam?.passed === false ? 'text-red-600' : 'text-muted-foreground'
@@ -852,6 +852,9 @@ export default function StudentDetailPage() {
                 </p>
               </div>
             )
+            return latestExam?.id ? (
+              <Link href={`/exam/review/${latestExam.id}`}>{cardContent}</Link>
+            ) : cardContent
           })()}
         </motion.div>
       )}
@@ -1377,7 +1380,7 @@ export default function StudentDetailPage() {
             <CardContent>
               <div className="space-y-2">
                 {profileData.exams.map((exam: { id: string; examCode: string; groupName: string; score: number | null; passed: boolean | null; totalQuestions: number; startedAt: string; submittedAt: string | null; timeExpired: boolean }) => (
-                  <div key={exam.id} className={`flex items-center justify-between p-3 rounded-lg ${
+                  <Link key={exam.id} href={`/exam/review/${exam.id}`} className={`flex items-center justify-between p-3 rounded-lg hover:opacity-80 transition-opacity ${
                     exam.passed ? 'bg-green-50 dark:bg-green-950/10 border border-green-200' :
                     exam.passed === false ? 'bg-red-50 dark:bg-red-950/10 border border-red-200' :
                     'bg-muted/50 border'
@@ -1400,7 +1403,7 @@ export default function StudentDetailPage() {
                       {exam.passed === false && <Badge variant="destructive">Failed</Badge>}
                       {exam.passed === null && <Badge variant="secondary">In Progress</Badge>}
                     </div>
-                  </div>
+                  </Link>
                 ))}
               </div>
             </CardContent>
