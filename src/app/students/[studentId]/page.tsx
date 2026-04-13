@@ -121,6 +121,38 @@ export default function StudentProfilePage() {
     enabled: !!student,
   })
 
+  // Fetch Zoom theory classes
+  const { data: theoryClasses = [] } = useQuery<Array<{ moduleNumber: number; date: string; meetingUUID: string; groupId: string; zoomName: string; status: string }>>({
+    queryKey: ['student-theory-standalone', phone, displayName],
+    queryFn: async () => {
+      const params = new URLSearchParams()
+      if (phone) params.set('phone', phone)
+      if (displayName && displayName !== phone) params.set('name', displayName)
+      const res = await fetch(`/api/scheduling/student-theory?${params}`)
+      if (!res.ok) return []
+      return res.json()
+    },
+    enabled: !!phone,
+  })
+
+  // Also fetch profile data for more reliable invoice/exam matching
+  const { data: profileData } = useQuery<{
+    invoices: Array<{ id: string; invoiceNumber: string; invoiceDate: string; total: number; paymentStatus: string; lineItems: string; studentAddress?: string; studentCity?: string; studentPostalCode?: string; studentEmail?: string }>
+    exams?: Array<{ id: string; examCode: string; groupName: string; score: number | null; passed: boolean | null; totalQuestions: number; startedAt: string; submittedAt: string | null; timeExpired: boolean }>
+    summary: { totalInvoiced: number; totalPaid: number; openBalance: number }
+  }>({
+    queryKey: ['student-profile-data', phone, displayName],
+    queryFn: async () => {
+      const params = new URLSearchParams()
+      if (phone) params.set('phone', phone)
+      if (displayName && displayName !== phone) params.set('name', displayName)
+      const res = await fetch(`/api/students/profile?${params}`)
+      if (!res.ok) return null
+      return res.json()
+    },
+    enabled: !!phone,
+  })
+
   // Fetch attendance
   const eventIds = studentEvents.map(e => e.id).join(',')
   const { data: attendanceMap = {} } = useQuery<Record<string, boolean>>({
@@ -147,17 +179,45 @@ export default function StudentProfilePage() {
 
   const getTeacherName = (ids: number[]) => subcalendars.find(s => ids.includes(s.id))?.name?.split(' ')[0] || ''
 
+  // Merge Teamup events + Zoom theory classes
   const { upcomingEvents, pastEvents } = useMemo(() => {
     const now = new Date()
     const upcoming = studentEvents.filter(e => new Date(e.start_dt) >= now).sort((a, b) => new Date(a.start_dt).getTime() - new Date(b.start_dt).getTime())
-    const past = studentEvents.filter(e => new Date(e.start_dt) < now).sort((a, b) => new Date(b.start_dt).getTime() - new Date(a.start_dt).getTime())
+    const past = studentEvents.filter(e => new Date(e.start_dt) < now)
+
+    // Add Zoom theory classes to past events (if not already there)
+    for (const tc of theoryClasses) {
+      const tcDate = new Date(tc.date)
+      const alreadyExists = past.some(e => {
+        const mod = parseModuleFromTitle(e.title)
+        return mod === String(tc.moduleNumber) && Math.abs(new Date(e.start_dt).getTime() - tcDate.getTime()) < 24 * 60 * 60 * 1000
+      })
+      if (!alreadyExists) {
+        const isAbsent = tc.status === 'absent'
+        past.push({
+          id: `theory-${tc.moduleNumber}-${tc.meetingUUID}`,
+          title: `M${tc.moduleNumber} - ${displayName}${isAbsent ? ' (ABSENT)' : ''}`,
+          start_dt: tc.date,
+          end_dt: tc.date,
+          subcalendar_ids: [],
+          notes: `Zoom Theory Class\nModule ${tc.moduleNumber}`,
+        })
+      }
+    }
+
+    past.sort((a, b) => new Date(b.start_dt).getTime() - new Date(a.start_dt).getTime())
     return { upcomingEvents: upcoming, pastEvents: past }
-  }, [studentEvents])
+  }, [studentEvents, theoryClasses, displayName])
 
   if (isLoading) return <main className="max-w-3xl mx-auto p-6 flex justify-center py-20"><Loader2 className="h-8 w-8 animate-spin text-muted-foreground" /></main>
   if (!data || !student) return <main className="max-w-3xl mx-auto p-6"><p className="text-center text-muted-foreground py-20">Student not found</p></main>
 
   const { invoices, groups, summary } = data
+
+  // Use profile data for invoices/exams if the main API didn't find them
+  const mergedInvoices = invoices.length > 0 ? invoices : (profileData?.invoices || [])
+  const mergedExams = (data.exams && data.exams.length > 0) ? data.exams : (profileData?.exams || [])
+  const mergedSummary = invoices.length > 0 ? summary : (profileData?.summary ? { ...summary, totalInvoiced: profileData.summary.totalInvoiced, totalPaid: profileData.summary.totalPaid, openBalance: profileData.summary.openBalance } : summary)
 
   const renderEventCard = (event: TeamupEvent) => {
     const module = parseModuleFromTitle(event.title)
@@ -260,13 +320,13 @@ export default function StudentProfilePage() {
         <div className="p-3 border rounded-lg text-center">
           <DollarSign className="h-5 w-5 mx-auto text-muted-foreground mb-1" />
           <p className="text-xs text-muted-foreground">Invoiced</p>
-          <p className="font-medium text-sm">${summary.totalInvoiced.toFixed(2)}</p>
+          <p className="font-medium text-sm">${mergedSummary.totalInvoiced.toFixed(2)}</p>
         </div>
-        <div className={`p-3 border rounded-lg text-center ${summary.openBalance > 0 ? 'border-amber-300 bg-amber-50 dark:bg-amber-950/30' : ''}`}>
-          <CreditCard className={`h-5 w-5 mx-auto mb-1 ${summary.openBalance > 0 ? 'text-amber-600' : 'text-green-600'}`} />
+        <div className={`p-3 border rounded-lg text-center ${mergedSummary.openBalance > 0 ? 'border-amber-300 bg-amber-50 dark:bg-amber-950/30' : ''}`}>
+          <CreditCard className={`h-5 w-5 mx-auto mb-1 ${mergedSummary.openBalance > 0 ? 'text-amber-600' : 'text-green-600'}`} />
           <p className="text-xs text-muted-foreground">Balance</p>
-          <p className={`font-medium text-sm ${summary.openBalance > 0 ? 'text-amber-700' : 'text-green-700'}`}>
-            {summary.openBalance > 0 ? `$${summary.openBalance.toFixed(2)}` : 'Paid up'}
+          <p className={`font-medium text-sm ${mergedSummary.openBalance > 0 ? 'text-amber-700' : 'text-green-700'}`}>
+            {mergedSummary.openBalance > 0 ? `$${mergedSummary.openBalance.toFixed(2)}` : 'Paid up'}
           </p>
         </div>
       </motion.div>
@@ -403,21 +463,21 @@ export default function StudentProfilePage() {
       </motion.div>
 
       {/* Invoice History */}
-      {invoices.length > 0 && (
+      {mergedInvoices.length > 0 && (
         <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.4, duration: 0.25 }}>
           <Card>
             <CardHeader>
               <CardTitle className="flex items-center gap-2 text-lg">
                 <Receipt className="h-5 w-5" /> Invoice History
-                <Badge variant="secondary" className="ml-auto">{invoices.length}</Badge>
+                <Badge variant="secondary" className="ml-auto">{mergedInvoices.length}</Badge>
                 <span className="text-sm font-normal text-muted-foreground ml-2">
-                  Total: {formatCurrency(summary.totalInvoiced)} | Paid: {formatCurrency(summary.totalPaid)}
+                  Total: {formatCurrency(mergedSummary.totalInvoiced)} | Paid: {formatCurrency(mergedSummary.totalPaid)}
                 </span>
               </CardTitle>
             </CardHeader>
             <CardContent>
               <div className="space-y-2">
-                {invoices.map(inv => {
+                {mergedInvoices.map(inv => {
                   let lineItems: Array<{ description: string; quantity: number; unitPrice: number }> = []
                   try { lineItems = JSON.parse(inv.lineItems) } catch { /* skip */ }
                   const isExpanded = expandedInvoice === inv.id
@@ -478,7 +538,7 @@ export default function StudentProfilePage() {
       )}
 
       {/* Exam Results */}
-      {data.exams && data.exams.length > 0 && (
+      {mergedExams && mergedExams.length > 0 && (
         <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.5, duration: 0.25 }}>
           <Card>
             <CardHeader>
@@ -486,7 +546,7 @@ export default function StudentProfilePage() {
             </CardHeader>
             <CardContent>
               <div className="space-y-2">
-                {data.exams.map(exam => (
+                {mergedExams.map(exam => (
                   <div key={exam.id} className={`flex items-center justify-between p-3 rounded-lg ${
                     exam.passed ? 'bg-green-50 dark:bg-green-950/10 border border-green-200' :
                     exam.passed === false ? 'bg-red-50 dark:bg-red-950/10 border border-red-200' : 'bg-muted/50 border'
