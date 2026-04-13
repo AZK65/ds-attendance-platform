@@ -1137,11 +1137,7 @@ function StudentsPage() {
                           key={student.phone}
                           className="cursor-pointer hover:bg-accent/50"
                           onClick={() => {
-                            if (dbStudent?.student_id) {
-                              router.push(`/students/${dbStudent.student_id}`)
-                            } else {
-                              router.push(`/groups/${encodeURIComponent(student.groupId)}/student/${encodeURIComponent(student.id)}`)
-                            }
+                            router.push(`/groups/${encodeURIComponent(student.groupId)}/student/${encodeURIComponent(student.id)}`)
                           }}
                         >
                           <TableCell className="font-medium">{displayName}</TableCell>
