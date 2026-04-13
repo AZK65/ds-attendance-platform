@@ -777,7 +777,7 @@ export default function StudentDetailPage() {
           initial={{ opacity: 0, y: 10 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ delay: 0.1, duration: 0.25 }}
-          className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3"
+          className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-7 gap-3"
         >
           <Link href={`/groups/${encodeURIComponent(groupId)}`} className="p-3 border rounded-lg text-center hover:bg-accent/50 transition-colors cursor-pointer block">
             <Users className="h-5 w-5 mx-auto text-muted-foreground mb-1" />
@@ -829,6 +829,30 @@ export default function StudentDetailPage() {
                 : 'Paid up'}
             </p>
           </div>
+          {(() => {
+            const exams = profileData?.exams || []
+            const latestExam = exams[0]
+            return (
+              <div className={`p-3 border rounded-lg text-center ${
+                latestExam?.passed ? 'border-green-300 bg-green-50 dark:bg-green-950/30' :
+                latestExam?.passed === false ? 'border-red-300 bg-red-50 dark:bg-red-950/30' : ''
+              }`}>
+                <ClipboardList className={`h-5 w-5 mx-auto mb-1 ${
+                  latestExam?.passed ? 'text-green-600' :
+                  latestExam?.passed === false ? 'text-red-600' : 'text-muted-foreground'
+                }`} />
+                <p className="text-xs text-muted-foreground">Exam</p>
+                <p className={`font-medium text-sm ${
+                  latestExam?.passed ? 'text-green-700' :
+                  latestExam?.passed === false ? 'text-red-700' : ''
+                }`}>
+                  {loadingProfile ? '...' :
+                   latestExam?.score != null ? `${latestExam.score}/24 ${latestExam.passed ? 'Pass' : 'Fail'}` :
+                   exams.length > 0 ? 'In Progress' : 'N/A'}
+                </p>
+              </div>
+            )
+          })()}
         </motion.div>
       )}
 
