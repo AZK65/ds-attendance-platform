@@ -1491,8 +1491,6 @@ function SchedulingPage() {
   }
 
   // Check for duplicate (excludeEventId is used when editing to skip the event being edited)
-  // Extra hours sessions are allowed on top of existing classes — we only block
-  // same-time-same-teacher clashes when BOTH the new and existing events are regular.
   const checkDuplicate = (data: EventFormData, excludeEventId?: string): string | null => {
     if (!data.studentName || !data.date || !data.subcalendarId) return null
     const duplicate = events.find(ev => {
@@ -1502,9 +1500,6 @@ function SchedulingPage() {
       const evTime = ev.start_dt.slice(11, 16)
       const evTeacher = ev.subcalendar_ids[0]?.toString()
       const evStudent = parseStudentFromNotes(ev.notes) || parseModuleFromTitle(ev.title).studentName
-      const evIsExtra = parseExtraHoursFromNotes(ev.notes)
-      // Allow extra-hours sessions to coexist with anything else.
-      if (data.isExtraHours || evIsExtra) return false
       if (evStudent.toLowerCase() === data.studentName.toLowerCase() &&
           evDate === data.date && evTime === data.startTime && evTeacher === data.subcalendarId) {
         return true
