@@ -95,22 +95,30 @@ export async function POST(request: NextRequest) {
       // If we can't fetch, continue without duplicate check
     }
 
-    // Check for duplicates before creating
+    // Check for duplicates before creating.
+    //
+    // Two rules:
+    //   A. TEACHER (Nasar) cannot be double-booked at the same date+time — block
+    //      regardless of which student the existing event is for.
+    //   B. Same student cannot already have a class at the same date+time.
+    // Rule A subsumes rule B but we keep explicit detection to produce a clearer
+    // error message when it's the same student.
     const duplicates: string[] = []
     for (const cls of classes) {
       const dup = existingEvents.find(ev => {
         const evDate = ev.start_dt.split('T')[0]
         if (evDate !== cls.date) return false
-        // Check if same student by name in title OR phone in notes
-        const hasStudent = ev.title.toLowerCase().includes(studentName.toLowerCase()) ||
-          (ev.notes || '').includes(studentPhone)
-        // Check if same start time
         const evTime = ev.start_dt.slice(11, 16)
-        const sameTime = evTime === cls.startTime
-        return hasStudent && sameTime
+        return evTime === cls.startTime
       })
       if (dup) {
-        duplicates.push(`${studentName} already has a class on ${formatDateDisplay(cls.date)} at ${formatTimeDisplay(cls.startTime)} (${dup.title})`)
+        const sameStudent = dup.title.toLowerCase().includes(studentName.toLowerCase()) ||
+          (dup.notes || '').includes(studentPhone)
+        if (sameStudent) {
+          duplicates.push(`${studentName} already has a class on ${formatDateDisplay(cls.date)} at ${formatTimeDisplay(cls.startTime)} (${dup.title})`)
+        } else {
+          duplicates.push(`Nasar already has a class on ${formatDateDisplay(cls.date)} at ${formatTimeDisplay(cls.startTime)} (${dup.title})`)
+        }
       }
     }
 

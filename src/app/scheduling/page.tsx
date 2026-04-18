@@ -1491,10 +1491,31 @@ function SchedulingPage() {
   }
 
   // Check for duplicate (excludeEventId is used when editing to skip the event being edited)
+  // Three rules:
+  //   1. The TEACHER can't be double-booked at the same date+time (any student).
+  //   2. The SAME STUDENT can't be booked twice at the same teacher+date+time.
+  //   3. The SAME STUDENT can't be booked for the same theory module twice on one day.
   const checkDuplicate = (data: EventFormData, excludeEventId?: string): string | null => {
-    if (!data.studentName || !data.date || !data.subcalendarId) return null
+    if (!data.date || !data.subcalendarId) return null
+
+    // Rule 1 — teacher clash (any student)
+    if (data.startTime) {
+      const teacherClash = events.find(ev => {
+        if (excludeEventId && ev.id === excludeEventId) return false
+        const evDate = ev.start_dt.split('T')[0]
+        const evTime = ev.start_dt.slice(11, 16)
+        const evTeacher = ev.subcalendar_ids[0]?.toString()
+        return evDate === data.date && evTime === data.startTime && evTeacher === data.subcalendarId
+      })
+      if (teacherClash) {
+        const teacher = activeTeachers.find(t => t.id === teacherClash.subcalendar_ids[0])
+        return `${teacher?.name || 'Teacher'} already has a class on ${data.date} at ${data.startTime} (${teacherClash.title})`
+      }
+    }
+
+    // Rules 2 & 3 require a student name
+    if (!data.studentName) return null
     const duplicate = events.find(ev => {
-      // Skip the event being edited
       if (excludeEventId && ev.id === excludeEventId) return false
       const evDate = ev.start_dt.split('T')[0]
       const evTime = ev.start_dt.slice(11, 16)
