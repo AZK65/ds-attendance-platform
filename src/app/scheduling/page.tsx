@@ -57,6 +57,7 @@ import { Checkbox } from '@/components/ui/checkbox'
 import { motion, AnimatePresence } from 'motion/react'
 import Link from 'next/link'
 import { ContactSearchAutocomplete, type StudentGroupInfo } from '@/components/ContactSearchAutocomplete'
+import { PhoneInputWithWhatsAppCheck } from '@/components/PhoneInputWithWhatsAppCheck'
 
 type ViewMode = 'day' | 'week' | 'month'
 
@@ -2101,35 +2102,31 @@ function SchedulingPage() {
           </Button>
         )}
       </div>
-      {/* Student Name */}
+      {/* Student Name — always uses ContactSearchAutocomplete; falls through to free text if no match */}
       <div>
         <Label>Student Name</Label>
-        {formData.isExtraHours ? (
-          <Input
-            value={formData.studentName}
-            onChange={(e) => setFormData(prev => ({ ...prev, studentName: e.target.value }))}
-            placeholder="Enter student name"
-          />
-        ) : (
-          <ContactSearchAutocomplete
-            value={formData.studentName}
-            phone={formData.studentPhone}
-            group={formData.group}
-            onSelect={(name, phone, groupInfo) => setFormData(prev => ({
-              ...prev, studentName: name, studentPhone: phone, group: groupInfo.groupName,
-              lastTheoryModule: groupInfo.lastTheoryModule, lastTheoryDate: groupInfo.lastTheoryDate,
-            }))}
-            onChange={(name) => setFormData(prev => ({ ...prev, studentName: name, studentPhone: '', group: '', lastTheoryModule: null, lastTheoryDate: null }))}
-          />
-        )}
+        <ContactSearchAutocomplete
+          value={formData.studentName}
+          phone={formData.studentPhone}
+          group={formData.group}
+          onSelect={(name, phone, groupInfo) => setFormData(prev => ({
+            ...prev, studentName: name, studentPhone: phone, group: groupInfo.groupName,
+            lastTheoryModule: groupInfo.lastTheoryModule, lastTheoryDate: groupInfo.lastTheoryDate,
+          }))}
+          onChange={(name) => setFormData(prev => ({
+            ...prev, studentName: name,
+            // In extra hours mode we keep manually-entered phones; otherwise clear
+            ...(prev.isExtraHours ? {} : { studentPhone: '', group: '', lastTheoryModule: null, lastTheoryDate: null }),
+          }))}
+        />
       </div>
       {formData.isExtraHours && (
         <div>
           <Label>Phone Number</Label>
-          <Input
+          <PhoneInputWithWhatsAppCheck
             value={formData.studentPhone}
-            onChange={(e) => setFormData(prev => ({ ...prev, studentPhone: e.target.value }))}
-            placeholder="e.g. 15145551234"
+            onChange={(fullNumber) => setFormData(prev => ({ ...prev, studentPhone: fullNumber }))}
+            placeholder="(514) 555-1234"
           />
         </div>
       )}
@@ -2369,35 +2366,30 @@ function SchedulingPage() {
               ) : (
                 <>
                   <div className="space-y-4">
-                    {/* Student Info */}
+                    {/* Student Info — always uses ContactSearchAutocomplete; free text if no match */}
                     <div>
                       <Label>Student Name</Label>
-                      {carBulkForm.isExtraHours ? (
-                        <Input
-                          value={carBulkForm.studentName}
-                          onChange={(e) => setCarBulkForm(prev => ({ ...prev, studentName: e.target.value }))}
-                          placeholder="Enter student name"
-                        />
-                      ) : (
-                        <ContactSearchAutocomplete
-                          value={carBulkForm.studentName}
-                          phone={carBulkForm.studentPhone}
-                          group={carBulkForm.group}
-                          onSelect={(name, phone, groupInfo) => setCarBulkForm(prev => ({
-                            ...prev, studentName: name, studentPhone: phone, group: groupInfo.groupName,
-                            lastTheoryModule: groupInfo.lastTheoryModule, lastTheoryDate: groupInfo.lastTheoryDate,
-                          }))}
-                          onChange={(name) => setCarBulkForm(prev => ({ ...prev, studentName: name, studentPhone: '', group: '', lastTheoryModule: null, lastTheoryDate: null }))}
-                        />
-                      )}
+                      <ContactSearchAutocomplete
+                        value={carBulkForm.studentName}
+                        phone={carBulkForm.studentPhone}
+                        group={carBulkForm.group}
+                        onSelect={(name, phone, groupInfo) => setCarBulkForm(prev => ({
+                          ...prev, studentName: name, studentPhone: phone, group: groupInfo.groupName,
+                          lastTheoryModule: groupInfo.lastTheoryModule, lastTheoryDate: groupInfo.lastTheoryDate,
+                        }))}
+                        onChange={(name) => setCarBulkForm(prev => ({
+                          ...prev, studentName: name,
+                          ...(prev.isExtraHours ? {} : { studentPhone: '', group: '', lastTheoryModule: null, lastTheoryDate: null }),
+                        }))}
+                      />
                     </div>
                     {carBulkForm.isExtraHours && (
                       <div>
                         <Label>Phone Number</Label>
-                        <Input
+                        <PhoneInputWithWhatsAppCheck
                           value={carBulkForm.studentPhone}
-                          onChange={(e) => setCarBulkForm(prev => ({ ...prev, studentPhone: e.target.value }))}
-                          placeholder="e.g. 15145551234"
+                          onChange={(fullNumber) => setCarBulkForm(prev => ({ ...prev, studentPhone: fullNumber }))}
+                          placeholder="(514) 555-1234"
                         />
                       </div>
                     )}
