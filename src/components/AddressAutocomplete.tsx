@@ -6,6 +6,7 @@ import { cn } from '@/lib/utils'
 interface AddressResult {
   street: string
   city: string
+  province: string
   postalCode: string
 }
 
@@ -103,19 +104,18 @@ export function AddressAutocomplete({
     const autocomplete = new google.maps.places.Autocomplete(inputRef.current, {
       types: ['address'],
       componentRestrictions: { country: 'ca' },
-      fields: ['address_components'],
+      fields: ['address_components', 'place_id'],
     })
 
-    autocomplete.addListener('place_changed', () => {
-      const place = autocomplete.getPlace()
-      if (!place.address_components) return
-
+    const parseComponents = (components: google.maps.GeocoderAddressComponent[]) => {
       let streetNumber = ''
       let route = ''
       let city = ''
+      let province = ''
       let postalCode = ''
+      let postalPrefix = ''
 
-      for (const component of place.address_components) {
+      for (const component of components) {
         const types = component.types
         if (types.includes('street_number')) {
           streetNumber = component.long_name
@@ -123,24 +123,56 @@ export function AddressAutocomplete({
           route = component.long_name
         } else if (types.includes('locality')) {
           city = component.long_name
-        } else if (types.includes('sublocality_level_1') && !city) {
+        } else if ((types.includes('sublocality_level_1') || types.includes('sublocality')) && !city) {
           city = component.long_name
+        } else if (types.includes('administrative_area_level_1')) {
+          province = component.short_name
         } else if (types.includes('postal_code')) {
           postalCode = component.long_name
+        } else if (types.includes('postal_code_prefix')) {
+          postalPrefix = component.long_name
         }
       }
 
-      const street = streetNumber ? `${streetNumber} ${route}` : route
+      return {
+        street: streetNumber ? `${streetNumber} ${route}` : route,
+        city,
+        province,
+        postalCode: postalCode || postalPrefix,
+      }
+    }
 
-      isSelectingRef.current = true
-      onChangeRef.current(street)
-      onAddressSelectRef.current?.({ street, city, postalCode })
+    const placesService = new google.maps.places.PlacesService(document.createElement('div'))
 
-      if (inputRef.current) {
-        inputRef.current.value = street
+    autocomplete.addListener('place_changed', () => {
+      const place = autocomplete.getPlace()
+      if (!place.address_components) return
+
+      const initial = parseComponents(place.address_components)
+
+      const apply = (result: AddressResult) => {
+        isSelectingRef.current = true
+        onChangeRef.current(result.street)
+        onAddressSelectRef.current?.(result)
+        if (inputRef.current) inputRef.current.value = result.street
+        setTimeout(() => { isSelectingRef.current = false }, 50)
       }
 
-      setTimeout(() => { isSelectingRef.current = false }, 50)
+      apply(initial)
+
+      // If postal code is missing or partial (<6 chars for Canadian codes),
+      // fetch full place details for a complete postal_code.
+      const needsDetails = place.place_id && (!initial.postalCode || initial.postalCode.replace(/\s/g, '').length < 6)
+      if (needsDetails) {
+        placesService.getDetails(
+          { placeId: place.place_id!, fields: ['address_components'] },
+          (detail, status) => {
+            if (status !== google.maps.places.PlacesServiceStatus.OK || !detail?.address_components) return
+            const full = parseComponents(detail.address_components)
+            apply({ ...initial, ...full, street: initial.street || full.street })
+          }
+        )
+      }
     })
 
     autocompleteRef.current = autocomplete

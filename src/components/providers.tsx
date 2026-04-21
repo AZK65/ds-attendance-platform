@@ -7,7 +7,7 @@ import { usePathname } from 'next/navigation'
 import { Navbar } from './Navbar'
 
 // Pages that should NOT show the navbar (public/student-facing)
-const HIDE_NAVBAR_PATHS = ['/enroll', '/login', '/register', '/exam']
+const HIDE_NAVBAR_PATHS = ['/enroll', '/login', '/register', '/exam', '/book']
 
 export function Providers({ children }: { children: React.ReactNode }) {
   const pathname = usePathname()

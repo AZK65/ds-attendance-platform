@@ -8,6 +8,12 @@
   --color-foreground: var(--foreground);
   --font-sans: var(--font-geist-sans);
   --font-mono: var(--font-geist-mono);
+  --font-serif: var(--font-instrument-serif);
+  --color-brand-red: #E11D2E;
+  --color-brand-red-600: #C5121F;
+  --color-ink: #0B0B0F;
+  --color-surface: #FFFFFF;
+  --color-surface-muted: #F7F7F5;
   --color-sidebar-ring: var(--sidebar-ring);
   --color-sidebar-border: var(--sidebar-border);
   --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
