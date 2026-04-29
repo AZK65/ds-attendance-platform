@@ -177,7 +177,7 @@ interface LocalStudentRecord {
 }
 
 interface TheoryClassRecord {
-  moduleNumber: number
+  moduleNumber: number | null
   date: string
   groupId: string
   meetingUUID: string
@@ -500,21 +500,25 @@ export default function StudentDetailPage() {
     // Add theory classes from Zoom attendance as synthetic events
     for (const tc of theoryClasses) {
       const tcDate = new Date(tc.date)
-      // Don't add if already in the past list (avoid duplicates with Teamup events)
-      const alreadyExists = past.some(e => {
+      // Don't add if already in the past list (avoid duplicates with Teamup events).
+      // Only dedupe when this Zoom record HAS a module — otherwise we'd kill
+      // legitimate generic theory classes whenever a Teamup event happened to
+      // sit nearby on the timeline.
+      const alreadyExists = tc.moduleNumber != null && past.some(e => {
         const parsed = parseModuleFromTitle(e.title)
         return parsed.module === String(tc.moduleNumber) &&
           Math.abs(new Date(e.start_dt).getTime() - tcDate.getTime()) < 24 * 60 * 60 * 1000
       })
       if (!alreadyExists) {
         const isAbsent = tc.status === 'absent'
+        const modLabel = tc.moduleNumber != null ? `M${tc.moduleNumber}` : 'Theory Class'
         past.push({
-          id: `theory-${tc.moduleNumber}-${tc.meetingUUID}`,
-          title: `M${tc.moduleNumber} - ${displayName}${isAbsent ? ' (ABSENT)' : ''}`,
+          id: `theory-${tc.moduleNumber ?? 'x'}-${tc.meetingUUID}`,
+          title: `${modLabel} - ${displayName}${isAbsent ? ' (ABSENT)' : ''}`,
           start_dt: tc.date,
           end_dt: tc.date,
           subcalendar_ids: [],
-          notes: `Zoom Theory Class\nModule ${tc.moduleNumber}\nZoom Name: ${tc.zoomName}\nGroupId: ${tc.groupId}\nStatus: ${tc.status}`,
+          notes: `Zoom Theory Class\nModule ${tc.moduleNumber ?? '—'}\nZoom Name: ${tc.zoomName}\nGroupId: ${tc.groupId}\nStatus: ${tc.status}`,
         })
       }
     }

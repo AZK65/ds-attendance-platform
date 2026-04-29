@@ -29,11 +29,11 @@ export async function GET(request: NextRequest) {
   }
 
   try {
-    // Fetch all zoom attendance records that have a module number
+    // Fetch ALL zoom attendance records — including ones whose Zoom meeting
+    // topic didn't yield a parseable module number. Those still represent a
+    // class the student attended; they should show on the timeline even
+    // without a module label.
     const records = await prisma.zoomAttendance.findMany({
-      where: {
-        moduleNumber: { not: null },
-      },
       orderBy: { meetingDate: 'asc' },
     })
 
@@ -92,7 +92,7 @@ export async function GET(request: NextRequest) {
     }
 
     interface TheoryClass {
-      moduleNumber: number
+      moduleNumber: number | null
       date: string
       groupId: string
       meetingUUID: string
@@ -103,8 +103,6 @@ export async function GET(request: NextRequest) {
     const theoryClasses: TheoryClass[] = []
 
     for (const record of records) {
-      if (!record.moduleNumber) continue
-
       try {
         // Check if student was present (in matchedRecords)
         const matched: MatchedRecord[] = JSON.parse(record.matchedRecords)
