@@ -162,3 +162,64 @@ export async function createTheoryEvent({
     return { success: false, error: error instanceof Error ? error.message : 'Unknown error' }
   }
 }
+
+/**
+ * Try to derive a theory module number for a given meeting date by looking
+ * at Teamup events on the same date. Returns the module number from the
+ * Teamup event whose start time is closest to the meeting date, or null if
+ * no matching event has a parseable module number.
+ *
+ * Use case: a Zoom meeting topic doesn't always include "Module N", but the
+ * Teamup theory event scheduled for that same time slot does. Cross-reference
+ * to recover the module label.
+ */
+export async function lookupModuleNumberForDate(meetingDate: Date): Promise<number | null> {
+  const apiKey = process.env.TEAMUP_API_KEY || ''
+  const calendarKey = process.env.TEAMUP_CALENDAR_KEY || ''
+  if (!apiKey || !calendarKey) return null
+
+  const formatDate = (d: Date) => d.toISOString().split('T')[0]
+  const start = new Date(meetingDate); start.setDate(start.getDate() - 1)
+  const end = new Date(meetingDate); end.setDate(end.getDate() + 1)
+
+  try {
+    const res = await fetch(
+      `${BASE_URL}/${calendarKey}/events?startDate=${formatDate(start)}&endDate=${formatDate(end)}`,
+      { headers: { 'Teamup-Token': apiKey } }
+    )
+    if (!res.ok) return null
+    const data = await res.json() as { events?: Array<{ title?: string; notes?: string; start_dt: string }> }
+    const events = data.events || []
+
+    const stripHtml = (s: string) => s.replace(/<br\s*\/?>/gi, '\n').replace(/<[^>]*>/g, '')
+    const extract = (text: string): number | null => {
+      const patterns = [/module\s*(\d+)/i, /\bM(\d+)\b/, /\bmod\s*(\d+)/i]
+      for (const p of patterns) {
+        const m = text.match(p)
+        if (m) {
+          const n = parseInt(m[1], 10)
+          if (n >= 1 && n <= 24) return n
+        }
+      }
+      return null
+    }
+
+    const targetMs = meetingDate.getTime()
+    let best: { num: number; diff: number } | null = null
+    for (const ev of events) {
+      const evMs = new Date(ev.start_dt).getTime()
+      if (Number.isNaN(evMs)) continue
+      const diff = Math.abs(evMs - targetMs)
+      if (diff > 12 * 60 * 60 * 1000) continue // within 12h of meeting
+      const text = `${ev.title || ''} ${stripHtml(ev.notes || '')}`
+      const num = extract(text)
+      if (num !== null && (!best || diff < best.diff)) {
+        best = { num, diff }
+      }
+    }
+    return best?.num ?? null
+  } catch (error) {
+    console.error('lookupModuleNumberForDate failed:', error)
+    return null
+  }
+}

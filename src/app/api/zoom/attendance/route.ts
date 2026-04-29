@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/db'
+import { lookupModuleNumberForDate } from '@/lib/teamup'
 
 interface MatchedRecord {
   whatsappName: string
@@ -99,6 +100,22 @@ export async function POST(request: NextRequest) {
       )
     }
 
+    const meetingDateObj = new Date(meetingDate)
+
+    // If the Zoom meeting topic didn't yield a module number, try to recover
+    // it from a Teamup theory event scheduled for that same time slot.
+    let resolvedModule: number | null = moduleNumber || null
+    if (!resolvedModule) {
+      try {
+        resolvedModule = await lookupModuleNumberForDate(meetingDateObj)
+        if (resolvedModule) {
+          console.log(`[ZoomAttendance] Recovered moduleNumber=${resolvedModule} from Teamup for meeting ${meetingUUID}`)
+        }
+      } catch (err) {
+        console.error('[ZoomAttendance] Teamup lookup failed:', err)
+      }
+    }
+
     const attendance = await prisma.zoomAttendance.upsert({
       where: {
         groupId_meetingUUID: {
@@ -107,8 +124,8 @@ export async function POST(request: NextRequest) {
         }
       },
       update: {
-        meetingDate: new Date(meetingDate),
-        moduleNumber: moduleNumber || null,
+        meetingDate: meetingDateObj,
+        moduleNumber: resolvedModule,
         matchedRecords: JSON.stringify(matched),
         absentRecords: JSON.stringify(absent),
         unmatchedZoom: JSON.stringify(unmatchedZoom),
@@ -117,8 +134,8 @@ export async function POST(request: NextRequest) {
       create: {
         groupId,
         meetingUUID,
-        meetingDate: new Date(meetingDate),
-        moduleNumber: moduleNumber || null,
+        meetingDate: meetingDateObj,
+        moduleNumber: resolvedModule,
         matchedRecords: JSON.stringify(matched),
         absentRecords: JSON.stringify(absent),
         unmatchedZoom: JSON.stringify(unmatchedZoom)
