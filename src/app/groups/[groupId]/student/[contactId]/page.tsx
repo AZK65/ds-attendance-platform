@@ -405,6 +405,7 @@ export default function StudentDetailPage() {
     const earliestPerModule = new Map<number, Date>()
     for (const tc of theoryClasses) {
       if (tc.status !== 'present') continue
+      if (tc.moduleNumber == null) continue
       if (tc.moduleNumber < 1 || tc.moduleNumber > 12) continue
       const d = new Date(tc.date)
       const existing = earliestPerModule.get(tc.moduleNumber)
