@@ -146,17 +146,20 @@ export async function GET(request: NextRequest) {
       }
     }
 
-    // Deduplicate: if same module number appears multiple times, keep the most recent
-    // But keep both present and absent entries for different modules
-    const byModule = new Map<number, TheoryClass>()
-    for (const tc of theoryClasses) {
-      const existing = byModule.get(tc.moduleNumber)
-      if (!existing || new Date(tc.date) > new Date(existing.date)) {
-        byModule.set(tc.moduleNumber, tc)
-      }
-    }
-
-    const result = Array.from(byModule.values()).sort((a, b) => a.moduleNumber - b.moduleNumber)
+    // Return ALL attendance records (don't dedupe by module). A student can
+    // attend the same module multiple times — e.g. retakes — and each
+    // attendance should appear as its own event on their timeline.
+    // Dedupe by meeting UUID only (in case the same meeting somehow yielded
+    // two entries — defensive).
+    const seen = new Set<string>()
+    const result = theoryClasses
+      .filter(tc => {
+        const key = `${tc.moduleNumber}-${tc.meetingUUID}-${tc.status}`
+        if (seen.has(key)) return false
+        seen.add(key)
+        return true
+      })
+      .sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime())
 
     return NextResponse.json(result)
   } catch (error) {

@@ -399,12 +399,20 @@ export default function StudentDetailPage() {
     const dates: Record<string, string> = {}
 
     // 1. Theory module dates from Zoom attendance records
+    //    A student may have attended the same module on multiple dates
+    //    (e.g. retake). For the certificate we want ONE date per module —
+    //    use the EARLIEST present-date as the "completion" date.
+    const earliestPerModule = new Map<number, Date>()
     for (const tc of theoryClasses) {
+      if (tc.status !== 'present') continue
+      if (tc.moduleNumber < 1 || tc.moduleNumber > 12) continue
       const d = new Date(tc.date)
+      const existing = earliestPerModule.get(tc.moduleNumber)
+      if (!existing || d < existing) earliestPerModule.set(tc.moduleNumber, d)
+    }
+    for (const [mod, d] of earliestPerModule) {
       const dateStr = `${(d.getMonth() + 1).toString().padStart(2, '0')}/${d.getDate().toString().padStart(2, '0')}/${d.getFullYear()}`
-      if (tc.moduleNumber >= 1 && tc.moduleNumber <= 12) {
-        dates[`module${tc.moduleNumber}Date`] = dateStr
-      }
+      dates[`module${mod}Date`] = dateStr
     }
 
     // 2. In-car session dates from Teamup events (past only)
