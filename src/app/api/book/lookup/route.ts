@@ -63,7 +63,7 @@ async function teamupPastClasses(
 }> {
   const apiKey = process.env.TEAMUP_API_KEY || ''
   const calendarKey = process.env.TEAMUP_CALENDAR_KEY || ''
-  if (!apiKey || !calendarKey) return []
+  if (!apiKey || !calendarKey) return { done: [], upcoming: [], doneDates: {}, upcomingDates: {} }
 
   const today = new Date()
   const rangeStart = new Date(today)
