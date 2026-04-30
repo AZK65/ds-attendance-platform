@@ -81,6 +81,7 @@ export default function GroupsPage() {
   const [classSetupModule, setClassSetupModule] = useState(1)
   const [classSetupDate, setClassSetupDate] = useState('')
   const [classSetupTime, setClassSetupTime] = useState('5 pm to 7 pm')
+  const [classSetupWeeks, setClassSetupWeeks] = useState(5) // schedule N weekly classes from start date
   const [classSetupSendPdf, setClassSetupSendPdf] = useState(false)
   const [classSetupPdfBase64, setClassSetupPdfBase64] = useState('')
   const [classSetupPdfName, setClassSetupPdfName] = useState('')
@@ -906,14 +907,18 @@ export default function GroupsPage() {
                 </div>
 
                 <div className="space-y-3 border-t pt-4">
-                  <Label className="text-sm font-medium">Schedule First Class</Label>
-                  <div className="grid grid-cols-3 gap-3">
+                  <Label className="text-sm font-medium">Schedule Classes</Label>
+                  <div className="grid grid-cols-2 gap-3">
                     <div>
-                      <Label className="text-xs text-muted-foreground mb-1 block">Module</Label>
+                      <Label className="text-xs text-muted-foreground mb-1 block">First Module</Label>
                       <Input type="number" min={1} max={12} value={classSetupModule} onChange={e => setClassSetupModule(parseInt(e.target.value) || 1)} />
                     </div>
                     <div>
-                      <Label className="text-xs text-muted-foreground mb-1 block">Date</Label>
+                      <Label className="text-xs text-muted-foreground mb-1 block">Weeks to schedule</Label>
+                      <Input type="number" min={1} max={12} value={classSetupWeeks} onChange={e => setClassSetupWeeks(Math.max(1, Math.min(12, parseInt(e.target.value) || 1)))} />
+                    </div>
+                    <div>
+                      <Label className="text-xs text-muted-foreground mb-1 block">First Class Date</Label>
                       <Input type="date" value={classSetupDate} onChange={e => setClassSetupDate(e.target.value)} />
                     </div>
                     <div>
@@ -921,6 +926,11 @@ export default function GroupsPage() {
                       <Input value={classSetupTime} onChange={e => setClassSetupTime(e.target.value)} placeholder="5 pm to 7 pm" />
                     </div>
                   </div>
+                  {classSetupDate && classSetupWeeks > 1 && (
+                    <p className="text-xs text-muted-foreground">
+                      Will schedule {classSetupWeeks} weekly classes starting {classSetupDate}: Modules {classSetupModule}–{Math.min(12, classSetupModule + classSetupWeeks - 1)}.
+                    </p>
+                  )}
                 </div>
 
                 <DialogFooter>
@@ -947,6 +957,7 @@ export default function GroupsPage() {
                             memberPhones: classSetupPhones,
                             scheduleClass: !!classSetupDate, moduleNumber: classSetupModule,
                             classDate: classDateFormatted, classDateISO: classSetupDate, classTime: classSetupTime,
+                            weeksToSchedule: classSetupWeeks,
                           }),
                         })
                         if (res.ok) {
