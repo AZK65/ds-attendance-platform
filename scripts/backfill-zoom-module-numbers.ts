@@ -78,16 +78,16 @@ async function main() {
     process.exit(1)
   }
 
+  // ── PASS 1: Teamup lookup ────────────────────────────────────────────────
   const records = await prisma.zoomAttendance.findMany({
     where: { moduleNumber: null },
     orderBy: { meetingDate: 'desc' },
   })
 
-  console.log(`\n📋 Found ${records.length} records with null moduleNumber`)
-  if (records.length === 0) return
+  console.log(`\n📋 Pass 1 — Teamup lookup: ${records.length} records with null moduleNumber`)
 
-  let updated = 0
-  let stillNull = 0
+  let teamupUpdated = 0
+  let teamupMisses = 0
 
   for (const rec of records) {
     const date = rec.meetingDate.toLocaleDateString('en-CA')
@@ -98,21 +98,77 @@ async function main() {
         where: { id: rec.id },
         data: { moduleNumber: num },
       })
-      console.log(`   ✅ ${date} | ${rec.meetingUUID} → Module ${num}`)
-      updated++
+      console.log(`   ✅ ${date} | ${rec.groupId} → Module ${num} (Teamup)`)
+      teamupUpdated++
     } else {
-      console.log(`   ⏭️  ${date} | ${rec.meetingUUID} → no Teamup match`)
-      stillNull++
+      teamupMisses++
     }
 
-    // Friendly to the Teamup API
-    await new Promise(r => setTimeout(r, 250))
+    await new Promise(r => setTimeout(r, 250)) // friendly to Teamup
+  }
+
+  // ── PASS 2: chronological auto-count per group ───────────────────────────
+  // For groups whose records still have null module numbers, walk the
+  // records in date order and assign 1, 2, 3, ... based on position.
+  // Skip a record's slot if it ALREADY has a module number — that means
+  // the count picks up from there (e.g. record 1 manually set to 3,
+  // record 2 will be assigned 4).
+  const remaining = await prisma.zoomAttendance.findMany({
+    where: { moduleNumber: null },
+    orderBy: { meetingDate: 'asc' },
+  })
+
+  console.log(`\n📋 Pass 2 — chronological count: ${remaining.length} records still null`)
+
+  // Group by groupId
+  const byGroup = new Map<string, typeof remaining>()
+  for (const r of remaining) {
+    const arr = byGroup.get(r.groupId) || []
+    arr.push(r)
+    byGroup.set(r.groupId, arr)
+  }
+
+  let countUpdated = 0
+
+  for (const [groupId, nullRecords] of byGroup) {
+    // Pull EVERY record for this group (with or without module) so we know
+    // the true chronological position of each session.
+    const allForGroup = await prisma.zoomAttendance.findMany({
+      where: { groupId },
+      orderBy: { meetingDate: 'asc' },
+    })
+
+    // Walk the group's full timeline. The Nth session (1-indexed by date)
+    // is Module N. If a session already has a moduleNumber, skip — keep
+    // existing data, but its position still counts.
+    for (let i = 0; i < allForGroup.length; i++) {
+      const rec = allForGroup[i]
+      if (rec.moduleNumber !== null) continue
+      const positionalModule = i + 1
+      // Cap at 12 — phase 1 is 5 modules, full course is 12. Anything
+      // beyond is probably wrong, leave null so admin notices.
+      if (positionalModule > 12) continue
+
+      await prisma.zoomAttendance.update({
+        where: { id: rec.id },
+        data: { moduleNumber: positionalModule },
+      })
+      const date = rec.meetingDate.toLocaleDateString('en-CA')
+      console.log(`   ✅ ${date} | ${groupId} → Module ${positionalModule} (position #${i + 1} of ${allForGroup.length})`)
+      countUpdated++
+    }
+    // unused but suppresses lint warning
+    void nullRecords
   }
 
   console.log(`\n${'═'.repeat(60)}`)
   console.log(`📊 BACKFILL COMPLETE`)
-  console.log(`   Updated: ${updated}`)
-  console.log(`   Still null (no Teamup event near that time): ${stillNull}`)
+  console.log(`   Pass 1 — Teamup matches: ${teamupUpdated}`)
+  console.log(`   Pass 1 — Teamup misses: ${teamupMisses}`)
+  console.log(`   Pass 2 — chronological assignments: ${countUpdated}`)
+
+  const stillNull = await prisma.zoomAttendance.count({ where: { moduleNumber: null } })
+  console.log(`   Still null after both passes: ${stillNull}`)
 }
 
 main()

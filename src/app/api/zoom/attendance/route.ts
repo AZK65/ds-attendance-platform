@@ -102,8 +102,10 @@ export async function POST(request: NextRequest) {
 
     const meetingDateObj = new Date(meetingDate)
 
-    // If the Zoom meeting topic didn't yield a module number, try to recover
-    // it from a Teamup theory event scheduled for that same time slot.
+    // Resolve a module number with a layered fallback:
+    //   1. Whatever the client supplied (parsed from Zoom topic).
+    //   2. Closest Teamup event in the same time window.
+    //   3. The group's current `moduleNumber` field (set on the Group row).
     let resolvedModule: number | null = moduleNumber || null
     if (!resolvedModule) {
       try {
@@ -113,6 +115,20 @@ export async function POST(request: NextRequest) {
         }
       } catch (err) {
         console.error('[ZoomAttendance] Teamup lookup failed:', err)
+      }
+    }
+    if (!resolvedModule) {
+      try {
+        const group = await prisma.group.findUnique({
+          where: { id: groupId },
+          select: { moduleNumber: true },
+        })
+        if (group?.moduleNumber) {
+          resolvedModule = group.moduleNumber
+          console.log(`[ZoomAttendance] Using group.moduleNumber=${resolvedModule} for meeting ${meetingUUID}`)
+        }
+      } catch (err) {
+        console.error('[ZoomAttendance] Group fallback lookup failed:', err)
       }
     }
 
