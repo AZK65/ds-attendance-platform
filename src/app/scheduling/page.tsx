@@ -1925,22 +1925,31 @@ function SchedulingPage() {
     })
     const studentName = parseStudentFromNotes(event.notes) || parseModuleFromTitle(event.title).studentName
 
-    // Lane-based horizontal positioning for overlapping events.
-    // 4px column padding on each side + 2px gutter between adjacent lanes.
-    const widthPct = 100 / laneInfo.laneCount
-    const leftPct = laneInfo.lane * widthPct
+    // Stacked-with-offset layout for overlapping events (Google Calendar /
+    // Fantastical style). Each event takes a wide-ish slice of the column
+    // and is offset by its lane index. Later lanes stack on top of earlier
+    // ones — but on hover the hovered event lifts to the very top at full
+    // width so you can always read every overlap.
     const isMultiLane = laneInfo.laneCount > 1
+    // Column real estate per lane. Cap at 3 visible lanes for offset math
+    // so it doesn't degenerate when there are 5+ overlaps; the staircase
+    // still reveals the left edge of each event.
+    const offsetSteps = Math.min(laneInfo.laneCount, 4)
+    const stepPct = isMultiLane ? Math.min(28, 70 / offsetSteps) : 0
+    const baseWidthPct = isMultiLane ? Math.max(50, 100 - stepPct * (offsetSteps - 1)) : 100
+    const leftPct = isMultiLane ? laneInfo.lane * stepPct : 0
 
     return (
       <div
         key={event.id}
-        className={`absolute rounded px-1.5 py-0.5 cursor-pointer overflow-hidden text-xs leading-tight shadow-sm hover:shadow-md transition-shadow ${
+        className={`scheduling-event group absolute rounded-md px-1.5 py-0.5 cursor-pointer overflow-hidden text-xs leading-tight shadow-sm hover:shadow-lg transition-all duration-150 ring-1 ring-black/5 hover:ring-black/20 ${
           isExtra ? 'text-black border-2' : 'text-white'
         }`}
         style={{
           top, height,
-          left: isMultiLane ? `calc(${leftPct}% + 1px)` : '4px',
-          width: isMultiLane ? `calc(${widthPct}% - 2px)` : 'calc(100% - 8px)',
+          left: isMultiLane ? `calc(${leftPct}% + 2px)` : '4px',
+          width: isMultiLane ? `calc(${baseWidthPct}% - 4px)` : 'calc(100% - 8px)',
+          zIndex: isMultiLane ? 10 + laneInfo.lane : 1,
           backgroundColor: isExtra ? (isPaid ? '#FDE68A' : '#FCA5A5') : color,
           borderColor: isExtra ? (isPaid ? '#D97706' : '#DC2626') : undefined,
           minHeight: 22,
@@ -1953,8 +1962,8 @@ function SchedulingPage() {
           <span className="truncate">{event.title}</span>
         </div>
         {height > 36 && <div className="opacity-80 truncate">{teacherName}</div>}
-        {height > 50 && !isMultiLane && <div className="opacity-70 truncate">{startTime}</div>}
-        {wide && height > 64 && !isMultiLane && studentName && <div className="opacity-70 truncate">{studentName}</div>}
+        {height > 50 && <div className="opacity-70 truncate">{startTime}</div>}
+        {wide && height > 64 && studentName && <div className="opacity-70 truncate">{studentName}</div>}
       </div>
     )
   }

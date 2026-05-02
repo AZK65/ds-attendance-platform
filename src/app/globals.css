@@ -129,3 +129,12 @@
     @apply bg-background text-foreground;
   }
 }
+
+/* Calendar event hover-lift: hovered event grows to full column width and
+   floats on top of its overlapping neighbors so all info stays readable. */
+.scheduling-event:hover {
+  left: 4px !important;
+  width: calc(100% - 8px) !important;
+  z-index: 50 !important;
+  transform: translateY(-1px);
+}
