@@ -1472,6 +1472,73 @@ function SchedulingPage() {
     return { top, height }
   }
 
+  // Lane-based layout for overlapping events.
+  // Returns a map: eventId → { lane, laneCount } so each block can be
+  // rendered side-by-side at width = 1/laneCount, left = lane/laneCount.
+  // Events that don't overlap with anything sit in lane 0 with laneCount 1.
+  const computeEventLanes = (
+    events: TeamupEvent[]
+  ): Map<string, { lane: number; laneCount: number }> => {
+    const result = new Map<string, { lane: number; laneCount: number }>()
+    if (events.length === 0) return result
+
+    const sorted = [...events].sort((a, b) => {
+      const aStart = new Date(a.start_dt).getTime()
+      const bStart = new Date(b.start_dt).getTime()
+      if (aStart !== bStart) return aStart - bStart
+      return new Date(a.end_dt).getTime() - new Date(b.end_dt).getTime()
+    })
+
+    // Group events into clusters of transitive overlap. Within each cluster,
+    // all events share the same laneCount so widths line up cleanly.
+    type Cluster = { ids: string[]; laneEndTimes: number[]; latestEnd: number }
+    const clusters: Cluster[] = []
+    const eventLaneMap = new Map<string, number>()
+
+    for (const ev of sorted) {
+      const evStart = new Date(ev.start_dt).getTime()
+      const evEnd = new Date(ev.end_dt).getTime()
+
+      // A new event extends the active cluster only if it overlaps with the
+      // cluster's latest end time. Otherwise, close the current cluster and
+      // start a new one. (We only need to look at the most recent cluster
+      // because events are sorted by start time.)
+      let cluster = clusters[clusters.length - 1]
+      if (!cluster || evStart >= cluster.latestEnd) {
+        cluster = { ids: [], laneEndTimes: [], latestEnd: evEnd }
+        clusters.push(cluster)
+      } else {
+        cluster.latestEnd = Math.max(cluster.latestEnd, evEnd)
+      }
+
+      // Find an open lane (one whose previous event has ended by evStart)
+      let lane = -1
+      for (let i = 0; i < cluster.laneEndTimes.length; i++) {
+        if (cluster.laneEndTimes[i] <= evStart) {
+          lane = i
+          break
+        }
+      }
+      if (lane === -1) {
+        lane = cluster.laneEndTimes.length
+        cluster.laneEndTimes.push(evEnd)
+      } else {
+        cluster.laneEndTimes[lane] = evEnd
+      }
+
+      cluster.ids.push(ev.id)
+      eventLaneMap.set(ev.id, lane)
+    }
+
+    for (const cluster of clusters) {
+      const laneCount = cluster.laneEndTimes.length
+      for (const id of cluster.ids) {
+        result.set(id, { lane: eventLaneMap.get(id) ?? 0, laneCount })
+      }
+    }
+    return result
+  }
+
   // Get teacher color for an event
   const getEventColor = (event: TeamupEvent) => {
     const subCalId = event.subcalendar_ids[0]
@@ -1841,7 +1908,13 @@ function SchedulingPage() {
   }
 
   // Render an event block (shared between day and week views)
-  const renderEventBlock = (event: TeamupEvent, top: number, height: number, wide?: boolean) => {
+  const renderEventBlock = (
+    event: TeamupEvent,
+    top: number,
+    height: number,
+    wide?: boolean,
+    laneInfo: { lane: number; laneCount: number } = { lane: 0, laneCount: 1 }
+  ) => {
     const color = getEventColor(event)
     const teacherName = getTeacherName(event)
     const isExtra = parseExtraHoursFromNotes(event.notes)
@@ -1852,14 +1925,22 @@ function SchedulingPage() {
     })
     const studentName = parseStudentFromNotes(event.notes) || parseModuleFromTitle(event.title).studentName
 
+    // Lane-based horizontal positioning for overlapping events.
+    // 4px column padding on each side + 2px gutter between adjacent lanes.
+    const widthPct = 100 / laneInfo.laneCount
+    const leftPct = laneInfo.lane * widthPct
+    const isMultiLane = laneInfo.laneCount > 1
+
     return (
       <div
         key={event.id}
-        className={`absolute left-1 right-1 rounded px-1.5 py-0.5 cursor-pointer overflow-hidden text-xs leading-tight shadow-sm hover:shadow-md transition-shadow ${
+        className={`absolute rounded px-1.5 py-0.5 cursor-pointer overflow-hidden text-xs leading-tight shadow-sm hover:shadow-md transition-shadow ${
           isExtra ? 'text-black border-2' : 'text-white'
         }`}
         style={{
           top, height,
+          left: isMultiLane ? `calc(${leftPct}% + 1px)` : '4px',
+          width: isMultiLane ? `calc(${widthPct}% - 2px)` : 'calc(100% - 8px)',
           backgroundColor: isExtra ? (isPaid ? '#FDE68A' : '#FCA5A5') : color,
           borderColor: isExtra ? (isPaid ? '#D97706' : '#DC2626') : undefined,
           minHeight: 22,
@@ -1872,8 +1953,8 @@ function SchedulingPage() {
           <span className="truncate">{event.title}</span>
         </div>
         {height > 36 && <div className="opacity-80 truncate">{teacherName}</div>}
-        {height > 50 && <div className="opacity-70 truncate">{startTime}</div>}
-        {wide && height > 64 && studentName && <div className="opacity-70 truncate">{studentName}</div>}
+        {height > 50 && !isMultiLane && <div className="opacity-70 truncate">{startTime}</div>}
+        {wide && height > 64 && !isMultiLane && studentName && <div className="opacity-70 truncate">{studentName}</div>}
       </div>
     )
   }
@@ -1899,6 +1980,7 @@ function SchedulingPage() {
   // Render a day column with hour slots and events
   const renderDayColumn = (date: Date, highlight: boolean) => {
     const dayEvents = getEventsForDate(date)
+    const laneInfo = computeEventLanes(dayEvents)
     return (
       <div className={`border-l relative ${highlight ? 'bg-primary/5' : ''}`}>
         {Array.from({ length: HOUR_END - HOUR_START }, (_, hourIdx) => (
@@ -1911,7 +1993,8 @@ function SchedulingPage() {
         ))}
         {dayEvents.map(event => {
           const { top, height } = getEventStyle(event)
-          return renderEventBlock(event, top, height, viewMode === 'day')
+          const lane = laneInfo.get(event.id)
+          return renderEventBlock(event, top, height, viewMode === 'day', lane)
         })}
       </div>
     )
