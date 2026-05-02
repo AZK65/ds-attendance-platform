@@ -1953,8 +1953,8 @@ function SchedulingPage() {
           <span className="truncate">{event.title}</span>
         </div>
         {height > 36 && <div className="opacity-80 truncate">{teacherName}</div>}
-        {height > 50 && !isMultiLane && <div className="opacity-70 truncate">{startTime}</div>}
-        {wide && height > 64 && !isMultiLane && studentName && <div className="opacity-70 truncate">{studentName}</div>}
+        {height > 50 && <div className="opacity-70 truncate">{startTime}</div>}
+        {wide && height > 64 && studentName && <div className="opacity-70 truncate">{studentName}</div>}
       </div>
     )
   }
@@ -2003,11 +2003,37 @@ function SchedulingPage() {
   // === WEEK VIEW ===
   const weekMonday = useMemo(() => getMonday(currentDate), [currentDate])
 
+  // Per-day events drive each column's minimum width — busy days (lots of
+  // overlap) need wider columns so the lanes stay readable. Calculate the
+  // max lane count across the week and size accordingly.
+  const weekMaxLanes = useMemo(() => {
+    let maxLanes = 1
+    for (let i = 0; i < 7; i++) {
+      const d = new Date(weekMonday)
+      d.setDate(d.getDate() + i)
+      const dayEvents = getEventsForDate(d)
+      const lanes = computeEventLanes(dayEvents)
+      for (const info of lanes.values()) {
+        if (info.laneCount > maxLanes) maxLanes = info.laneCount
+      }
+    }
+    return maxLanes
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [weekMonday, events])
+
+  // Each lane needs ~70px to stay readable. So a column with 3 lanes wants
+  // 210px. Floor at 140px so single-event columns don't stretch absurdly.
+  const dayColWidth = Math.max(140, weekMaxLanes * 70)
+  const weekMinWidth = 60 + dayColWidth * 7
+
   const renderWeekView = () => (
     <div className="border rounded-lg overflow-x-auto">
-      <div className="min-w-[700px]">
+      <div style={{ minWidth: weekMinWidth }}>
         {/* Day headers */}
-        <div className="grid grid-cols-[60px_repeat(7,1fr)] border-b bg-muted/30">
+        <div
+          className="grid border-b bg-muted/30"
+          style={{ gridTemplateColumns: `60px repeat(7, minmax(${dayColWidth}px, 1fr))` }}
+        >
           <div className="p-2 text-xs text-muted-foreground" />
           {DAY_NAMES.map((day, i) => {
             const d = new Date(weekMonday)
@@ -2025,7 +2051,10 @@ function SchedulingPage() {
           })}
         </div>
         {/* Time grid */}
-        <div className="grid grid-cols-[60px_repeat(7,1fr)] relative">
+        <div
+          className="grid relative"
+          style={{ gridTemplateColumns: `60px repeat(7, minmax(${dayColWidth}px, 1fr))` }}
+        >
           {renderHourLabels()}
           {DAY_NAMES.map((_, dayIndex) => {
             const d = new Date(weekMonday)
