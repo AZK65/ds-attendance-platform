@@ -473,10 +473,34 @@ export default function CertificatePage() {
       }
       return res.json() as Promise<ExtractedData>
     },
-    onSuccess: (data) => {
+    onSuccess: async (data) => {
       const hasData = data.name || data.licenceNumber || data.module1Date
       if (!hasData) console.warn('OCR completed but no data extracted')
-      setFormData(prev => ({ ...prev, ...data }))
+
+      // Claim the next contract + attestation numbers up-front so they're
+      // visible on the review screen. Without this the fields look empty
+      // and admins assume nothing was assigned.
+      let claimedContract = ''
+      let claimedAttestation = ''
+      try {
+        const numRes = await fetch('/api/certificate/next-number', { method: 'POST' })
+        if (numRes.ok) {
+          const nums = await numRes.json()
+          claimedContract = String(nums.contractNumber ?? '')
+          const att = String(nums.attestationNumber ?? '')
+          claimedAttestation = att ? att.split('').join('  ') : ''
+        }
+      } catch (err) {
+        console.warn('Failed to pre-claim cert numbers — they\'ll be assigned on Generate instead:', err)
+      }
+
+      setFormData(prev => ({
+        ...prev,
+        ...data,
+        // Only overwrite if OCR didn't already pull them and the claim succeeded
+        contractNumber: data.contractNumber || prev.contractNumber || claimedContract,
+        attestationNumber: data.attestationNumber || prev.attestationNumber || claimedAttestation,
+      }))
       navigateStep('review')
     }
   })
