@@ -414,6 +414,12 @@ export default function CertificatePage() {
   const [singleSearchResults, setSingleSearchResults] = useState<DBStudent[]>([])
   const [singleSearching, setSingleSearching] = useState(false)
   const finalFormDataRef = useRef<CertificateFormData>(initialFormData)
+  // Holds the preview values shown in the review form (single mode).
+  // If the form still has these exact values at Generate time, we know
+  // the admin didn't manually edit them, so we claim fresh numbers via
+  // /next-number. If the values differ, the admin set their own and we
+  // honour those.
+  const previewedNumbersRef = useRef<{ contract: string; attestation: string }>({ contract: '', attestation: '' })
 
   // ─── Bulk Mode State ────────────────────────────────────────────────────
   const [bulkStep, setBulkStep] = useState<BulkStep>('select')
@@ -477,30 +483,33 @@ export default function CertificatePage() {
       const hasData = data.name || data.licenceNumber || data.module1Date
       if (!hasData) console.warn('OCR completed but no data extracted')
 
-      // Claim the next contract + attestation numbers up-front so they're
-      // visible on the review screen. Without this the fields look empty
-      // and admins assume nothing was assigned.
-      let claimedContract = ''
-      let claimedAttestation = ''
+      // PREVIEW-ONLY: peek at the next available numbers from settings so
+      // the review form shows what *would* be assigned, without actually
+      // claiming them. The real claim happens when admin clicks Generate.
+      // Cancelled previews don't burn cert numbers.
+      let previewContract = ''
+      let previewAttestation = ''
       try {
-        const numRes = await fetch('/api/certificate/next-number', { method: 'POST' })
-        if (numRes.ok) {
-          const nums = await numRes.json()
-          claimedContract = String(nums.contractNumber ?? '')
-          const att = String(nums.attestationNumber ?? '')
-          claimedAttestation = att ? att.split('').join('  ') : ''
+        const settingsRes = await fetch('/api/certificate/settings')
+        if (settingsRes.ok) {
+          const s = await settingsRes.json()
+          previewContract = String(s.nextContractNumber ?? '')
+          const att = String(s.nextAttestationNumber ?? '')
+          previewAttestation = att ? att.split('').join('  ') : ''
         }
       } catch (err) {
-        console.warn('Failed to pre-claim cert numbers — they\'ll be assigned on Generate instead:', err)
+        console.warn('Could not preview cert numbers:', err)
       }
 
       setFormData(prev => ({
         ...prev,
         ...data,
-        // Only overwrite if OCR didn't already pull them and the claim succeeded
-        contractNumber: data.contractNumber || prev.contractNumber || claimedContract,
-        attestationNumber: data.attestationNumber || prev.attestationNumber || claimedAttestation,
+        contractNumber: data.contractNumber || prev.contractNumber || previewContract,
+        attestationNumber: data.attestationNumber || prev.attestationNumber || previewAttestation,
       }))
+      // Stash preview values so handleGeneratePDF can tell them apart from
+      // user-edited values (which it should NOT overwrite).
+      previewedNumbersRef.current = { contract: previewContract, attestation: previewAttestation }
       navigateStep('review')
     }
   })
@@ -820,9 +829,14 @@ export default function CertificatePage() {
       }
     } catch { /* non-critical — will fall through to normal logic */ }
 
-    // Check if student already has contract/attestation numbers (editing existing cert)
-    const hasExistingContract = finalFormData.contractNumber.replace(/\s/g, '').length > 0
-    const hasExistingAttestation = finalFormData.attestationNumber.replace(/\s/g, '').length > 0
+    // Check if student already has contract/attestation numbers (editing existing cert).
+    // Numbers that came from the read-only preview don't count — those need to be
+    // claimed for real on Generate. So treat "still equal to preview" as "not set".
+    const preview = previewedNumbersRef.current
+    const isStillPreviewContract = preview.contract && finalFormData.contractNumber === preview.contract
+    const isStillPreviewAttestation = preview.attestation && finalFormData.attestationNumber === preview.attestation
+    const hasExistingContract = !isStillPreviewContract && finalFormData.contractNumber.replace(/\s/g, '').length > 0
+    const hasExistingAttestation = !isStillPreviewAttestation && finalFormData.attestationNumber.replace(/\s/g, '').length > 0
 
     try {
       if (hasExistingContract && hasExistingAttestation) {
@@ -871,6 +885,9 @@ export default function CertificatePage() {
 
     // Capture final form data in ref for the save mutation (avoids React state timing issues)
     finalFormDataRef.current = finalFormData
+    // Preview is consumed (or replaced by claimed values) — clear so a
+    // restart of the flow doesn't think numbers are "still preview".
+    previewedNumbersRef.current = { contract: '', attestation: '' }
     pdfMutation.mutate({ ...finalFormData, templatePdf })
     navigateStep('download')
   }
