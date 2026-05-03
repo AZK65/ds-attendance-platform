@@ -505,7 +505,8 @@ export default function CertificatePage() {
         ...prev,
         ...data,
         contractNumber: data.contractNumber || prev.contractNumber || previewContract,
-        attestationNumber: data.attestationNumber || prev.attestationNumber || previewAttestation,
+        // OCR never extracts attestation; just preview if the form is empty.
+        attestationNumber: prev.attestationNumber || previewAttestation,
       }))
       // Stash preview values so handleGeneratePDF can tell them apart from
       // user-edited values (which it should NOT overwrite).
