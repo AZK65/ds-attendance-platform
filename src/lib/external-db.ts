@@ -186,15 +186,23 @@ export interface StudentRecord {
 export async function searchStudents(query: string): Promise<StudentRecord[]> {
   const db = await getPool()
   const searchTerm = `%${query}%`
+  // Also accept phone-style queries (digits only) and match against the
+  // normalized phone column. e.g. "4384350515" matches "+1 438-435-0515".
+  const phoneDigits = query.replace(/\D/g, '')
+  const phoneTerm = phoneDigits.length >= 7 ? `%${phoneDigits}%` : null
 
   const [rows] = await db.execute<mysql.RowDataPacket[]>(
     `SELECT student_id, full_name, permit_number, full_address, city, postal_code,
             phone_number, email, contract_number, dob, status, user_defined_contract_number
      FROM student
-     WHERE full_name LIKE ? OR permit_number LIKE ? OR phone_number LIKE ? OR CAST(contract_number AS CHAR) LIKE ?
+     WHERE full_name LIKE ?
+        OR permit_number LIKE ?
+        OR phone_number LIKE ?
+        OR REGEXP_REPLACE(COALESCE(phone_number, ''), '[^0-9]', '') LIKE ?
+        OR CAST(contract_number AS CHAR) LIKE ?
      ORDER BY full_name ASC
      LIMIT 20`,
-    [searchTerm, searchTerm, searchTerm, searchTerm]
+    [searchTerm, searchTerm, searchTerm, phoneTerm ?? searchTerm, searchTerm]
   )
 
   return rows as StudentRecord[]
@@ -265,15 +273,19 @@ export async function searchStudentsByPhones(phones: string[]): Promise<StudentR
   if (phones.length === 0) return []
   const db = await getPool()
 
-  // Build WHERE clause: match last 10 digits of phone
+  // Normalize incoming phones to last 10 digits
   const conditions = phones
     .map(p => p.replace(/\D/g, '').slice(-10))
     .filter(p => p.length >= 7)
 
   if (conditions.length === 0) return []
 
-  // Use LIKE for each phone to match flexibly
-  const whereClauses = conditions.map(() => `phone_number LIKE ?`)
+  // Strip non-digits from MySQL phone_number column too — otherwise stored
+  // formats like "+1 438-435-0515" never match a bare "4384350515" via LIKE.
+  // REGEXP_REPLACE requires MySQL 8.0+; on 5.7 we'd need nested REPLACEs.
+  const whereClauses = conditions.map(() =>
+    `REGEXP_REPLACE(COALESCE(phone_number, ''), '[^0-9]', '') LIKE ?`,
+  )
   const params = conditions.map(p => `%${p}%`)
 
   const [rows] = await db.execute<mysql.RowDataPacket[]>(
