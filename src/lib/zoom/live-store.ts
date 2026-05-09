@@ -80,11 +80,17 @@ export function handleMeetingEnded(payload: {
     currentMeeting.isLive = false
     console.log(`[Live Store] Meeting ended: ${currentMeeting.topic}`)
     notifyListeners()
-    // Clear meeting state and overrides after notifying
+    // Keep the participant list around for 15 minutes after meeting.ended.
+    // Zoom occasionally fires a stray meeting.ended during quiet periods or
+    // brief connectivity blips — clearing immediately wipes all participant
+    // data and tips the UI into "everyone absent". 15 min is long enough to
+    // ride through a transient signal but short enough not to bleed into
+    // the next class.
     setTimeout(() => {
       currentMeeting = null
       manualOverrides.clear()
-    }, 60000) // Keep data for 1 min after meeting ends
+      console.log('[Live Store] Cleared meeting state (15-min post-end timeout)')
+    }, 15 * 60 * 1000)
   }
 }
 

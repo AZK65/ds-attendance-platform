@@ -74,6 +74,8 @@ export default function LiveAttendancePage() {
   const [optimisticAdds, setOptimisticAdds] = useState<Map<string, string>>(new Map())
   const [optimisticRemoves, setOptimisticRemoves] = useState<Set<string>>(new Set())
   const eventSourceRef = useRef<EventSource | null>(null)
+  const reconnectTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const reconnectAttemptsRef = useRef(0)
 
   // Fetch group data
   const { data: groupData } = useQuery({
@@ -96,10 +98,14 @@ export default function LiveAttendancePage() {
 
   const group = groupData?.group
 
-  // Connect to SSE stream
+  // Connect to SSE stream with auto-reconnect on failure.
   const connectSSE = useCallback(() => {
     if (eventSourceRef.current) {
       eventSourceRef.current.close()
+    }
+    if (reconnectTimeoutRef.current) {
+      clearTimeout(reconnectTimeoutRef.current)
+      reconnectTimeoutRef.current = null
     }
 
     const es = new EventSource(`/api/zoom/live-stream?groupId=${encodeURIComponent(groupId)}`)
@@ -107,6 +113,7 @@ export default function LiveAttendancePage() {
 
     es.onopen = () => {
       setSSEConnected(true)
+      reconnectAttemptsRef.current = 0
     }
 
     es.onmessage = (event) => {
@@ -123,6 +130,17 @@ export default function LiveAttendancePage() {
 
     es.onerror = () => {
       setSSEConnected(false)
+      // Browser EventSource normally reconnects automatically, but on some
+      // proxy timeouts the connection enters a permanent CLOSED state.
+      // Force a fresh EventSource with exponential backoff.
+      if (es.readyState === EventSource.CLOSED) {
+        const attempt = Math.min(reconnectAttemptsRef.current, 5)
+        const delayMs = Math.min(1000 * Math.pow(2, attempt), 30_000)
+        reconnectAttemptsRef.current = attempt + 1
+        reconnectTimeoutRef.current = setTimeout(() => {
+          connectSSE()
+        }, delayMs)
+      }
     }
   }, [groupId])
 
@@ -130,6 +148,7 @@ export default function LiveAttendancePage() {
     connectSSE()
     return () => {
       eventSourceRef.current?.close()
+      if (reconnectTimeoutRef.current) clearTimeout(reconnectTimeoutRef.current)
     }
   }, [connectSSE])
 
