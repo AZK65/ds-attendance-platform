@@ -1050,6 +1050,30 @@ export default function CertificatePage() {
         }
       }
 
+      // If neither MySQL nor local SQLite supplied cert numbers (new student),
+      // reserve fresh ones now so the review form shows the numbers that will
+      // actually be used at generate time. handleBulkGenerate will skip the
+      // re-fetch when both numbers are already populated.
+      const hasContract = !!(certOverrides.contractNumber || baseData.contractNumber)
+      const hasAttestation = !!(certOverrides.attestationNumber || baseData.attestationNumber)
+      if (!hasContract || !hasAttestation) {
+        try {
+          const numRes = await fetch('/api/certificate/next-number', { method: 'POST' })
+          if (numRes.ok) {
+            const numbers = await numRes.json()
+            if (!hasContract && numbers.contractNumber) {
+              certOverrides.contractNumber = String(numbers.contractNumber)
+            }
+            if (!hasAttestation && numbers.attestationNumber) {
+              const attStr = String(numbers.attestationNumber)
+              certOverrides.attestationNumber = attStr.split('').join('  ')
+            }
+          }
+        } catch {
+          // Continue without reserved numbers — generate flow will still try
+        }
+      }
+
       setBulkStudents(prev => prev.map(bs =>
         bs.id === newEntry.id
           ? { ...bs, formData: { ...bs.formData, ...dates, ...certOverrides }, datesFetched: true }
