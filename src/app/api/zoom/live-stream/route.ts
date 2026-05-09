@@ -3,11 +3,54 @@ import {
   getCurrentState,
   addListener,
   removeListener,
-  getManualOverrides
+  getManualOverrides,
+  hydrateFromApi,
 } from '@/lib/zoom/live-store'
-import { matchZoomToWhatsApp } from '@/lib/zoom/client'
+import { matchZoomToWhatsApp, getMeetingDetails, getLiveMeetingParticipants } from '@/lib/zoom/client'
 import { getGroupMembers } from '@/lib/group-sync'
 import { prisma } from '@/lib/db'
+
+// Hardcoded — same fallback used by /api/zoom/live-meeting
+const FALLBACK_MEETING_ID = '4171672829'
+
+// Throttle Zoom API calls — every check on every keepalive would burn rate
+// limit. The hydrate path only runs when the local store is empty.
+let lastApiCheckAt = 0
+const API_CHECK_INTERVAL_MS = 30_000
+
+async function maybeHydrateFromApi(): Promise<{ checked: boolean; available: boolean }> {
+  const now = Date.now()
+  if (now - lastApiCheckAt < API_CHECK_INTERVAL_MS) {
+    return { checked: false, available: false }
+  }
+  lastApiCheckAt = now
+  try {
+    const details = await getMeetingDetails(FALLBACK_MEETING_ID)
+    if (details.status !== 'started') return { checked: true, available: false }
+    const participants = await getLiveMeetingParticipants(FALLBACK_MEETING_ID)
+    if (participants === null) {
+      // Dashboard API not available on this plan — at least mark the
+      // meeting as live in the store so the UI doesn't say "no active
+      // meeting" while one's actually running.
+      hydrateFromApi({
+        meetingId: String(details.id),
+        topic: details.topic,
+        startTime: details.start_time,
+        participants: [],
+      })
+      return { checked: true, available: false }
+    }
+    hydrateFromApi({
+      meetingId: String(details.id),
+      topic: details.topic,
+      startTime: details.start_time,
+      participants,
+    })
+    return { checked: true, available: true }
+  } catch {
+    return { checked: true, available: false }
+  }
+}
 
 export const dynamic = 'force-dynamic'
 
@@ -37,8 +80,28 @@ export async function GET(request: NextRequest) {
 
   const encoder = new TextEncoder()
 
-  function buildMatchedState() {
-    const currentState = getCurrentState()
+  async function buildMatchedState() {
+    let currentState = getCurrentState()
+
+    // If we don't think a meeting is live, OR the meeting is live but we
+    // have no participants (webhook miss), poll Zoom directly to hydrate.
+    // hydrateFromApi merges into the existing store, so webhook-driven
+    // joins/leaves continue to flow normally afterwards.
+    let webhookMissing = false
+    if (whatsappStudents.length > 0) {
+      const noMeeting = !currentState.isLive
+      const noParticipants = currentState.isLive && currentState.participants.length === 0
+      if (noMeeting || noParticipants) {
+        const result = await maybeHydrateFromApi()
+        if (result.checked) {
+          currentState = getCurrentState()
+          // Mark webhookMissing only when we tried but couldn't get
+          // participants from the Dashboard API either.
+          webhookMissing = currentState.isLive && currentState.participants.length === 0 && !result.available
+        }
+      }
+    }
+
     const matchedData = computeMatchedData(
       currentState.participants,
       whatsappStudents,
@@ -51,6 +114,7 @@ export async function GET(request: NextRequest) {
     return {
       type: 'state',
       isLive: currentState.isLive,
+      webhookMissing,
       meetingId: currentState.meetingId,
       topic: currentState.topic,
       startTime: currentState.startTime,
@@ -63,32 +127,35 @@ export async function GET(request: NextRequest) {
 
   const stream = new ReadableStream({
     start(controller) {
-      // Send initial state immediately
-      try {
-        const data = buildMatchedState()
-        controller.enqueue(encoder.encode(`data: ${JSON.stringify(data)}\n\n`))
-      } catch {
-        // Client may have disconnected
-        return
+      const sendState = async () => {
+        try {
+          const data = await buildMatchedState()
+          controller.enqueue(encoder.encode(`data: ${JSON.stringify(data)}\n\n`))
+        } catch {
+          // Client may have disconnected
+        }
       }
+
+      // Send initial state immediately
+      sendState()
 
       // Listen for state changes from the live store
       const onChange = () => {
-        try {
-          const data = buildMatchedState()
-          controller.enqueue(encoder.encode(`data: ${JSON.stringify(data)}\n\n`))
-        } catch {
+        sendState().catch(() => {
           removeListener(onChange)
           clearInterval(keepalive)
-        }
+        })
       }
 
       addListener(onChange)
 
-      // Keepalive ping every 30 seconds
+      // Keepalive every 30s. Also re-send the full state so the UI picks
+      // up changes even when no webhook events fire (e.g. Zoom API says
+      // the meeting started but no participant_joined events came through).
       const keepalive = setInterval(() => {
         try {
           controller.enqueue(encoder.encode(': keepalive\n\n'))
+          sendState().catch(() => {})
         } catch {
           clearInterval(keepalive)
           removeListener(onChange)

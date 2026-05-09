@@ -17,7 +17,8 @@ import {
   CheckCircle,
   Undo2,
   HelpCircle,
-  Smartphone
+  Smartphone,
+  AlertTriangle,
 } from 'lucide-react'
 import Link from 'next/link'
 import { motion } from 'motion/react'
@@ -51,6 +52,10 @@ interface ManualOverrideData {
 interface SSEData {
   type: string
   isLive: boolean
+  // Set when Zoom API says the meeting is started but our webhook-driven
+  // store has no record of it — meaning we can't see participants until
+  // the user marks them manually.
+  webhookMissing?: boolean
   meetingId: string | null
   topic: string | null
   startTime: string | null
@@ -310,6 +315,23 @@ export default function LiveAttendancePage() {
             </Button>
           </div>
         </motion.div>
+
+        {/* Webhook missing banner — Zoom says meeting is live but neither
+            the webhook stream nor the Dashboard API gave us participants.
+            (Dashboard API requires Business+; on lower plans we can only
+            see joins via webhooks.) */}
+        {isLive && liveData?.webhookMissing && (
+          <div className="mb-4 p-4 border border-amber-200 bg-amber-50 dark:bg-amber-950/30 dark:border-amber-900/50 rounded-lg flex items-start gap-3">
+            <AlertTriangle className="h-5 w-5 text-amber-600 mt-0.5 shrink-0" />
+            <div className="text-sm">
+              <p className="font-medium text-amber-900 dark:text-amber-100">Meeting is live but participant data isn&apos;t available</p>
+              <p className="text-amber-800 dark:text-amber-200 mt-1">
+                We&apos;re polling Zoom every 30s — auto-detection will pick up as soon as a join event arrives.
+                If your plan doesn&apos;t include the Zoom Dashboard API, mark students present manually for now.
+              </p>
+            </div>
+          </div>
+        )}
 
         {/* Not Live State */}
         {!isLive && !liveData?.participantCount && (

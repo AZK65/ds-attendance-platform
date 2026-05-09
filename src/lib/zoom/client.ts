@@ -91,6 +91,47 @@ async function getAccessToken(): Promise<string> {
   return data.access_token
 }
 
+// Live participants via the Dashboard / Metrics API — only works on
+// Business+ Zoom plans. Returns null if the endpoint isn't available
+// (403/404/401), so callers can fall back gracefully.
+export async function getLiveMeetingParticipants(meetingId: string): Promise<
+  Array<{ id: string; user_name: string; join_time: string; email?: string }> | null
+> {
+  const token = await getAccessToken()
+  try {
+    const url = `https://api.zoom.us/v2/metrics/meetings/${meetingId}/participants?type=live&page_size=300`
+    const response = await fetch(url, {
+      headers: { Authorization: `Bearer ${token}` },
+    })
+    if (response.status === 401 || response.status === 403 || response.status === 404) {
+      // Plan doesn't include Dashboard API, or meeting not currently live.
+      return null
+    }
+    if (!response.ok) {
+      console.warn(`[getLiveMeetingParticipants] Zoom returned ${response.status}`)
+      return null
+    }
+    const data = await response.json()
+    const participants = (data.participants || []) as Array<{
+      id?: string
+      user_id?: string
+      participant_user_id?: string
+      user_name: string
+      join_time: string
+      email?: string
+    }>
+    return participants.map((p) => ({
+      id: p.user_id || p.participant_user_id || p.id || p.user_name,
+      user_name: p.user_name || 'Unknown',
+      join_time: p.join_time,
+      email: p.email,
+    }))
+  } catch (err) {
+    console.warn('[getLiveMeetingParticipants] error:', err)
+    return null
+  }
+}
+
 export async function getMeetingDetails(meetingId: string): Promise<{
   id: number
   topic: string

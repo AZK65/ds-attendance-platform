@@ -170,6 +170,45 @@ export function getCurrentState() {
   }
 }
 
+// Used when a meeting is already live but our webhook stream missed
+// meeting.started — we hydrate the store from a Zoom API snapshot. Safe
+// to call when there's an existing meeting; it merges new participants in
+// without dropping anyone.
+export function hydrateFromApi(input: {
+  meetingId: string
+  meetingUUID?: string
+  topic?: string
+  startTime?: string
+  participants: Array<{ id: string; user_name: string; join_time: string; email?: string }>
+}): void {
+  if (!currentMeeting) {
+    currentMeeting = {
+      meetingId: input.meetingId,
+      meetingUUID: input.meetingUUID || '',
+      topic: input.topic || 'Zoom Meeting',
+      startTime: input.startTime || new Date().toISOString(),
+      participants: new Map(),
+      isLive: true,
+    }
+  } else {
+    currentMeeting.isLive = true
+  }
+  let added = 0
+  for (const p of input.participants) {
+    if (p.email) continue // Skip licensed/host accounts (same rule as webhook path)
+    if (!currentMeeting.participants.has(p.id)) added++
+    currentMeeting.participants.set(p.id, {
+      user_name: p.user_name || 'Unknown',
+      user_id: p.id,
+      join_time: p.join_time || new Date().toISOString(),
+    })
+  }
+  if (added > 0) {
+    console.log(`[Live Store] Hydrated ${added} participant(s) from Zoom API`)
+    notifyListeners()
+  }
+}
+
 export function addListener(listener: StateChangeListener) {
   listeners.add(listener)
   console.log(`[Live Store] Listener added (${listeners.size} total)`)
