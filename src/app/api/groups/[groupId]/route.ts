@@ -63,7 +63,12 @@ export async function GET(
   }
 
   try {
-    // Check if we can use cache (synced within last 15 minutes and not force refresh)
+    // Check if we can use cache (synced within last 15 minutes and not force refresh).
+    // Important: we previously called getGroupLastMessage on every cached hit,
+    // which routes through Puppeteer/whatsapp-web.js and is the dominant
+    // latency on this endpoint. Use the stored group.moduleNumber /
+    // lastMessageDate columns instead — they're updated whenever the cache
+    // misses or refresh=true.
     if (!forceRefresh) {
       const group = await prisma.group.findUnique({ where: { id: decodedGroupId } })
       const fifteenMinAgo = new Date(Date.now() - 15 * 60 * 1000)
@@ -75,9 +80,6 @@ export async function GET(
         })
 
         if (cachedMembers.length > 0) {
-          // Get module number from last message (this is fast)
-          const lastMessage = await getGroupLastMessage(decodedGroupId)
-
           return NextResponse.json({
             group: {
               id: group.id,
@@ -93,10 +95,10 @@ export async function GET(
               isAdmin: m.isAdmin,
               isSuperAdmin: m.isSuperAdmin,
             })),
-            moduleNumber: lastMessage?.moduleNumber || null,
-            lastModuleMessageDate: lastMessage?.timestamp || null,
+            moduleNumber: group.moduleNumber ?? null,
+            lastModuleMessageDate: group.lastMessageDate?.toISOString() ?? null,
             fromCache: true,
-            isConnected: true
+            isConnected: true,
           })
         }
       }
