@@ -1551,11 +1551,26 @@ export async function getChatMessages(chatId: string, limit = 50): Promise<ChatM
 
   try {
     const chat = await client.getChatById(chatId)
-    let messages = await chat.fetchMessages({ limit })
-    // Fallback: whatsapp-web.js sometimes returns [] until WA Web "opens"
-    // a chat. lastMessage is always in memory, so surface that at minimum
-    // so the inbox doesn't show a blank "No messages yet" when there
-    // clearly is one (the chat list preview proves it exists).
+    let messages: Array<{
+      id: { id: string; _serialized: string }
+      body: string
+      timestamp: number
+      fromMe: boolean
+      author?: string
+      type: string
+      hasMedia: boolean
+    }> = []
+    try {
+      messages = await chat.fetchMessages({ limit })
+    } catch (fetchErr) {
+      // whatsapp-web.js's chat.fetchMessages can throw when the chat's
+      // underlying WA Web view isn't ready yet ("Evaluation failed",
+      // "Target closed", etc.). Don't 500 — fall through to lastMessage.
+      console.warn(`[getChatMessages] fetchMessages threw for ${chatId}, falling back to lastMessage:`, fetchErr)
+    }
+    // Fallback: whatsapp-web.js often returns [] (or throws) until WA
+    // Web has "opened" a chat. lastMessage is always in memory, so
+    // surface that at minimum.
     if (messages.length === 0 && chat.lastMessage) {
       messages = [chat.lastMessage]
     }
