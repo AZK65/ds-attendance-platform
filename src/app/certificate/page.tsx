@@ -1409,7 +1409,18 @@ export default function CertificatePage() {
           body: JSON.stringify({ ...finalFormData, templatePdf: templateStatus.template })
         })
         if (!res.ok) throw new Error('PDF generation failed')
-        updatedStudents[i] = { ...updatedStudents[i], pdfBlob: await res.blob() }
+        updatedStudents[i] = { ...updatedStudents[i], pdfBlob: await res.blob(), formData: finalFormData }
+
+        // Persist the student's data (address, dates, cert numbers, etc.) to
+        // the local Student model — same as single mode does after generate.
+        // Fire-and-forget so a failure here doesn't block the rest of the batch.
+        fetch('/api/students', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(finalFormData),
+        }).catch((err) => {
+          console.warn('Failed to save bulk student profile:', err)
+        })
       } catch {
         updatedStudents[i] = { ...updatedStudents[i], ocrError: 'PDF generation failed' }
       }
