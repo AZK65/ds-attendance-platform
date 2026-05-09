@@ -1524,6 +1524,15 @@ export async function getChatMessages(chatId: string, limit = 50): Promise<ChatM
     getChatById: (id: string) => Promise<{
       id: { _serialized: string }
       isGroup: boolean
+      lastMessage?: {
+        id: { id: string; _serialized: string }
+        body: string
+        timestamp: number
+        fromMe: boolean
+        author?: string
+        type: string
+        hasMedia: boolean
+      }
       fetchMessages: (options: { limit: number }) => Promise<Array<{
         id: { id: string; _serialized: string }
         body: string
@@ -1542,7 +1551,14 @@ export async function getChatMessages(chatId: string, limit = 50): Promise<ChatM
 
   try {
     const chat = await client.getChatById(chatId)
-    const messages = await chat.fetchMessages({ limit })
+    let messages = await chat.fetchMessages({ limit })
+    // Fallback: whatsapp-web.js sometimes returns [] until WA Web "opens"
+    // a chat. lastMessage is always in memory, so surface that at minimum
+    // so the inbox doesn't show a blank "No messages yet" when there
+    // clearly is one (the chat list preview proves it exists).
+    if (messages.length === 0 && chat.lastMessage) {
+      messages = [chat.lastMessage]
+    }
 
     // Batch resolve sender names for group messages
     const senderNames = new Map<string, string>()
