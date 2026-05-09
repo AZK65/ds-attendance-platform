@@ -78,13 +78,24 @@ export async function POST(request: NextRequest) {
         create: { ...studentData, licenceNumber: cleanLicence },
       })
     } else {
-      // Fallback: find existing student by name + phone
-      const existing = await prisma.student.findFirst({
-        where: {
-          name,
-          ...(phone ? { phone } : {}),
-        },
-      })
+      // Fallback: find existing student. Match by phone first (most stable
+      // across name format changes — "SUSAN ILIYAN" vs "ILIYAN, SUSAN" used
+      // to create duplicate rows here, leaving the older row certificate-less
+      // and breaking the Cert Info card on the student profile).
+      const phoneDigits = (phone || '').replace(/\D/g, '')
+      const phoneSuffix = phoneDigits.length >= 10 ? phoneDigits.slice(-10) : phoneDigits
+      let existing = null as Awaited<ReturnType<typeof prisma.student.findFirst>>
+      if (phoneSuffix.length >= 7) {
+        existing = await prisma.student.findFirst({
+          where: { phone: { contains: phoneSuffix } },
+        })
+      }
+      if (!existing) {
+        // Last resort: exact name + phone (preserves original behaviour).
+        existing = await prisma.student.findFirst({
+          where: { name, ...(phone ? { phone } : {}) },
+        })
+      }
 
       if (existing) {
         student = await prisma.student.update({
