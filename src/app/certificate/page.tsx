@@ -8,7 +8,7 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Badge } from '@/components/ui/badge'
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs'
-import { Upload, FileText, Download, Loader2, Camera, ArrowLeft, ArrowRight, CheckCircle2, Edit3, Settings, Plus, Smartphone, X, Users, User, AlertCircle, Archive, Search, Database, CheckCircle, XCircle } from 'lucide-react'
+import { Upload, FileText, Download, Loader2, Camera, ArrowLeft, ArrowRight, CheckCircle2, Edit3, Settings, Plus, Smartphone, X, Users, User, AlertCircle, Archive, Search, Database, CheckCircle, XCircle, MessagesSquare } from 'lucide-react'
 import { motion, AnimatePresence } from 'motion/react'
 import Link from 'next/link'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog'
@@ -432,6 +432,11 @@ export default function CertificatePage() {
   const [activeTab, setActiveTab] = useState('0')
   const [isGenerating, setIsGenerating] = useState(false)
   const [generateIndex, setGenerateIndex] = useState(0)
+  // Group-source state (Pick from WhatsApp Group)
+  const [bulkGroupId, setBulkGroupId] = useState<string | null>(null)
+  const [bulkGroupSelectedIds, setBulkGroupSelectedIds] = useState<string[]>([])
+  const [bulkGroupAdding, setBulkGroupAdding] = useState(false)
+  const [bulkGroupUnmatched, setBulkGroupUnmatched] = useState<string[]>([])
 
   // ─── Database Mode State ────────────────────────────────────────────────
   const [dbSearchQuery, setDbSearchQuery] = useState('')
@@ -456,6 +461,32 @@ export default function CertificatePage() {
       if (!res.ok) throw new Error('Failed to check template')
       return res.json() as Promise<{ exists: boolean; template: string | null }>
     }
+  })
+
+  // Groups list — only fetched when bulk mode is active and the user opens the group source.
+  const { data: bulkGroupsList, isLoading: bulkGroupsLoading } = useQuery<{
+    groups: Array<{ id: string; name: string; participantCount: number }>
+  }>({
+    queryKey: ['bulk-groups-list'],
+    queryFn: async () => {
+      const res = await fetch('/api/groups')
+      if (!res.ok) throw new Error('Failed to fetch groups')
+      return res.json()
+    },
+    enabled: pageMode === 'bulk' && bulkStep === 'select',
+  })
+
+  // Participants for the currently selected bulk-group.
+  const { data: bulkGroupData, isLoading: bulkGroupParticipantsLoading } = useQuery<{
+    participants: Array<{ id: string; phone: string; name?: string | null; pushName?: string | null }>
+  }>({
+    queryKey: ['bulk-group-participants', bulkGroupId],
+    queryFn: async () => {
+      const res = await fetch(`/api/groups/${encodeURIComponent(bulkGroupId!)}`)
+      if (!res.ok) throw new Error('Failed to fetch group participants')
+      return res.json()
+    },
+    enabled: !!bulkGroupId && pageMode === 'bulk' && bulkStep === 'select',
   })
 
   useEffect(() => {
@@ -1028,6 +1059,59 @@ export default function CertificatePage() {
       setBulkStudents(prev => prev.map(bs =>
         bs.id === newEntry.id ? { ...bs, datesFetched: true } : bs
       ))
+    }
+  }
+
+  // ─── Bulk Mode: Pick from WhatsApp Group ─────────────────────────────
+
+  const toggleBulkGroupParticipant = (id: string) => {
+    setBulkGroupSelectedIds(prev =>
+      prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]
+    )
+  }
+
+  // Add the currently-selected group participants as DB students by
+  // matching their phone numbers against the external student database.
+  const handleBulkAddFromGroup = async () => {
+    if (bulkGroupSelectedIds.length === 0) return
+    const participants = (bulkGroupData?.participants || [])
+      .filter(p => bulkGroupSelectedIds.includes(p.id))
+    const phones = participants.map(p => p.phone).filter(Boolean)
+    if (phones.length === 0) return
+
+    setBulkGroupAdding(true)
+    setBulkGroupUnmatched([])
+
+    try {
+      const res = await fetch('/api/students/batch-match', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ phones }),
+      })
+      const data = res.ok ? await res.json() : { matches: {} }
+      const matches = (data.matches || {}) as Record<string, DBStudent>
+
+      const unmatched: string[] = []
+      // Add matched students sequentially so each gets a stable timestamp id
+      for (const p of participants) {
+        const m = matches[p.phone]
+        if (m) {
+          // Skip duplicates (existing helper does this internally too)
+          if (!bulkStudents.some(bs => bs.student?.student_id === m.student_id)) {
+            await handleBulkAddStudent(m)
+          }
+        } else {
+          unmatched.push(p.name || p.pushName || p.phone)
+        }
+      }
+
+      setBulkGroupUnmatched(unmatched)
+      // Clear selection on success so user can pick more / change group
+      setBulkGroupSelectedIds([])
+    } catch (error) {
+      console.error('Bulk add from group failed:', error)
+    } finally {
+      setBulkGroupAdding(false)
     }
   }
 
@@ -2230,6 +2314,119 @@ export default function CertificatePage() {
                       )}
                       {bulkSearchResults.length === 0 && bulkSearchQuery.length >= 2 && !bulkSearching && (
                         <p className="text-xs text-muted-foreground text-center py-2">No students found</p>
+                      )}
+                    </CardContent>
+                  </Card>
+
+                  {/* Pick from WhatsApp Group */}
+                  <Card>
+                    <CardHeader>
+                      <CardTitle className="flex items-center gap-2"><MessagesSquare className="h-5 w-5" /> Pick from Group</CardTitle>
+                      <CardDescription>Select a WhatsApp group, then add participants — matched against the student database by phone.</CardDescription>
+                    </CardHeader>
+                    <CardContent className="space-y-3">
+                      {!bulkGroupId && (
+                        <>
+                          {bulkGroupsLoading ? (
+                            <div className="flex items-center justify-center py-4"><Loader2 className="h-5 w-5 animate-spin" /></div>
+                          ) : (bulkGroupsList?.groups || []).length === 0 ? (
+                            <p className="text-xs text-muted-foreground text-center py-2">No groups found.</p>
+                          ) : (
+                            <div className="space-y-1 max-h-[200px] overflow-y-auto">
+                              {(bulkGroupsList?.groups || []).map((g) => (
+                                <button
+                                  key={g.id}
+                                  onClick={() => { setBulkGroupId(g.id); setBulkGroupSelectedIds([]); setBulkGroupUnmatched([]) }}
+                                  className="w-full flex items-center justify-between p-2.5 rounded-lg border hover:border-primary hover:bg-accent text-left"
+                                >
+                                  <span className="font-medium text-sm truncate">{g.name}</span>
+                                  <Badge variant="secondary" className="text-xs">{g.participantCount}</Badge>
+                                </button>
+                              ))}
+                            </div>
+                          )}
+                        </>
+                      )}
+
+                      {bulkGroupId && (
+                        <>
+                          <div className="flex items-center justify-between">
+                            <p className="text-sm font-medium truncate">
+                              {bulkGroupsList?.groups?.find(g => g.id === bulkGroupId)?.name || 'Selected group'}
+                            </p>
+                            <Button variant="ghost" size="sm" onClick={() => { setBulkGroupId(null); setBulkGroupSelectedIds([]); setBulkGroupUnmatched([]) }}>
+                              <ArrowLeft className="h-3.5 w-3.5 mr-1" /> Change
+                            </Button>
+                          </div>
+
+                          {bulkGroupParticipantsLoading ? (
+                            <div className="flex items-center justify-center py-4"><Loader2 className="h-5 w-5 animate-spin" /></div>
+                          ) : (
+                            <div className="space-y-1 max-h-[260px] overflow-y-auto">
+                              {(bulkGroupData?.participants || []).map((p) => {
+                                const checked = bulkGroupSelectedIds.includes(p.id)
+                                const alreadyAdded = bulkStudents.some(bs => {
+                                  const dbPhone = (bs.student?.phone_number || '').replace(/\D/g, '')
+                                  const wpPhone = p.phone.replace(/\D/g, '')
+                                  return dbPhone && wpPhone && (dbPhone.includes(wpPhone.slice(-10)) || wpPhone.includes(dbPhone.slice(-10)))
+                                })
+                                return (
+                                  <label
+                                    key={p.id}
+                                    className={`flex items-center gap-2 p-2 rounded-lg border cursor-pointer hover:bg-accent ${alreadyAdded ? 'opacity-50' : ''} ${checked ? 'bg-accent' : ''}`}
+                                  >
+                                    <input
+                                      type="checkbox"
+                                      checked={checked}
+                                      disabled={alreadyAdded}
+                                      onChange={() => toggleBulkGroupParticipant(p.id)}
+                                      className="h-4 w-4"
+                                    />
+                                    <div className="flex-1 min-w-0">
+                                      <p className="text-sm font-medium truncate">{p.name || p.pushName || p.phone}</p>
+                                      <p className="text-xs text-muted-foreground">+{p.phone}</p>
+                                    </div>
+                                    {alreadyAdded && <Badge variant="secondary" className="text-[10px]">Added</Badge>}
+                                  </label>
+                                )
+                              })}
+                            </div>
+                          )}
+
+                          <div className="flex items-center justify-between pt-1">
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              onClick={() => {
+                                const all = (bulkGroupData?.participants || []).map(p => p.id)
+                                setBulkGroupSelectedIds(prev => prev.length === all.length ? [] : all)
+                              }}
+                              className="text-xs"
+                            >
+                              {bulkGroupSelectedIds.length === (bulkGroupData?.participants || []).length ? 'Deselect all' : 'Select all'}
+                            </Button>
+                            <Button
+                              size="sm"
+                              onClick={handleBulkAddFromGroup}
+                              disabled={bulkGroupSelectedIds.length === 0 || bulkGroupAdding}
+                            >
+                              {bulkGroupAdding ? (
+                                <><Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" /> Adding...</>
+                              ) : (
+                                <><Plus className="h-3.5 w-3.5 mr-1.5" /> Add {bulkGroupSelectedIds.length} Selected</>
+                              )}
+                            </Button>
+                          </div>
+
+                          {bulkGroupUnmatched.length > 0 && (
+                            <div className="p-2 bg-amber-50 border border-amber-200 rounded-lg">
+                              <p className="text-xs font-medium text-amber-800 flex items-center gap-1">
+                                <AlertCircle className="h-3 w-3" /> Not matched to database ({bulkGroupUnmatched.length})
+                              </p>
+                              <p className="text-[11px] text-amber-700 mt-1 break-words">{bulkGroupUnmatched.join(', ')}</p>
+                            </div>
+                          )}
+                        </>
                       )}
                     </CardContent>
                   </Card>
