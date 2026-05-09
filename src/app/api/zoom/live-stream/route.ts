@@ -16,28 +16,35 @@ const FALLBACK_MEETING_ID = '4171672829'
 // Throttle Zoom API calls — every check on every keepalive would burn rate
 // limit. The hydrate path only runs when the local store is empty.
 let lastApiCheckAt = 0
+let lastApiAvailable = false
 const API_CHECK_INTERVAL_MS = 30_000
 
 async function maybeHydrateFromApi(): Promise<{ checked: boolean; available: boolean }> {
   const now = Date.now()
   if (now - lastApiCheckAt < API_CHECK_INTERVAL_MS) {
-    return { checked: false, available: false }
+    // Within throttle window — report what last call discovered so the
+    // SSE can still set webhookMissing correctly between polls.
+    return { checked: true, available: lastApiAvailable }
   }
   lastApiCheckAt = now
   try {
     const details = await getMeetingDetails(FALLBACK_MEETING_ID)
-    if (details.status !== 'started') return { checked: true, available: false }
+    if (details.status !== 'started') {
+      lastApiAvailable = false
+      return { checked: true, available: false }
+    }
     const participants = await getLiveMeetingParticipants(FALLBACK_MEETING_ID)
     if (participants === null) {
-      // Dashboard API not available on this plan — at least mark the
-      // meeting as live in the store so the UI doesn't say "no active
-      // meeting" while one's actually running.
+      // Dashboard API not available — at least mark the meeting as live so
+      // the UI doesn't say "no active meeting" while one's actually
+      // running. Keeps "available: false" so the banner surfaces.
       hydrateFromApi({
         meetingId: String(details.id),
         topic: details.topic,
         startTime: details.start_time,
         participants: [],
       })
+      lastApiAvailable = false
       return { checked: true, available: false }
     }
     hydrateFromApi({
@@ -46,8 +53,10 @@ async function maybeHydrateFromApi(): Promise<{ checked: boolean; available: boo
       startTime: details.start_time,
       participants,
     })
+    lastApiAvailable = true
     return { checked: true, available: true }
   } catch {
+    lastApiAvailable = false
     return { checked: true, available: false }
   }
 }
