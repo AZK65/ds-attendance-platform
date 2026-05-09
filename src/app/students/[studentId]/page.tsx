@@ -185,22 +185,28 @@ export default function StudentProfilePage() {
     const upcoming = studentEvents.filter(e => new Date(e.start_dt) >= now).sort((a, b) => new Date(a.start_dt).getTime() - new Date(b.start_dt).getTime())
     const past = studentEvents.filter(e => new Date(e.start_dt) < now)
 
-    // Add Zoom theory classes to past events (if not already there)
+    // Add Zoom theory classes to past events (if not already there).
+    // Records without a moduleNumber must still appear — see commit f54937e
+    // and the matching logic in /groups/[groupId]/student/[contactId]/page.tsx
     for (const tc of theoryClasses) {
       const tcDate = new Date(tc.date)
-      const alreadyExists = past.some(e => {
+      // Only dedupe when this Zoom record HAS a module — otherwise we'd kill
+      // legitimate generic theory classes whenever a Teamup event happened to
+      // sit nearby on the timeline.
+      const alreadyExists = tc.moduleNumber != null && past.some(e => {
         const mod = parseModuleFromTitle(e.title)
         return mod === String(tc.moduleNumber) && Math.abs(new Date(e.start_dt).getTime() - tcDate.getTime()) < 24 * 60 * 60 * 1000
       })
       if (!alreadyExists) {
         const isAbsent = tc.status === 'absent'
+        const modLabel = tc.moduleNumber != null ? `M${tc.moduleNumber}` : 'Theory Class'
         past.push({
-          id: `theory-${tc.moduleNumber}-${tc.meetingUUID}`,
-          title: `M${tc.moduleNumber} - ${displayName}${isAbsent ? ' (ABSENT)' : ''}`,
+          id: `theory-${tc.moduleNumber ?? 'x'}-${tc.meetingUUID}`,
+          title: `${modLabel} - ${displayName}${isAbsent ? ' (ABSENT)' : ''}`,
           start_dt: tc.date,
           end_dt: tc.date,
           subcalendar_ids: [],
-          notes: `Zoom Theory Class\nModule ${tc.moduleNumber}`,
+          notes: `Zoom Theory Class\nModule ${tc.moduleNumber ?? '—'}`,
         })
       }
     }
