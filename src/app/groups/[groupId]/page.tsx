@@ -416,6 +416,36 @@ export default function GroupDetailPage() {
 
       const data = await res.json()
       setZoomAttendanceData(data)
+
+      // Auto-persist the live-computed matches so this session shows up on
+      // student profiles and downstream APIs without requiring a manual
+      // Save click. The user can still edit and re-save afterwards; that
+      // path is unchanged (handleSaveAttendance just upserts the row).
+      try {
+        const selectedMeeting = recentMeetings.find(m => m.uuid === selectedMeetingUUID)
+        const meetingDate = selectedMeeting?.startTime || new Date().toISOString()
+        const saveRes = await fetch('/api/zoom/attendance', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            groupId,
+            meetingUUID: selectedMeetingUUID,
+            meetingDate,
+            moduleNumber: currentModuleNumber || undefined,
+            matched: data.matched,
+            absent: data.absent,
+            unmatchedZoom: data.unmatchedZoom,
+          }),
+        })
+        if (saveRes.ok) {
+          setLoadedFromSave(true)
+        } else {
+          console.warn('[Zoom Attendance] Auto-save failed, leaving as live/unsaved')
+        }
+      } catch (autoSaveErr) {
+        // Non-fatal — user can still hit Save manually
+        console.warn('[Zoom Attendance] Auto-save error:', autoSaveErr)
+      }
     } catch (error) {
       console.error('Zoom attendance error:', error)
       setZoomError(error instanceof Error ? error.message : 'Failed to fetch Zoom attendance')
