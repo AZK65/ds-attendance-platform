@@ -1029,11 +1029,19 @@ export default function CertificatePage() {
       const dates: Record<string, string> = {}
       let certOverrides: Record<string, string> = {}
 
-      // Check for existing certificate numbers + apartment in SQLite
+      // Check for existing certificate numbers + saved address fields in SQLite.
+      // Local Student is the source of truth for any address typed during a
+      // previous cert generation — MySQL often doesn't have these.
       if (profileRes?.ok) {
         const profile = await profileRes.json()
-        if (profile.localStudent?.apartment) {
-          certOverrides.apartment = profile.localStudent.apartment
+        const ls = profile.localStudent
+        if (ls) {
+          if (ls.address) certOverrides.address = ls.address
+          if (ls.apartment) certOverrides.apartment = ls.apartment
+          if (ls.municipality) certOverrides.municipality = ls.municipality
+          if (ls.province) certOverrides.province = ls.province
+          if (ls.postalCode) certOverrides.postalCode = ls.postalCode
+          if (ls.phoneAlt) certOverrides.phoneAlt = ls.phoneAlt
         }
         if (profile.localStudent?.certificates?.length > 0) {
           const latestCert = profile.localStudent.certificates[profile.localStudent.certificates.length - 1]
