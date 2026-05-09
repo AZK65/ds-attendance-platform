@@ -20,7 +20,7 @@ export async function GET(request: NextRequest) {
 
   const phoneDigits = phone.replace(/\D/g, '')
   const phoneSuffix = phoneDigits.length > 10 ? phoneDigits.slice(-10) : phoneDigits
-  const cleanName = name.replace(/\s*#\d+$/, '').trim().toLowerCase()
+  const cleanName = name.replace(/\s*#\d+\s*/g, ' ').replace(/\s+/g, ' ').trim().toLowerCase()
 
   const phoneMatches = (testPhone: string): boolean => {
     const mPhone = (testPhone || '').replace(/\D/g, '')

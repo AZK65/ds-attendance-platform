@@ -329,19 +329,56 @@ function StudentsPage() {
     city: '', postalCode: '', dob: '', email: '',
   })
 
-  // Pre-fill from URL params (e.g. from student detail page "Add to Database" button)
+  // Pre-fill from URL params (e.g. from student detail page "Add to Database" button).
+  // We also pull whatever the local Student profile has (address typed during a
+  // previous cert generation) so the user doesn't re-type fields they've already
+  // filled in elsewhere.
   useEffect(() => {
-    if (searchParams.get('prefill') === 'true') {
-      const name = searchParams.get('name') || ''
-      const phone = searchParams.get('phone') || ''
-      if (name || phone) {
-        setFormData({
-          ...EMPTY_FORM,
-          full_name: name,
-          phone_number: phone,
+    if (searchParams.get('prefill') !== 'true') return
+    const rawName = searchParams.get('name') || ''
+    const phone = searchParams.get('phone') || ''
+    if (!rawName && !phone) return
+
+    // Strip "#1122" tags that come from WhatsApp display names so the
+    // database name doesn't end up as "Gaurav #1122 Singh".
+    const cleanedName = rawName
+      .replace(/\s*#\d+\s*/g, ' ')
+      .replace(/\s+/g, ' ')
+      .trim()
+
+    // Open the modal with what we have immediately, then enhance with profile.
+    setFormData({
+      ...EMPTY_FORM,
+      full_name: cleanedName,
+      phone_number: phone,
+    })
+    setShowForm(true)
+
+    // Fetch local Student profile (saved during cert generation) and merge.
+    if (phone) {
+      const params = new URLSearchParams()
+      params.set('phone', phone)
+      if (cleanedName) params.set('name', cleanedName)
+      fetch(`/api/students/profile?${params}`)
+        .then(r => r.ok ? r.json() : null)
+        .then(data => {
+          const ls = data?.localStudent
+          if (!ls) return
+          // Combine apartment + address into a single string so it survives
+          // the round-trip (the modal only has one address field).
+          const apt = (ls.apartment || '').trim()
+          const street = (ls.address || '').trim()
+          const fullAddress = apt
+            ? `${street}${street ? ', ' : ''}Apt ${apt.replace(/^#/, '')}`
+            : street
+          setFormData(prev => ({
+            ...prev,
+            full_address: prev.full_address || fullAddress,
+            city: ls.municipality || prev.city,
+            postal_code: ls.postalCode || prev.postal_code,
+          }))
         })
-        setShowForm(true)
-      }
+        .catch(() => { /* non-fatal — modal stays partially filled */ })
     }
   }, [searchParams])
 

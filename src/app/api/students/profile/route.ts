@@ -145,7 +145,7 @@ export async function GET(request: NextRequest) {
 async function findExternalStudent(phone: string, name: string): Promise<StudentRecord | null> {
   try {
     // Strip #number suffix from WhatsApp names (e.g. "Naseer Jasba #1114" → "Naseer Jasba")
-    const cleanName = name.replace(/\s*#\d+$/, '').trim()
+    const cleanName = name.replace(/\s*#\d+\s*/g, ' ').replace(/\s+/g, ' ').trim()
 
     // Try phone first (most reliable match)
     if (phone) {
@@ -193,7 +193,13 @@ async function findExternalStudent(phone: string, name: string): Promise<Student
 
 // Find local student record with certificates (from certificate generation)
 async function findLocalStudent(phone: string, name: string) {
-  const cleanName = name.replace(/\s*#\d+$/, '').replace(/,/g, '').trim()
+  // Strip "#1234" tags wherever they appear (used as student-number tags
+  // in WhatsApp display names, e.g. "Gaurav #1122 Singh").
+  const cleanName = name
+    .replace(/\s*#\d+\s*/g, ' ')
+    .replace(/,/g, '')
+    .replace(/\s+/g, ' ')
+    .trim()
   const conditions = []
 
   if (phone) {
@@ -255,7 +261,7 @@ async function findStudentInvoices(phone: string, name: string) {
 
 // Find exam attempts for a student by name parts or phone
 async function findExamAttempts(phone: string, name: string) {
-  const cleanName = name.replace(/\s*#\d+$/, '').replace(/,/g, '').trim()
+  const cleanName = name.replace(/\s*#\d+\s*/g, ' ').replace(/,/g, '').replace(/\s+/g, ' ').trim()
   const nameParts = cleanName.split(/\s+/).filter(p => p.length >= 2)
   const conditions: Array<{ studentName?: { contains: string }; studentPhone?: { contains: string } }> = []
 

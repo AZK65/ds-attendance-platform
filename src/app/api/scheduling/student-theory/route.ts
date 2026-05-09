@@ -40,7 +40,7 @@ export async function GET(request: NextRequest) {
     // Filter to records where this student was marked present (in matchedRecords)
     const phoneDigits = phone?.replace(/\D/g, '') || ''
     const phoneSuffix = phoneDigits.length > 10 ? phoneDigits.slice(-10) : phoneDigits
-    const cleanName = (name || '').replace(/\s*#\d+$/, '').trim().toLowerCase()
+    const cleanName = (name || '').replace(/\s*#\d+\s*/g, ' ').replace(/\s+/g, ' ').trim().toLowerCase()
 
     // Also look up WhatsApp contact phones by name (the external DB may have a different phone)
     const extraPhoneSuffixes: string[] = []
