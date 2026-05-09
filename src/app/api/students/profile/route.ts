@@ -56,6 +56,7 @@ export async function GET(request: NextRequest) {
         phone: localStudent.phone,
         phoneAlt: localStudent.phoneAlt,
         address: localStudent.address,
+        apartment: localStudent.apartment,
         municipality: localStudent.municipality,
         province: localStudent.province,
         postalCode: localStudent.postalCode,

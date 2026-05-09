@@ -57,6 +57,7 @@ interface ExtractedData {
 
 interface CertificateFormData extends ExtractedData {
   attestationNumber: string
+  apartment: string
   municipality: string
   province: string
   postalCode: string
@@ -79,6 +80,7 @@ const initialFormData: CertificateFormData = {
   phone: '',
   registrationDate: '',
   expiryDate: '',
+  apartment: '',
   municipality: 'Montreal',
   province: 'QC',
   postalCode: '',
@@ -240,17 +242,27 @@ function ReviewForm({
               <Label>Full Name (Last, First)</Label>
               <Input value={formData.name} onChange={(e) => onChange('name', e.target.value)} placeholder="Lastname, Firstname" />
             </div>
-            <div className="col-span-2">
-              <Label>Address</Label>
-              <AddressAutocomplete
-                value={formData.address}
-                onChange={val => onChange('address', val)}
-                onAddressSelect={result => {
-                  if (result.city) onChange('municipality', result.city)
-                  if (result.postalCode) onChange('postalCode', result.postalCode)
-                }}
-                placeholder="123 Street Name"
-              />
+            <div className="col-span-2 grid grid-cols-[110px_1fr] gap-2">
+              <div>
+                <Label>Apt #</Label>
+                <Input
+                  value={formData.apartment}
+                  onChange={(e) => onChange('apartment', e.target.value)}
+                  placeholder="e.g. 5"
+                />
+              </div>
+              <div>
+                <Label>Address</Label>
+                <AddressAutocomplete
+                  value={formData.address}
+                  onChange={val => onChange('address', val)}
+                  onAddressSelect={result => {
+                    if (result.city) onChange('municipality', result.city)
+                    if (result.postalCode) onChange('postalCode', result.postalCode)
+                  }}
+                  placeholder="123 Street Name"
+                />
+              </div>
             </div>
             <div>
               <Label>Municipality</Label>
@@ -740,6 +752,9 @@ export default function CertificatePage() {
             if (s[field]) dates[field] = s[field]
           }
 
+          // Restore apartment from saved profile (single mode merges this in)
+          if (s.apartment) certOverrides.apartment = s.apartment
+
           // Override MySQL numbers with SQLite certificate numbers (the real assigned ones)
           // certificates are ordered desc by generatedAt, so index 0 is the latest
           if (s.certificates && s.certificates.length > 0) {
@@ -1014,9 +1029,12 @@ export default function CertificatePage() {
       const dates: Record<string, string> = {}
       let certOverrides: Record<string, string> = {}
 
-      // Check for existing certificate numbers in SQLite (override MySQL numbers)
+      // Check for existing certificate numbers + apartment in SQLite
       if (profileRes?.ok) {
         const profile = await profileRes.json()
+        if (profile.localStudent?.apartment) {
+          certOverrides.apartment = profile.localStudent.apartment
+        }
         if (profile.localStudent?.certificates?.length > 0) {
           const latestCert = profile.localStudent.certificates[profile.localStudent.certificates.length - 1]
           if (latestCert.contractNumber) {

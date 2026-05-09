@@ -5,7 +5,7 @@ export async function POST(request: NextRequest) {
   try {
     const body = await request.json()
     const {
-      licenceNumber, name, phone, phoneAlt, address,
+      licenceNumber, name, phone, phoneAlt, address, apartment,
       municipality, province, postalCode,
       registrationDate, expiryDate,
       module1Date, module2Date, module3Date, module4Date, module5Date,
@@ -32,6 +32,7 @@ export async function POST(request: NextRequest) {
       phone: phone || null,
       phoneAlt: phoneAlt || null,
       address: address || null,
+      apartment: apartment || null,
       municipality: municipality || null,
       province: province || null,
       postalCode: postalCode || null,

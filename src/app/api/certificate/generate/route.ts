@@ -5,6 +5,7 @@ import bwipjs from 'bwip-js'
 interface CertificateFormData {
   name: string
   address: string
+  apartment?: string
   municipality: string
   province: string
   postalCode: string
@@ -132,7 +133,12 @@ export async function POST(request: NextRequest) {
     trySetField(['Nom prénom', 'Nom prénom#1'], formData.name)
 
     // Address - Page 1: "Adresse", Page 2: "Adresse#1"
-    trySetField(['Adresse', 'Adresse#1'], formData.address)
+    // Prepend apartment as "#<apt> " before the street address when present.
+    const apt = (formData.apartment || '').trim()
+    const fullAddress = apt
+      ? `#${apt.replace(/^#/, '')} ${formData.address || ''}`.trim()
+      : formData.address
+    trySetField(['Adresse', 'Adresse#1'], fullAddress)
 
     // Municipality - Page 1: "Municipalité", Page 2: "Municipalité#1"
     trySetField(['Municipalité', 'Municipalité#1'], formData.municipality)

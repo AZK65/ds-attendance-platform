@@ -161,6 +161,7 @@ model Student {
   phone            String?
   phoneAlt         String?
   address          String?
+  apartment        String?
   municipality     String?
   province         String?
   postalCode       String?
