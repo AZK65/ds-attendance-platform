@@ -753,7 +753,7 @@ export default function CertificatePage() {
         const theoryData: { moduleNumber: number; date: string }[] = await theoryRes.json()
         for (const tc of theoryData) {
           const d = new Date(tc.date)
-          const dateStr = `${(d.getMonth() + 1).toString().padStart(2, '0')}/${d.getDate().toString().padStart(2, '0')}/${d.getFullYear()}`
+          const dateStr = `${d.getFullYear()}-${(d.getMonth() + 1).toString().padStart(2, '0')}-${d.getDate().toString().padStart(2, '0')}`
           if (tc.moduleNumber >= 1 && tc.moduleNumber <= 12) dates[`module${tc.moduleNumber}Date`] = dateStr
         }
       }
@@ -770,7 +770,7 @@ export default function CertificatePage() {
           const mMatch = first.match(/^M(\d+)$/)
           const moduleMatch = first.match(/^Module (\d+)$/)
           const eventDate = new Date(event.start_dt)
-          const dateStr = `${(eventDate.getMonth() + 1).toString().padStart(2, '0')}/${eventDate.getDate().toString().padStart(2, '0')}/${eventDate.getFullYear()}`
+          const dateStr = `${eventDate.getFullYear()}-${(eventDate.getMonth() + 1).toString().padStart(2, '0')}-${eventDate.getDate().toString().padStart(2, '0')}`
 
           if (sMatch) { const n = parseInt(sMatch[1]); if (n >= 1 && n <= 15) dates[`sortie${n}Date`] = dateStr }
           else if (mMatch) { const n = parseInt(mMatch[1]); if (n >= 1 && n <= 12 && !dates[`module${n}Date`]) dates[`module${n}Date`] = dateStr }
@@ -1026,7 +1026,7 @@ export default function CertificatePage() {
         const theoryData: { moduleNumber: number; date: string }[] = await theoryRes.json()
         for (const tc of theoryData) {
           const d = new Date(tc.date)
-          const dateStr = `${(d.getMonth() + 1).toString().padStart(2, '0')}/${d.getDate().toString().padStart(2, '0')}/${d.getFullYear()}`
+          const dateStr = `${d.getFullYear()}-${(d.getMonth() + 1).toString().padStart(2, '0')}-${d.getDate().toString().padStart(2, '0')}`
           if (tc.moduleNumber >= 1 && tc.moduleNumber <= 12) dates[`module${tc.moduleNumber}Date`] = dateStr
         }
       }
@@ -1042,7 +1042,7 @@ export default function CertificatePage() {
           const mMatch = first.match(/^M(\d+)$/)
           const moduleMatch = first.match(/^Module (\d+)$/)
           const eventDate = new Date(event.start_dt)
-          const dateStr = `${(eventDate.getMonth() + 1).toString().padStart(2, '0')}/${eventDate.getDate().toString().padStart(2, '0')}/${eventDate.getFullYear()}`
+          const dateStr = `${eventDate.getFullYear()}-${(eventDate.getMonth() + 1).toString().padStart(2, '0')}-${eventDate.getDate().toString().padStart(2, '0')}`
 
           if (sMatch) { const n = parseInt(sMatch[1]); if (n >= 1 && n <= 15) dates[`sortie${n}Date`] = dateStr }
           else if (mMatch) { const n = parseInt(mMatch[1]); if (n >= 1 && n <= 12 && !dates[`module${n}Date`]) dates[`module${n}Date`] = dateStr }
@@ -1516,7 +1516,7 @@ export default function CertificatePage() {
         const theoryData: { moduleNumber: number; date: string }[] = await theoryRes.json()
         for (const tc of theoryData) {
           const d = new Date(tc.date)
-          const dateStr = `${(d.getMonth() + 1).toString().padStart(2, '0')}/${d.getDate().toString().padStart(2, '0')}/${d.getFullYear()}`
+          const dateStr = `${d.getFullYear()}-${(d.getMonth() + 1).toString().padStart(2, '0')}-${d.getDate().toString().padStart(2, '0')}`
           if (tc.moduleNumber >= 1 && tc.moduleNumber <= 12) {
             dates[`module${tc.moduleNumber}Date`] = dateStr
           }
@@ -1535,7 +1535,7 @@ export default function CertificatePage() {
           const mMatch = first.match(/^M(\d+)$/)
           const moduleMatch = first.match(/^Module (\d+)$/)
           const eventDate = new Date(event.start_dt)
-          const dateStr = `${(eventDate.getMonth() + 1).toString().padStart(2, '0')}/${eventDate.getDate().toString().padStart(2, '0')}/${eventDate.getFullYear()}`
+          const dateStr = `${eventDate.getFullYear()}-${(eventDate.getMonth() + 1).toString().padStart(2, '0')}-${eventDate.getDate().toString().padStart(2, '0')}`
 
           if (sMatch) {
             const sNum = parseInt(sMatch[1])
