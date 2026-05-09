@@ -114,11 +114,16 @@ export async function POST(request: NextRequest) {
       ...dates,
     }
 
-    // Call the existing generate endpoint internally
+    // Call the existing generate endpoint internally. Forward the user's
+    // cookies — otherwise middleware sees no auth-token and returns 401,
+    // which silently broke the download button on /certificate/history.
     const generateUrl = new URL('/api/certificate/generate', request.url)
     const generateRes = await fetch(generateUrl.toString(), {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: {
+        'Content-Type': 'application/json',
+        Cookie: request.headers.get('cookie') || '',
+      },
       body: JSON.stringify(generatePayload),
     })
 

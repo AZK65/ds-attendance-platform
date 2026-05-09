@@ -1,6 +1,7 @@
 'use client'
 
-import { useState, useEffect, useCallback, useRef, useMemo } from 'react'
+import { useState, useEffect, useCallback, useRef, useMemo, Suspense } from 'react'
+import { useSearchParams } from 'next/navigation'
 import { useMutation, useQuery } from '@tanstack/react-query'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
@@ -407,8 +408,25 @@ function ReviewForm({
 
 // ─── Main Page Component ────────────────────────────────────────────────────
 
+// useSearchParams in App Router needs a Suspense boundary to avoid the
+// "Missing Suspense around useSearchParams" prerender error.
 export default function CertificatePage() {
-  const [pageMode, setPageMode] = useState<PageMode>('single')
+  return (
+    <Suspense fallback={<div className="min-h-screen flex items-center justify-center"><Loader2 className="h-6 w-6 animate-spin" /></div>}>
+      <CertificatePageInner />
+    </Suspense>
+  )
+}
+
+function CertificatePageInner() {
+  const searchParams = useSearchParams()
+  // Initialise from URL params: /certificate?mode=database&search=Gaurav
+  // (used by the certificate-history "Edit" button).
+  const initialMode: PageMode = (() => {
+    const m = searchParams.get('mode')
+    return m === 'database' || m === 'bulk' || m === 'single' ? m : 'single'
+  })()
+  const [pageMode, setPageMode] = useState<PageMode>(initialMode)
 
   // ─── Single Mode State ──────────────────────────────────────────────────
   const [step, setStep] = useState<Step>('upload-docs')
@@ -461,7 +479,9 @@ export default function CertificatePage() {
   const [addFromGroupOpen, setAddFromGroupOpen] = useState(false)
 
   // ─── Database Mode State ────────────────────────────────────────────────
-  const [dbSearchQuery, setDbSearchQuery] = useState('')
+  // Seed search query from ?search= URL param so "Edit" from cert history
+  // lands the user with the right student already searched.
+  const [dbSearchQuery, setDbSearchQuery] = useState(searchParams.get('search') || '')
   const [dbSearchResults, setDbSearchResults] = useState<DBStudent[]>([])
   const [dbSearching, setDbSearching] = useState(false)
   const [dbSelectedStudent, setDbSelectedStudent] = useState<DBStudent | null>(null)
