@@ -258,6 +258,12 @@ export default function GroupDetailPage() {
         results: Record<string, {
           lastClass: { date: string; title: string } | null
           nextClass: { date: string; title: string } | null
+          certificate: {
+            generatedAt: string
+            certificateType: string
+            contractNumber: string | null
+            attestationNumber: string | null
+          } | null
         }>
       }>
     },
@@ -266,7 +272,7 @@ export default function GroupDetailPage() {
   })
 
   const getClassInfo = (phone: string) => {
-    return batchClassesData?.results?.[phone] || { lastClass: null, nextClass: null }
+    return batchClassesData?.results?.[phone] || { lastClass: null, nextClass: null, certificate: null }
   }
 
   const formatRelativeDate = (dateStr: string) => {
@@ -798,6 +804,7 @@ export default function GroupDetailPage() {
                   <TableHead>Name / Phone</TableHead>
                   <TableHead className="w-[120px]">Last Class</TableHead>
                   <TableHead className="w-[120px]">Next Class</TableHead>
+                  <TableHead className="w-[110px]">Certificate</TableHead>
                   <TableHead className="w-[100px]">Role</TableHead>
                   <TableHead className="w-[80px]">Actions</TableHead>
                 </TableRow>
@@ -856,6 +863,23 @@ export default function GroupDetailPage() {
                           <div className="text-xs">
                             <p className="font-medium">{formatted}</p>
                             <p className="text-green-600">{relative}</p>
+                          </div>
+                        )
+                      })()}
+                    </TableCell>
+                    <TableCell>
+                      {(() => {
+                        const { certificate } = getClassInfo(participant.phone)
+                        if (!certificate) return <span className="text-muted-foreground text-xs">—</span>
+                        const issued = new Date(certificate.generatedAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
+                        const phaseLabel = certificate.certificateType === 'phase1' ? 'Phase 1' : 'Full'
+                        return (
+                          <div className="flex flex-col gap-0.5">
+                            <Badge className="bg-green-100 text-green-800 border-green-200 hover:bg-green-100 gap-1 w-fit">
+                              <CheckCircle className="h-3 w-3" />
+                              Passed
+                            </Badge>
+                            <span className="text-[10px] text-muted-foreground">{phaseLabel} · {issued}</span>
                           </div>
                         )
                       })()}
