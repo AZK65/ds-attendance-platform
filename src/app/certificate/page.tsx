@@ -135,6 +135,13 @@ interface BulkStudent {
   pdfBlob?: Blob
   datesFetched?: boolean
   fileName?: string
+  // Preview-only cert numbers (read from settings without incrementing).
+  // If formData.contractNumber/attestationNumber still match these at
+  // generate time, the user didn't edit and we consume real numbers via
+  // /api/certificate/next-number. If they differ, the user customized
+  // and we use their values as-is.
+  previewedContract?: string
+  previewedAttestation?: string
 }
 
 const STEP_ORDER: Step[] = ['upload-docs', 'review', 'download']
@@ -1051,32 +1058,63 @@ export default function CertificatePage() {
       }
 
       // If neither MySQL nor local SQLite supplied cert numbers (new student),
-      // reserve fresh ones now so the review form shows the numbers that will
-      // actually be used at generate time. handleBulkGenerate will skip the
-      // re-fetch when both numbers are already populated.
+      // PREVIEW the next available numbers without incrementing the counter
+      // (using GET /api/certificate/settings rather than POST /next-number).
+      // The actual increment happens once at generate time. If the user
+      // edits the value before generating, we honour their value via the
+      // previewed-* comparison in handleBulkGenerate.
       const hasContract = !!(certOverrides.contractNumber || baseData.contractNumber)
       const hasAttestation = !!(certOverrides.attestationNumber || baseData.attestationNumber)
+      let previewedContract: string | undefined
+      let previewedAttestation: string | undefined
+
       if (!hasContract || !hasAttestation) {
         try {
-          const numRes = await fetch('/api/certificate/next-number', { method: 'POST' })
-          if (numRes.ok) {
-            const numbers = await numRes.json()
-            if (!hasContract && numbers.contractNumber) {
-              certOverrides.contractNumber = String(numbers.contractNumber)
+          const settingsRes = await fetch('/api/certificate/settings')
+          if (settingsRes.ok) {
+            const settings = await settingsRes.json()
+            // Sequential preview: each new student gets the next number in
+            // the queue. Count students currently in the bulk list (excluding
+            // ones whose contract was filled from MySQL/SQLite — those
+            // already have real numbers).
+            const offset = (await new Promise<number>((resolve) => {
+              setBulkStudents(prev => {
+                let c = 0
+                for (const bs of prev) {
+                  if (bs.id === newEntry.id) continue
+                  // Count only students that are using preview numbers
+                  if (bs.previewedContract && bs.formData.contractNumber === bs.previewedContract) c++
+                }
+                resolve(c)
+                return prev
+              })
+            }))
+            if (!hasContract && settings.nextContractNumber != null) {
+              const n = (settings.nextContractNumber as number) + offset
+              previewedContract = String(n)
+              certOverrides.contractNumber = previewedContract
             }
-            if (!hasAttestation && numbers.attestationNumber) {
-              const attStr = String(numbers.attestationNumber)
-              certOverrides.attestationNumber = attStr.split('').join('  ')
+            if (!hasAttestation && settings.nextAttestationNumber != null) {
+              const n = (settings.nextAttestationNumber as number) + offset
+              const raw = String(n)
+              previewedAttestation = raw.split('').join('  ')
+              certOverrides.attestationNumber = previewedAttestation
             }
           }
         } catch {
-          // Continue without reserved numbers — generate flow will still try
+          // Continue without preview — generate flow will still consume real numbers
         }
       }
 
       setBulkStudents(prev => prev.map(bs =>
         bs.id === newEntry.id
-          ? { ...bs, formData: { ...bs.formData, ...dates, ...certOverrides }, datesFetched: true }
+          ? {
+              ...bs,
+              formData: { ...bs.formData, ...dates, ...certOverrides },
+              datesFetched: true,
+              previewedContract,
+              previewedAttestation,
+            }
           : bs
       ))
     } catch {
@@ -1308,11 +1346,46 @@ export default function CertificatePage() {
 
       let finalFormData = { ...updatedStudents[i].formData }
 
-      // If student has attestation from DB, use school settings only
-      // Otherwise, auto-increment numbers
-      const hasAttestation = finalFormData.attestationNumber.replace(/\s/g, '').length > 0
+      // Decide whether to consume real cert numbers from /next-number.
+      // Three cases:
+      //   1. The student's contract+attestation came from MySQL/SQLite
+      //      (no preview was set) — keep them, just fetch school settings.
+      //   2. The student is using PREVIEWED numbers (formData still equals
+      //      previewedContract/previewedAttestation) — fetch /next-number to
+      //      actually consume the counter and overwrite the preview values.
+      //   3. The user manually edited the cert numbers (formData differs
+      //      from preview) — keep their edits, just fetch school settings.
+      const previewedContract = updatedStudents[i].previewedContract
+      const previewedAttestation = updatedStudents[i].previewedAttestation
+      const usingPreviewedContract =
+        !!previewedContract && finalFormData.contractNumber === previewedContract
+      const usingPreviewedAttestation =
+        !!previewedAttestation && finalFormData.attestationNumber === previewedAttestation
+      const needsConsume = usingPreviewedContract || usingPreviewedAttestation
+
       try {
-        if (hasAttestation) {
+        if (needsConsume) {
+          const numRes = await fetch('/api/certificate/next-number', { method: 'POST' })
+          if (numRes.ok) {
+            const numbers = await numRes.json()
+            const attestationStr = String(numbers.attestationNumber)
+            finalFormData = {
+              ...finalFormData,
+              contractNumber: usingPreviewedContract
+                ? String(numbers.contractNumber)
+                : finalFormData.contractNumber,
+              attestationNumber: usingPreviewedAttestation
+                ? attestationStr.split('').join('  ')
+                : finalFormData.attestationNumber,
+              schoolName: numbers.schoolName || '',
+              schoolAddress: numbers.schoolAddress || '',
+              schoolCity: numbers.schoolCity || '',
+              schoolProvince: numbers.schoolProvince || '',
+              schoolPostalCode: numbers.schoolPostalCode || '',
+              schoolNumber: numbers.schoolNumber || '',
+            }
+          }
+        } else {
           const settingsRes = await fetch('/api/certificate/settings')
           if (settingsRes.ok) {
             const settings = await settingsRes.json()
@@ -1324,23 +1397,6 @@ export default function CertificatePage() {
               schoolProvince: settings.schoolProvince || '',
               schoolPostalCode: settings.schoolPostalCode || '',
               schoolNumber: settings.schoolNumber || '',
-            }
-          }
-        } else {
-          const numRes = await fetch('/api/certificate/next-number', { method: 'POST' })
-          if (numRes.ok) {
-            const numbers = await numRes.json()
-            const attestationStr = String(numbers.attestationNumber)
-            finalFormData = {
-              ...finalFormData,
-              contractNumber: finalFormData.contractNumber || String(numbers.contractNumber),
-              attestationNumber: attestationStr.split('').join('  '),
-              schoolName: numbers.schoolName || '',
-              schoolAddress: numbers.schoolAddress || '',
-              schoolCity: numbers.schoolCity || '',
-              schoolProvince: numbers.schoolProvince || '',
-              schoolPostalCode: numbers.schoolPostalCode || '',
-              schoolNumber: numbers.schoolNumber || '',
             }
           }
         }
