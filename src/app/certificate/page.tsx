@@ -511,6 +511,49 @@ export default function CertificatePage() {
     enabled: !!bulkGroupId && pageMode === 'bulk' && bulkStep === 'select',
   })
 
+  // Per-participant certificate status for the picked group, so we can hide
+  // / flag students who already have a cert of the current bulk type.
+  const bulkGroupPhones = useMemo(
+    () => (bulkGroupData?.participants || []).map(p => p.phone).filter(Boolean),
+    [bulkGroupData],
+  )
+  const { data: bulkGroupCertData } = useQuery<{
+    results: Record<string, {
+      certificate: {
+        generatedAt: string
+        certificateType: string
+        contractNumber: string | null
+        attestationNumber: string | null
+      } | null
+    }>
+  }>({
+    queryKey: ['bulk-group-certs', bulkGroupId, bulkGroupPhones.join(',')],
+    queryFn: async () => {
+      const res = await fetch('/api/scheduling/batch-classes', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ phones: bulkGroupPhones }),
+      })
+      if (!res.ok) return { results: {} }
+      return res.json()
+    },
+    enabled: !!bulkGroupId && bulkGroupPhones.length > 0 && pageMode === 'bulk' && bulkStep === 'select',
+    staleTime: 60 * 1000,
+  })
+
+  // True iff this participant already holds a certificate of the current
+  // bulkCertType (or, for "full", any certificate at all — Full subsumes
+  // Phase 1).
+  const participantHasMatchingCert = (phone: string): boolean => {
+    const cert = bulkGroupCertData?.results?.[phone]?.certificate
+    if (!cert) return false
+    if (bulkCertType === 'phase1') return cert.certificateType === 'phase1' || cert.certificateType === 'full'
+    return cert.certificateType === 'full'
+  }
+
+  // Toggle to filter the list down to people without a matching cert.
+  const [bulkGroupHideCertified, setBulkGroupHideCertified] = useState(false)
+
   useEffect(() => {
     if (templateStatus?.exists && templateStatus?.template) {
       setTemplatePdf(templateStatus.template)
@@ -2502,51 +2545,82 @@ export default function CertificatePage() {
                             <div className="flex items-center justify-center py-6">
                               <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
                             </div>
-                          ) : (
-                            <div className="rounded-lg border divide-y max-h-[280px] overflow-y-auto">
-                              {(bulkGroupData?.participants || []).map((p) => {
-                                const checked = bulkGroupSelectedIds.includes(p.id)
-                                const alreadyAdded = bulkStudents.some(bs => {
-                                  const dbPhone = (bs.student?.phone_number || '').replace(/\D/g, '')
-                                  const wpPhone = p.phone.replace(/\D/g, '')
-                                  return dbPhone && wpPhone && (dbPhone.includes(wpPhone.slice(-10)) || wpPhone.includes(dbPhone.slice(-10)))
-                                })
-                                const display = (p.name || p.pushName || p.phone).replace(/\s*#\d+\s*/g, ' ').replace(/\s+/g, ' ').trim()
-                                const initial = display.charAt(0).toUpperCase()
-                                return (
-                                  <label
-                                    key={p.id}
-                                    className={`flex items-center gap-3 px-3 py-2 cursor-pointer transition-colors ${
-                                      alreadyAdded ? 'opacity-50 cursor-default' : 'hover:bg-accent'
-                                    } ${checked ? 'bg-accent' : ''}`}
-                                  >
+                          ) : (() => {
+                            const all = bulkGroupData?.participants || []
+                            const visible = bulkGroupHideCertified
+                              ? all.filter(p => !participantHasMatchingCert(p.phone))
+                              : all
+                            const certifiedCount = all.length - all.filter(p => !participantHasMatchingCert(p.phone)).length
+                            return (
+                              <>
+                                {certifiedCount > 0 && (
+                                  <label className="flex items-center gap-2 px-2 py-1.5 mb-2 text-xs text-muted-foreground cursor-pointer">
                                     <input
                                       type="checkbox"
-                                      checked={checked}
-                                      disabled={alreadyAdded}
-                                      onChange={() => toggleBulkGroupParticipant(p.id)}
-                                      className="h-4 w-4 accent-primary"
+                                      checked={bulkGroupHideCertified}
+                                      onChange={(e) => setBulkGroupHideCertified(e.target.checked)}
+                                      className="h-3.5 w-3.5 accent-primary"
                                     />
-                                    <div className="h-7 w-7 rounded-full bg-muted text-muted-foreground flex items-center justify-center text-xs font-medium shrink-0">
-                                      {initial}
-                                    </div>
-                                    <div className="flex-1 min-w-0">
-                                      <p className="text-sm font-medium truncate">{display}</p>
-                                      <p className="text-[11px] text-muted-foreground">+{p.phone}</p>
-                                    </div>
-                                    {alreadyAdded && (
-                                      <Badge variant="secondary" className="text-[10px] shrink-0">
-                                        <CheckCircle className="h-3 w-3 mr-0.5" /> Added
-                                      </Badge>
-                                    )}
+                                    Hide students who already have a {bulkCertType === 'phase1' ? 'Phase 1' : 'Full'} certificate ({certifiedCount})
                                   </label>
-                                )
-                              })}
-                              {(bulkGroupData?.participants || []).length === 0 && (
-                                <p className="text-xs text-muted-foreground text-center py-4">No participants in this group.</p>
-                              )}
-                            </div>
-                          )}
+                                )}
+                                <div className="rounded-lg border divide-y max-h-[280px] overflow-y-auto">
+                                  {visible.map((p) => {
+                                    const checked = bulkGroupSelectedIds.includes(p.id)
+                                    const alreadyAdded = bulkStudents.some(bs => {
+                                      const dbPhone = (bs.student?.phone_number || '').replace(/\D/g, '')
+                                      const wpPhone = p.phone.replace(/\D/g, '')
+                                      return dbPhone && wpPhone && (dbPhone.includes(wpPhone.slice(-10)) || wpPhone.includes(dbPhone.slice(-10)))
+                                    })
+                                    const hasMatchingCert = participantHasMatchingCert(p.phone)
+                                    const display = (p.name || p.pushName || p.phone).replace(/\s*#\d+\s*/g, ' ').replace(/\s+/g, ' ').trim()
+                                    const initial = display.charAt(0).toUpperCase()
+                                    return (
+                                      <label
+                                        key={p.id}
+                                        className={`flex items-center gap-3 px-3 py-2 cursor-pointer transition-colors ${
+                                          alreadyAdded ? 'opacity-50 cursor-default' : 'hover:bg-accent'
+                                        } ${checked ? 'bg-accent' : ''}`}
+                                      >
+                                        <input
+                                          type="checkbox"
+                                          checked={checked}
+                                          disabled={alreadyAdded}
+                                          onChange={() => toggleBulkGroupParticipant(p.id)}
+                                          className="h-4 w-4 accent-primary"
+                                        />
+                                        <div className="h-7 w-7 rounded-full bg-muted text-muted-foreground flex items-center justify-center text-xs font-medium shrink-0">
+                                          {initial}
+                                        </div>
+                                        <div className="flex-1 min-w-0">
+                                          <p className="text-sm font-medium truncate">{display}</p>
+                                          <p className="text-[11px] text-muted-foreground">+{p.phone}</p>
+                                        </div>
+                                        {hasMatchingCert && (
+                                          <Badge className="text-[10px] shrink-0 bg-green-100 text-green-800 border-green-200 hover:bg-green-100 gap-1">
+                                            <CheckCircle className="h-3 w-3" />
+                                            {bulkCertType === 'phase1' ? 'Phase 1' : 'Full'}
+                                          </Badge>
+                                        )}
+                                        {alreadyAdded && (
+                                          <Badge variant="secondary" className="text-[10px] shrink-0">
+                                            <CheckCircle className="h-3 w-3 mr-0.5" /> Added
+                                          </Badge>
+                                        )}
+                                      </label>
+                                    )
+                                  })}
+                                  {visible.length === 0 && (
+                                    <p className="text-xs text-muted-foreground text-center py-4">
+                                      {all.length === 0
+                                        ? 'No participants in this group.'
+                                        : 'Everyone in this group already has a certificate.'}
+                                    </p>
+                                  )}
+                                </div>
+                              </>
+                            )
+                          })()}
 
                           <div className="flex items-center justify-between gap-2">
                             <button
@@ -2558,6 +2632,8 @@ export default function CertificatePage() {
                                     const wpPhone = p.phone.replace(/\D/g, '')
                                     return dbPhone && wpPhone && (dbPhone.includes(wpPhone.slice(-10)) || wpPhone.includes(dbPhone.slice(-10)))
                                   }))
+                                  // When the hide-certified filter is on, only target uncertified students
+                                  .filter(p => !bulkGroupHideCertified || !participantHasMatchingCert(p.phone))
                                   .map(p => p.id)
                                 setBulkGroupSelectedIds(prev =>
                                   prev.length === addable.length ? [] : addable
@@ -2571,7 +2647,11 @@ export default function CertificatePage() {
                                     const dbPhone = (bs.student?.phone_number || '').replace(/\D/g, '')
                                     const wpPhone = p.phone.replace(/\D/g, '')
                                     return dbPhone && wpPhone && (dbPhone.includes(wpPhone.slice(-10)) || wpPhone.includes(dbPhone.slice(-10)))
-                                  })).length
+                                  }))
+                                  .filter(p => !bulkGroupHideCertified || !participantHasMatchingCert(p.phone)).length
+                                if (bulkGroupHideCertified) {
+                                  return bulkGroupSelectedIds.length === addable && addable > 0 ? 'Deselect all' : `Select all uncertified (${addable})`
+                                }
                                 return bulkGroupSelectedIds.length === addable && addable > 0 ? 'Deselect all' : 'Select all'
                               })()}
                             </button>
