@@ -1,6 +1,34 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/db'
 
+// PATCH /api/invoice/[id]
+// Currently supports updating remainingBalance only. Used to correct stale
+// values left by the old "package + previous balance" double-counting bug.
+export async function PATCH(
+  request: NextRequest,
+  { params }: { params: Promise<{ id: string }> },
+) {
+  try {
+    const { id } = await params
+    const body = await request.json()
+    const data: Record<string, unknown> = {}
+    if (body.remainingBalance === null || typeof body.remainingBalance === 'number') {
+      data.remainingBalance = body.remainingBalance
+    }
+    if (Object.keys(data).length === 0) {
+      return NextResponse.json({ error: 'No supported fields' }, { status: 400 })
+    }
+    const updated = await prisma.invoice.update({ where: { id }, data })
+    return NextResponse.json({ invoice: updated })
+  } catch (error) {
+    console.error('Invoice PATCH error:', error)
+    return NextResponse.json(
+      { error: error instanceof Error ? error.message : 'Failed to update invoice' },
+      { status: 500 },
+    )
+  }
+}
+
 export async function GET(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> }

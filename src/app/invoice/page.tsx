@@ -425,8 +425,15 @@ function InvoicePage() {
           }
         }
         if (selectedPackage) {
-          // Package selected: remaining = package total + prior balance - this invoice
-          remainingBalance = selectedPackage.totalPrice + previousBalance - total
+          // If the student already carries a balance from a previous invoice
+          // for this package, this is a CONTINUATION — just subtract the
+          // current payment. Otherwise it's a NEW package, so seed the
+          // remaining balance with the full package total.
+          if (previousBalance > 0) {
+            remainingBalance = previousBalance - total
+          } else {
+            remainingBalance = selectedPackage.totalPrice - total
+          }
         } else if (manualBalance !== null && manualBalance > 0) {
           // Manual balance entered: remaining = manualBalance - this invoice
           remainingBalance = manualBalance - total
@@ -1207,7 +1214,12 @@ function InvoicePage() {
                 const previousBalance = balanceData?.openBalance || 0
                 let effectiveBalance: number
                 if (selectedPackage) {
-                  effectiveBalance = packageTotal + previousBalance - total
+                  // Continuation invoice: prior balance already represents
+                  // outstanding package — just subtract the current invoice.
+                  // Fresh package: seed with the full package total.
+                  effectiveBalance = previousBalance > 0
+                    ? previousBalance - total
+                    : packageTotal - total
                 } else if (manualBalance !== null && manualBalance > 0) {
                   effectiveBalance = manualBalance - total
                 } else if (previousBalance > 0) {
