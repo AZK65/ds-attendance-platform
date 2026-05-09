@@ -143,8 +143,11 @@ export async function POST(request: NextRequest) {
         continue
       }
 
-      const topicModule = parseModuleFromTopic(meeting.topic || '')
-      const moduleNumber = topicModule ?? g.moduleNumber ?? null
+      // Only trust the topic for module assignment. Group.moduleNumber is
+      // the group's CURRENT module — using it as a fallback would wrongly tag
+      // every past class with today's module. We'd rather leave it null and
+      // let the user (or fix-modules) infer it chronologically.
+      const moduleNumber = parseModuleFromTopic(meeting.topic || '')
       const meetingDate = new Date(meeting.start_time || Date.now())
 
       try {

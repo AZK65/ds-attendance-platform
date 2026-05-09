@@ -424,6 +424,11 @@ export default function GroupDetailPage() {
       try {
         const selectedMeeting = recentMeetings.find(m => m.uuid === selectedMeetingUUID)
         const meetingDate = selectedMeeting?.startTime || new Date().toISOString()
+        // Don't pass currentModuleNumber on auto-save — it's the GROUP's
+        // current module and would wrongly tag past sessions. The save
+        // endpoint will still try to recover a module from the Zoom topic
+        // or from a nearby Teamup event; if neither works it stays null
+        // and can be fixed chronologically via fix-modules.
         const saveRes = await fetch('/api/zoom/attendance', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -431,7 +436,6 @@ export default function GroupDetailPage() {
             groupId,
             meetingUUID: selectedMeetingUUID,
             meetingDate,
-            moduleNumber: currentModuleNumber || undefined,
             matched: data.matched,
             absent: data.absent,
             unmatchedZoom: data.unmatchedZoom,
