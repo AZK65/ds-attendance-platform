@@ -12,6 +12,7 @@ import { Upload, FileText, Download, Loader2, Camera, ArrowLeft, ArrowRight, Che
 import { motion, AnimatePresence } from 'motion/react'
 import Link from 'next/link'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog'
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { PhoneCameraUpload } from '@/components/PhoneCameraUpload'
 import { StudentSearchAutocomplete, DBStudent } from '@/components/StudentSearchAutocomplete'
 import { AddressAutocomplete } from '@/components/AddressAutocomplete'
@@ -456,6 +457,8 @@ export default function CertificatePage() {
   const [bulkGroupSelectedIds, setBulkGroupSelectedIds] = useState<string[]>([])
   const [bulkGroupAdding, setBulkGroupAdding] = useState(false)
   const [bulkGroupUnmatched, setBulkGroupUnmatched] = useState<string[]>([])
+  // "+ Add another from group" dialog opened from the review tabs
+  const [addFromGroupOpen, setAddFromGroupOpen] = useState(false)
 
   // ─── Database Mode State ────────────────────────────────────────────────
   const [dbSearchQuery, setDbSearchQuery] = useState('')
@@ -1233,7 +1236,22 @@ export default function CertificatePage() {
   }
 
   const removeBulkStudent = (id: string) => {
-    setBulkStudents(prev => prev.filter(bs => bs.id !== id))
+    setBulkStudents(prev => {
+      const idx = prev.findIndex(bs => bs.id === id)
+      const next = prev.filter(bs => bs.id !== id)
+      // Keep the active tab pointing at something valid
+      const activeIdx = parseInt(activeTab, 10)
+      if (!Number.isNaN(activeIdx)) {
+        if (next.length === 0) {
+          setActiveTab('0')
+        } else if (idx <= activeIdx) {
+          // Removed the active or an earlier tab → step back if possible
+          const newActive = Math.max(0, Math.min(activeIdx - (idx <= activeIdx ? 1 : 0), next.length - 1))
+          setActiveTab(String(newActive))
+        }
+      }
+      return next
+    })
   }
 
   // ─── Bulk Mode: Process OCR entries ──────────────────────────────────
@@ -2437,49 +2455,49 @@ export default function CertificatePage() {
 
                   {/* Pick from WhatsApp Group */}
                   <Card>
-                    <CardHeader>
-                      <CardTitle className="flex items-center gap-2"><MessagesSquare className="h-5 w-5" /> Pick from Group</CardTitle>
-                      <CardDescription>Select a WhatsApp group, then add participants — matched against the student database by phone.</CardDescription>
+                    <CardHeader className="pb-3">
+                      <CardTitle className="flex items-center gap-2 text-base">
+                        <MessagesSquare className="h-4 w-4" /> Pick from Group
+                      </CardTitle>
+                      <CardDescription className="text-xs">
+                        Match WhatsApp members to the student database by phone.
+                      </CardDescription>
                     </CardHeader>
                     <CardContent className="space-y-3">
-                      {!bulkGroupId && (
-                        <>
-                          {bulkGroupsLoading ? (
-                            <div className="flex items-center justify-center py-4"><Loader2 className="h-5 w-5 animate-spin" /></div>
-                          ) : (bulkGroupsList?.groups || []).length === 0 ? (
-                            <p className="text-xs text-muted-foreground text-center py-2">No groups found.</p>
-                          ) : (
-                            <div className="space-y-1 max-h-[200px] overflow-y-auto">
-                              {(bulkGroupsList?.groups || []).map((g) => (
-                                <button
-                                  key={g.id}
-                                  onClick={() => { setBulkGroupId(g.id); setBulkGroupSelectedIds([]); setBulkGroupUnmatched([]) }}
-                                  className="w-full flex items-center justify-between p-2.5 rounded-lg border hover:border-primary hover:bg-accent text-left"
-                                >
-                                  <span className="font-medium text-sm truncate">{g.name}</span>
-                                  <Badge variant="secondary" className="text-xs">{g.participantCount}</Badge>
-                                </button>
-                              ))}
-                            </div>
-                          )}
-                        </>
-                      )}
+                      <Select
+                        value={bulkGroupId || ''}
+                        onValueChange={(v) => {
+                          setBulkGroupId(v || null)
+                          setBulkGroupSelectedIds([])
+                          setBulkGroupUnmatched([])
+                        }}
+                        disabled={bulkGroupsLoading}
+                      >
+                        <SelectTrigger className="w-full">
+                          <SelectValue
+                            placeholder={bulkGroupsLoading ? 'Loading groups…' : 'Select a group'}
+                          />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {(bulkGroupsList?.groups || []).map((g) => (
+                            <SelectItem key={g.id} value={g.id}>
+                              <span className="flex items-center gap-2">
+                                <span className="truncate max-w-[260px]">{g.name}</span>
+                                <span className="text-[11px] text-muted-foreground">{g.participantCount}</span>
+                              </span>
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
 
                       {bulkGroupId && (
                         <>
-                          <div className="flex items-center justify-between">
-                            <p className="text-sm font-medium truncate">
-                              {bulkGroupsList?.groups?.find(g => g.id === bulkGroupId)?.name || 'Selected group'}
-                            </p>
-                            <Button variant="ghost" size="sm" onClick={() => { setBulkGroupId(null); setBulkGroupSelectedIds([]); setBulkGroupUnmatched([]) }}>
-                              <ArrowLeft className="h-3.5 w-3.5 mr-1" /> Change
-                            </Button>
-                          </div>
-
                           {bulkGroupParticipantsLoading ? (
-                            <div className="flex items-center justify-center py-4"><Loader2 className="h-5 w-5 animate-spin" /></div>
+                            <div className="flex items-center justify-center py-6">
+                              <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
+                            </div>
                           ) : (
-                            <div className="space-y-1 max-h-[260px] overflow-y-auto">
+                            <div className="rounded-lg border divide-y max-h-[280px] overflow-y-auto">
                               {(bulkGroupData?.participants || []).map((p) => {
                                 const checked = bulkGroupSelectedIds.includes(p.id)
                                 const alreadyAdded = bulkStudents.some(bs => {
@@ -2487,60 +2505,91 @@ export default function CertificatePage() {
                                   const wpPhone = p.phone.replace(/\D/g, '')
                                   return dbPhone && wpPhone && (dbPhone.includes(wpPhone.slice(-10)) || wpPhone.includes(dbPhone.slice(-10)))
                                 })
+                                const display = (p.name || p.pushName || p.phone).replace(/\s*#\d+\s*/g, ' ').replace(/\s+/g, ' ').trim()
+                                const initial = display.charAt(0).toUpperCase()
                                 return (
                                   <label
                                     key={p.id}
-                                    className={`flex items-center gap-2 p-2 rounded-lg border cursor-pointer hover:bg-accent ${alreadyAdded ? 'opacity-50' : ''} ${checked ? 'bg-accent' : ''}`}
+                                    className={`flex items-center gap-3 px-3 py-2 cursor-pointer transition-colors ${
+                                      alreadyAdded ? 'opacity-50 cursor-default' : 'hover:bg-accent'
+                                    } ${checked ? 'bg-accent' : ''}`}
                                   >
                                     <input
                                       type="checkbox"
                                       checked={checked}
                                       disabled={alreadyAdded}
                                       onChange={() => toggleBulkGroupParticipant(p.id)}
-                                      className="h-4 w-4"
+                                      className="h-4 w-4 accent-primary"
                                     />
-                                    <div className="flex-1 min-w-0">
-                                      <p className="text-sm font-medium truncate">{p.name || p.pushName || p.phone}</p>
-                                      <p className="text-xs text-muted-foreground">+{p.phone}</p>
+                                    <div className="h-7 w-7 rounded-full bg-muted text-muted-foreground flex items-center justify-center text-xs font-medium shrink-0">
+                                      {initial}
                                     </div>
-                                    {alreadyAdded && <Badge variant="secondary" className="text-[10px]">Added</Badge>}
+                                    <div className="flex-1 min-w-0">
+                                      <p className="text-sm font-medium truncate">{display}</p>
+                                      <p className="text-[11px] text-muted-foreground">+{p.phone}</p>
+                                    </div>
+                                    {alreadyAdded && (
+                                      <Badge variant="secondary" className="text-[10px] shrink-0">
+                                        <CheckCircle className="h-3 w-3 mr-0.5" /> Added
+                                      </Badge>
+                                    )}
                                   </label>
                                 )
                               })}
+                              {(bulkGroupData?.participants || []).length === 0 && (
+                                <p className="text-xs text-muted-foreground text-center py-4">No participants in this group.</p>
+                              )}
                             </div>
                           )}
 
-                          <div className="flex items-center justify-between pt-1">
-                            <Button
-                              variant="ghost"
-                              size="sm"
+                          <div className="flex items-center justify-between gap-2">
+                            <button
+                              type="button"
                               onClick={() => {
-                                const all = (bulkGroupData?.participants || []).map(p => p.id)
-                                setBulkGroupSelectedIds(prev => prev.length === all.length ? [] : all)
+                                const addable = (bulkGroupData?.participants || [])
+                                  .filter(p => !bulkStudents.some(bs => {
+                                    const dbPhone = (bs.student?.phone_number || '').replace(/\D/g, '')
+                                    const wpPhone = p.phone.replace(/\D/g, '')
+                                    return dbPhone && wpPhone && (dbPhone.includes(wpPhone.slice(-10)) || wpPhone.includes(dbPhone.slice(-10)))
+                                  }))
+                                  .map(p => p.id)
+                                setBulkGroupSelectedIds(prev =>
+                                  prev.length === addable.length ? [] : addable
+                                )
                               }}
-                              className="text-xs"
+                              className="text-xs text-muted-foreground hover:text-foreground transition-colors"
                             >
-                              {bulkGroupSelectedIds.length === (bulkGroupData?.participants || []).length ? 'Deselect all' : 'Select all'}
-                            </Button>
+                              {(() => {
+                                const addable = (bulkGroupData?.participants || [])
+                                  .filter(p => !bulkStudents.some(bs => {
+                                    const dbPhone = (bs.student?.phone_number || '').replace(/\D/g, '')
+                                    const wpPhone = p.phone.replace(/\D/g, '')
+                                    return dbPhone && wpPhone && (dbPhone.includes(wpPhone.slice(-10)) || wpPhone.includes(dbPhone.slice(-10)))
+                                  })).length
+                                return bulkGroupSelectedIds.length === addable && addable > 0 ? 'Deselect all' : 'Select all'
+                              })()}
+                            </button>
                             <Button
                               size="sm"
                               onClick={handleBulkAddFromGroup}
                               disabled={bulkGroupSelectedIds.length === 0 || bulkGroupAdding}
                             >
                               {bulkGroupAdding ? (
-                                <><Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" /> Adding...</>
+                                <><Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" /> Adding…</>
                               ) : (
-                                <><Plus className="h-3.5 w-3.5 mr-1.5" /> Add {bulkGroupSelectedIds.length} Selected</>
+                                <><Plus className="h-3.5 w-3.5 mr-1.5" /> Add {bulkGroupSelectedIds.length || ''}</>
                               )}
                             </Button>
                           </div>
 
                           {bulkGroupUnmatched.length > 0 && (
-                            <div className="p-2 bg-amber-50 border border-amber-200 rounded-lg">
-                              <p className="text-xs font-medium text-amber-800 flex items-center gap-1">
-                                <AlertCircle className="h-3 w-3" /> Not matched to database ({bulkGroupUnmatched.length})
+                            <div className="p-2.5 bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-900/50 rounded-lg">
+                              <p className="text-xs font-medium text-amber-800 dark:text-amber-200 flex items-center gap-1.5">
+                                <AlertCircle className="h-3.5 w-3.5" /> Not in database ({bulkGroupUnmatched.length})
                               </p>
-                              <p className="text-[11px] text-amber-700 mt-1 break-words">{bulkGroupUnmatched.join(', ')}</p>
+                              <p className="text-[11px] text-amber-700 dark:text-amber-300 mt-1 break-words">
+                                {bulkGroupUnmatched.join(' · ')}
+                              </p>
                             </div>
                           )}
                         </>
@@ -2648,12 +2697,43 @@ export default function CertificatePage() {
                         const complete = isStudentDataComplete(bs.formData)
                         const hasError = !!bs.ocrError
                         return (
-                          <TabsTrigger key={bs.id} value={String(idx)} className="flex items-center gap-1.5 text-xs sm:text-sm">
+                          <TabsTrigger
+                            key={bs.id}
+                            value={String(idx)}
+                            className="group flex items-center gap-1.5 text-xs sm:text-sm pr-1"
+                          >
                             <span className={`h-2 w-2 rounded-full ${hasError ? 'bg-red-500' : complete ? 'bg-green-500' : 'bg-amber-500'}`} />
-                            {bs.formData.name ? bs.formData.name.split(',')[0].trim().substring(0, 12) : `Student ${idx + 1}`}
+                            <span>
+                              {bs.formData.name ? bs.formData.name.split(',')[0].trim().substring(0, 12) : `Student ${idx + 1}`}
+                            </span>
+                            <span
+                              role="button"
+                              aria-label="Remove student"
+                              onClick={(e) => {
+                                e.stopPropagation()
+                                e.preventDefault()
+                                if (window.confirm(`Remove ${bs.formData.name?.split(',')[0]?.trim() || `Student ${idx + 1}`} from this batch?`)) {
+                                  removeBulkStudent(bs.id)
+                                }
+                              }}
+                              className="ml-1 inline-flex items-center justify-center h-4 w-4 rounded-full text-muted-foreground hover:bg-destructive hover:text-destructive-foreground transition-colors cursor-pointer"
+                            >
+                              <X className="h-3 w-3" />
+                            </span>
                           </TabsTrigger>
                         )
                       })}
+                      {bulkGroupId && (
+                        <button
+                          type="button"
+                          onClick={() => setAddFromGroupOpen(true)}
+                          className="inline-flex items-center justify-center h-8 w-8 rounded-md text-muted-foreground hover:bg-accent hover:text-foreground transition-colors"
+                          aria-label="Add another student from group"
+                          title="Add another student from group"
+                        >
+                          <Plus className="h-4 w-4" />
+                        </button>
+                      )}
                     </TabsList>
 
                     {bulkStudents.map((bs, idx) => (
@@ -2766,6 +2846,73 @@ export default function CertificatePage() {
           )}
         </div>
       </main>
+
+      {/* Add Another From Group Dialog (review-step "+" button) */}
+      <Dialog open={addFromGroupOpen} onOpenChange={setAddFromGroupOpen}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <MessagesSquare className="h-5 w-5" /> Add from Group
+            </DialogTitle>
+            <DialogDescription>
+              {bulkGroupsList?.groups?.find(g => g.id === bulkGroupId)?.name || 'Pick a participant to add to this batch.'}
+            </DialogDescription>
+          </DialogHeader>
+          {bulkGroupParticipantsLoading ? (
+            <div className="flex items-center justify-center py-6">
+              <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
+            </div>
+          ) : (
+            <div className="rounded-lg border divide-y max-h-[360px] overflow-y-auto">
+              {(bulkGroupData?.participants || []).map((p) => {
+                const alreadyAdded = bulkStudents.some(bs => {
+                  const dbPhone = (bs.student?.phone_number || '').replace(/\D/g, '')
+                  const wpPhone = p.phone.replace(/\D/g, '')
+                  return dbPhone && wpPhone && (dbPhone.includes(wpPhone.slice(-10)) || wpPhone.includes(dbPhone.slice(-10)))
+                })
+                const display = (p.name || p.pushName || p.phone).replace(/\s*#\d+\s*/g, ' ').replace(/\s+/g, ' ').trim()
+                const initial = display.charAt(0).toUpperCase()
+                return (
+                  <button
+                    key={p.id}
+                    type="button"
+                    disabled={alreadyAdded || bulkGroupAdding}
+                    onClick={async () => {
+                      // Reuse the existing single-add path: select just this id and fire the batch handler
+                      setBulkGroupSelectedIds([p.id])
+                      await handleBulkAddFromGroup()
+                      // Switch focus to the newly-added tab (last in list)
+                      setActiveTab(String(bulkStudents.length))
+                      setAddFromGroupOpen(false)
+                    }}
+                    className={`w-full flex items-center gap-3 px-3 py-2 text-left transition-colors ${
+                      alreadyAdded ? 'opacity-50 cursor-not-allowed' : 'hover:bg-accent'
+                    }`}
+                  >
+                    <div className="h-7 w-7 rounded-full bg-muted text-muted-foreground flex items-center justify-center text-xs font-medium shrink-0">
+                      {initial}
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm font-medium truncate">{display}</p>
+                      <p className="text-[11px] text-muted-foreground">+{p.phone}</p>
+                    </div>
+                    {alreadyAdded ? (
+                      <Badge variant="secondary" className="text-[10px] shrink-0">
+                        <CheckCircle className="h-3 w-3 mr-0.5" /> Added
+                      </Badge>
+                    ) : (
+                      <Plus className="h-4 w-4 text-muted-foreground shrink-0" />
+                    )}
+                  </button>
+                )
+              })}
+              {(bulkGroupData?.participants || []).length === 0 && (
+                <p className="text-xs text-muted-foreground text-center py-4">No participants found.</p>
+              )}
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
 
       {/* Phone Camera Dialog */}
       <Dialog open={phoneCameraTarget !== null} onOpenChange={(open) => { if (!open) setPhoneCameraTarget(null) }}>
