@@ -6,6 +6,7 @@ import {
   handleParticipantJoined,
   handleParticipantLeft
 } from '@/lib/zoom/live-store'
+import { autoSaveAttendanceOnMeetingEnd } from '@/lib/zoom/auto-save-attendance'
 
 export async function POST(request: NextRequest) {
   try {
@@ -57,6 +58,16 @@ export async function POST(request: NextRequest) {
         handleMeetingStarted(body.payload)
         break
       case 'meeting.ended':
+        // Fire BEFORE handleMeetingEnded clears state (it schedules a 15-min
+        // wipe of currentMeeting). Auto-save reads the still-live store,
+        // matches participants against each group's cached members, and
+        // writes a ZoomAttendance row under the best-matching group.
+        autoSaveAttendanceOnMeetingEnd({
+          meetingId: String(body.payload?.object?.id ?? ''),
+          meetingUUID: String(body.payload?.object?.uuid ?? ''),
+          topic: body.payload?.object?.topic,
+          endedAt: body.payload?.object?.end_time ? new Date(body.payload.object.end_time) : new Date(),
+        }).catch(err => console.error('[Webhook] auto-save error:', err))
         handleMeetingEnded(body.payload)
         break
       case 'meeting.participant_joined':
