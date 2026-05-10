@@ -101,8 +101,13 @@ export default function CertificateHistoryPage() {
   })
 
   const handleEdit = (cert: CertificateRecord) => {
-    // Redirect to certificate page in Database mode with this student pre-loaded
-    router.push(`/certificate?mode=database&search=${encodeURIComponent(cert.student.name)}`)
+    // Redirect to certificate page in Database mode with this student
+    // pre-loaded. Pass the phone so the page can disambiguate when the
+    // search returns multiple students with similar names.
+    const params = new URLSearchParams({ mode: 'database' })
+    if (cert.student.name) params.set('search', cert.student.name)
+    if (cert.student.phone) params.set('phone', cert.student.phone)
+    router.push(`/certificate?${params}`)
   }
 
   const formatDate = (dateStr: string) => {

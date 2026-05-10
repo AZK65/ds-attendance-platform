@@ -1611,6 +1611,31 @@ function CertificatePageInner() {
     return () => clearTimeout(timer)
   }, [dbSearchQuery]) // eslint-disable-line react-hooks/exhaustive-deps
 
+  // When the page was opened from the cert-history "Edit" button (URL
+  // has ?mode=database&search=...&phone=...), auto-select the matching
+  // student once results land so the user goes straight to the form
+  // instead of having to click the search result themselves.
+  const autoSelectedRef = useRef(false)
+  useEffect(() => {
+    if (autoSelectedRef.current) return
+    if (pageMode !== 'database') return
+    if (!searchParams.get('search')) return
+    if (dbSelectedStudent) return
+    if (dbSearching) return
+    if (dbSearchResults.length === 0) return
+    const wantedPhoneDigits = (searchParams.get('phone') || '').replace(/\D/g, '').slice(-10)
+    let pick = dbSearchResults[0]
+    if (wantedPhoneDigits.length >= 7) {
+      const match = dbSearchResults.find((s) => {
+        const digits = (s.phone_number || '').replace(/\D/g, '')
+        return digits.includes(wantedPhoneDigits) || wantedPhoneDigits.includes(digits.slice(-10))
+      })
+      if (match) pick = match
+    }
+    autoSelectedRef.current = true
+    handleDbSelectStudent(pick)
+  }, [pageMode, dbSearchResults, dbSearching, dbSelectedStudent, searchParams]) // eslint-disable-line react-hooks/exhaustive-deps
+
   const handleDbSelectStudent = async (student: DBStudent) => {
     setDbSelectedStudent(student)
     // Parse the name: database has "First Last" format, certificate needs "Last, First"
