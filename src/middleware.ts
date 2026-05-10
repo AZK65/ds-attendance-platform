@@ -5,12 +5,13 @@ const IGNORED_PREFIXES = ['/_next', '/favicon.ico']
 const PUBLIC_FILE_EXTENSIONS = ['.png', '.jpg', '.jpeg', '.svg', '.ico', '.webp', '.gif']
 
 // Cross-origin allowlist for the public registration API. The marketing site
-// (qazidriving.ca, hosted on Cloudflare Pages) POSTs to /api/register and
-// /api/register/checkout from a different origin, so we need CORS headers.
-// Override with env var: ALLOWED_ORIGINS="https://qazidriving.ca,https://www.qazidriving.ca"
+// (qazidrivingschool.ca, hosted on Cloudflare Pages) POSTs to /api/register
+// and /api/register/checkout from a different origin, so we need CORS headers.
+// Override with env var:
+//   ALLOWED_ORIGINS="https://qazidrivingschool.ca,https://www.qazidrivingschool.ca"
 const DEFAULT_ALLOWED_ORIGINS = [
-  'https://qazidriving.ca',
-  'https://www.qazidriving.ca',
+  'https://qazidrivingschool.ca',
+  'https://www.qazidrivingschool.ca',
 ]
 const ALLOWED_ORIGINS = (process.env.ALLOWED_ORIGINS || '')
   .split(',')
