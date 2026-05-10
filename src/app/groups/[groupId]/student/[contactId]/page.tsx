@@ -7,6 +7,7 @@ import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog'
 import {
   Card,
   CardContent,
@@ -322,6 +323,10 @@ export default function StudentDetailPage() {
   const contactId = decodeURIComponent(params.contactId as string)
 
   const [editing, setEditing] = useState(false)
+  const [editingBalance, setEditingBalance] = useState(false)
+  const [newBalanceInput, setNewBalanceInput] = useState('')
+  const [balanceSaving, setBalanceSaving] = useState(false)
+  const [balanceError, setBalanceError] = useState<string | null>(null)
   const [editName, setEditName] = useState('')
   const [editPhone, setEditPhone] = useState('')
 
@@ -1273,13 +1278,25 @@ export default function StudentDetailPage() {
       >
         <Card>
           <CardHeader>
-            <CardTitle className="flex items-center gap-2 text-lg">
-              <Receipt className="h-5 w-5" />
-              Invoice History
-              {(profileData?.summary?.invoiceCount || 0) > 0 && (
-                <Badge variant="secondary" className="ml-auto">{profileData?.summary?.invoiceCount}</Badge>
+            <div className="flex items-center justify-between gap-2">
+              <CardTitle className="flex items-center gap-2 text-lg">
+                <Receipt className="h-5 w-5" />
+                Invoice History
+                {(profileData?.summary?.invoiceCount || 0) > 0 && (
+                  <Badge variant="secondary">{profileData?.summary?.invoiceCount}</Badge>
+                )}
+              </CardTitle>
+              {(profileData?.invoices?.length || 0) > 0 && (
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => setEditingBalance(true)}
+                  className="text-xs text-muted-foreground hover:text-foreground"
+                >
+                  <Edit3 className="h-3.5 w-3.5 mr-1" /> Edit balance
+                </Button>
               )}
-            </CardTitle>
+            </div>
           </CardHeader>
           <CardContent>
             {loadingProfile ? (
@@ -1463,6 +1480,80 @@ export default function StudentDetailPage() {
           </Card>
         </motion.div>
       )}
+
+      {/* Edit Balance Dialog — updates the latest invoice's remainingBalance.
+          The Invoice.remainingBalance field on the most-recent invoice is
+          what drives summary.openBalance, so editing it here changes the
+          number shown across the app. */}
+      <Dialog open={editingBalance} onOpenChange={(o) => {
+        if (!o) { setEditingBalance(false); setBalanceError(null) }
+      }}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Adjust Open Balance</DialogTitle>
+            <DialogDescription>
+              Sets the remaining balance on the student&apos;s most recent invoice.
+              Use <code className="px-1 rounded bg-muted">0</code> to mark them as fully paid up.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-3">
+            <div className="text-sm">
+              <p className="text-muted-foreground">Current open balance</p>
+              <p className="text-2xl font-bold">${(profileData?.summary?.openBalance || 0).toFixed(2)}</p>
+            </div>
+            <div>
+              <Label className="text-sm">New balance ($)</Label>
+              <Input
+                type="number"
+                min="0"
+                step="0.01"
+                value={newBalanceInput}
+                onChange={(e) => setNewBalanceInput(e.target.value)}
+                placeholder="0.00"
+                autoFocus
+              />
+            </div>
+            {balanceError && <p className="text-sm text-destructive">{balanceError}</p>}
+            <div className="flex justify-end gap-2 pt-1">
+              <Button variant="outline" onClick={() => setEditingBalance(false)} disabled={balanceSaving}>Cancel</Button>
+              <Button
+                disabled={balanceSaving || newBalanceInput === '' || isNaN(parseFloat(newBalanceInput)) || parseFloat(newBalanceInput) < 0}
+                onClick={async () => {
+                  const value = parseFloat(newBalanceInput)
+                  const latest = profileData?.invoices?.[0]
+                  if (!latest) {
+                    setBalanceError('No invoice found for this student to update')
+                    return
+                  }
+                  setBalanceSaving(true)
+                  setBalanceError(null)
+                  try {
+                    const res = await fetch(`/api/invoice/${encodeURIComponent(latest.id)}`, {
+                      method: 'PATCH',
+                      headers: { 'Content-Type': 'application/json' },
+                      body: JSON.stringify({ remainingBalance: value }),
+                    })
+                    if (!res.ok) {
+                      const data = await res.json().catch(() => ({}))
+                      throw new Error(data.error || `Save failed (${res.status})`)
+                    }
+                    setEditingBalance(false)
+                    setNewBalanceInput('')
+                    queryClient.invalidateQueries({ queryKey: ['student-profile', contactId, displayName, phone] })
+                  } catch (err) {
+                    setBalanceError(err instanceof Error ? err.message : 'Failed to save')
+                  } finally {
+                    setBalanceSaving(false)
+                  }
+                }}
+                className="min-w-[80px]"
+              >
+                {balanceSaving ? <Loader2 className="h-4 w-4 animate-spin" /> : 'Save'}
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
     </main>
   )
 }
