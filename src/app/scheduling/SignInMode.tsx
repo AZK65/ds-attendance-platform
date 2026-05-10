@@ -210,20 +210,44 @@ function SignaturePad({
   const parsed = parseTitle(event.title)
   const phone = parsePhone(event.notes)
 
-  // Set canvas size to its CSS-rendered dimensions × DPR for crisp lines.
+  // Calibrate canvas to its rendered CSS box × devicePixelRatio. Has to
+  // re-measure after the dialog open animation finishes (rect.width is
+  // smaller during the animation), otherwise the finger position and the
+  // ink position drift apart. ResizeObserver covers both the initial
+  // animation and any later layout changes (rotation, keyboard, etc.).
   useEffect(() => {
     const c = canvasRef.current
     if (!c) return
-    const dpr = window.devicePixelRatio || 1
-    const rect = c.getBoundingClientRect()
-    c.width = rect.width * dpr
-    c.height = rect.height * dpr
-    const ctx = c.getContext('2d')!
-    ctx.scale(dpr, dpr)
-    ctx.lineWidth = 2.4
-    ctx.lineCap = 'round'
-    ctx.lineJoin = 'round'
-    ctx.strokeStyle = '#0f172a'
+    const measure = () => {
+      const dpr = window.devicePixelRatio || 1
+      const rect = c.getBoundingClientRect()
+      if (rect.width === 0 || rect.height === 0) return
+      // Preserve any existing strokes by copying off and back.
+      const prev = document.createElement('canvas')
+      prev.width = c.width
+      prev.height = c.height
+      if (c.width > 0 && c.height > 0) {
+        prev.getContext('2d')!.drawImage(c, 0, 0)
+      }
+      c.width = Math.round(rect.width * dpr)
+      c.height = Math.round(rect.height * dpr)
+      const ctx = c.getContext('2d')!
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0)
+      ctx.lineWidth = 2.4
+      ctx.lineCap = 'round'
+      ctx.lineJoin = 'round'
+      ctx.strokeStyle = '#0f172a'
+      if (prev.width > 0) {
+        ctx.save()
+        ctx.setTransform(1, 0, 0, 1, 0, 0)
+        ctx.drawImage(prev, 0, 0, c.width, c.height)
+        ctx.restore()
+      }
+    }
+    measure()
+    const ro = new ResizeObserver(() => measure())
+    ro.observe(c)
+    return () => ro.disconnect()
   }, [])
 
   const start = (x: number, y: number) => {
@@ -243,8 +267,12 @@ function SignaturePad({
   }
   const end = () => { drawingRef.current = false }
 
+  // Convert pointer event to CSS-pixel coords inside the canvas. Because
+  // the context is transformed via setTransform(dpr,…), drawing at CSS-pixel
+  // coordinates maps to the correct internal pixel under the finger.
   const localXY = (e: React.PointerEvent<HTMLCanvasElement>) => {
-    const rect = canvasRef.current!.getBoundingClientRect()
+    const c = canvasRef.current!
+    const rect = c.getBoundingClientRect()
     return [e.clientX - rect.left, e.clientY - rect.top] as const
   }
 
