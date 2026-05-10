@@ -383,6 +383,17 @@ model StudentRegistration {
   idImage        String? // base64 ID photo
   signatureImage String? // base64 signature
   medical        String? // JSON: SAAQ 6224A self-declaration { conditions:number[], none:bool, attestedAt:string }
+
+  // Clover auth-then-capture payment state for the $250 first installment.
+  paymentChargeId     String?   // Clover charge id (auth created at submit time)
+  paymentStatus       String?   // 'authorized' | 'captured' | 'voided' | 'failed'
+  paymentLast4        String?   // last 4 digits, for display in admin
+  paymentBrand        String?   // "visa", "mastercard", etc.
+  paymentAmount       Int?      // cents — typically 25000 ($250)
+  paymentAuthorizedAt DateTime?
+  paymentCapturedAt   DateTime?
+  paymentError        String?   // last error from Clover
+
   source         String? // "qr", "online-registration", etc.
   expiresAt      DateTime
   submittedAt    DateTime?

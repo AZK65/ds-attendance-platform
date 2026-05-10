@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 
-const PUBLIC_PATHS = ['/login', '/api/auth', '/camera', '/enroll', '/api/enroll', '/api/zoom/webhook', '/register', '/api/register', '/exam', '/api/exam', '/book', '/api/book']
+const PUBLIC_PATHS = ['/login', '/api/auth', '/camera', '/enroll', '/api/enroll', '/api/zoom/webhook', '/register', '/api/register', '/api/payment', '/exam', '/api/exam', '/book', '/api/book']
 const IGNORED_PREFIXES = ['/_next', '/favicon.ico']
 const PUBLIC_FILE_EXTENSIONS = ['.png', '.jpg', '.jpeg', '.svg', '.ico', '.webp', '.gif']
 
@@ -20,7 +20,7 @@ const ALLOWED_ORIGINS = (process.env.ALLOWED_ORIGINS || '')
   .filter(Boolean)
   .concat(DEFAULT_ALLOWED_ORIGINS)
 
-const CORS_PATHS = ['/api/register']
+const CORS_PATHS = ['/api/register', '/api/payment']
 
 function corsHeaders(origin: string | null): Record<string, string> {
   if (!origin || !ALLOWED_ORIGINS.includes(origin)) return {}

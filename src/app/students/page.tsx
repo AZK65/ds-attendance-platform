@@ -114,6 +114,15 @@ interface Registration {
   externalId: number | null
   createdAt: string
   medical: string | null  // JSON string: { conditions:number[], none:bool, attestedAt:string|null }
+  // Clover auth-then-capture state
+  paymentChargeId: string | null
+  paymentStatus: string | null    // 'authorized' | 'captured' | 'voided' | 'failed'
+  paymentLast4: string | null
+  paymentBrand: string | null
+  paymentAmount: number | null
+  paymentAuthorizedAt: string | null
+  paymentCapturedAt: string | null
+  paymentError: string | null
 }
 
 interface ReviewFormData {
@@ -728,6 +737,16 @@ function StudentsPage() {
   // Confirm registration mutation
   const confirmMutation = useMutation({
     mutationFn: async ({ id, ...fields }: ReviewFormData & { id: string }) => {
+      // 1. Capture the Clover $250 auth (no-op if already captured or never auth'd).
+      const reg = reviewingRegistration
+      if (reg?.paymentStatus === 'authorized') {
+        const capRes = await fetch(`/api/registrations/${id}/capture`, { method: 'POST' })
+        if (!capRes.ok) {
+          const err = await capRes.json().catch(() => ({}))
+          throw new Error(err.error || 'Card capture failed — student NOT added to database')
+        }
+      }
+      // 2. Confirm the registration (writes to MySQL student table).
       const res = await fetch(`/api/registrations/${id}/confirm`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -750,9 +769,14 @@ function StudentsPage() {
     },
   })
 
-  // Reject registration mutation
+  // Reject registration mutation — releases the Clover auth before deleting.
   const rejectMutation = useMutation({
     mutationFn: async (id: string) => {
+      const reg = reviewingRegistration
+      if (reg?.paymentStatus === 'authorized') {
+        // Best-effort void; we still proceed to delete even if Clover errors.
+        await fetch(`/api/registrations/${id}/void`, { method: 'POST' }).catch(() => null)
+      }
       const res = await fetch(`/api/registrations/${id}`, { method: 'DELETE' })
       if (!res.ok) throw new Error('Failed to reject')
       return res.json()
@@ -2361,6 +2385,8 @@ function StudentsPage() {
 
               <MedicalDeclarationBlock medical={reviewingRegistration.medical} />
 
+              <PaymentStatusBlock reg={reviewingRegistration} />
+
               {confirmMutation.error && (
                 <p className="text-sm text-destructive">
                   {confirmMutation.error.message || 'Failed to confirm'}
@@ -2379,7 +2405,9 @@ function StudentsPage() {
                   ) : (
                     <Trash2 className="h-4 w-4 mr-1" />
                   )}
-                  Reject
+                  {reviewingRegistration.paymentStatus === 'authorized'
+                    ? 'Reject & void hold'
+                    : 'Reject'}
                 </Button>
                 <div className="flex gap-2">
                   <Button
@@ -2396,12 +2424,14 @@ function StudentsPage() {
                     {confirmMutation.isPending ? (
                       <>
                         <Loader2 className="h-4 w-4 animate-spin mr-2" />
-                        Confirming...
+                        {reviewingRegistration.paymentStatus === 'authorized' ? 'Charging…' : 'Confirming…'}
                       </>
                     ) : (
                       <>
                         <CheckCircle className="h-4 w-4 mr-2" />
-                        Confirm & Add to DB
+                        {reviewingRegistration.paymentStatus === 'authorized'
+                          ? 'Approve & charge $250'
+                          : 'Confirm & Add to DB'}
                       </>
                     )}
                   </Button>
@@ -2438,6 +2468,78 @@ const SAAQ_CONDITIONS_EN = [
   'Deterioration of functional abilities (needs home assistance for daily activities)',
   'Regularly takes medication that causes daytime drowsiness',
 ]
+
+// ---------------------------------------------------------------------------
+// Clover auth-then-capture status block
+// ---------------------------------------------------------------------------
+function PaymentStatusBlock({ reg }: { reg: Registration }) {
+  const status = reg.paymentStatus
+  const amount = reg.paymentAmount ? (reg.paymentAmount / 100).toFixed(2) : '250.00'
+  const brand = reg.paymentBrand ? reg.paymentBrand.charAt(0).toUpperCase() + reg.paymentBrand.slice(1) : 'Card'
+  const last4 = reg.paymentLast4 || '••••'
+
+  if (!status) {
+    return (
+      <div className="rounded-lg border bg-muted/30 px-3 py-2 text-xs text-muted-foreground">
+        No card on file (older registration).
+      </div>
+    )
+  }
+
+  if (status === 'authorized') {
+    // Auth expires ~5-7 days after creation. Show the deadline.
+    let deadline = ''
+    if (reg.paymentAuthorizedAt) {
+      const expiry = new Date(new Date(reg.paymentAuthorizedAt).getTime() + 7 * 24 * 60 * 60 * 1000)
+      deadline = expiry.toLocaleDateString('en-CA', { month: 'short', day: 'numeric' })
+    }
+    return (
+      <div className="rounded-lg border border-blue-500/30 bg-blue-500/5 px-3 py-2.5">
+        <p className="text-sm font-medium text-blue-700 dark:text-blue-400">
+          💳 ${amount} authorized on {brand} •••• {last4}
+        </p>
+        {deadline && (
+          <p className="text-[11px] text-muted-foreground mt-0.5">
+            Funds held — capture before {deadline} or the hold expires.
+          </p>
+        )}
+      </div>
+    )
+  }
+
+  if (status === 'captured') {
+    return (
+      <div className="rounded-lg border border-emerald-500/30 bg-emerald-500/5 px-3 py-2.5">
+        <p className="text-sm font-medium text-emerald-700 dark:text-emerald-400">
+          ✓ ${amount} charged on {brand} •••• {last4}
+        </p>
+        {reg.paymentCapturedAt && (
+          <p className="text-[11px] text-muted-foreground mt-0.5">
+            Captured {new Date(reg.paymentCapturedAt).toLocaleString()}
+          </p>
+        )}
+      </div>
+    )
+  }
+
+  if (status === 'voided') {
+    return (
+      <div className="rounded-lg border bg-muted/30 px-3 py-2 text-xs text-muted-foreground">
+        Card hold released — no charge made.
+      </div>
+    )
+  }
+
+  // failed
+  return (
+    <div className="rounded-lg border border-destructive/30 bg-destructive/5 px-3 py-2.5">
+      <p className="text-sm font-medium text-destructive">⚠ Payment failed</p>
+      {reg.paymentError && (
+        <p className="text-[11px] text-muted-foreground mt-0.5">{reg.paymentError}</p>
+      )}
+    </div>
+  )
+}
 
 function MedicalDeclarationBlock({ medical }: { medical: string | null }) {
   if (!medical) {
