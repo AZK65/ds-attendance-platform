@@ -154,6 +154,30 @@ model ClassAttendance {
   updatedAt DateTime @updatedAt
 }
 
+// Digital signatures captured when students check in to in-car classes
+// (Sign-In Mode on /scheduling). Used both for live attendance and to
+// generate the SAAQ-style attendance booklet PDF for compliance.
+model ClassSignature {
+  id               String   @id @default(cuid())
+  eventId          String   // Teamup event ID
+  studentPhone     String
+  studentName      String
+  // Optional human-readable session label captured at sign time, e.g.
+  // "Session 5 (In-Car)" — survives even if Teamup event is later edited.
+  sessionLabel     String?
+  // Module / sortie number when parseable from event title — drives the
+  // PDF row mapping.
+  moduleNumber     Int?
+  sortieNumber     Int?
+  // base64 data URL (e.g. "data:image/png;base64,...") of the signature
+  signatureDataUrl String
+  signedAt         DateTime @default(now())
+
+  @@index([eventId])
+  @@index([studentPhone])
+  @@unique([eventId, studentPhone])
+}
+
 model Student {
   id               String        @id @default(cuid())
   licenceNumber    String?       @unique

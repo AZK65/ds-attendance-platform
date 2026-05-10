@@ -52,11 +52,13 @@ import {
   Check,
   Download,
   Bell,
+  Pencil,
 } from 'lucide-react'
 import { Checkbox } from '@/components/ui/checkbox'
 import { motion, AnimatePresence } from 'motion/react'
 import Link from 'next/link'
 import { ContactSearchAutocomplete, type StudentGroupInfo } from '@/components/ContactSearchAutocomplete'
+import SignInMode from './SignInMode'
 import { PhoneInputWithWhatsAppCheck } from '@/components/PhoneInputWithWhatsAppCheck'
 
 type ViewMode = 'day' | 'week' | 'month'
@@ -264,6 +266,10 @@ function SchedulingPage() {
   const queryClient = useQueryClient()
   const searchParams = useSearchParams()
   const bookForHandled = useRef(false)
+  // Sign-In Mode is a separate, iPad-friendly view that replaces the
+  // calendar UI. Toggled by a single button in the header — students tap
+  // their session to sign in.
+  const [signInMode, setSignInMode] = useState(false)
   const [viewMode, setViewMode] = useState<ViewMode>('week')
   const [currentDate, setCurrentDate] = useState(() => new Date())
   const [selectedTeacher, setSelectedTeacher] = useState<number | null>(null)
@@ -2281,6 +2287,18 @@ function SchedulingPage() {
     </div>
   )
 
+  // Sign-In Mode replaces the calendar with a roster of today's classes —
+  // designed for the iPad on the desk so students can sign their session.
+  if (signInMode) {
+    return (
+      <div className="min-h-screen bg-background">
+        <main className="container mx-auto px-4 py-4 max-w-3xl">
+          <SignInMode onExit={() => setSignInMode(false)} />
+        </main>
+      </div>
+    )
+  }
+
   return (
     <div className="min-h-screen bg-background">
       <main className="container mx-auto px-4 py-4">
@@ -2378,6 +2396,14 @@ function SchedulingPage() {
             </Button>
             <Button variant="outline" size="sm" onClick={goToToday}>
               Today
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setSignInMode(true)}
+              className="border-primary/30 text-primary hover:bg-primary/5"
+            >
+              <Pencil className="h-4 w-4 mr-1" /> Sign-In Mode
             </Button>
           </div>
           <div className="flex items-center gap-2">
