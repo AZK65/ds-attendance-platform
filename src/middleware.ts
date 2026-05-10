@@ -4,8 +4,46 @@ const PUBLIC_PATHS = ['/login', '/api/auth', '/camera', '/enroll', '/api/enroll'
 const IGNORED_PREFIXES = ['/_next', '/favicon.ico']
 const PUBLIC_FILE_EXTENSIONS = ['.png', '.jpg', '.jpeg', '.svg', '.ico', '.webp', '.gif']
 
+// Cross-origin allowlist for the public registration API. The marketing site
+// (qazidriving.ca, hosted on Cloudflare Pages) POSTs to /api/register and
+// /api/register/checkout from a different origin, so we need CORS headers.
+// Override with env var: ALLOWED_ORIGINS="https://qazidriving.ca,https://www.qazidriving.ca"
+const DEFAULT_ALLOWED_ORIGINS = [
+  'https://qazidriving.ca',
+  'https://www.qazidriving.ca',
+]
+const ALLOWED_ORIGINS = (process.env.ALLOWED_ORIGINS || '')
+  .split(',')
+  .map(o => o.trim())
+  .filter(Boolean)
+  .concat(DEFAULT_ALLOWED_ORIGINS)
+
+const CORS_PATHS = ['/api/register']
+
+function corsHeaders(origin: string | null): Record<string, string> {
+  if (!origin || !ALLOWED_ORIGINS.includes(origin)) return {}
+  return {
+    'Access-Control-Allow-Origin': origin,
+    'Access-Control-Allow-Methods': 'POST, GET, OPTIONS',
+    'Access-Control-Allow-Headers': 'Content-Type',
+    'Access-Control-Max-Age': '86400',
+    Vary: 'Origin',
+  }
+}
+
 export function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl
+  const origin = request.headers.get('origin')
+
+  // CORS preflight + response decoration for the public registration API.
+  if (CORS_PATHS.some(p => pathname.startsWith(p))) {
+    if (request.method === 'OPTIONS') {
+      return new NextResponse(null, { status: 204, headers: corsHeaders(origin) })
+    }
+    const res = NextResponse.next()
+    for (const [k, v] of Object.entries(corsHeaders(origin))) res.headers.set(k, v)
+    return res
+  }
 
   // Skip middleware for static assets and public paths
   if (IGNORED_PREFIXES.some(prefix => pathname.startsWith(prefix))) {

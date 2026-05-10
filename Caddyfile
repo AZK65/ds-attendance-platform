@@ -1,3 +1,7 @@
-qazidrivingschool.ca {
+# Marketing site lives on Cloudflare Pages at qazidriving.ca.
+# This VPS only serves the ds-attendance platform under app.qazidriving.ca.
+# Caddy auto-issues + renews the Let's Encrypt cert.
+app.qazidriving.ca {
+	encode gzip zstd
 	reverse_proxy app:3000
 }
