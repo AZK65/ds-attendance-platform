@@ -1633,10 +1633,12 @@ function CertificatePageInner() {
       if (match) pick = match
     }
     autoSelectedRef.current = true
-    handleDbSelectStudent(pick)
+    // From cert-history Edit: skip the scan step and go straight to review
+    // since the saved data already has all the dates and address fields.
+    handleDbSelectStudent(pick, { skipScan: true })
   }, [pageMode, dbSearchResults, dbSearching, dbSelectedStudent, searchParams]) // eslint-disable-line react-hooks/exhaustive-deps
 
-  const handleDbSelectStudent = async (student: DBStudent) => {
+  const handleDbSelectStudent = async (student: DBStudent, opts?: { skipScan?: boolean }) => {
     setDbSelectedStudent(student)
     // Parse the name: database has "First Last" format, certificate needs "Last, First"
     const nameParts = student.full_name.trim().split(/\s+/)
@@ -1768,7 +1770,9 @@ function CertificatePageInner() {
     setDbLicenceImage(null)
     setDbAttendanceImage(null)
     setDbCombinedImage(null)
-    setDbStep('scan')
+    // Edit-from-history opens straight on the review form. Other entry
+    // points (manual search) still go through the scan step.
+    setDbStep(opts?.skipScan ? 'review' : 'scan')
   }
 
   const handleDbGeneratePDF = async () => {
