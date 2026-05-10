@@ -472,14 +472,25 @@ function SchedulingPage() {
     staleTime: 5 * 60 * 1000,
   })
 
-  // Resolve phone/name → profile link (group-based or standalone)
+  // Resolve phone/name → profile link.
+  // /students/[studentId] expects a numeric MySQL student_id, NOT a phone.
+  // For WhatsApp-only contacts (no MySQL row) we route to the group profile
+  // instead, which works with the @c.us contact id.
+  const buildGroupHref = (p: { id: string; groupId?: string }) => {
+    if (p.groupId) {
+      return `/groups/${encodeURIComponent(p.groupId)}/student/${encodeURIComponent(p.id)}`
+    }
+    // Fallback: search by phone if we somehow don't have a groupId on the
+    // participant record.
+    return `/students?search=${encodeURIComponent(p.id.replace('@c.us', ''))}`
+  }
   const getStudentProfileLink = (studentPhone: string | undefined, studentName?: string): { href: string } | null => {
     const participants = groupParticipantsData?.participants || []
     // Try phone match first (group-based profile)
     if (studentPhone) {
       const match = participants.find(p => p.phone === studentPhone)
       if (match) {
-        return { href: `/students/${match.id.replace('@c.us', '')}` }
+        return { href: buildGroupHref(match) }
       }
     }
     // Fall back to name match
@@ -492,7 +503,7 @@ function SchedulingPage() {
           || (nameLower.length >= 3 && (pName.includes(nameLower) || pPush.includes(nameLower)))
       })
       if (match) {
-        return { href: `/students/${match.id.replace('@c.us', '')}` }
+        return { href: buildGroupHref(match) }
       }
     }
     // Fall back to search-based link (works for any student in MySQL)
