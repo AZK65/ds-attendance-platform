@@ -1,7 +1,7 @@
-# Platform reachable at both the legacy root (qazidrivingschool.ca) and the
-# new subdomain (app.qazidrivingschool.ca). Keep the root entry until the
-# marketing site is fully cut over to Cloudflare Pages, then drop it.
-qazidrivingschool.ca, www.qazidrivingschool.ca, app.qazidrivingschool.ca {
+# Platform lives at qazidrivingschool.ca. Marketing site is a separate
+# Cloudflare Pages deployment on qazidriving.ca and reaches this server
+# via cross-origin POSTs to /api/register (see middleware.ts CORS).
+qazidrivingschool.ca, www.qazidrivingschool.ca {
 	encode gzip zstd
 	reverse_proxy app:3000
 }
