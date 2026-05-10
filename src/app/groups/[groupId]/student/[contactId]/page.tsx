@@ -287,13 +287,98 @@ const formatDate = (dateStr: string) => {
 // Visualises the SAAQ 4-phase curriculum: which modules/sorties the student
 // has completed, what's left, and what their next session is.
 
-// SAAQ phase composition (mirrors getPhaseInfo's mapping).
-const PHASES = [
-  { n: 1, label: 'Phase 1 — Theory', modules: [1, 2, 3, 4, 5], sorties: [], color: 'bg-yellow-500' },
-  { n: 2, label: 'Phase 2 — Accompanied', modules: [6, 7], sorties: [1, 2, 3, 4], color: 'bg-green-500' },
-  { n: 3, label: 'Phase 3 — Practice', modules: [8, 9, 10], sorties: [5, 6, 7, 8, 9, 10], color: 'bg-blue-500' },
-  { n: 4, label: 'Phase 4 — Eco/Final', modules: [11, 12], sorties: [11, 12, 13, 14, 15], color: 'bg-purple-500' },
-] as const
+// SAAQ phase composition with proper module names and in-car session
+// groupings, matching the official progression chart.
+type CurriculumItem =
+  | { kind: 'M'; n: number; name: string }
+  | { kind: 'S'; n: number; name?: string }
+
+interface CurriculumPhase {
+  n: 1 | 2 | 3 | 4
+  label: string
+  modules: number[]
+  sorties: number[]
+  items: CurriculumItem[]
+  // Tailwind class fragments — kept on the constant so cell rendering and
+  // phase-header rendering share one source of truth.
+  bg: string
+  text: string
+  dot: string
+}
+
+const PHASES: CurriculumPhase[] = [
+  {
+    n: 1,
+    label: 'Phase 1 — Theory',
+    modules: [1, 2, 3, 4, 5],
+    sorties: [],
+    bg: 'bg-yellow-100 dark:bg-yellow-950/40',
+    text: 'text-yellow-900 dark:text-yellow-200',
+    dot: 'bg-yellow-500',
+    items: [
+      { kind: 'M', n: 1, name: 'The Vehicle' },
+      { kind: 'M', n: 2, name: 'The Driver' },
+      { kind: 'M', n: 3, name: 'The Environment' },
+      { kind: 'M', n: 4, name: 'At-Risk Behaviours' },
+      { kind: 'M', n: 5, name: 'Evaluation' },
+    ],
+  },
+  {
+    n: 2,
+    label: 'Phase 2 — Guided Driving',
+    modules: [6, 7],
+    sorties: [1, 2, 3, 4],
+    bg: 'bg-orange-100 dark:bg-orange-950/40',
+    text: 'text-orange-900 dark:text-orange-200',
+    dot: 'bg-orange-500',
+    items: [
+      { kind: 'M', n: 6, name: 'Accompanied Driving' },
+      { kind: 'S', n: 1 },
+      { kind: 'S', n: 2 },
+      { kind: 'M', n: 7, name: 'OEA Strategy' },
+      { kind: 'S', n: 3 },
+      { kind: 'S', n: 4 },
+    ],
+  },
+  {
+    n: 3,
+    label: 'Phase 3 — Semi-Guided',
+    modules: [8, 9, 10],
+    sorties: [5, 6, 7, 8, 9, 10],
+    bg: 'bg-cyan-100 dark:bg-cyan-950/40',
+    text: 'text-cyan-900 dark:text-cyan-200',
+    dot: 'bg-cyan-500',
+    items: [
+      { kind: 'M', n: 8, name: 'Speed' },
+      { kind: 'S', n: 5 },
+      { kind: 'S', n: 6 },
+      { kind: 'M', n: 9, name: 'Sharing the Road' },
+      { kind: 'S', n: 7 },
+      { kind: 'S', n: 8 },
+      { kind: 'M', n: 10, name: 'Alcohol and Drugs' },
+      { kind: 'S', n: 9 },
+      { kind: 'S', n: 10 },
+    ],
+  },
+  {
+    n: 4,
+    label: 'Phase 4 — Eco/Final',
+    modules: [11, 12],
+    sorties: [11, 12, 13, 14, 15],
+    bg: 'bg-green-100 dark:bg-green-950/40',
+    text: 'text-green-900 dark:text-green-200',
+    dot: 'bg-green-500',
+    items: [
+      { kind: 'M', n: 11, name: 'Fatigue and Distractions' },
+      { kind: 'S', n: 11 },
+      { kind: 'S', n: 12 },
+      { kind: 'S', n: 13 },
+      { kind: 'M', n: 12, name: 'Eco-Driving' },
+      { kind: 'S', n: 14 },
+      { kind: 'S', n: 15, name: 'Summary' },
+    ],
+  },
+]
 
 interface JourneyCardProps {
   theoryClasses: Array<{
@@ -442,20 +527,16 @@ function JourneyCard({ theoryClasses, studentEvents, classAttendanceMap, loading
     }
   }
 
-  const cellFor = (kind: 'M' | 'S', n: number) => {
-    const id = `${kind}${n}`
-    const doneMap = kind === 'M' ? data.modulesDone : data.sortiesDone
-    const scheduledMap = kind === 'M' ? data.modulesScheduled : data.sortiesScheduled
-    const detail = doneMap.get(n) || scheduledMap.get(n) || null
-    return { id, label: id, detail }
-  }
-
-  // Phase-style mapping (Tailwind class tuples)
-  const phaseStyle = (n: number) => {
-    if (n === 1) return { bg: 'bg-yellow-100 dark:bg-yellow-950/40', text: 'text-yellow-900 dark:text-yellow-200', dot: 'bg-yellow-500' }
-    if (n === 2) return { bg: 'bg-green-100 dark:bg-green-950/40', text: 'text-green-900 dark:text-green-200', dot: 'bg-green-500' }
-    if (n === 3) return { bg: 'bg-blue-100 dark:bg-blue-950/40', text: 'text-blue-900 dark:text-blue-200', dot: 'bg-blue-500' }
-    return { bg: 'bg-purple-100 dark:bg-purple-950/40', text: 'text-purple-900 dark:text-purple-200', dot: 'bg-purple-500' }
+  // Look up SessionDetail + display label for a curriculum item.
+  const cellFor = (item: CurriculumItem) => {
+    const id = `${item.kind}${item.n}`
+    const doneMap = item.kind === 'M' ? data.modulesDone : data.sortiesDone
+    const scheduledMap = item.kind === 'M' ? data.modulesScheduled : data.sortiesScheduled
+    const detail = doneMap.get(item.n) || scheduledMap.get(item.n) || null
+    const label = item.kind === 'M'
+      ? `${item.n}. ${item.name}`
+      : `Session ${item.n}${item.name ? ' — ' + item.name : ''}`
+    return { id, label, detail, wide: item.kind === 'M' }
   }
 
   return (
@@ -481,17 +562,13 @@ function JourneyCard({ theoryClasses, studentEvents, classAttendanceMap, loading
             <span className="text-muted-foreground">Loading progress...</span>
           </div>
         ) : (
-          <div className="space-y-4">
+          <div className="space-y-3">
             {data.phases.map(p => {
-              const st = phaseStyle(p.n)
-              const cells = [
-                ...p.modules.map(n => ({ ...cellFor('M', n), phaseColor: st.bg }) ),
-                ...p.sorties.map(n => ({ ...cellFor('S', n), phaseColor: st.bg }) ),
-              ]
+              const cells = p.items.map(it => cellFor(it))
               return (
                 <div key={p.n}>
                   <div className="flex items-center gap-2 mb-1.5">
-                    <span className={`h-2 w-2 rounded-full ${st.dot}`} />
+                    <span className={`h-2 w-2 rounded-full ${p.dot}`} />
                     <p className="text-xs font-semibold uppercase tracking-wider">{p.label}</p>
                     <p className="text-[11px] text-muted-foreground ml-auto">{p.done} / {p.total}</p>
                   </div>
@@ -503,14 +580,11 @@ function JourneyCard({ theoryClasses, studentEvents, classAttendanceMap, loading
                       const isCompleted = status === 'present'
                       let cls: string
                       if (isAbsent) {
-                        cls = 'border-red-200 bg-red-50 text-red-800 dark:bg-red-950/30 dark:text-red-200 hover:bg-red-100'
+                        cls = 'border border-red-200 bg-red-50 text-red-800 dark:bg-red-950/30 dark:text-red-200 hover:bg-red-100'
                       } else if (isCompleted) {
-                        cls = `${st.bg} ${st.text} border-transparent hover:opacity-80`
+                        cls = `${p.bg} ${p.text} border border-transparent hover:opacity-80`
                       } else if (isScheduled) {
-                        // Scheduled = future booking — show phase color as an
-                        // outline ring with the future date and a small clock
-                        // glyph instead of solid fill.
-                        cls = `border-2 border-dashed ${st.text} bg-white dark:bg-transparent hover:opacity-80`
+                        cls = `border-2 border-dashed ${p.text} bg-white dark:bg-transparent hover:opacity-80`
                       } else {
                         cls = 'border border-border text-muted-foreground hover:border-primary hover:bg-accent cursor-pointer'
                       }
@@ -521,8 +595,9 @@ function JourneyCard({ theoryClasses, studentEvents, classAttendanceMap, loading
                         <button
                           key={c.id}
                           type="button"
-                          onClick={() => handleCellClick(c.id, c.label, c.phaseColor, c.detail)}
-                          className={`rounded-lg px-2 py-2 text-center min-w-[58px] transition-colors ${cls}`}
+                          onClick={() => handleCellClick(c.id, c.label, p.bg, c.detail)}
+                          className={`rounded-lg px-2.5 py-1.5 text-left transition-colors shrink-0 ${cls}`}
+                          style={{ minWidth: c.wide ? 148 : 74 }}
                           title={
                             isCompleted ? 'View details'
                             : isAbsent ? 'Absent — view details'
@@ -530,11 +605,8 @@ function JourneyCard({ theoryClasses, studentEvents, classAttendanceMap, loading
                             : 'Book this session'
                           }
                         >
-                          <p className="text-sm font-semibold leading-tight flex items-center justify-center gap-1">
-                            {isScheduled && <Clock className="h-3 w-3" />}
-                            {c.label}
-                          </p>
-                          <p className="text-[10px] mt-0.5 leading-tight">{subtitle}</p>
+                          <p className="text-[11px] font-semibold leading-tight truncate">{c.label}</p>
+                          <p className="text-[10px] mt-0.5 leading-tight opacity-80">{subtitle}</p>
                         </button>
                       )
                     })}
@@ -561,9 +633,7 @@ function JourneyCard({ theoryClasses, studentEvents, classAttendanceMap, loading
       <Dialog open={!!openCell} onOpenChange={(o) => { if (!o) setOpenCell(null) }}>
         <DialogContent className="sm:max-w-md">
           <DialogHeader>
-            <DialogTitle>
-              {openCell?.label.startsWith('M') ? `Module ${openCell.label.slice(1)}` : openCell ? `Session ${openCell.label.slice(1)} (In-Car)` : ''}
-            </DialogTitle>
+            <DialogTitle>{openCell?.label || ''}</DialogTitle>
             <DialogDescription>
               {openCell?.detail.source === 'zoom' ? 'Theory class via Zoom' : 'In-car session via Teamup'}
             </DialogDescription>
