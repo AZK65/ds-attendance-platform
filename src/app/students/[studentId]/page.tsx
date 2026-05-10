@@ -17,7 +17,7 @@ import {
   Award, Users, DollarSign, FileText, Receipt, Clock, Plus,
   BookOpen, GraduationCap, Database, CalendarDays, Download,
   CheckCircle, XCircle, ChevronDown, ChevronUp, ClipboardList,
-  Shield, FileSignature, Pencil,
+  Shield, FileSignature, Pencil, ChevronRight, HeartPulse, AlertTriangle,
 } from 'lucide-react'
 import Link from 'next/link'
 import { motion } from 'motion/react'
@@ -60,6 +60,14 @@ interface StudentProfile {
     totalInvoiced: number; totalPaid: number; openBalance: number;
     invoiceCount: number; certificateCount: number; groupCount: number;
   }
+  registration: {
+    id: string
+    medical: string | null
+    signatureImage: string | null
+    idImage: string | null
+    submittedAt: string | null
+    confirmedAt: string | null
+  } | null
 }
 
 function formatCurrency(amount: number) {
@@ -426,6 +434,17 @@ export default function StudentProfilePage() {
         </Card>
       </motion.div>
 
+      {/* Medical Declaration (SAAQ 6224A) */}
+      {data.registration && (
+        <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.18, duration: 0.25 }}>
+          <MedicalDeclarationCard
+            medical={data.registration.medical}
+            studentId={studentId}
+            studentName={data.student.full_name}
+          />
+        </motion.div>
+      )}
+
       {/* Certificate Info */}
       {data.localStudent && data.localStudent.certificates.length > 0 && (
         <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.2, duration: 0.25 }}>
@@ -600,26 +619,38 @@ export default function StudentProfilePage() {
             </CardHeader>
             <CardContent>
               <div className="space-y-2">
-                {mergedExams.map(exam => (
-                  <div key={exam.id} className={`flex items-center justify-between p-3 rounded-lg ${
+                {mergedExams.map(exam => {
+                  const isFinished = exam.passed !== null
+                  const rowClass = `flex items-center justify-between p-3 rounded-lg transition-colors ${
                     exam.passed ? 'bg-green-50 dark:bg-green-950/10 border border-green-200' :
                     exam.passed === false ? 'bg-red-50 dark:bg-red-950/10 border border-red-200' : 'bg-muted/50 border'
-                  }`}>
-                    <div>
-                      <p className="font-medium text-sm">{exam.groupName}</p>
-                      <p className="text-xs text-muted-foreground">
-                        Code: {exam.examCode} — {exam.submittedAt ? new Date(exam.submittedAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : 'In progress'}
-                        {exam.timeExpired && ' (time expired)'}
-                      </p>
-                    </div>
-                    <div className="flex items-center gap-2">
-                      {exam.score !== null && <span className="font-mono font-bold text-sm">{exam.score}/{exam.totalQuestions}</span>}
-                      {exam.passed === true && <Badge className="bg-green-600">Passed</Badge>}
-                      {exam.passed === false && <Badge variant="destructive">Failed</Badge>}
-                      {exam.passed === null && <Badge variant="secondary">In Progress</Badge>}
-                    </div>
-                  </div>
-                ))}
+                  } ${isFinished ? 'hover:brightness-95 dark:hover:brightness-110 cursor-pointer' : ''}`
+                  const inner = (
+                    <>
+                      <div>
+                        <p className="font-medium text-sm">{exam.groupName}</p>
+                        <p className="text-xs text-muted-foreground">
+                          Code: {exam.examCode} — {exam.submittedAt ? new Date(exam.submittedAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : 'In progress'}
+                          {exam.timeExpired && ' (time expired)'}
+                        </p>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        {exam.score !== null && <span className="font-mono font-bold text-sm">{exam.score}/{exam.totalQuestions}</span>}
+                        {exam.passed === true && <Badge className="bg-green-600">Passed</Badge>}
+                        {exam.passed === false && <Badge variant="destructive">Failed</Badge>}
+                        {exam.passed === null && <Badge variant="secondary">In Progress</Badge>}
+                        {isFinished && <ChevronRight className="h-4 w-4 text-muted-foreground" />}
+                      </div>
+                    </>
+                  )
+                  return isFinished ? (
+                    <Link key={exam.id} href={`/exam/review/${exam.id}`} className={rowClass}>
+                      {inner}
+                    </Link>
+                  ) : (
+                    <div key={exam.id} className={rowClass}>{inner}</div>
+                  )
+                })}
               </div>
             </CardContent>
           </Card>
@@ -699,5 +730,138 @@ export default function StudentProfilePage() {
         </DialogContent>
       </Dialog>
     </main>
+  )
+}
+
+// ---------------------------------------------------------------------------
+// Medical Declaration card — collapsible, with PDF download (SAAQ form 6224A)
+// ---------------------------------------------------------------------------
+const SAAQ_CONDITIONS_SHORT = [
+  'Glasses or contact lenses to drive',
+  'Eye disease or disorder',
+  'Hearing impairment + commercial driving',
+  'Vertigo restricting activities',
+  'Heart disease restricting activities',
+  'Excessive sleepiness from sleep disorder',
+  'Significant movement limitations (neck/hands/feet)',
+  'Serious psychiatric disorder',
+  'Substance use disorder',
+  'Cognitive impairment (dementia, Alzheimer\'s, etc.)',
+  'Epileptic seizures',
+  'Neurological condition restricting activities',
+  'Loss of consciousness in past 12 months',
+  'Insulin-treated diabetes',
+  'Lung disease restricting activities',
+  'Deterioration of functional abilities',
+  'Daily medication causing drowsiness',
+]
+
+function MedicalDeclarationCard({
+  medical,
+  studentId,
+  studentName,
+}: {
+  medical: string | null
+  studentId: string
+  studentName: string
+}) {
+  const [open, setOpen] = useState(false)
+
+  let parsed: { conditions?: number[]; none?: boolean; attestedAt?: string | null } | null = null
+  if (medical) {
+    try { parsed = JSON.parse(medical) } catch { parsed = null }
+  }
+  const conditions = parsed?.conditions || []
+  const none = !!parsed?.none
+  const hasData = !!medical && (none || conditions.length > 0)
+  const isFlagged = conditions.length > 0
+
+  const downloadName = `medical-${(studentName || 'student').replace(/[^a-z0-9]+/gi, '-').toLowerCase()}.pdf`
+
+  return (
+    <Card>
+      <CardHeader className="cursor-pointer select-none" onClick={() => setOpen((v) => !v)}>
+        <CardTitle className="flex items-center gap-2 text-lg">
+          <HeartPulse className={`h-5 w-5 ${isFlagged ? 'text-amber-600' : 'text-emerald-600'}`} />
+          Medical Declaration
+          <span className="text-xs font-normal text-muted-foreground ml-1">(SAAQ 6224A)</span>
+          {hasData ? (
+            isFlagged ? (
+              <Badge className="ml-auto bg-amber-500/15 text-amber-700 dark:text-amber-400 border-amber-500/30">
+                <AlertTriangle className="h-3 w-3 mr-1" />
+                {conditions.length} declared
+              </Badge>
+            ) : (
+              <Badge className="ml-auto bg-emerald-500/15 text-emerald-700 dark:text-emerald-400 border-emerald-500/30">
+                <CheckCircle className="h-3 w-3 mr-1" />
+                None declared
+              </Badge>
+            )
+          ) : (
+            <Badge variant="secondary" className="ml-auto text-xs">No data</Badge>
+          )}
+          {open ? (
+            <ChevronUp className="h-4 w-4 text-muted-foreground" />
+          ) : (
+            <ChevronDown className="h-4 w-4 text-muted-foreground" />
+          )}
+        </CardTitle>
+      </CardHeader>
+
+      {open && (
+        <CardContent>
+          {!hasData && (
+            <p className="text-sm text-muted-foreground">
+              No medical declaration on file for this student. (Older registration, before the SAAQ
+              6224A step was added.)
+            </p>
+          )}
+
+          {none && (
+            <p className="text-sm text-emerald-700 dark:text-emerald-400">
+              ✓ Student declared <strong>no</strong> conditions affecting safe driving.
+            </p>
+          )}
+
+          {isFlagged && (
+            <ul className="space-y-1.5">
+              {conditions.map((n) => (
+                <li
+                  key={n}
+                  className="flex items-start gap-3 p-2 rounded-md bg-amber-500/5 border border-amber-500/20"
+                >
+                  <span className="font-mono text-[11px] text-muted-foreground tabular-nums shrink-0 mt-0.5">
+                    {String(n).padStart(2, '0')}
+                  </span>
+                  <span className="text-sm text-foreground/90">
+                    {SAAQ_CONDITIONS_SHORT[n - 1] ?? `Condition ${n}`}
+                  </span>
+                </li>
+              ))}
+            </ul>
+          )}
+
+          {parsed?.attestedAt && (
+            <p className="text-xs text-muted-foreground mt-3">
+              Attested {new Date(parsed.attestedAt).toLocaleString()}
+            </p>
+          )}
+
+          <div className="mt-4 pt-4 border-t flex items-center justify-between gap-3">
+            <p className="text-xs text-muted-foreground">
+              Download a pre-filled SAAQ form 6224A as a PDF for your records.
+            </p>
+            <a
+              href={`/api/students/${studentId}/medical-pdf`}
+              download={downloadName}
+              className="inline-flex items-center gap-1.5 text-sm font-medium text-foreground hover:text-foreground/70 transition-colors border border-foreground/20 hover:border-foreground/40 rounded-md px-3 py-1.5"
+            >
+              <Download className="h-4 w-4" />
+              Download form (PDF)
+            </a>
+          </div>
+        </CardContent>
+      )}
+    </Card>
   )
 }

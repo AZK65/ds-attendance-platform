@@ -71,8 +71,29 @@ export async function GET(
     const totalInvoiced = invoices.reduce((s, inv) => s + inv.total, 0)
     const totalPaid = invoices.filter(inv => inv.paymentStatus === 'paid').reduce((s, inv) => s + inv.total, 0)
 
+    // Pull the original StudentRegistration (online registration source) so we can
+    // surface the SAAQ 6224A medical declaration + signature on the profile.
+    const registration = await prisma.studentRegistration.findFirst({
+      where: {
+        OR: [
+          { externalId: id },
+          ...(phoneSearch.length >= 7 ? [{ phoneNumber: { contains: phoneSearch } }] : []),
+        ],
+        status: { in: ['confirmed', 'submitted'] },
+      },
+      orderBy: { createdAt: 'desc' },
+    })
+
     return NextResponse.json({
       student: dbStudent,
+      registration: registration ? {
+        id: registration.id,
+        medical: registration.medical,
+        signatureImage: registration.signatureImage,
+        idImage: registration.idImage,
+        submittedAt: registration.submittedAt,
+        confirmedAt: registration.confirmedAt,
+      } : null,
       localStudent: localStudent ? {
         id: localStudent.id,
         certificates: localStudent.certificates.map(c => ({

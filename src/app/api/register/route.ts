@@ -9,7 +9,7 @@ export async function POST(request: NextRequest) {
       fullName, phoneNumber, email, dob,
       address, city, province, postalCode,
       permitNumber, permitImage, idImage,
-      signatureImage, agreedToTerms,
+      signatureImage, agreedToTerms, medical,
     } = body
 
     if (!fullName?.trim() || !phoneNumber?.trim()) {
@@ -49,6 +49,7 @@ export async function POST(request: NextRequest) {
         permitImage: permitImage || null,
         idImage: idImage || null,
         signatureImage: signatureImage || null,
+        medical: medical ? JSON.stringify(medical) : null,
         source: 'online-registration',
         submittedAt: new Date(),
         expiresAt: new Date(Date.now() + 365 * 24 * 60 * 60 * 1000),

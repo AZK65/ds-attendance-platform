@@ -382,6 +382,7 @@ model StudentRegistration {
   permitImage    String? // base64 permit photo
   idImage        String? // base64 ID photo
   signatureImage String? // base64 signature
+  medical        String? // JSON: SAAQ 6224A self-declaration { conditions:number[], none:bool, attestedAt:string }
   source         String? // "qr", "online-registration", etc.
   expiresAt      DateTime
   submittedAt    DateTime?

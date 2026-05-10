@@ -113,6 +113,7 @@ interface Registration {
   confirmedAt: string | null
   externalId: number | null
   createdAt: string
+  medical: string | null  // JSON string: { conditions:number[], none:bool, attestedAt:string|null }
 }
 
 interface ReviewFormData {
@@ -2358,6 +2359,8 @@ function StudentsPage() {
                 </div>
               </div>
 
+              <MedicalDeclarationBlock medical={reviewingRegistration.medical} />
+
               {confirmMutation.error && (
                 <p className="text-sm text-destructive">
                   {confirmMutation.error.message || 'Failed to confirm'}
@@ -2410,5 +2413,90 @@ function StudentsPage() {
       </Dialog>
 
     </main>
+  )
+}
+
+// ---------------------------------------------------------------------------
+// SAAQ 6224A self-declaration of medical info — display block in review dialog
+// ---------------------------------------------------------------------------
+const SAAQ_CONDITIONS_EN = [
+  'Wears glasses or contact lenses to drive',
+  'Eye disease or disorder (cataracts, glaucoma, retinopathy, etc.)',
+  'Hearing impairment + drives minibus/bus/emergency or transports dangerous substances',
+  'Vertigo restricting activities',
+  'Heart disease restricting activities such as walking',
+  'Excessive sleepiness related to a sleep disorder',
+  'Significant movement limitations (neck, hands, feet) for several months',
+  'Serious psychiatric disorder (schizophrenia, bipolar, major depression, etc.)',
+  'Substance use disorder (alcohol, drugs, etc.)',
+  'Cognitive impairment (dementia, Alzheimer\'s, memory or orientation problems)',
+  'Has had epileptic seizures',
+  'Neurological condition restricting activities (stroke, head trauma, Parkinson\'s, MS, etc.)',
+  'Loss of consciousness in past 12 months (syncope, convulsions, hypoglycemia)',
+  'Insulin-treated diabetes',
+  'Lung disease restricting activities such as walking',
+  'Deterioration of functional abilities (needs home assistance for daily activities)',
+  'Regularly takes medication that causes daytime drowsiness',
+]
+
+function MedicalDeclarationBlock({ medical }: { medical: string | null }) {
+  if (!medical) {
+    return (
+      <div className="rounded-lg border bg-muted/30 px-3 py-2 text-xs text-muted-foreground">
+        No medical declaration captured (older registration).
+      </div>
+    )
+  }
+
+  let parsed: { conditions?: number[]; none?: boolean; attestedAt?: string | null } | null = null
+  try {
+    parsed = JSON.parse(medical)
+  } catch {
+    return (
+      <div className="rounded-lg border bg-muted/30 px-3 py-2 text-xs text-muted-foreground">
+        Medical data could not be parsed.
+      </div>
+    )
+  }
+
+  const conditions = parsed?.conditions || []
+  const none = !!parsed?.none
+
+  if (none) {
+    return (
+      <div className="rounded-lg border border-emerald-500/30 bg-emerald-500/5 px-3 py-2.5">
+        <p className="text-sm font-medium text-emerald-700 dark:text-emerald-400">
+          ✓ No medical conditions declared (SAAQ 6224A)
+        </p>
+        {parsed?.attestedAt && (
+          <p className="text-[11px] text-muted-foreground mt-0.5">
+            Attested {new Date(parsed.attestedAt).toLocaleString()}
+          </p>
+        )}
+      </div>
+    )
+  }
+
+  return (
+    <div className="rounded-lg border border-amber-500/30 bg-amber-500/5 px-3 py-2.5">
+      <p className="text-sm font-medium text-amber-700 dark:text-amber-400">
+        ⚠ {conditions.length} condition{conditions.length === 1 ? '' : 's'} declared (SAAQ 6224A)
+      </p>
+      <ul className="mt-2 space-y-1 text-xs text-foreground/85">
+        {conditions.map((n) => (
+          <li key={n} className="flex items-start gap-2">
+            <span className="font-mono text-[10.5px] text-muted-foreground tabular-nums shrink-0">
+              {String(n).padStart(2, '0')}
+            </span>
+            <span>{SAAQ_CONDITIONS_EN[n - 1] ?? `Condition ${n}`}</span>
+          </li>
+        ))}
+      </ul>
+      {parsed?.attestedAt && (
+        <p className="text-[11px] text-muted-foreground mt-2">
+          Attested {new Date(parsed.attestedAt).toLocaleString()}
+        </p>
+      )}
+    </div>
   )
 }
