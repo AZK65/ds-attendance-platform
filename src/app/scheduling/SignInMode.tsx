@@ -58,8 +58,8 @@ interface SavedSignature {
 }
 
 export default function SignInMode({ onExit }: { onExit: () => void }) {
-  // Today only — events page already paginates per week, so we filter client-side.
-  const { data: eventsData, isLoading: eventsLoading, refetch } = useQuery<{ events: TeamupEvent[] }>({
+  // /api/scheduling/events returns the events array directly (not wrapped).
+  const { data: eventsData, isLoading: eventsLoading, refetch } = useQuery<TeamupEvent[]>({
     queryKey: ['signin-events-today'],
     queryFn: async () => {
       const today = new Date()
@@ -95,7 +95,7 @@ export default function SignInMode({ onExit }: { onExit: () => void }) {
 
   // Sort events by start time (ascending), only show in-car-style sessions.
   const todayEvents = useMemo(() => {
-    const all = eventsData?.events || []
+    const all = eventsData || []
     return all
       .filter(e => {
         const d = new Date(e.start_dt)
