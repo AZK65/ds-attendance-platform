@@ -282,9 +282,9 @@ const formatDate = (dateStr: string) => {
   return d.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric' })
 }
 
-// Header button — checks if the student has any signed sessions, and only
-// renders if there's something to download. Avoids putting a button users
-// would click only to get a "no records" 404.
+// Header button — always renders so the booklet PDF can be previewed even
+// before any sessions are signed. Shows a small count badge of signed
+// sessions when > 0.
 function AttendanceSheetButton({ phone }: { phone: string }) {
   const { data } = useQuery<{ signatures: Array<{ id: string }> }>({
     queryKey: ['attendance-sheet-count', phone],
@@ -297,7 +297,6 @@ function AttendanceSheetButton({ phone }: { phone: string }) {
     staleTime: 60 * 1000,
   })
   const count = data?.signatures?.length ?? 0
-  if (count === 0) return null
   return (
     <Button variant="outline" size="sm" asChild>
       <a
@@ -307,7 +306,9 @@ function AttendanceSheetButton({ phone }: { phone: string }) {
       >
         <FileSignature className="h-4 w-4 mr-1" />
         Attendance Sheet
-        <Badge variant="secondary" className="ml-1.5 text-[10px] px-1.5">{count}</Badge>
+        {count > 0 && (
+          <Badge variant="secondary" className="ml-1.5 text-[10px] px-1.5">{count}</Badge>
+        )}
       </a>
     </Button>
   )

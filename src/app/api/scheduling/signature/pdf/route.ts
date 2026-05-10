@@ -24,10 +24,8 @@ export async function GET(request: NextRequest) {
     orderBy: { signedAt: 'asc' },
   })
 
-  if (signatures.length === 0) {
-    return NextResponse.json({ error: 'No signatures found for this student' }, { status: 404 })
-  }
-
+  // Render an empty booklet rather than 404'ing when no signatures yet —
+  // useful for previewing the layout before students start signing in.
   // Bucket by phase, mirroring SAAQ rules:
   //   Phase 1 — modules 1-5
   //   Phase 2 — module 6 + sortie 1-2 (or M7 + S3-4)
@@ -42,7 +40,7 @@ export async function GET(request: NextRequest) {
     signature: s.signatureDataUrl,
   }))
 
-  const studentName = signatures[0].studentName
+  const studentName = signatures[0]?.studentName || ''
 
   function phaseOf(r: Row): 1 | 2 | 3 | 4 {
     if (r.kind === 'module' && r.n != null) {
