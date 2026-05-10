@@ -58,15 +58,25 @@ export function handleMeetingStarted(payload: {
   }
 }) {
   const { object } = payload
+  const newId = String(object.id)
+  // If this is a continuation of the same recurring meeting room (same
+  // meeting ID) — e.g. a Zoom Free host hit "End" at the 40-minute limit
+  // and restarted — preserve the existing participants Map so students
+  // don't all flicker to absent until they each re-join. Only do a full
+  // reset when the meeting ID is genuinely different (a different class).
+  const sameRoom = currentMeeting && currentMeeting.meetingId === newId
   currentMeeting = {
-    meetingId: String(object.id),
+    meetingId: newId,
     meetingUUID: object.uuid,
-    topic: object.topic || 'Zoom Meeting',
+    topic: object.topic || currentMeeting?.topic || 'Zoom Meeting',
     startTime: object.start_time,
-    participants: new Map(),
-    isLive: true
+    participants: sameRoom ? currentMeeting!.participants : new Map(),
+    isLive: true,
   }
-  console.log(`[Live Store] Meeting started: ${object.topic} (${object.id})`)
+  console.log(
+    `[Live Store] Meeting started: ${object.topic} (${object.id})` +
+    (sameRoom ? ` — same room, preserving ${currentMeeting.participants.size} participants` : ''),
+  )
   notifyListeners()
 }
 
@@ -80,17 +90,20 @@ export function handleMeetingEnded(payload: {
     currentMeeting.isLive = false
     console.log(`[Live Store] Meeting ended: ${currentMeeting.topic}`)
     notifyListeners()
-    // Keep the participant list around for 15 minutes after meeting.ended.
-    // Zoom occasionally fires a stray meeting.ended during quiet periods or
-    // brief connectivity blips — clearing immediately wipes all participant
-    // data and tips the UI into "everyone absent". 15 min is long enough to
-    // ride through a transient signal but short enough not to bleed into
-    // the next class.
+    // Keep the participant list around for 3 hours after meeting.ended.
+    // Two reasons:
+    //   1. Zoom occasionally fires a stray meeting.ended during quiet
+    //      periods or connectivity blips, even when the class continues.
+    //   2. On Zoom Free, the 40-minute meeting limit forces an end+restart;
+    //      if the host restarts quickly, students' previous matches stay
+    //      visible until the new participant_joined events flow in.
+    // 3 hours covers a typical class block (≤2.5h) with margin without
+    // bleeding into the next day's classes.
     setTimeout(() => {
       currentMeeting = null
       manualOverrides.clear()
-      console.log('[Live Store] Cleared meeting state (15-min post-end timeout)')
-    }, 15 * 60 * 1000)
+      console.log('[Live Store] Cleared meeting state (3h post-end timeout)')
+    }, 3 * 60 * 60 * 1000)
   }
 }
 
