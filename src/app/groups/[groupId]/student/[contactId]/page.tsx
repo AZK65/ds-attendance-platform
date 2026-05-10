@@ -296,83 +296,141 @@ const PHASES = [
 ] as const
 
 interface JourneyCardProps {
-  theoryClasses: Array<{ moduleNumber: number | null; date: string; status: 'present' | 'absent' }>
-  studentEvents: Array<{ id: string; title: string; start_dt: string }>
+  theoryClasses: Array<{
+    moduleNumber: number | null
+    date: string
+    status: 'present' | 'absent'
+    meetingUUID?: string
+    zoomName?: string
+    groupId?: string
+  }>
+  studentEvents: Array<{ id: string; title: string; start_dt: string; end_dt?: string; subcalendar_ids?: number[] }>
   classAttendanceMap: Record<string, boolean>
   loadingEvents: boolean
   loadingTheory: boolean
+  studentName: string
+  studentPhone: string
 }
 
-function JourneyCard({ theoryClasses, studentEvents, classAttendanceMap, loadingEvents, loadingTheory }: JourneyCardProps) {
+interface SessionDetail {
+  when: Date
+  source: 'zoom' | 'teamup'
+  eventId?: string
+  meetingUUID?: string
+  groupId?: string
+  zoomName?: string
+  status: 'present' | 'absent'
+  endTime?: Date
+  subcalendarIds?: number[]
+  title?: string
+}
+
+function JourneyCard({ theoryClasses, studentEvents, classAttendanceMap, loadingEvents, loadingTheory, studentName, studentPhone }: JourneyCardProps) {
+  const router = useRouter()
+  const [openCell, setOpenCell] = useState<{ id: string; label: string; phaseColor: string; detail: SessionDetail } | null>(null)
+
   const data = useMemo(() => {
-    // Completed modules: Zoom theory with status=present.
-    const modulesDone = new Map<number, Date>()
+    // Completed modules: Zoom theory; track full details for click-to-detail.
+    const modulesDone = new Map<number, SessionDetail>()
     for (const tc of theoryClasses) {
-      if (tc.status !== 'present' || tc.moduleNumber == null) continue
+      if (tc.moduleNumber == null) continue
       if (tc.moduleNumber < 1 || tc.moduleNumber > 12) continue
-      const d = new Date(tc.date)
+      // Keep the EARLIEST present entry as the canonical completion. An
+      // explicit absent shouldn't override an earlier present; if no
+      // present exists, an absent entry still shows up as a "did the class
+      // but absent" — surfaced in the detail dialog.
       const cur = modulesDone.get(tc.moduleNumber)
-      if (!cur || d < cur) modulesDone.set(tc.moduleNumber, d)
+      const d = new Date(tc.date)
+      if (cur && cur.status === 'present' && tc.status === 'absent') continue
+      if (cur && d > cur.when) continue
+      modulesDone.set(tc.moduleNumber, {
+        when: d,
+        source: 'zoom',
+        meetingUUID: tc.meetingUUID,
+        groupId: tc.groupId,
+        zoomName: tc.zoomName,
+        status: tc.status,
+      })
     }
 
-    // Completed sorties + Teamup module backfill: past events; if attendance
-    // record is explicitly false (absent), skip — otherwise assume present.
-    const sortiesDone = new Map<number, Date>()
-    const upcoming: Array<{ when: Date; label: string; phase: 1 | 2 | 3 | 4 | null }> = []
+    // Sorties + Teamup module backfill: past events
+    const sortiesDone = new Map<number, SessionDetail>()
+    const upcoming: Array<{ when: Date; label: string }> = []
     const now = new Date()
     for (const event of studentEvents) {
       const parsed = parseModuleFromTitle(event.title)
       if (!parsed.module) continue
       const when = new Date(event.start_dt)
       if (when >= now) {
-        const phase = phaseOf(parsed.module)
-        upcoming.push({ when, label: getModuleLabel(parsed.module), phase })
+        upcoming.push({ when, label: getModuleLabel(parsed.module) })
         continue
       }
       const attendance = classAttendanceMap[event.id]
-      if (attendance === false) continue
+      const status: 'present' | 'absent' = attendance === false ? 'absent' : 'present'
+      const detail: SessionDetail = {
+        when,
+        source: 'teamup',
+        eventId: event.id,
+        endTime: event.end_dt ? new Date(event.end_dt) : undefined,
+        subcalendarIds: event.subcalendar_ids,
+        title: event.title,
+        status,
+      }
       if (parsed.module.startsWith('S')) {
         const n = parseInt(parsed.module.slice(1))
-        if (n >= 1 && n <= 15 && !sortiesDone.has(n)) sortiesDone.set(n, when)
+        if (n >= 1 && n <= 15) {
+          const cur = sortiesDone.get(n)
+          if (!cur || when < cur.when) sortiesDone.set(n, detail)
+        }
       } else {
         const n = parseInt(parsed.module)
-        if (n >= 1 && n <= 12 && !modulesDone.has(n)) modulesDone.set(n, when)
+        if (n >= 1 && n <= 12 && !modulesDone.has(n)) {
+          modulesDone.set(n, detail)
+        }
       }
     }
 
     upcoming.sort((a, b) => a.when.getTime() - b.when.getTime())
     const nextUp = upcoming[0] || null
 
-    // Per-phase progress
+    // Per-phase counts (for the phase label "x/y" indicator)
     const phases = PHASES.map(p => {
-      const total = p.modules.length + p.sorties.length
       const mods = p.modules.filter(n => modulesDone.has(n)).length
       const sorts = p.sorties.filter(n => sortiesDone.has(n)).length
-      const done = mods + sorts
-      return { ...p, done, total, pct: total === 0 ? 0 : Math.round((done / total) * 100) }
+      return { ...p, done: mods + sorts, total: p.modules.length + p.sorties.length }
     })
-
     const totalDone = phases.reduce((s, p) => s + p.done, 0)
     const totalAll = phases.reduce((s, p) => s + p.total, 0)
-    const remaining = totalAll - totalDone
-
-    // Current phase = first non-complete phase
     const currentPhase = phases.find(p => p.done < p.total) || phases[phases.length - 1]
 
-    // What they did, most recent first (last 5 across both module + sortie)
-    const activity: Array<{ when: Date; label: string; phase: 1 | 2 | 3 | 4 }> = []
-    for (const [n, d] of modulesDone) activity.push({ when: d, label: `Module ${n}`, phase: phaseOf(String(n))! })
-    for (const [n, d] of sortiesDone) activity.push({ when: d, label: `Session ${n} (In-Car)`, phase: phaseOf(`S${n}`)! })
-    activity.sort((a, b) => b.when.getTime() - a.when.getTime())
-
-    return {
-      phases, totalDone, totalAll, remaining,
-      currentPhase, nextUp,
-      recent: activity.slice(0, 5),
-    }
+    return { phases, totalDone, totalAll, currentPhase, nextUp, modulesDone, sortiesDone }
   }, [theoryClasses, studentEvents, classAttendanceMap])
 
   const loading = loadingEvents || loadingTheory
+
+  const handleCellClick = (id: string, label: string, phaseColor: string, detail: SessionDetail | null) => {
+    if (detail) {
+      setOpenCell({ id, label, phaseColor, detail })
+    } else {
+      // Not booked yet — route to scheduler with student + session pre-filled
+      const params = new URLSearchParams({ bookFor: studentName, phone: studentPhone, session: id })
+      router.push(`/scheduling?${params}`)
+    }
+  }
+
+  const cellFor = (kind: 'M' | 'S', n: number) => {
+    const id = `${kind}${n}`
+    const detail = kind === 'M' ? data.modulesDone.get(n) || null : data.sortiesDone.get(n) || null
+    return { id, label: id, detail }
+  }
+
+  // Phase-style mapping (Tailwind class tuples)
+  const phaseStyle = (n: number) => {
+    if (n === 1) return { bg: 'bg-yellow-100 dark:bg-yellow-950/40', text: 'text-yellow-900 dark:text-yellow-200', dot: 'bg-yellow-500' }
+    if (n === 2) return { bg: 'bg-green-100 dark:bg-green-950/40', text: 'text-green-900 dark:text-green-200', dot: 'bg-green-500' }
+    if (n === 3) return { bg: 'bg-blue-100 dark:bg-blue-950/40', text: 'text-blue-900 dark:text-blue-200', dot: 'bg-blue-500' }
+    return { bg: 'bg-purple-100 dark:bg-purple-950/40', text: 'text-purple-900 dark:text-purple-200', dot: 'bg-purple-500' }
+  }
 
   return (
     <Card>
@@ -380,11 +438,14 @@ function JourneyCard({ theoryClasses, studentEvents, classAttendanceMap, loading
         <div className="flex items-center justify-between gap-2">
           <CardTitle className="flex items-center gap-2 text-lg">
             <GraduationCap className="h-5 w-5" />
-            Journey Progress
+            Journey
           </CardTitle>
-          <Badge variant="secondary" className={`${data.currentPhase.color.replace('bg-', 'bg-')}/15 text-foreground border-0`}>
-            {data.currentPhase.label.split(' — ')[0]}
-          </Badge>
+          <div className="flex items-center gap-3">
+            <p className="text-sm text-muted-foreground">
+              <span className="font-semibold text-foreground">{data.totalDone}</span> / {data.totalAll} done
+            </p>
+            <Badge variant="secondary">{data.currentPhase.label.split(' — ')[0]}</Badge>
+          </div>
         </div>
       </CardHeader>
       <CardContent>
@@ -395,62 +456,122 @@ function JourneyCard({ theoryClasses, studentEvents, classAttendanceMap, loading
           </div>
         ) : (
           <div className="space-y-4">
-            <div className="flex items-baseline justify-between">
-              <div>
-                <p className="text-3xl font-bold">{data.totalDone} <span className="text-muted-foreground text-base font-normal">/ {data.totalAll}</span></p>
-                <p className="text-xs text-muted-foreground">sessions complete · {data.remaining} remaining</p>
-              </div>
-              {data.nextUp && (
-                <div className="text-right">
-                  <p className="text-xs text-muted-foreground">Next up</p>
-                  <p className="text-sm font-medium">{data.nextUp.label}</p>
-                  <p className="text-xs text-muted-foreground">
-                    {data.nextUp.when.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} ·{' '}
-                    {data.nextUp.when.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })}
-                  </p>
-                </div>
-              )}
-            </div>
-
-            <div className="space-y-2">
-              {data.phases.map(p => (
-                <div key={p.n} className="flex items-center gap-3">
-                  <div className="w-32 shrink-0">
-                    <p className="text-sm font-medium">{p.label.split(' — ')[0]}</p>
-                    <p className="text-[10px] text-muted-foreground truncate">{p.label.split(' — ')[1]}</p>
+            {data.phases.map(p => {
+              const st = phaseStyle(p.n)
+              const cells = [
+                ...p.modules.map(n => ({ ...cellFor('M', n), phaseColor: st.bg }) ),
+                ...p.sorties.map(n => ({ ...cellFor('S', n), phaseColor: st.bg }) ),
+              ]
+              return (
+                <div key={p.n}>
+                  <div className="flex items-center gap-2 mb-1.5">
+                    <span className={`h-2 w-2 rounded-full ${st.dot}`} />
+                    <p className="text-xs font-semibold uppercase tracking-wider">{p.label}</p>
+                    <p className="text-[11px] text-muted-foreground ml-auto">{p.done} / {p.total}</p>
                   </div>
-                  <div className="flex-1 h-2.5 bg-muted rounded-full overflow-hidden">
-                    <div className={`h-full ${p.color} transition-all`} style={{ width: `${p.pct}%` }} />
-                  </div>
-                  <div className="w-12 text-right text-sm font-mono tabular-nums">
-                    {p.done}/{p.total}
+                  <div className="flex flex-wrap gap-1.5">
+                    {cells.map(c => {
+                      const isDone = !!c.detail
+                      const isAbsent = c.detail?.status === 'absent'
+                      return (
+                        <button
+                          key={c.id}
+                          type="button"
+                          onClick={() => handleCellClick(c.id, c.label, c.phaseColor, c.detail)}
+                          className={`rounded-lg border px-2 py-2 text-center min-w-[58px] transition-colors ${
+                            isAbsent
+                              ? 'border-red-200 bg-red-50 text-red-800 dark:bg-red-950/30 dark:text-red-200 hover:bg-red-100'
+                              : isDone
+                              ? `${st.bg} ${st.text} border-transparent hover:opacity-80`
+                              : 'border-border text-muted-foreground hover:border-primary hover:bg-accent cursor-pointer'
+                          }`}
+                          title={isDone ? 'View details' : 'Book this session'}
+                        >
+                          <p className="text-sm font-semibold leading-tight">{c.label}</p>
+                          <p className="text-[10px] mt-0.5 leading-tight">
+                            {isDone
+                              ? c.detail!.when.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
+                              : '—'}
+                          </p>
+                        </button>
+                      )
+                    })}
                   </div>
                 </div>
-              ))}
-            </div>
-
-            {data.recent.length > 0 && (
-              <div className="pt-2 border-t">
-                <p className="text-xs text-muted-foreground font-medium mb-2 uppercase tracking-wider">Recent activity</p>
-                <div className="space-y-1.5">
-                  {data.recent.map((r, i) => (
-                    <div key={i} className="flex items-center justify-between text-sm">
-                      <div className="flex items-center gap-2 min-w-0">
-                        <CheckCircle className="h-3.5 w-3.5 text-green-600 shrink-0" />
-                        <span className="truncate">{r.label}</span>
-                      </div>
-                      <span className="text-xs text-muted-foreground shrink-0">
-                        {r.when.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} ·{' '}
-                        {r.when.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })}
-                      </span>
-                    </div>
-                  ))}
-                </div>
+              )
+            })}
+            {data.nextUp && (
+              <div className="pt-3 border-t flex items-center justify-between text-xs">
+                <p className="text-muted-foreground">
+                  Next up · <span className="font-medium text-foreground">{data.nextUp.label}</span>
+                </p>
+                <p className="text-muted-foreground">
+                  {data.nextUp.when.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} ·{' '}
+                  {data.nextUp.when.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })}
+                </p>
               </div>
             )}
           </div>
         )}
       </CardContent>
+
+      {/* Cell details dialog — shows when a completed cell is clicked */}
+      <Dialog open={!!openCell} onOpenChange={(o) => { if (!o) setOpenCell(null) }}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>
+              {openCell?.label.startsWith('M') ? `Module ${openCell.label.slice(1)}` : openCell ? `Session ${openCell.label.slice(1)} (In-Car)` : ''}
+            </DialogTitle>
+            <DialogDescription>
+              {openCell?.detail.source === 'zoom' ? 'Theory class via Zoom' : 'In-car session via Teamup'}
+            </DialogDescription>
+          </DialogHeader>
+          {openCell && (
+            <div className="space-y-3 text-sm">
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <p className="text-xs text-muted-foreground">Date</p>
+                  <p className="font-medium">{openCell.detail.when.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric' })}</p>
+                </div>
+                <div>
+                  <p className="text-xs text-muted-foreground">Time</p>
+                  <p className="font-medium">
+                    {openCell.detail.when.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })}
+                    {openCell.detail.endTime && ` – ${openCell.detail.endTime.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })}`}
+                  </p>
+                </div>
+              </div>
+              <div>
+                <p className="text-xs text-muted-foreground">Status</p>
+                {openCell.detail.status === 'absent' ? (
+                  <Badge className="bg-red-100 text-red-700 border-red-200 gap-1">
+                    <XCircle className="h-3 w-3" /> Absent
+                  </Badge>
+                ) : (
+                  <Badge className="bg-green-100 text-green-700 border-green-200 gap-1">
+                    <CheckCircle className="h-3 w-3" /> Present
+                  </Badge>
+                )}
+              </div>
+              {openCell.detail.zoomName && (
+                <div>
+                  <p className="text-xs text-muted-foreground">Joined Zoom as</p>
+                  <p className="font-medium">{openCell.detail.zoomName}</p>
+                </div>
+              )}
+              {openCell.detail.eventId && (
+                <div className="pt-2">
+                  <Button variant="outline" size="sm" asChild>
+                    <Link href={`/scheduling?eventId=${encodeURIComponent(openCell.detail.eventId)}`}>
+                      View in scheduler
+                    </Link>
+                  </Button>
+                </div>
+              )}
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
     </Card>
   )
 }
@@ -1353,6 +1474,8 @@ export default function StudentDetailPage() {
           classAttendanceMap={classAttendanceMap}
           loadingEvents={loadingEvents}
           loadingTheory={loadingTheory}
+          studentName={displayName}
+          studentPhone={phone}
         />
       </motion.div>
 

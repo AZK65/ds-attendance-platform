@@ -309,13 +309,21 @@ function SchedulingPage() {
     const bookFor = searchParams.get('bookFor')
     const phone = searchParams.get('phone')
     const eventId = searchParams.get('eventId')
+    const session = searchParams.get('session') // e.g. "M5" or "S3"
 
     if (bookFor) {
       bookForHandled.current = true
+      // Pre-fill the module / sortie selector when the Journey card sends us here
+      let modulePrefill = ''
+      if (session) {
+        if (/^M\d+$/i.test(session)) modulePrefill = session.toUpperCase()
+        else if (/^S\d+$/i.test(session)) modulePrefill = `Session ${session.slice(1)}`
+      }
       setFormData(prev => ({
         ...prev,
         studentName: bookFor,
         studentPhone: phone || '',
+        module: modulePrefill,
       }))
       setShowCreateDialog(true)
       window.history.replaceState({}, '', '/scheduling')
