@@ -114,15 +114,20 @@ export async function POST(request: NextRequest) {
       ...dates,
     }
 
-    // Call the existing generate endpoint internally. Forward the user's
-    // cookies — otherwise middleware sees no auth-token and returns 401,
-    // which silently broke the download button on /certificate/history.
-    const generateUrl = new URL('/api/certificate/generate', request.url)
-    const generateRes = await fetch(generateUrl.toString(), {
+    // Call the existing generate endpoint internally via localhost so we
+    // don't bounce through the public hostname / reverse proxy. Use the
+    // x-internal header that middleware honours to skip auth (only valid
+    // when host is localhost). Previously we built the URL from
+    // request.url which resolves to the public domain, so the fetch had
+    // to leave the container, hit Caddy, and come back — which failed
+    // with "fetch failed" inside Docker.
+    const port = process.env.PORT || '3000'
+    const generateUrl = `http://localhost:${port}/api/certificate/generate`
+    const generateRes = await fetch(generateUrl, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        Cookie: request.headers.get('cookie') || '',
+        'x-internal': '1',
       },
       body: JSON.stringify(generatePayload),
     })
