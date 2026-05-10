@@ -122,9 +122,15 @@ export function handleParticipantJoined(payload: {
     }
   }
 
-  // Skip host/licensed users (they have email set and are not students)
-  if (participant.email) {
-    console.log(`[Live Store] Skipping host/licensed user: ${participant.user_name} (${participant.email})`)
+  // Previously we skipped any participant with an email, assuming only
+  // hosts/licensed users have one — but every student who joins Zoom
+  // signed into their own account also has an email, so that filter was
+  // marking every account-using student as absent. Only skip when the
+  // email matches a configured host address (school admin / teacher).
+  const hostEmails = (process.env.ZOOM_HOST_EMAILS || '')
+    .split(',').map(s => s.trim().toLowerCase()).filter(Boolean)
+  if (participant.email && hostEmails.includes(participant.email.toLowerCase())) {
+    console.log(`[Live Store] Skipping host: ${participant.user_name} (${participant.email})`)
     return
   }
 
