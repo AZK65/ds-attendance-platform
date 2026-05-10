@@ -319,7 +319,7 @@ interface SessionDetail {
   meetingUUID?: string
   groupId?: string
   zoomName?: string
-  status: 'present' | 'absent'
+  status: 'present' | 'absent' | 'scheduled'
   endTime?: Date
   subcalendarIds?: number[]
   title?: string
@@ -353,39 +353,53 @@ function JourneyCard({ theoryClasses, studentEvents, classAttendanceMap, loading
       })
     }
 
-    // Sorties + Teamup module backfill: past events
+    // Sorties + Teamup module backfill: split into past (completed) and
+    // future (scheduled) — future bookings now show in the grid as
+    // "scheduled" cells alongside completed ones.
     const sortiesDone = new Map<number, SessionDetail>()
+    const modulesScheduled = new Map<number, SessionDetail>()
+    const sortiesScheduled = new Map<number, SessionDetail>()
     const upcoming: Array<{ when: Date; label: string }> = []
     const now = new Date()
     for (const event of studentEvents) {
       const parsed = parseModuleFromTitle(event.title)
       if (!parsed.module) continue
       const when = new Date(event.start_dt)
-      if (when >= now) {
-        upcoming.push({ when, label: getModuleLabel(parsed.module) })
-        continue
-      }
-      const attendance = classAttendanceMap[event.id]
-      const status: 'present' | 'absent' = attendance === false ? 'absent' : 'present'
-      const detail: SessionDetail = {
+      const isFuture = when >= now
+      if (isFuture) upcoming.push({ when, label: getModuleLabel(parsed.module) })
+
+      const baseDetail: SessionDetail = {
         when,
         source: 'teamup',
         eventId: event.id,
         endTime: event.end_dt ? new Date(event.end_dt) : undefined,
         subcalendarIds: event.subcalendar_ids,
         title: event.title,
-        status,
+        status: isFuture
+          ? 'scheduled'
+          : classAttendanceMap[event.id] === false ? 'absent' : 'present',
       }
+
       if (parsed.module.startsWith('S')) {
         const n = parseInt(parsed.module.slice(1))
-        if (n >= 1 && n <= 15) {
+        if (n < 1 || n > 15) continue
+        if (isFuture) {
+          const cur = sortiesScheduled.get(n)
+          if (!cur || when < cur.when) sortiesScheduled.set(n, baseDetail)
+        } else {
           const cur = sortiesDone.get(n)
-          if (!cur || when < cur.when) sortiesDone.set(n, detail)
+          if (!cur || when < cur.when) sortiesDone.set(n, baseDetail)
         }
       } else {
         const n = parseInt(parsed.module)
-        if (n >= 1 && n <= 12 && !modulesDone.has(n)) {
-          modulesDone.set(n, detail)
+        if (n < 1 || n > 12) continue
+        if (isFuture) {
+          if (!modulesDone.has(n)) {
+            const cur = modulesScheduled.get(n)
+            if (!cur || when < cur.when) modulesScheduled.set(n, baseDetail)
+          }
+        } else if (!modulesDone.has(n)) {
+          modulesDone.set(n, baseDetail)
         }
       }
     }
@@ -403,7 +417,17 @@ function JourneyCard({ theoryClasses, studentEvents, classAttendanceMap, loading
     const totalAll = phases.reduce((s, p) => s + p.total, 0)
     const currentPhase = phases.find(p => p.done < p.total) || phases[phases.length - 1]
 
-    return { phases, totalDone, totalAll, currentPhase, nextUp, modulesDone, sortiesDone }
+    return {
+      phases,
+      totalDone,
+      totalAll,
+      currentPhase,
+      nextUp,
+      modulesDone,
+      sortiesDone,
+      modulesScheduled,
+      sortiesScheduled,
+    }
   }, [theoryClasses, studentEvents, classAttendanceMap])
 
   const loading = loadingEvents || loadingTheory
@@ -420,7 +444,9 @@ function JourneyCard({ theoryClasses, studentEvents, classAttendanceMap, loading
 
   const cellFor = (kind: 'M' | 'S', n: number) => {
     const id = `${kind}${n}`
-    const detail = kind === 'M' ? data.modulesDone.get(n) || null : data.sortiesDone.get(n) || null
+    const doneMap = kind === 'M' ? data.modulesDone : data.sortiesDone
+    const scheduledMap = kind === 'M' ? data.modulesScheduled : data.sortiesScheduled
+    const detail = doneMap.get(n) || scheduledMap.get(n) || null
     return { id, label: id, detail }
   }
 
@@ -471,28 +497,44 @@ function JourneyCard({ theoryClasses, studentEvents, classAttendanceMap, loading
                   </div>
                   <div className="flex flex-wrap gap-1.5">
                     {cells.map(c => {
-                      const isDone = !!c.detail
-                      const isAbsent = c.detail?.status === 'absent'
+                      const status = c.detail?.status
+                      const isScheduled = status === 'scheduled'
+                      const isAbsent = status === 'absent'
+                      const isCompleted = status === 'present'
+                      let cls: string
+                      if (isAbsent) {
+                        cls = 'border-red-200 bg-red-50 text-red-800 dark:bg-red-950/30 dark:text-red-200 hover:bg-red-100'
+                      } else if (isCompleted) {
+                        cls = `${st.bg} ${st.text} border-transparent hover:opacity-80`
+                      } else if (isScheduled) {
+                        // Scheduled = future booking — show phase color as an
+                        // outline ring with the future date and a small clock
+                        // glyph instead of solid fill.
+                        cls = `border-2 border-dashed ${st.text} bg-white dark:bg-transparent hover:opacity-80`
+                      } else {
+                        cls = 'border border-border text-muted-foreground hover:border-primary hover:bg-accent cursor-pointer'
+                      }
+                      const subtitle = c.detail
+                        ? c.detail.when.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
+                        : '—'
                       return (
                         <button
                           key={c.id}
                           type="button"
                           onClick={() => handleCellClick(c.id, c.label, c.phaseColor, c.detail)}
-                          className={`rounded-lg border px-2 py-2 text-center min-w-[58px] transition-colors ${
-                            isAbsent
-                              ? 'border-red-200 bg-red-50 text-red-800 dark:bg-red-950/30 dark:text-red-200 hover:bg-red-100'
-                              : isDone
-                              ? `${st.bg} ${st.text} border-transparent hover:opacity-80`
-                              : 'border-border text-muted-foreground hover:border-primary hover:bg-accent cursor-pointer'
-                          }`}
-                          title={isDone ? 'View details' : 'Book this session'}
+                          className={`rounded-lg px-2 py-2 text-center min-w-[58px] transition-colors ${cls}`}
+                          title={
+                            isCompleted ? 'View details'
+                            : isAbsent ? 'Absent — view details'
+                            : isScheduled ? 'Scheduled — view details'
+                            : 'Book this session'
+                          }
                         >
-                          <p className="text-sm font-semibold leading-tight">{c.label}</p>
-                          <p className="text-[10px] mt-0.5 leading-tight">
-                            {isDone
-                              ? c.detail!.when.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
-                              : '—'}
+                          <p className="text-sm font-semibold leading-tight flex items-center justify-center gap-1">
+                            {isScheduled && <Clock className="h-3 w-3" />}
+                            {c.label}
                           </p>
+                          <p className="text-[10px] mt-0.5 leading-tight">{subtitle}</p>
                         </button>
                       )
                     })}
@@ -546,6 +588,10 @@ function JourneyCard({ theoryClasses, studentEvents, classAttendanceMap, loading
                 {openCell.detail.status === 'absent' ? (
                   <Badge className="bg-red-100 text-red-700 border-red-200 gap-1">
                     <XCircle className="h-3 w-3" /> Absent
+                  </Badge>
+                ) : openCell.detail.status === 'scheduled' ? (
+                  <Badge className="bg-blue-100 text-blue-700 border-blue-200 gap-1">
+                    <Clock className="h-3 w-3" /> Scheduled
                   </Badge>
                 ) : (
                   <Badge className="bg-green-100 text-green-700 border-green-200 gap-1">
@@ -1429,11 +1475,29 @@ export default function StudentDetailPage() {
         </motion.div>
       )}
 
+      {/* Journey Progress — SAAQ 4-phase curriculum tracker (now above
+          Upcoming Classes so the at-a-glance grid is the first thing seen). */}
+      <motion.div
+        initial={{ opacity: 0, y: 10 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ delay: 0.18, duration: 0.25 }}
+      >
+        <JourneyCard
+          theoryClasses={theoryClasses}
+          studentEvents={studentEvents}
+          classAttendanceMap={classAttendanceMap}
+          loadingEvents={loadingEvents}
+          loadingTheory={loadingTheory}
+          studentName={displayName}
+          studentPhone={phone}
+        />
+      </motion.div>
+
       {/* Upcoming Classes */}
       <motion.div
         initial={{ opacity: 0, y: 10 }}
         animate={{ opacity: 1, y: 0 }}
-        transition={{ delay: 0.2, duration: 0.25 }}
+        transition={{ delay: 0.25, duration: 0.25 }}
       >
         <Card>
           <CardHeader>
@@ -1460,23 +1524,6 @@ export default function StudentDetailPage() {
             )}
           </CardContent>
         </Card>
-      </motion.div>
-
-      {/* Journey Progress — SAAQ 4-phase curriculum tracker */}
-      <motion.div
-        initial={{ opacity: 0, y: 10 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ delay: 0.25, duration: 0.25 }}
-      >
-        <JourneyCard
-          theoryClasses={theoryClasses}
-          studentEvents={studentEvents}
-          classAttendanceMap={classAttendanceMap}
-          loadingEvents={loadingEvents}
-          loadingTheory={loadingTheory}
-          studentName={displayName}
-          studentPhone={phone}
-        />
       </motion.div>
 
       {/* Past Classes */}
