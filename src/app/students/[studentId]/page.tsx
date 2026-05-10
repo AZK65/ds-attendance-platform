@@ -14,7 +14,7 @@ import {
   Award, Users, DollarSign, FileText, Receipt, Clock, Plus,
   BookOpen, GraduationCap, Database, CalendarDays, Download,
   CheckCircle, XCircle, ChevronDown, ChevronUp, ClipboardList,
-  Shield,
+  Shield, FileSignature,
 } from 'lucide-react'
 import Link from 'next/link'
 import { motion } from 'motion/react'
@@ -61,6 +61,34 @@ interface StudentProfile {
 
 function formatCurrency(amount: number) {
   return new Intl.NumberFormat('en-CA', { style: 'currency', currency: 'CAD' }).format(amount)
+}
+
+function AttendanceSheetButton({ phone }: { phone: string }) {
+  const { data } = useQuery<{ signatures: Array<{ id: string }> }>({
+    queryKey: ['attendance-sheet-count', phone],
+    queryFn: async () => {
+      const res = await fetch(`/api/scheduling/signature?phone=${encodeURIComponent(phone)}`)
+      if (!res.ok) return { signatures: [] }
+      return res.json()
+    },
+    enabled: !!phone,
+    staleTime: 60 * 1000,
+  })
+  const count = data?.signatures?.length ?? 0
+  if (count === 0) return null
+  return (
+    <Button variant="outline" size="sm" asChild>
+      <a
+        href={`/api/scheduling/signature/pdf?phone=${encodeURIComponent(phone)}`}
+        target="_blank"
+        rel="noopener"
+      >
+        <FileSignature className="h-4 w-4 mr-1" />
+        Attendance Sheet
+        <Badge variant="secondary" className="ml-1.5 text-[10px] px-1.5">{count}</Badge>
+      </a>
+    </Button>
+  )
 }
 
 function parseModuleFromTitle(title: string) {
@@ -289,6 +317,7 @@ export default function StudentProfilePage() {
                 <Receipt className="h-4 w-4 mr-1" /> Invoice
               </Link>
             </Button>
+            <AttendanceSheetButton phone={phone} />
           </div>
         </div>
       </motion.div>
