@@ -1,7 +1,7 @@
-# Marketing site lives on Cloudflare Pages at qazidrivingschool.ca.
-# This VPS only serves the ds-attendance platform under app.qazidrivingschool.ca.
-# Caddy auto-issues + renews the Let's Encrypt cert.
-app.qazidrivingschool.ca {
+# Platform reachable at both the legacy root (qazidrivingschool.ca) and the
+# new subdomain (app.qazidrivingschool.ca). Keep the root entry until the
+# marketing site is fully cut over to Cloudflare Pages, then drop it.
+qazidrivingschool.ca, www.qazidrivingschool.ca, app.qazidrivingschool.ca {
 	encode gzip zstd
 	reverse_proxy app:3000
 }
