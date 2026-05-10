@@ -1150,7 +1150,12 @@ export default function StudentDetailPage() {
         </Card>
       </motion.div>
 
-      {/* Attendance History */}
+      {/* Attendance History — hidden when no records exist (the Past Classes
+          card already shows present/absent for Teamup + Zoom sessions). The
+          legacy AttendanceRecord table is mostly empty across all students,
+          so this section was just visual clutter. attendanceStats is still
+          computed for the top-row "Attendance" stat. */}
+      {attendanceStats.total > 0 && (
       <motion.div
         initial={{ opacity: 0, y: 10 }}
         animate={{ opacity: 1, y: 0 }}
@@ -1225,6 +1230,7 @@ export default function StudentDetailPage() {
           </CardContent>
         </Card>
       </motion.div>
+      )}
       {/* Invoice History */}
       <motion.div
         initial={{ opacity: 0, y: 10 }}
