@@ -283,6 +283,196 @@ const formatDate = (dateStr: string) => {
   return d.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric' })
 }
 
+// ─── Journey Card ────────────────────────────────────────────────────────
+// Visualises the SAAQ 4-phase curriculum: which modules/sorties the student
+// has completed, what's left, and what their next session is.
+
+// SAAQ phase composition (mirrors getPhaseInfo's mapping).
+const PHASES = [
+  { n: 1, label: 'Phase 1 — Theory', modules: [1, 2, 3, 4, 5], sorties: [], color: 'bg-yellow-500' },
+  { n: 2, label: 'Phase 2 — Accompanied', modules: [6, 7], sorties: [1, 2, 3, 4], color: 'bg-green-500' },
+  { n: 3, label: 'Phase 3 — Practice', modules: [8, 9, 10], sorties: [5, 6, 7, 8, 9, 10], color: 'bg-blue-500' },
+  { n: 4, label: 'Phase 4 — Eco/Final', modules: [11, 12], sorties: [11, 12, 13, 14, 15], color: 'bg-purple-500' },
+] as const
+
+interface JourneyCardProps {
+  theoryClasses: Array<{ moduleNumber: number | null; date: string; status: 'present' | 'absent' }>
+  studentEvents: Array<{ id: string; title: string; start_dt: string }>
+  classAttendanceMap: Record<string, boolean>
+  loadingEvents: boolean
+  loadingTheory: boolean
+}
+
+function JourneyCard({ theoryClasses, studentEvents, classAttendanceMap, loadingEvents, loadingTheory }: JourneyCardProps) {
+  const data = useMemo(() => {
+    // Completed modules: Zoom theory with status=present.
+    const modulesDone = new Map<number, Date>()
+    for (const tc of theoryClasses) {
+      if (tc.status !== 'present' || tc.moduleNumber == null) continue
+      if (tc.moduleNumber < 1 || tc.moduleNumber > 12) continue
+      const d = new Date(tc.date)
+      const cur = modulesDone.get(tc.moduleNumber)
+      if (!cur || d < cur) modulesDone.set(tc.moduleNumber, d)
+    }
+
+    // Completed sorties + Teamup module backfill: past events; if attendance
+    // record is explicitly false (absent), skip — otherwise assume present.
+    const sortiesDone = new Map<number, Date>()
+    const upcoming: Array<{ when: Date; label: string; phase: 1 | 2 | 3 | 4 | null }> = []
+    const now = new Date()
+    for (const event of studentEvents) {
+      const parsed = parseModuleFromTitle(event.title)
+      if (!parsed.module) continue
+      const when = new Date(event.start_dt)
+      if (when >= now) {
+        const phase = phaseOf(parsed.module)
+        upcoming.push({ when, label: getModuleLabel(parsed.module), phase })
+        continue
+      }
+      const attendance = classAttendanceMap[event.id]
+      if (attendance === false) continue
+      if (parsed.module.startsWith('S')) {
+        const n = parseInt(parsed.module.slice(1))
+        if (n >= 1 && n <= 15 && !sortiesDone.has(n)) sortiesDone.set(n, when)
+      } else {
+        const n = parseInt(parsed.module)
+        if (n >= 1 && n <= 12 && !modulesDone.has(n)) modulesDone.set(n, when)
+      }
+    }
+
+    upcoming.sort((a, b) => a.when.getTime() - b.when.getTime())
+    const nextUp = upcoming[0] || null
+
+    // Per-phase progress
+    const phases = PHASES.map(p => {
+      const total = p.modules.length + p.sorties.length
+      const mods = p.modules.filter(n => modulesDone.has(n)).length
+      const sorts = p.sorties.filter(n => sortiesDone.has(n)).length
+      const done = mods + sorts
+      return { ...p, done, total, pct: total === 0 ? 0 : Math.round((done / total) * 100) }
+    })
+
+    const totalDone = phases.reduce((s, p) => s + p.done, 0)
+    const totalAll = phases.reduce((s, p) => s + p.total, 0)
+    const remaining = totalAll - totalDone
+
+    // Current phase = first non-complete phase
+    const currentPhase = phases.find(p => p.done < p.total) || phases[phases.length - 1]
+
+    // What they did, most recent first (last 5 across both module + sortie)
+    const activity: Array<{ when: Date; label: string; phase: 1 | 2 | 3 | 4 }> = []
+    for (const [n, d] of modulesDone) activity.push({ when: d, label: `Module ${n}`, phase: phaseOf(String(n))! })
+    for (const [n, d] of sortiesDone) activity.push({ when: d, label: `Session ${n} (In-Car)`, phase: phaseOf(`S${n}`)! })
+    activity.sort((a, b) => b.when.getTime() - a.when.getTime())
+
+    return {
+      phases, totalDone, totalAll, remaining,
+      currentPhase, nextUp,
+      recent: activity.slice(0, 5),
+    }
+  }, [theoryClasses, studentEvents, classAttendanceMap])
+
+  const loading = loadingEvents || loadingTheory
+
+  return (
+    <Card>
+      <CardHeader>
+        <div className="flex items-center justify-between gap-2">
+          <CardTitle className="flex items-center gap-2 text-lg">
+            <GraduationCap className="h-5 w-5" />
+            Journey Progress
+          </CardTitle>
+          <Badge variant="secondary" className={`${data.currentPhase.color.replace('bg-', 'bg-')}/15 text-foreground border-0`}>
+            {data.currentPhase.label.split(' — ')[0]}
+          </Badge>
+        </div>
+      </CardHeader>
+      <CardContent>
+        {loading ? (
+          <div className="flex items-center justify-center py-8">
+            <Loader2 className="h-5 w-5 animate-spin mr-2" />
+            <span className="text-muted-foreground">Loading progress...</span>
+          </div>
+        ) : (
+          <div className="space-y-4">
+            <div className="flex items-baseline justify-between">
+              <div>
+                <p className="text-3xl font-bold">{data.totalDone} <span className="text-muted-foreground text-base font-normal">/ {data.totalAll}</span></p>
+                <p className="text-xs text-muted-foreground">sessions complete · {data.remaining} remaining</p>
+              </div>
+              {data.nextUp && (
+                <div className="text-right">
+                  <p className="text-xs text-muted-foreground">Next up</p>
+                  <p className="text-sm font-medium">{data.nextUp.label}</p>
+                  <p className="text-xs text-muted-foreground">
+                    {data.nextUp.when.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} ·{' '}
+                    {data.nextUp.when.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })}
+                  </p>
+                </div>
+              )}
+            </div>
+
+            <div className="space-y-2">
+              {data.phases.map(p => (
+                <div key={p.n} className="flex items-center gap-3">
+                  <div className="w-32 shrink-0">
+                    <p className="text-sm font-medium">{p.label.split(' — ')[0]}</p>
+                    <p className="text-[10px] text-muted-foreground truncate">{p.label.split(' — ')[1]}</p>
+                  </div>
+                  <div className="flex-1 h-2.5 bg-muted rounded-full overflow-hidden">
+                    <div className={`h-full ${p.color} transition-all`} style={{ width: `${p.pct}%` }} />
+                  </div>
+                  <div className="w-12 text-right text-sm font-mono tabular-nums">
+                    {p.done}/{p.total}
+                  </div>
+                </div>
+              ))}
+            </div>
+
+            {data.recent.length > 0 && (
+              <div className="pt-2 border-t">
+                <p className="text-xs text-muted-foreground font-medium mb-2 uppercase tracking-wider">Recent activity</p>
+                <div className="space-y-1.5">
+                  {data.recent.map((r, i) => (
+                    <div key={i} className="flex items-center justify-between text-sm">
+                      <div className="flex items-center gap-2 min-w-0">
+                        <CheckCircle className="h-3.5 w-3.5 text-green-600 shrink-0" />
+                        <span className="truncate">{r.label}</span>
+                      </div>
+                      <span className="text-xs text-muted-foreground shrink-0">
+                        {r.when.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} ·{' '}
+                        {r.when.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+      </CardContent>
+    </Card>
+  )
+}
+
+function phaseOf(module: string): 1 | 2 | 3 | 4 | null {
+  if (module.startsWith('S')) {
+    const n = parseInt(module.slice(1))
+    if (isNaN(n)) return null
+    if (n >= 1 && n <= 4) return 2
+    if (n >= 5 && n <= 10) return 3
+    if (n >= 11 && n <= 15) return 4
+    return null
+  }
+  const n = parseInt(module)
+  if (isNaN(n)) return null
+  if (n >= 1 && n <= 5) return 1
+  if (n >= 6 && n <= 7) return 2
+  if (n >= 8 && n <= 10) return 3
+  if (n >= 11 && n <= 12) return 4
+  return null
+}
+
 // Header button — always renders so the booklet PDF can be previewed even
 // before any sessions are signed. Shows a small count badge of signed
 // sessions when > 0.
@@ -1149,6 +1339,21 @@ export default function StudentDetailPage() {
             )}
           </CardContent>
         </Card>
+      </motion.div>
+
+      {/* Journey Progress — SAAQ 4-phase curriculum tracker */}
+      <motion.div
+        initial={{ opacity: 0, y: 10 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ delay: 0.25, duration: 0.25 }}
+      >
+        <JourneyCard
+          theoryClasses={theoryClasses}
+          studentEvents={studentEvents}
+          classAttendanceMap={classAttendanceMap}
+          loadingEvents={loadingEvents}
+          loadingTheory={loadingTheory}
+        />
       </motion.div>
 
       {/* Past Classes */}
