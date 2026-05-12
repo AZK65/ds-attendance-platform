@@ -972,6 +972,15 @@ export default function StudentDetailPage() {
     // either the title (`Module N - ...`) or the notes (`Module: N`)
     // because hosts often use a generic title like "Theory Class" and put
     // the number in notes.
+    // Re-exam detection: an unscheduled theory class (no module number tagged
+    // and no Teamup pairing) that happens AFTER the student passed Module 5
+    // is the Module 5 re-exam Qazi runs for students who failed M5.
+    // Precompute the earliest present-M5 date so we don't recompute per row.
+    const m5PassDate = theoryClasses
+      .filter(t => t.moduleNumber === 5 && t.status === 'present')
+      .map(t => new Date(t.date).getTime())
+      .reduce<number | null>((min, ts) => (min == null || ts < min ? ts : min), null)
+
     for (const tc of theoryClasses) {
       const tcDate = new Date(tc.date)
       const tcMod = tc.moduleNumber
@@ -995,9 +1004,12 @@ export default function StudentDetailPage() {
       if (teamupDupIdx >= 0) past.splice(teamupDupIdx, 1)
 
       const isAbsent = tc.status === 'absent'
-      const modLabel = tc.moduleNumber != null ? `M${tc.moduleNumber}` : 'Theory Class'
+      const isReexam = tc.moduleNumber == null && m5PassDate != null && tcDate.getTime() > m5PassDate
+      const modLabel = tc.moduleNumber != null
+        ? `M${tc.moduleNumber}`
+        : (isReexam ? 'M5 Re-exam' : 'Theory Class')
       past.push({
-        id: `theory-${tc.moduleNumber ?? 'x'}-${tc.meetingUUID}`,
+        id: `theory-${tc.moduleNumber ?? (isReexam ? 're' : 'x')}-${tc.meetingUUID}`,
         title: `${modLabel} - ${displayName}${isAbsent ? ' (ABSENT)' : ''}`,
         start_dt: tc.date,
         end_dt: tc.date,
