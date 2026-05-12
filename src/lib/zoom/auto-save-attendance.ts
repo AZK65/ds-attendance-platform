@@ -113,8 +113,13 @@ export async function autoSaveAttendanceOnMeetingEnd(opts: AutoSaveOptions): Pro
     return { saved: false, reason: 'No matching group found' }
   }
 
-  // Resolve a module number — topic first, then group's current module.
-  const moduleNumber = parseModuleFromTopic(opts.topic || '') ?? best.moduleNumber ?? null
+  // Resolve a module number from the Zoom topic only. Do NOT fall back to
+  // group.moduleNumber — that field is the cohort's *current* module, not
+  // the module of the meeting we're recording. Using it stamps the wrong
+  // number onto historical rows whenever the host's meeting topic is
+  // generic ("Theory Class") instead of "Module N - ...". Leave it null
+  // and let Teamup recovery or an admin fill it in.
+  const moduleNumber = parseModuleFromTopic(opts.topic || '')
 
   // Upsert so a manual save afterwards still wins (admin can override).
   // The webhook fires once when the host clicks End — we don't expect
