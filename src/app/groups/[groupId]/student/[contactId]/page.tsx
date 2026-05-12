@@ -972,12 +972,18 @@ export default function StudentDetailPage() {
     // either the title (`Module N - ...`) or the notes (`Module: N`)
     // because hosts often use a generic title like "Theory Class" and put
     // the number in notes.
-    // Re-exam detection: an unscheduled theory class (no module number tagged
-    // and no Teamup pairing) that happens AFTER the student passed Module 5
-    // is the Module 5 re-exam Qazi runs for students who failed M5.
-    // Precompute the earliest present-M5 date so we don't recompute per row.
+    // Re-exam detection: Qazi runs a Module 5 re-exam for students who fail
+    // M5. The re-exam isn't on Teamup and the Zoom topic doesn't carry a
+    // module number. Only the FIRST unscheduled theory class after the
+    // student's M5-pass counts as the re-exam — later unlabeled classes
+    // are most likely something else (make-up for a different module,
+    // ad-hoc session, etc.) and stay as plain "Theory Class".
     const m5PassDate = theoryClasses
       .filter(t => t.moduleNumber === 5 && t.status === 'present')
+      .map(t => new Date(t.date).getTime())
+      .reduce<number | null>((min, ts) => (min == null || ts < min ? ts : min), null)
+    const reexamDateMs = m5PassDate == null ? null : theoryClasses
+      .filter(t => t.moduleNumber == null && new Date(t.date).getTime() > m5PassDate)
       .map(t => new Date(t.date).getTime())
       .reduce<number | null>((min, ts) => (min == null || ts < min ? ts : min), null)
 
@@ -1004,7 +1010,7 @@ export default function StudentDetailPage() {
       if (teamupDupIdx >= 0) past.splice(teamupDupIdx, 1)
 
       const isAbsent = tc.status === 'absent'
-      const isReexam = tc.moduleNumber == null && m5PassDate != null && tcDate.getTime() > m5PassDate
+      const isReexam = tc.moduleNumber == null && reexamDateMs != null && tcDate.getTime() === reexamDateMs
       const modLabel = tc.moduleNumber != null
         ? `M${tc.moduleNumber}`
         : (isReexam ? 'M5 Re-exam' : 'Theory Class')
