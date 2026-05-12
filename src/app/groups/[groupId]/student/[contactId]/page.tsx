@@ -976,6 +976,10 @@ export default function StudentDetailPage() {
       const tcDate = new Date(tc.date)
       const tcMod = tc.moduleNumber
       const teamupDupIdx = past.findIndex(e => {
+        // Only dedupe against real Teamup events — never against another Zoom
+        // synthetic. A previously-pushed synthetic with id "theory-..." would
+        // otherwise eat the row we're about to add when both share a date.
+        if (e.id.startsWith('theory-')) return false
         if (Math.abs(new Date(e.start_dt).getTime() - tcDate.getTime()) >= 24 * 60 * 60 * 1000) return false
         const notes = (e.notes || '').replace(/<[^>]*>/g, '')
         const titleParsed = parseModuleFromTitle(e.title).module
