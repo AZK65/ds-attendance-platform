@@ -188,6 +188,11 @@ export async function connectWhatsApp(): Promise<void> {
         headless: 'new',
         executablePath: process.env.PUPPETEER_EXECUTABLE_PATH || undefined,
         timeout: 60000,
+        // Chrome flags chosen for headless Docker + WhatsApp Web specifically.
+        // --single-process and --no-zygote were removed: they make Chromium
+        // silently crash before reaching the QR page on current Chromium
+        // builds, which produced "connect succeeds but no QR ever appears"
+        // after a fresh container/auth wipe.
         args: [
           '--no-sandbox',
           '--disable-setuid-sandbox',
@@ -195,8 +200,6 @@ export async function connectWhatsApp(): Promise<void> {
           '--disable-gpu',
           '--disable-software-rasterizer',
           '--no-first-run',
-          '--no-zygote',
-          '--single-process'
         ]
       }
     })
@@ -214,9 +217,10 @@ export async function connectWhatsApp(): Promise<void> {
       state.isConnecting = false
       state.qr = null
 
-      // Wait longer for WhatsApp Web to fully initialize after Jan 2026 update
-      console.log('[ready] Waiting 10s for WhatsApp Web to fully initialize...')
-      await new Promise(resolve => setTimeout(resolve, 10000))
+      // Short settling pause; the Store.Chat poll below is what actually
+      // waits for WhatsApp Web to be usable. Was 10s hardcoded for the
+      // Jan 2026 update workaround, but the poll handles real readiness.
+      await new Promise(resolve => setTimeout(resolve, 2000))
 
       // Wait for Store.Chat to be populated before syncing
       const typedClientForSync = client as { pupPage?: { evaluate: <T>(fn: string) => Promise<T> } }
