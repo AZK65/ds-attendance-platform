@@ -275,6 +275,28 @@ export default function GroupDetailPage() {
     return batchClassesData?.results?.[phone] || { lastClass: null, nextClass: null, certificate: null }
   }
 
+  // Next theory class for the group as a whole (one event for the cohort,
+  // looked up from Teamup by group name — not per-participant)
+  const { data: groupNextTheory } = useQuery({
+    queryKey: ['group-next-theory', group?.name],
+    queryFn: async () => {
+      const res = await fetch(`/api/scheduling/group-next-theory?groupName=${encodeURIComponent(group!.name)}`)
+      if (!res.ok) return { next: null }
+      return res.json() as Promise<{
+        next: { date: string; endDate: string | null; title: string; module: number | null } | null
+      }>
+    },
+    enabled: !!group?.name,
+    staleTime: 5 * 60 * 1000,
+  })
+
+  const formatNextTheoryLabel = (iso: string) => {
+    const d = new Date(iso)
+    const dateStr = d.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })
+    const timeStr = d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })
+    return `${dateStr} · ${timeStr}`
+  }
+
   const formatRelativeDate = (dateStr: string) => {
     const date = new Date(dateStr)
     const now = new Date()
@@ -650,6 +672,14 @@ export default function GroupDetailPage() {
               <Badge variant="default">
                 <BookOpen className="h-3 w-3 mr-1" />
                 Module {currentModuleNumber}
+              </Badge>
+            )}
+            {groupNextTheory?.next && (
+              <Badge variant="secondary" title={groupNextTheory.next.title}>
+                Next theory
+                {groupNextTheory.next.module ? ` · M${groupNextTheory.next.module}` : ''}
+                {' · '}
+                {formatNextTheoryLabel(groupNextTheory.next.date)}
               </Badge>
             )}
           </div>
