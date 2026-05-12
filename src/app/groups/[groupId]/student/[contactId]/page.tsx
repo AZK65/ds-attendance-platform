@@ -963,30 +963,43 @@ export default function StudentDetailPage() {
       }
     }
 
-    // Add theory classes from Zoom attendance as synthetic events
+    // Add theory classes from Zoom attendance as synthetic events.
+    // When a Teamup theory event exists for the same date, prefer the Zoom
+    // synthetic (it carries the module number and present/absent status);
+    // remove the bare Teamup row so we don't show both side-by-side.
+    // A Teamup event is "the same class" when it sits within a day of the
+    // Zoom record AND is itself a theory event. Module is matched from
+    // either the title (`Module N - ...`) or the notes (`Module: N`)
+    // because hosts often use a generic title like "Theory Class" and put
+    // the number in notes.
     for (const tc of theoryClasses) {
       const tcDate = new Date(tc.date)
-      // Don't add if already in the past list (avoid duplicates with Teamup events).
-      // Only dedupe when this Zoom record HAS a module — otherwise we'd kill
-      // legitimate generic theory classes whenever a Teamup event happened to
-      // sit nearby on the timeline.
-      const alreadyExists = tc.moduleNumber != null && past.some(e => {
-        const parsed = parseModuleFromTitle(e.title)
-        return parsed.module === String(tc.moduleNumber) &&
-          Math.abs(new Date(e.start_dt).getTime() - tcDate.getTime()) < 24 * 60 * 60 * 1000
+      const tcMod = tc.moduleNumber
+      const teamupDupIdx = past.findIndex(e => {
+        if (Math.abs(new Date(e.start_dt).getTime() - tcDate.getTime()) >= 24 * 60 * 60 * 1000) return false
+        const notes = (e.notes || '').replace(/<[^>]*>/g, '')
+        const titleParsed = parseModuleFromTitle(e.title).module
+        const notesMod = notes.match(/Module:\s*(\d+)/)?.[1] || ''
+        const isTheoryByNotes = /theory class/i.test(notes)
+        const isTheoryByTitle = !!titleParsed
+        if (!isTheoryByTitle && !isTheoryByNotes) return false
+        if (tcMod != null && (titleParsed || notesMod)) {
+          return String(tcMod) === titleParsed || String(tcMod) === notesMod
+        }
+        return true
       })
-      if (!alreadyExists) {
-        const isAbsent = tc.status === 'absent'
-        const modLabel = tc.moduleNumber != null ? `M${tc.moduleNumber}` : 'Theory Class'
-        past.push({
-          id: `theory-${tc.moduleNumber ?? 'x'}-${tc.meetingUUID}`,
-          title: `${modLabel} - ${displayName}${isAbsent ? ' (ABSENT)' : ''}`,
-          start_dt: tc.date,
-          end_dt: tc.date,
-          subcalendar_ids: [],
-          notes: `Zoom Theory Class\nModule ${tc.moduleNumber ?? '—'}\nZoom Name: ${tc.zoomName}\nGroupId: ${tc.groupId}\nStatus: ${tc.status}`,
-        })
-      }
+      if (teamupDupIdx >= 0) past.splice(teamupDupIdx, 1)
+
+      const isAbsent = tc.status === 'absent'
+      const modLabel = tc.moduleNumber != null ? `M${tc.moduleNumber}` : 'Theory Class'
+      past.push({
+        id: `theory-${tc.moduleNumber ?? 'x'}-${tc.meetingUUID}`,
+        title: `${modLabel} - ${displayName}${isAbsent ? ' (ABSENT)' : ''}`,
+        start_dt: tc.date,
+        end_dt: tc.date,
+        subcalendar_ids: [],
+        notes: `Zoom Theory Class\nModule ${tc.moduleNumber ?? '—'}\nZoom Name: ${tc.zoomName}\nGroupId: ${tc.groupId}\nStatus: ${tc.status}`,
+      })
     }
 
     // Upcoming sorted ascending, past sorted descending
