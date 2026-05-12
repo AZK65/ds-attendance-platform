@@ -15,6 +15,19 @@ interface GroupCardProps {
     lastMessageDate?: string | Date | null
     lastMessagePreview?: string | null
   }
+  nextTheory?: {
+    date: string
+    endDate: string | null
+    title: string
+    module: number | null
+  } | null
+}
+
+function formatNextTheoryLabel(iso: string): string {
+  const d = new Date(iso)
+  const dateStr = d.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })
+  const timeStr = d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })
+  return `${dateStr} · ${timeStr}`
 }
 
 const fadeSlideUp = {
@@ -22,7 +35,7 @@ const fadeSlideUp = {
   visible: { opacity: 1, y: 0, transition: { duration: 0.35 } },
 }
 
-export function GroupCard({ group }: GroupCardProps) {
+export function GroupCard({ group, nextTheory }: GroupCardProps) {
   const lastMessageDate = group.lastMessageDate ? new Date(group.lastMessageDate) : null
   const timeAgo = lastMessageDate ? getTimeAgo(lastMessageDate) : null
 
@@ -53,6 +66,14 @@ export function GroupCard({ group }: GroupCardProps) {
                 <Users className="h-3 w-3" />
                 {group.participantCount} members
               </Badge>
+              {nextTheory && (
+                <Badge variant="outline" className="gap-1" title={nextTheory.title}>
+                  Next theory
+                  {nextTheory.module ? ` · M${nextTheory.module}` : ''}
+                  {' · '}
+                  {formatNextTheoryLabel(nextTheory.date)}
+                </Badge>
+              )}
             </div>
           </CardContent>
         </Card>

@@ -122,6 +122,28 @@ export default function GroupsPage() {
     refetchInterval: 60 * 60 * 1000,   // Background refresh every hour
   })
 
+  // Batch-fetch the next theory class for every group in one Teamup round trip
+  const groupNamesForTheory = useMemo(
+    () => (data?.groups || []).map((g: { name: string }) => g.name),
+    [data?.groups],
+  )
+  const { data: nextTheoryData } = useQuery({
+    queryKey: ['groups-next-theory', groupNamesForTheory],
+    queryFn: async () => {
+      const res = await fetch('/api/scheduling/groups-next-theory', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ groupNames: groupNamesForTheory }),
+      })
+      if (!res.ok) return { results: {} }
+      return res.json() as Promise<{
+        results: Record<string, { date: string; endDate: string | null; title: string; module: number | null } | null>
+      }>
+    },
+    enabled: groupNamesForTheory.length > 0,
+    staleTime: 5 * 60 * 1000,
+  })
+
   // Force sync mutation - reconnects if needed and syncs fresh data
   const syncMutation = useMutation({
     mutationFn: async () => {
@@ -558,7 +580,7 @@ export default function GroupsPage() {
                     animate="visible"
                   >
                     {groupsByPhase.phase1.map((group) => (
-                      <GroupCard key={group.id} group={group} />
+                      <GroupCard key={group.id} group={group} nextTheory={nextTheoryData?.results?.[group.name] || null} />
                     ))}
                   </motion.div>
                 </motion.div>
@@ -583,7 +605,7 @@ export default function GroupsPage() {
                     animate="visible"
                   >
                     {groupsByPhase.phase2.map((group) => (
-                      <GroupCard key={group.id} group={group} />
+                      <GroupCard key={group.id} group={group} nextTheory={nextTheoryData?.results?.[group.name] || null} />
                     ))}
                   </motion.div>
                 </motion.div>
@@ -608,7 +630,7 @@ export default function GroupsPage() {
                     animate="visible"
                   >
                     {groupsByPhase.phase3.map((group) => (
-                      <GroupCard key={group.id} group={group} />
+                      <GroupCard key={group.id} group={group} nextTheory={nextTheoryData?.results?.[group.name] || null} />
                     ))}
                   </motion.div>
                 </motion.div>
@@ -633,7 +655,7 @@ export default function GroupsPage() {
                     animate="visible"
                   >
                     {groupsByPhase.phase4.map((group) => (
-                      <GroupCard key={group.id} group={group} />
+                      <GroupCard key={group.id} group={group} nextTheory={nextTheoryData?.results?.[group.name] || null} />
                     ))}
                   </motion.div>
                 </motion.div>
@@ -658,7 +680,7 @@ export default function GroupsPage() {
                     animate="visible"
                   >
                     {groupsByPhase.noPhase.map((group) => (
-                      <GroupCard key={group.id} group={group} />
+                      <GroupCard key={group.id} group={group} nextTheory={nextTheoryData?.results?.[group.name] || null} />
                     ))}
                   </motion.div>
                 </motion.div>
