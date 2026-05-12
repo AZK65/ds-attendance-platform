@@ -184,6 +184,17 @@ export async function connectWhatsApp(): Promise<void> {
       authStrategy: new LocalAuth({
         dataPath: AUTH_FOLDER
       }),
+      // Pin WhatsApp Web HTML to a version this fork of whatsapp-web.js is
+      // known to work with. WhatsApp Web auto-updates and breaks fork
+      // compatibility roughly every couple of months — symptom is errors
+      // like "Cannot read properties of undefined (reading 'getChat')"
+      // or no QR ever rendering. Override the version via WA_WEB_VERSION
+      // env var (e.g. "2.3000.1015901307") if this one stops working.
+      webVersionCache: {
+        type: 'remote',
+        remotePath:
+          `https://raw.githubusercontent.com/wppconnect-team/wa-version/main/html/${process.env.WA_WEB_VERSION || '2.3000.1023223821'}.html`,
+      },
       puppeteer: {
         headless: 'new',
         executablePath: process.env.PUPPETEER_EXECUTABLE_PATH || undefined,
