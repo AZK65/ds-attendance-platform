@@ -401,6 +401,19 @@ const DEVICE_WORDS = new Set([
   'phone', 'tablet', 'device', 'mobile', 'macbook', 'laptop'
 ])
 
+// Zoom display names that belong to the host/admin account and should
+// NEVER be matched against any student. Comparison is done against the
+// normalized name. Add new admin handles here if you spot more.
+const EXCLUDED_ZOOM_NAMES = new Set([
+  'qazi driving school',
+  'driving school',
+  'qazi school',
+  'qazi',
+  'admin',
+  'host',
+  'zoom',
+])
+
 // Normalize name for matching
 function normalizeName(name: string): string {
   const normalized = name
@@ -447,13 +460,21 @@ function stringSimilarity(s1: string, s2: string): number {
   return intersection / union
 }
 
-// Check if two name parts match (exact, prefix, or close edit distance)
+// Check if two name parts match (exact, close prefix, or close edit distance).
+// Stricter than before — short prefix matches were creating false pairs
+// like "Said" ≈ "Saidul" or "Mohi" ≈ "Mohima".
 function partsMatch(a: string, b: string): boolean {
   if (a === b) return true
-  // Prefix match for names >= 3 chars (e.g. "Mohi" matches "Mohima")
-  if (a.length >= 3 && b.length >= 3 && (a.startsWith(b) || b.startsWith(a))) return true
-  // Edit distance match for names >= 4 chars (1 typo tolerance)
-  if (a.length >= 4 && b.length >= 4) {
+  // Prefix match only when the shorter name is >= 4 chars AND the length
+  // difference is <= 2. So "Mohamed" / "Mohammed" still match, but
+  // "Said" / "Saidul" no longer do.
+  const shorter = a.length <= b.length ? a : b
+  const longer = a.length <= b.length ? b : a
+  if (shorter.length >= 4 && (longer.length - shorter.length) <= 2 && longer.startsWith(shorter)) {
+    return true
+  }
+  // Edit distance match for names >= 5 chars (1 typo tolerance)
+  if (a.length >= 5 && b.length >= 5) {
     const dist = editDistance(a, b)
     if (dist <= 1) return true
   }
@@ -600,10 +621,17 @@ export function matchZoomToWhatsApp(
   const matchedWhatsAppPhones = new Set<string>()
   const matchedZoomNames = new Set<string>()  // Track by normalized name, not ID
 
-  // Aggregate Zoom participants (same person might join multiple times)
+  // Aggregate Zoom participants (same person might join multiple times).
+  // Drop the host/admin Zoom account up-front so it never wins a false
+  // match against a student — that mismatch used to cascade and push
+  // real attendees into the absent list.
   const aggregatedZoom = new Map<string, ZoomParticipant>()
   for (const zp of zoomParticipants) {
     const normalized = normalizeName(zp.name)
+    if (EXCLUDED_ZOOM_NAMES.has(normalized)) {
+      console.log(`[Zoom Match] Skipping excluded admin/host: "${zp.name}"`)
+      continue
+    }
     const existing = aggregatedZoom.get(normalized)
     if (existing) {
       // Sum up duration, keep earliest join and latest leave
