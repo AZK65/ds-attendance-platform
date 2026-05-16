@@ -1,4 +1,7 @@
-// In-memory store for live Zoom meeting participants + change notification
+// In-memory store for live Zoom meeting participants + change notification.
+// Backed by a single AppPreference row so state survives server restarts.
+
+import { prisma } from '@/lib/db'
 
 interface LiveParticipant {
   user_name: string
@@ -21,6 +24,7 @@ interface LiveMeetingState {
   startTime: string
   participants: Map<string, LiveParticipant>
   isLive: boolean
+  endedAt?: string // ISO timestamp when meeting.ended fired; used for the 3h post-end wipe
 }
 
 export type StateChangeListener = () => void
@@ -34,6 +38,114 @@ const listeners: Set<StateChangeListener> = new Set()
 // Manual overrides keyed by groupId → phone → override
 const manualOverrides: Map<string, Map<string, ManualOverride>> = new Map()
 
+// ── Persistence ──────────────────────────────────────────────────────────
+//
+// We store everything in a single AppPreference row keyed `zoom:live-state`.
+// The value is JSON containing the current meeting (participants flattened
+// to an array) and the manual overrides. Writes are debounced so a burst
+// of webhook events doesn't hammer SQLite.
+
+const PERSIST_KEY = 'zoom:live-state'
+const POST_END_WIPE_MS = 3 * 60 * 60 * 1000 // 3 hours
+
+let persistTimer: NodeJS.Timeout | null = null
+let hydrated = false
+
+function snapshot(): string {
+  return JSON.stringify({
+    currentMeeting: currentMeeting
+      ? {
+          meetingId: currentMeeting.meetingId,
+          meetingUUID: currentMeeting.meetingUUID,
+          topic: currentMeeting.topic,
+          startTime: currentMeeting.startTime,
+          isLive: currentMeeting.isLive,
+          endedAt: currentMeeting.endedAt,
+          participants: Array.from(currentMeeting.participants.values()),
+        }
+      : null,
+    manualOverrides: Array.from(manualOverrides.entries()).map(([groupId, overrides]) => ({
+      groupId,
+      overrides: Array.from(overrides.values()),
+    })),
+  })
+}
+
+function schedulePersist() {
+  if (persistTimer) clearTimeout(persistTimer)
+  persistTimer = setTimeout(async () => {
+    persistTimer = null
+    try {
+      const value = snapshot()
+      await prisma.appPreference.upsert({
+        where: { key: PERSIST_KEY },
+        update: { value },
+        create: { key: PERSIST_KEY, value },
+      })
+    } catch (err) {
+      console.error('[Live Store] Failed to persist:', err)
+    }
+  }, 250)
+}
+
+/** Load persisted state from DB into memory. Idempotent — only runs once. */
+export async function hydrateFromDb(): Promise<void> {
+  if (hydrated) return
+  hydrated = true
+  try {
+    const row = await prisma.appPreference.findUnique({ where: { key: PERSIST_KEY } })
+    if (!row?.value) return
+    const data = JSON.parse(row.value)
+
+    if (data.currentMeeting) {
+      const cm = data.currentMeeting
+      // Honour the 3h post-end wipe: if the meeting ended more than 3h ago
+      // while we were down, drop the stale data instead of resurrecting it.
+      if (cm.endedAt && Date.now() - new Date(cm.endedAt).getTime() > POST_END_WIPE_MS) {
+        console.log('[Live Store] Persisted meeting expired (>3h since end) — discarding')
+      } else {
+        const participantsMap = new Map<string, LiveParticipant>()
+        for (const p of cm.participants || []) {
+          participantsMap.set(p.user_id, p)
+        }
+        currentMeeting = {
+          meetingId: cm.meetingId,
+          meetingUUID: cm.meetingUUID,
+          topic: cm.topic,
+          startTime: cm.startTime,
+          participants: participantsMap,
+          isLive: !!cm.isLive,
+          endedAt: cm.endedAt,
+        }
+        // If the meeting was already ended when we restarted, re-schedule
+        // the wipe for whatever time remains in the 3h window.
+        if (cm.endedAt) {
+          const elapsed = Date.now() - new Date(cm.endedAt).getTime()
+          const remaining = POST_END_WIPE_MS - elapsed
+          if (remaining > 0) {
+            setTimeout(() => {
+              currentMeeting = null
+              manualOverrides.clear()
+              schedulePersist()
+              console.log('[Live Store] Cleared meeting state (rehydrated wipe)')
+            }, remaining)
+          }
+        }
+        console.log(`[Live Store] Rehydrated meeting "${cm.topic}" with ${participantsMap.size} participant(s)`)
+      }
+    }
+
+    for (const entry of data.manualOverrides || []) {
+      const inner = new Map<string, ManualOverride>()
+      for (const o of entry.overrides || []) inner.set(o.phone, o)
+      manualOverrides.set(entry.groupId, inner)
+    }
+    notifyListeners()
+  } catch (err) {
+    console.error('[Live Store] hydrateFromDb failed:', err)
+  }
+}
+
 function notifyListeners() {
   for (const listener of listeners) {
     try {
@@ -42,6 +154,8 @@ function notifyListeners() {
       listeners.delete(listener)
     }
   }
+  // Always persist after a change so the next restart can pick up.
+  schedulePersist()
 }
 
 function getParticipantsList(): Array<{ user_name: string; user_id: string; join_time: string }> {
@@ -88,6 +202,7 @@ export function handleMeetingEnded(payload: {
 }) {
   if (currentMeeting) {
     currentMeeting.isLive = false
+    currentMeeting.endedAt = new Date().toISOString()
     console.log(`[Live Store] Meeting ended: ${currentMeeting.topic}`)
     notifyListeners()
     // Keep the participant list around for 3 hours after meeting.ended.
@@ -103,7 +218,8 @@ export function handleMeetingEnded(payload: {
       currentMeeting = null
       manualOverrides.clear()
       console.log('[Live Store] Cleared meeting state (3h post-end timeout)')
-    }, 3 * 60 * 60 * 1000)
+      schedulePersist()
+    }, POST_END_WIPE_MS)
   }
 }
 

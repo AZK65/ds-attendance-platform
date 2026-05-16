@@ -60,6 +60,15 @@ export async function register() {
     const POLL_INTERVAL = 2 * 60_000 // 2 minutes
 
     setTimeout(async () => {
+      // Rehydrate live Zoom store from the persisted snapshot so a server
+      // restart mid-class doesn't blank the attendance UI.
+      try {
+        const { hydrateFromDb } = await import('@/lib/zoom/live-store')
+        await hydrateFromDb()
+      } catch (err) {
+        console.error('[LiveStore] Hydrate from DB failed:', err)
+      }
+
       // Auto-connect WhatsApp on startup
       console.log('[AutoConnect] Triggering WhatsApp connection...')
       try {
