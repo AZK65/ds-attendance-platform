@@ -29,6 +29,59 @@ function extractStudentName(notes: string): string | null {
   return match ? match[1].trim() : null
 }
 
+function isTruckClass(notes: string): boolean {
+  return /TruckClass:\s*yes/i.test(stripHtml(notes))
+}
+
+function extractModule(notes: string, title: string): number | null {
+  const clean = stripHtml(notes)
+  for (const text of [clean, title]) {
+    const m = text.match(/Module\s*(\d+)/i) || text.match(/\bM(\d+)\b/) || text.match(/ClassNumber:\s*(\d+)/i)
+    if (m) {
+      const n = parseInt(m[1], 10)
+      if (n >= 1 && n <= 24) return n
+    }
+  }
+  return null
+}
+
+/**
+ * Cancel any pending ScheduledMessage that's tied to a particular event
+ * (truck class by phone+date+time, or theory class by group+date).
+ */
+async function cancelRemindersForEvent(args: {
+  startDt: string
+  phone: string | null
+  groupId?: string | null
+}): Promise<number> {
+  const { startDt, phone, groupId } = args
+  const classDate = startDt.split('T')[0]
+  const classTimePart = startDt.includes('T') ? startDt.split('T')[1].slice(0, 5) : null
+
+  const pending = await prisma.scheduledMessage.findMany({ where: { status: 'pending' } })
+  const toCancel = pending.filter(r => {
+    // Theory: group reminder keyed by groupId + classDateISO
+    if (groupId && r.groupId === groupId && r.classDateISO === classDate && r.isGroupMessage) return true
+    // Truck: phone-targeted reminder, scheduledAt = classTime - 6h
+    if (phone && r.groupId === 'truck-classes' && classTimePart) {
+      try {
+        const phones: string[] = JSON.parse(r.memberPhones)
+        if (!phones.includes(phone)) return false
+      } catch { return false }
+      const classTime = new Date(`${classDate}T${classTimePart}:00`)
+      const expectedReminder = new Date(classTime.getTime() - 6 * 60 * 60 * 1000)
+      return Math.abs(r.scheduledAt.getTime() - expectedReminder.getTime()) < 2 * 60 * 1000
+    }
+    return false
+  })
+  if (toCancel.length === 0) return 0
+  await prisma.scheduledMessage.updateMany({
+    where: { id: { in: toCancel.map(r => r.id) } },
+    data: { status: 'cancelled' },
+  })
+  return toCancel.length
+}
+
 function formatTime12h(isoTime: string): string {
   const timePart = isoTime.includes('T') ? isoTime.split('T')[1] : isoTime
   const [h, m] = timePart.split(':').map(Number)
@@ -104,43 +157,23 @@ export async function POST() {
 
         changes.push({ type: 'deleted', eventId: snapshot.eventId, studentName })
 
-        // Cancel any pending scheduled reminders for this student/date
-        if (phone) {
-          try {
-            // Find pending reminders that contain this phone number
-            const pendingReminders = await prisma.scheduledMessage.findMany({
-              where: { status: 'pending' },
-            })
-            const toCancel = pendingReminders.filter(r => {
-              try {
-                const phones: string[] = JSON.parse(r.memberPhones)
-                return phones.includes(phone)
-              } catch { return false }
-            })
-            // Match by class date/time
-            const classDate = snapshot.startDt.split('T')[0]
-            const classTimePart = snapshot.startDt.includes('T') ? snapshot.startDt.split('T')[1].slice(0, 5) : null
-            const matched = toCancel.filter(r => {
-              // Theory class reminders have classDateISO
-              if (r.classDateISO === classDate) return true
-              // Truck class reminders: scheduledAt + 6h = class time
-              if (r.groupId === 'truck-classes' && classTimePart) {
-                const classTime = new Date(`${classDate}T${classTimePart}:00`)
-                const expectedReminder = new Date(classTime.getTime() - 6 * 60 * 60 * 1000)
-                return Math.abs(r.scheduledAt.getTime() - expectedReminder.getTime()) < 2 * 60 * 1000
-              }
-              return false
-            })
-            if (matched.length > 0) {
-              await prisma.scheduledMessage.updateMany({
-                where: { id: { in: matched.map(m => m.id) } },
-                data: { status: 'cancelled' },
-              })
-              console.log(`[poll-changes] Cancelled ${matched.length} reminder(s) for deleted event ${snapshot.eventId}`)
-            }
-          } catch (err) {
-            console.error(`[poll-changes] Failed to cancel reminders:`, err)
+        // Cancel any pending scheduled reminders for this event.
+        try {
+          const cancelled = await cancelRemindersForEvent({
+            startDt: snapshot.startDt,
+            phone,
+            // We don't store groupId on the snapshot, so theory-class group
+            // reminders for deleted events are caught by the per-phone path
+            // when phone is present (group reminders don't have phones
+            // attached). Group-only theory reminders for deleted events
+            // are best-effort — admin can still see them in the UI.
+            groupId: null,
+          })
+          if (cancelled > 0) {
+            console.log(`[poll-changes] Cancelled ${cancelled} reminder(s) for deleted event ${snapshot.eventId}`)
           }
+        } catch (err) {
+          console.error(`[poll-changes] Failed to cancel reminders:`, err)
         }
 
         if (phone && state.isConnected) {
@@ -173,10 +206,118 @@ export async function POST() {
 
         if (timeChanged || titleChanged) {
           const studentName = extractStudentName(event.notes || '') || 'Student'
+          const cleanName = studentName.replace(/\s*#\d+$/, '').trim()
+          const phone = extractPhone(event.notes || '')
+          const truck = isTruckClass(event.notes || '')
           changes.push({ type: 'modified', eventId, studentName })
 
-          // Don't send notification here — the UI already sends one when editing a class.
-          // This poller just keeps the snapshot in sync.
+          // ── Cancel old reminders tied to the previous date/time ────
+          if (timeChanged) {
+            try {
+              const cancelled = await cancelRemindersForEvent({
+                startDt: existing.startDt,
+                phone,
+                groupId: null, // theory-group reminders without phone are handled by re-schedule below
+              })
+              if (cancelled > 0) {
+                console.log(`[poll-changes] Cancelled ${cancelled} old reminder(s) for moved event ${eventId}`)
+              }
+            } catch (err) {
+              console.error(`[poll-changes] cancel old reminders failed:`, err)
+            }
+          }
+
+          // ── Schedule a fresh reminder for the new date/time ────────
+          //    Truck classes: 6 hours before start, addressed to the student.
+          //    Theory classes: 12 PM same-day group message (no phone in notes).
+          if (timeChanged) {
+            try {
+              const newStart = new Date(event.start_dt)
+              if (newStart > now) {
+                const moduleNumber = extractModule(event.notes || '', event.title || '')
+                if (truck && phone) {
+                  const reminderTime = new Date(newStart.getTime() - 6 * 60 * 60 * 1000)
+                  if (reminderTime > now) {
+                    const timeDisplay = formatTime12h(event.start_dt)
+                    const cls = moduleNumber ?? '?'
+                    const message = `Reminder: You have Truck Class ${cls} today at ${timeDisplay}. See you there!`
+                    await prisma.scheduledMessage.create({
+                      data: {
+                        groupId: 'truck-classes',
+                        message,
+                        scheduledAt: reminderTime,
+                        memberPhones: JSON.stringify([phone]),
+                        moduleNumber,
+                        status: 'pending',
+                      },
+                    })
+                  }
+                } else if (!truck) {
+                  // Theory class — look up the group by event title prefix match
+                  // (event title pattern: "Module N - {Group Name}")
+                  const titleParts = event.title.split(' - ')
+                  const possibleGroupName = titleParts.length > 1 ? titleParts.slice(1).join(' - ').trim() : null
+                  let theoryGroupId: string | null = null
+                  if (possibleGroupName) {
+                    const grp = await prisma.group.findFirst({ where: { name: possibleGroupName } })
+                    theoryGroupId = grp?.id ?? null
+                  }
+                  if (theoryGroupId) {
+                    const newDateIso = event.start_dt.split('T')[0]
+                    const startTimePart = event.start_dt.split('T')[1]?.slice(0, 5) || '17:00'
+                    const endTimePart = event.end_dt.split('T')[1]?.slice(0, 5) || '19:00'
+                    const classTime = `${formatTime12h(`T${startTimePart}`)} to ${formatTime12h(`T${endTimePart}`)}`
+                    const reminderTime = new Date(`${newDateIso}T12:00:00`)
+                    if (reminderTime > now) {
+                      // Cancel any existing pending group reminder for this group+date first
+                      await prisma.scheduledMessage.updateMany({
+                        where: { status: 'pending', groupId: theoryGroupId, classDateISO: newDateIso, isGroupMessage: true },
+                        data: { status: 'cancelled' },
+                      })
+                      const cls = moduleNumber ?? '?'
+                      const zoomLink = 'https://us02web.zoom.us/j/4171672829?pwd=ZTlHSEdmTGRYV1QraU5MaThqaC9Rdz09'
+                      const message = `Reminder: Your Module ${cls} class is TODAY at ${classTime}! Please make sure to put your full name when joining Zoom. Invite Link: ${zoomLink} — Password: qazi`
+                      await prisma.scheduledMessage.create({
+                        data: {
+                          groupId: theoryGroupId,
+                          message,
+                          scheduledAt: reminderTime,
+                          memberPhones: JSON.stringify([]),
+                          moduleNumber,
+                          classDateISO: newDateIso,
+                          classTime,
+                          isGroupMessage: true,
+                          status: 'pending',
+                        },
+                      })
+                    }
+                  }
+                }
+              }
+            } catch (err) {
+              console.error(`[poll-changes] schedule new reminder failed:`, err)
+            }
+          }
+
+          // ── Notify the affected student/group about the change ─────
+          try {
+            if (timeChanged && state.isConnected) {
+              const newDateStr = formatDateDisplay(event.start_dt)
+              const newTimeStr = `${formatTime12h(event.start_dt)} to ${formatTime12h(event.end_dt)}`
+              if (truck && phone) {
+                const msg = `Hi ${cleanName}! Your truck class has been rescheduled to ${newDateStr} from ${newTimeStr}.`
+                await sendPrivateMessage(phone, msg)
+                await prisma.messageLog.create({
+                  data: { type: 'class-rescheduled', to: phone, toName: studentName, message: msg.slice(0, 500), status: 'sent' },
+                }).catch(() => {})
+              }
+              // Theory-class reschedule notification is sent by the next
+              // poll's group-reminder cycle; not WhatsApp-blasting groups
+              // here to avoid duplicate messages.
+            }
+          } catch (err) {
+            console.error(`[poll-changes] notify-on-modify failed:`, err)
+          }
 
           // Update the snapshot
           await prisma.teamupEventSnapshot.update({
