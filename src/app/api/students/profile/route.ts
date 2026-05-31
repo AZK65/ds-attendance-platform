@@ -8,10 +8,11 @@ export async function GET(request: NextRequest) {
   const searchParams = request.nextUrl.searchParams
   const phone = searchParams.get('phone') || ''
   const name = searchParams.get('name') || searchParams.get('studentName') || ''
+  const licenceNumber = searchParams.get('licenceNumber') || ''
 
-  if (!phone && !name) {
+  if (!phone && !name && !licenceNumber) {
     return NextResponse.json(
-      { error: 'Phone or name is required' },
+      { error: 'Phone, name or licenceNumber is required' },
       { status: 400 }
     )
   }
@@ -24,7 +25,7 @@ export async function GET(request: NextRequest) {
       // 2. Local SQLite: find invoices for this student
       findStudentInvoices(phone, name),
       // 3. Local SQLite: find student record with certificates
-      findLocalStudent(phone, name),
+      findLocalStudent(phone, name, licenceNumber),
     ])
 
     // Fetch exam attempts for this student
@@ -192,7 +193,7 @@ async function findExternalStudent(phone: string, name: string): Promise<Student
 }
 
 // Find local student record with certificates (from certificate generation)
-async function findLocalStudent(phone: string, name: string) {
+async function findLocalStudent(phone: string, name: string, licenceNumber?: string | null) {
   // Strip "#1234" tags wherever they appear (used as student-number tags
   // in WhatsApp display names, e.g. "Gaurav #1122 Singh").
   const cleanName = name
@@ -200,6 +201,23 @@ async function findLocalStudent(phone: string, name: string) {
     .replace(/,/g, '')
     .replace(/\s+/g, ' ')
     .trim()
+
+  // 1. Licence number is the strongest identifier — try it first and
+  //    short-circuit if found. Matters when bulk-saved data has a
+  //    formatted phone ("(514) 123-4567") that the substring search
+  //    on raw OCR digits can't find.
+  const cleanLicence = (licenceNumber || '').trim()
+  if (cleanLicence) {
+    const byLicence = await prisma.student.findFirst({
+      where: { licenceNumber: cleanLicence },
+      include: { certificates: { orderBy: { generatedAt: 'desc' } } },
+    })
+    if (byLicence) {
+      console.log('[findLocalStudent] matched by licenceNumber:', cleanLicence, '→', byLicence.name)
+      return byLicence
+    }
+  }
+
   const conditions = []
 
   if (phone) {
@@ -221,14 +239,24 @@ async function findLocalStudent(phone: string, name: string) {
 
   console.log('[findLocalStudent] phone:', phone, 'name:', name, 'conditions:', JSON.stringify(conditions))
 
-  const result = await prisma.student.findFirst({
+  // Fetch candidates broadly, then if we have a phone, post-filter by
+  // stripped-digits comparison so formatted DB phones still match raw
+  // OCR digits and vice versa.
+  const candidates = await prisma.student.findMany({
     where: { OR: conditions },
-    include: {
-      certificates: {
-        orderBy: { generatedAt: 'desc' },
-      },
-    },
+    include: { certificates: { orderBy: { generatedAt: 'desc' } } },
   })
+
+  let result = candidates[0] || null
+  if (phone && candidates.length > 0) {
+    const phoneSuffix = phone.replace(/\D/g, '').slice(-10)
+    const byStrippedPhone = candidates.find(c => {
+      if (!c.phone) return false
+      const dbDigits = c.phone.replace(/\D/g, '')
+      return dbDigits.includes(phoneSuffix) || phoneSuffix.includes(dbDigits.slice(-10))
+    })
+    if (byStrippedPhone) result = byStrippedPhone
+  }
 
   console.log('[findLocalStudent] result:', result ? `${result.name} (${result.certificates.length} certs)` : 'null')
   return result

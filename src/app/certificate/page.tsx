@@ -925,11 +925,15 @@ function CertificatePageInner() {
     let finalFormData = { ...formData }
 
     // Before anything else: check if this student has a saved certificate in SQLite
-    // This overrides any stale MySQL values with the real assigned numbers
+    // This overrides any stale MySQL values with the real assigned numbers.
+    // Licence number is the strongest identifier — pass it whenever we have
+    // it (OCR almost always extracts it) so a bulk-created cert is still
+    // reused even if the phone or name format differs.
     try {
       const profileParams = new URLSearchParams()
       if (finalFormData.phone) profileParams.set('phone', finalFormData.phone)
       if (finalFormData.name) profileParams.set('studentName', finalFormData.name)
+      if (finalFormData.licenceNumber) profileParams.set('licenceNumber', finalFormData.licenceNumber)
       if (profileParams.toString()) {
         const profileRes = await fetch(`/api/students/profile?${profileParams}`)
         if (profileRes.ok) {
@@ -1082,9 +1086,11 @@ function CertificatePageInner() {
     try {
       const phone = student.phone_number || ''
       const name = student.full_name || ''
+      const licence = student.permit_number || ''
       const params = new URLSearchParams()
       if (phone) params.set('phone', phone)
       if (name) params.set('studentName', name)
+      if (licence) params.set('licenceNumber', licence)
 
       const [eventsRes, theoryRes, profileRes] = await Promise.all([
         fetch(`/api/scheduling/student-events?${params}`).catch(() => null),
@@ -1110,7 +1116,11 @@ function CertificatePageInner() {
           if (ls.phoneAlt) certOverrides.phoneAlt = ls.phoneAlt
         }
         if (profile.localStudent?.certificates?.length > 0) {
-          const latestCert = profile.localStudent.certificates[profile.localStudent.certificates.length - 1]
+          // Profile API returns certs sorted desc by generatedAt — index 0
+          // is the latest. Picking the last item gave us the very first
+          // ever cert (oldest), causing reused-cert reuse to use stale
+          // numbers. Match the single-mode behaviour: use the latest.
+          const latestCert = profile.localStudent.certificates[0]
           if (latestCert.contractNumber) {
             certOverrides.contractNumber = String(latestCert.contractNumber)
           }
