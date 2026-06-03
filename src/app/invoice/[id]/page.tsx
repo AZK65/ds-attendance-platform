@@ -105,6 +105,11 @@ export default function InvoiceViewPage() {
   const [pdfUrl, setPdfUrl] = useState<string | null>(null)
   const [pdfBase64, setPdfBase64] = useState<string | null>(null)
   const [emailSent, setEmailSent] = useState(false)
+  // Inline email editor on the invoice — used when the invoice was created
+  // before we had an email on file for the student.
+  const [emailDraft, setEmailDraft] = useState('')
+  const [attachingEmail, setAttachingEmail] = useState(false)
+  const [attachEmailError, setAttachEmailError] = useState<string | null>(null)
   const [whatsappSent, setWhatsappSent] = useState(false)
   const [copiedLink, setCopiedLink] = useState(false)
 
@@ -743,9 +748,61 @@ export default function InvoiceViewPage() {
                   </Button>
                   {emailSent && <CheckCircle2 className="h-4 w-4 text-green-500 shrink-0" />}
                 </div>
-                {!invoice.studentEmail && (
-                  <p className="text-xs text-amber-600 ml-1">No email on file</p>
-                )}
+                {!invoice.studentEmail && (() => {
+                  const profileEmail = studentProfile?.localStudent?.email || studentProfile?.dbStudent?.email || ''
+                  const draftOrProfile = emailDraft || profileEmail
+                  const isValidEmail = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(draftOrProfile.trim())
+                  return (
+                    <div className="ml-1 mt-1 space-y-1.5">
+                      <p className="text-xs text-amber-600">No email on this invoice</p>
+                      <div className="flex items-center gap-2">
+                        <Input
+                          type="email"
+                          value={draftOrProfile}
+                          onChange={e => { setEmailDraft(e.target.value); setAttachEmailError(null) }}
+                          placeholder={profileEmail || 'student@example.com'}
+                          className="h-8 text-sm flex-1"
+                          disabled={attachingEmail}
+                        />
+                        <Button
+                          size="sm"
+                          className="h-8"
+                          disabled={attachingEmail || !isValidEmail}
+                          onClick={async () => {
+                            setAttachingEmail(true)
+                            setAttachEmailError(null)
+                            try {
+                              const newEmail = draftOrProfile.trim()
+                              const res = await fetch(`/api/invoice/${invoiceId}`, {
+                                method: 'PATCH',
+                                headers: { 'Content-Type': 'application/json' },
+                                body: JSON.stringify({ studentEmail: newEmail }),
+                              })
+                              if (!res.ok) {
+                                const err = await res.json().catch(() => ({}))
+                                throw new Error(err.error || 'Failed to attach email')
+                              }
+                              await queryClient.invalidateQueries({ queryKey: ['invoice', invoiceId] })
+                              setEmailDraft('')
+                            } catch (err) {
+                              setAttachEmailError(err instanceof Error ? err.message : 'Failed')
+                            } finally {
+                              setAttachingEmail(false)
+                            }
+                          }}
+                        >
+                          {attachingEmail ? <Loader2 className="h-3 w-3 animate-spin" /> : 'Save'}
+                        </Button>
+                      </div>
+                      {profileEmail && !emailDraft && (
+                        <p className="text-[11px] text-muted-foreground">From student profile — click Save to attach to this invoice</p>
+                      )}
+                      {attachEmailError && (
+                        <p className="text-xs text-destructive">{attachEmailError}</p>
+                      )}
+                    </div>
+                  )
+                })()}
                 {emailMutation.isError && (
                   <p className="text-xs text-destructive ml-1">{emailMutation.error?.message}</p>
                 )}

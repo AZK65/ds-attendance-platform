@@ -15,6 +15,13 @@ export async function PATCH(
     if (body.remainingBalance === null || typeof body.remainingBalance === 'number') {
       data.remainingBalance = body.remainingBalance
     }
+    // Attaching an email to an existing invoice — used when admin saved
+    // an email on the student profile after the invoice was already made.
+    if (typeof body.studentEmail === 'string' || body.studentEmail === null) {
+      data.studentEmail = typeof body.studentEmail === 'string'
+        ? body.studentEmail.trim() || null
+        : null
+    }
     if (Object.keys(data).length === 0) {
       return NextResponse.json({ error: 'No supported fields' }, { status: 400 })
     }
