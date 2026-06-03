@@ -184,6 +184,7 @@ model Student {
   name             String
   phone            String?
   phoneAlt         String?
+  email            String?
   address          String?
   apartment        String?
   municipality     String?

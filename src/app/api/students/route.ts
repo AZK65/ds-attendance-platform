@@ -5,7 +5,7 @@ export async function POST(request: NextRequest) {
   try {
     const body = await request.json()
     const {
-      licenceNumber, name, phone, phoneAlt, address, apartment,
+      licenceNumber, name, phone, phoneAlt, email, address, apartment,
       municipality, province, postalCode,
       registrationDate, expiryDate,
       module1Date, module2Date, module3Date, module4Date, module5Date,
@@ -27,6 +27,9 @@ export async function POST(request: NextRequest) {
     // Strip spaces from attestation number for storage
     const cleanAttestation = attestationNumber ? attestationNumber.replace(/\s+/g, '') : null
 
+    // Email isn't part of the cert review form — only set it on update if
+    // explicitly provided. Otherwise we'd wipe out an email a user typed
+    // on the student profile every time they generated another cert.
     const studentData = {
       name,
       phone: phone || null,
@@ -69,13 +72,17 @@ export async function POST(request: NextRequest) {
 
     let student
 
+    // Build the update payload — only include email if a value was passed.
+    const updateData = { ...studentData, ...(email ? { email } : {}) }
+    const createData = { ...studentData, ...(email ? { email } : {}) }
+
     // Upsert strategy: use licenceNumber if present, otherwise find by name+phone
     const cleanLicence = licenceNumber?.trim() || null
     if (cleanLicence) {
       student = await prisma.student.upsert({
         where: { licenceNumber: cleanLicence },
-        update: { ...studentData, licenceNumber: cleanLicence },
-        create: { ...studentData, licenceNumber: cleanLicence },
+        update: { ...updateData, licenceNumber: cleanLicence },
+        create: { ...createData, licenceNumber: cleanLicence },
       })
     } else {
       // Fallback: find existing student. Match by phone first (most stable
@@ -100,11 +107,11 @@ export async function POST(request: NextRequest) {
       if (existing) {
         student = await prisma.student.update({
           where: { id: existing.id },
-          data: studentData,
+          data: updateData,
         })
       } else {
         student = await prisma.student.create({
-          data: studentData,
+          data: createData,
         })
       }
     }
