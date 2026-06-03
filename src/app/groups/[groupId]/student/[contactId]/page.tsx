@@ -142,6 +142,7 @@ interface LocalStudentRecord {
   licenceNumber: string | null
   phone: string | null
   phoneAlt: string | null
+  email?: string | null
   address: string | null
   municipality: string | null
   province: string | null
@@ -830,6 +831,32 @@ export default function StudentDetailPage() {
     enabled: !!phone,
   })
 
+  // Inline email editor — writes to the local SQLite Student row via the
+  // MySQL studentId-keyed PATCH endpoint. Falls through to creating a
+  // local row if one doesn't exist yet.
+  const [editingEmail, setEditingEmail] = useState(false)
+  const [emailInput, setEmailInput] = useState('')
+  const emailMutation = useMutation({
+    mutationFn: async (email: string) => {
+      const mysqlId = profileData?.dbStudent?.student_id
+      if (!mysqlId) throw new Error('No matched DB student to attach the email to')
+      const res = await fetch(`/api/students/${mysqlId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email }),
+      })
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}))
+        throw new Error(err.error || 'Failed to update email')
+      }
+      return res.json()
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['student-profile', phone, displayName] })
+      setEditingEmail(false)
+    },
+  })
+
   // Fetch theory class dates from Zoom attendance records
   const { data: theoryClasses = [], isLoading: loadingTheory } = useQuery<TheoryClassRecord[]>({
     queryKey: ['student-theory', phone, displayName],
@@ -1228,7 +1255,7 @@ export default function StudentDetailPage() {
                 </Link>
               </Button>
               <Button variant="outline" size="sm" asChild>
-                <Link href={`/invoice?studentName=${encodeURIComponent(profileData?.dbStudent?.full_name || displayName)}&studentPhone=${encodeURIComponent(phone)}${profileData?.dbStudent ? `&studentAddress=${encodeURIComponent(profileData.dbStudent.full_address || '')}&studentCity=${encodeURIComponent(profileData.dbStudent.city || '')}&studentPostalCode=${encodeURIComponent(profileData.dbStudent.postal_code || '')}&studentEmail=${encodeURIComponent(profileData.dbStudent.email || '')}` : ''}`}>
+                <Link href={`/invoice?studentName=${encodeURIComponent(profileData?.dbStudent?.full_name || displayName)}&studentPhone=${encodeURIComponent(phone)}${profileData?.dbStudent ? `&studentAddress=${encodeURIComponent(profileData.dbStudent.full_address || '')}&studentCity=${encodeURIComponent(profileData.dbStudent.city || '')}&studentPostalCode=${encodeURIComponent(profileData.dbStudent.postal_code || '')}&studentEmail=${encodeURIComponent(profileData.localStudent?.email || profileData.dbStudent.email || '')}` : ''}`}>
                   <Receipt className="h-4 w-4 mr-1" />
                   Invoice
                 </Link>
@@ -1425,15 +1452,47 @@ export default function StudentDetailPage() {
                   )}
                 </div>
                 <div className="space-y-3">
-                  {profileData.dbStudent.email && (
-                    <div className="flex items-center gap-2">
-                      <Mail className="h-4 w-4 text-muted-foreground" />
-                      <div>
-                        <p className="text-xs text-muted-foreground">Email</p>
-                        <p className="text-sm">{profileData.dbStudent.email}</p>
+                  {(() => {
+                    const effectiveEmail = profileData.localStudent?.email || profileData.dbStudent.email || ''
+                    return (
+                      <div className="flex items-start gap-2">
+                        <Mail className="h-4 w-4 text-muted-foreground mt-1" />
+                        <div className="flex-1">
+                          <p className="text-xs text-muted-foreground">Email</p>
+                          {editingEmail ? (
+                            <div className="flex items-center gap-2 mt-0.5">
+                              <Input
+                                type="email"
+                                value={emailInput}
+                                onChange={e => setEmailInput(e.target.value)}
+                                placeholder="student@example.com"
+                                className="h-7 text-sm"
+                                autoFocus
+                                onKeyDown={e => {
+                                  if (e.key === 'Enter') emailMutation.mutate(emailInput.trim())
+                                  if (e.key === 'Escape') setEditingEmail(false)
+                                }}
+                              />
+                              <Button size="sm" className="h-7 px-2" disabled={emailMutation.isPending} onClick={() => emailMutation.mutate(emailInput.trim())}>
+                                {emailMutation.isPending ? <Loader2 className="h-3 w-3 animate-spin" /> : 'Save'}
+                              </Button>
+                              <Button size="sm" variant="ghost" className="h-7 px-2" onClick={() => setEditingEmail(false)} disabled={emailMutation.isPending}>Cancel</Button>
+                            </div>
+                          ) : (
+                            <div className="flex items-center gap-2">
+                              <p className="text-sm">{effectiveEmail || <span className="text-muted-foreground italic">none set</span>}</p>
+                              <Button size="sm" variant="ghost" className="h-6 px-1.5" onClick={() => { setEmailInput(effectiveEmail); setEditingEmail(true) }}>
+                                <Edit3 className="h-3 w-3" />
+                              </Button>
+                            </div>
+                          )}
+                          {emailMutation.isError && (
+                            <p className="text-xs text-red-600 mt-1">{emailMutation.error?.message || 'Failed to save'}</p>
+                          )}
+                        </div>
                       </div>
-                    </div>
-                  )}
+                    )
+                  })()}
                   {(profileData.dbStudent.full_address || profileData.dbStudent.city) && (
                     <div className="flex items-center gap-2">
                       <MapPin className="h-4 w-4 text-muted-foreground flex-shrink-0" />
@@ -1901,7 +1960,7 @@ export default function StudentDetailPage() {
                 {/* Create Invoice Button */}
                 <div className="flex justify-center">
                   <Button variant="outline" size="sm" asChild>
-                    <Link href={`/invoice?studentName=${encodeURIComponent(profileData?.dbStudent?.full_name || displayName)}&studentPhone=${encodeURIComponent(phone)}${profileData?.dbStudent ? `&studentAddress=${encodeURIComponent(profileData.dbStudent.full_address || '')}&studentCity=${encodeURIComponent(profileData.dbStudent.city || '')}&studentPostalCode=${encodeURIComponent(profileData.dbStudent.postal_code || '')}&studentEmail=${encodeURIComponent(profileData.dbStudent.email || '')}` : ''}`}>
+                    <Link href={`/invoice?studentName=${encodeURIComponent(profileData?.dbStudent?.full_name || displayName)}&studentPhone=${encodeURIComponent(phone)}${profileData?.dbStudent ? `&studentAddress=${encodeURIComponent(profileData.dbStudent.full_address || '')}&studentCity=${encodeURIComponent(profileData.dbStudent.city || '')}&studentPostalCode=${encodeURIComponent(profileData.dbStudent.postal_code || '')}&studentEmail=${encodeURIComponent(profileData.localStudent?.email || profileData.dbStudent.email || '')}` : ''}`}>
                       <Plus className="h-4 w-4 mr-1" />
                       Create Invoice
                     </Link>
