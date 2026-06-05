@@ -462,41 +462,76 @@ export function RegisterPageInner({ kiosk = false }: { kiosk?: boolean } = {}) {
 
       <div className={kiosk ? 'max-w-2xl mx-auto px-6 py-8' : 'max-w-2xl mx-auto px-6 py-10 md:py-14'}>
 
-        {/* Progress */}
-        {step !== 'submitting' && step !== 'done' && step !== 'select' && step !== 'truck-contact' && (
-          <motion.div
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            className="flex items-start justify-between mb-10 px-1"
-          >
-            {STEPS.map((s, i) => {
-              const labels = [t.steps.personal, t.steps.address, t.steps.documents, t.steps.agreement, t.steps.payment]
-              const isActive = i === stepIndex
-              const isDone = i < stepIndex
-              return (
-                <div key={s.key} className="flex items-start flex-1 min-w-0">
-                  <div className="flex flex-col items-center gap-2 min-w-0">
-                    <div className={`flex items-center justify-center w-9 h-9 rounded-full text-sm font-medium transition-all shrink-0 ${
-                      isDone ? 'bg-[#E11D2E] text-white' :
-                      isActive ? 'bg-[#0B0B0F] text-white scale-110' :
-                      'bg-white border border-ink/10 text-ink/40'
-                    }`}>
-                      {isDone ? <CheckCircle2 className="h-5 w-5" /> : <s.icon className="h-4 w-4" />}
+        {/* Progress — three high-level phases with a sub-step dot row
+            under the active phase so the long truck flow doesn't turn
+            into 8 cramped columns. */}
+        {step !== 'submitting' && step !== 'done' && step !== 'select' && step !== 'truck-contact' && (() => {
+          // Phase membership — driven by step key so it works for both
+          // car (5 steps) and truck (8 steps) without separate config.
+          const phases: { key: 'info' | 'agreement' | 'payment'; label: string; icon: React.ElementType; steps: Step[] }[] = [
+            { key: 'info', label: t.steps.personal, icon: User, steps: ['personal', 'address', 'documents'] },
+            { key: 'agreement', label: t.steps.agreement, icon: PenTool, steps: ['agreements', 'rep-handoff', 'rep-sign'] },
+            { key: 'payment', label: t.steps.payment, icon: CreditCard, steps: ['payment-method', 'payment'] },
+          ]
+          const activePhaseIdx = phases.findIndex(p => p.steps.includes(step))
+          const activePhase = phases[activePhaseIdx]
+          // Sub-step index within the active phase, scoped to whatever
+          // steps actually appear in the current STEPS list (so the row
+          // only shows dots that the car flow doesn't skip).
+          const subSteps = (activePhase?.steps ?? []).filter(s => STEPS.some(x => x.key === s))
+          const subIdx = subSteps.indexOf(step as Step)
+          return (
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              className="mb-10"
+            >
+              <div className="flex items-start justify-between px-1">
+                {phases.map((p, i) => {
+                  const isActive = i === activePhaseIdx
+                  const isDone = i < activePhaseIdx
+                  return (
+                    <div key={p.key} className="flex items-start flex-1 min-w-0">
+                      <div className="flex flex-col items-center gap-2 min-w-0">
+                        <div className={`flex items-center justify-center w-10 h-10 rounded-full text-sm font-medium transition-all shrink-0 ${
+                          isDone ? 'bg-[#E11D2E] text-white' :
+                          isActive ? 'bg-[#0B0B0F] text-white scale-110' :
+                          'bg-white border border-ink/10 text-ink/40'
+                        }`}>
+                          {isDone ? <CheckCircle2 className="h-5 w-5" /> : <p.icon className="h-4.5 w-4.5" />}
+                        </div>
+                        <span className={`text-[11px] uppercase tracking-[0.14em] text-center leading-tight transition-colors ${
+                          isActive ? 'text-ink font-semibold' : isDone ? 'text-[#E11D2E]' : 'text-ink/40'
+                        }`}>
+                          {p.label}
+                        </span>
+                      </div>
+                      {i < phases.length - 1 && (
+                        <div className={`flex-1 h-px mt-[20px] mx-2 sm:mx-3 ${isDone ? 'bg-[#E11D2E]' : 'bg-ink/10'}`} />
+                      )}
                     </div>
-                    <span className={`text-[10.5px] uppercase tracking-[0.12em] text-center leading-tight transition-colors ${
-                      isActive ? 'text-ink font-semibold' : isDone ? 'text-[#E11D2E]' : 'text-ink/40'
-                    }`}>
-                      {labels[i]}
-                    </span>
-                  </div>
-                  {i < STEPS.length - 1 && (
-                    <div className={`flex-1 h-px mt-[18px] mx-1 sm:mx-2 ${isDone ? 'bg-[#E11D2E]' : 'bg-ink/10'}`} />
-                  )}
+                  )
+                })}
+              </div>
+              {/* Sub-step dots — only when there's more than one step in
+                  the active phase (car's Payment phase has only one step,
+                  so we skip the row to avoid clutter). */}
+              {subSteps.length > 1 && (
+                <div className="mt-3 flex justify-center items-center gap-1.5">
+                  {subSteps.map((s, i) => (
+                    <span
+                      key={s}
+                      className={`h-1.5 rounded-full transition-all ${
+                        i === subIdx ? 'w-6 bg-[#0B0B0F]' : i < subIdx ? 'w-1.5 bg-[#E11D2E]' : 'w-1.5 bg-ink/20'
+                      }`}
+                      aria-hidden
+                    />
+                  ))}
                 </div>
-              )
-            })}
-          </motion.div>
-        )}
+              )}
+            </motion.div>
+          )
+        })()}
 
         {/* Error */}
         <AnimatePresence>
