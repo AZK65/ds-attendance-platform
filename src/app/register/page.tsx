@@ -12,7 +12,7 @@ import {
   AlertCircle, CreditCard, Receipt, Car, Truck, Clock,
   Shield,
 } from 'lucide-react'
-import Image from 'next/image'
+import NextImage from 'next/image'
 import { QaziNav } from '@/components/qazi-nav'
 import { QaziFooter } from '@/components/qazi-footer'
 import { AddressAutocomplete } from '@/components/AddressAutocomplete'
@@ -291,7 +291,7 @@ export function RegisterPageInner({ kiosk = false }: { kiosk?: boolean } = {}) {
         // Kiosk header — just the logo in the corner so the iPad is
         // unmistakably branded but stays focused on the form.
         <div className="absolute top-6 left-6 z-20">
-          <Image
+          <NextImage
             src="/qazi-logo.png"
             alt="Qazi Driving School"
             width={120}
