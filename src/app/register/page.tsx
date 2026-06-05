@@ -290,14 +290,14 @@ export function RegisterPageInner({ kiosk = false }: { kiosk?: boolean } = {}) {
       {kiosk && (
         // Kiosk header — just the logo in the corner so the iPad is
         // unmistakably branded but stays focused on the form.
-        <div className="absolute top-6 left-6 z-20">
+        <div className="absolute top-5 left-5 z-20">
           <NextImage
             src="/qazi-logo.png"
             alt="Qazi Driving School"
-            width={120}
-            height={48}
+            width={96}
+            height={36}
             priority
-            className="h-12 w-auto drop-shadow"
+            className="h-9 w-auto drop-shadow"
           />
         </div>
       )}
@@ -387,7 +387,7 @@ export function RegisterPageInner({ kiosk = false }: { kiosk?: boolean } = {}) {
       </section>
       )}
 
-      <div className={kiosk ? 'max-w-4xl mx-auto px-6 py-10' : 'max-w-2xl mx-auto px-6 py-10 md:py-14'}>
+      <div className={kiosk ? 'max-w-2xl mx-auto px-6 py-8' : 'max-w-2xl mx-auto px-6 py-10 md:py-14'}>
 
         {/* Progress */}
         {step !== 'submitting' && step !== 'done' && step !== 'select' && step !== 'truck-contact' && (
@@ -450,62 +450,62 @@ export function RegisterPageInner({ kiosk = false }: { kiosk?: boolean } = {}) {
               animate={{ opacity: 1, y: 0 }}
               exit={{ opacity: 0, y: -10 }}
               transition={{ duration: 0.4 }}
-              className={kiosk ? 'space-y-14 py-16' : 'space-y-8'}
+              className={kiosk ? 'space-y-10 py-8' : 'space-y-8'}
             >
-              <div className={kiosk ? 'text-center max-w-[40ch] mx-auto' : 'text-center max-w-[44ch] mx-auto'}>
+              <div className={kiosk ? 'text-center max-w-[44ch] mx-auto' : 'text-center max-w-[44ch] mx-auto'}>
                 <h2 className={kiosk
-                  ? 'text-[44px] md:text-[60px] tracking-tight leading-[1.05]'
+                  ? 'text-[32px] md:text-[40px] tracking-tight leading-[1.05]'
                   : 'text-[28px] md:text-[34px] tracking-tight leading-[1.1]'}>
                   {t.select.heading}
                 </h2>
-                <p className={kiosk ? 'mt-6 text-[22px] md:text-[24px] text-ink/65' : 'mt-3 text-[15px] text-ink/60'}>
+                <p className={kiosk ? 'mt-4 text-[16px] md:text-[17px] text-ink/65' : 'mt-3 text-[15px] text-ink/60'}>
                   {t.select.sub}
                 </p>
                 {isAdmin && (
                   <p className={kiosk
-                    ? 'mt-8 inline-flex items-center gap-2 rounded-full bg-ink/5 px-5 py-2 text-[16px] text-ink/70'
+                    ? 'mt-5 inline-flex items-center gap-2 rounded-full bg-ink/5 px-4 py-1.5 text-[13px] text-ink/70'
                     : 'mt-4 inline-flex items-center gap-2 rounded-full bg-ink/5 px-3 py-1 text-[12px] text-ink/70'}>
-                    <Shield className={kiosk ? 'h-4.5 w-4.5' : 'h-3.5 w-3.5'} />
+                    <Shield className={kiosk ? 'h-3.5 w-3.5' : 'h-3.5 w-3.5'} />
                     Admin mode — truck registration available
                   </p>
                 )}
               </div>
 
               <div className={kiosk
-                ? 'grid gap-8 md:grid-cols-2 max-w-[1000px] mx-auto'
+                ? 'grid gap-5 md:grid-cols-2 max-w-[720px] mx-auto'
                 : 'grid gap-4 md:grid-cols-2'}>
                 <button
                   type="button"
                   onClick={() => { setVehicleType('car'); setStep('personal') }}
                   className={kiosk
-                    ? 'group text-left rounded-3xl border-2 border-ink/10 bg-white p-12 shadow-sm active:scale-[0.98] hover:border-[#E11D2E] hover:shadow-lg transition-all min-h-[340px]'
+                    ? 'group text-left rounded-2xl border border-ink/10 bg-white p-7 shadow-sm active:scale-[0.98] hover:border-[#E11D2E] hover:shadow-md transition-all'
                     : 'group text-left rounded-2xl border border-ink/10 bg-white p-6 md:p-7 shadow-sm hover:border-[#E11D2E] hover:shadow-md transition-all'}
                 >
                   <div className="flex items-start justify-between">
                     <span className={kiosk
-                      ? 'inline-flex h-20 w-20 items-center justify-center rounded-full bg-ink text-white group-hover:bg-[#E11D2E] transition-colors'
+                      ? 'inline-flex h-12 w-12 items-center justify-center rounded-full bg-ink text-white group-hover:bg-[#E11D2E] transition-colors'
                       : 'inline-flex h-11 w-11 items-center justify-center rounded-full bg-ink text-white group-hover:bg-[#E11D2E] transition-colors'}>
-                      <Car className={kiosk ? 'h-10 w-10' : 'h-5 w-5'} />
+                      <Car className={kiosk ? 'h-5.5 w-5.5' : 'h-5 w-5'} />
                     </span>
                     <span className={kiosk
-                      ? 'text-[18px] uppercase tracking-[0.2em] text-ink/35'
+                      ? 'text-[11px] uppercase tracking-[0.18em] text-ink/40'
                       : 'text-[11px] uppercase tracking-[0.18em] text-ink/40'}>01</span>
                   </div>
                   <h3 className={kiosk
-                    ? 'mt-10 text-[40px] font-sans tracking-tight leading-tight'
+                    ? 'mt-5 text-[26px] font-sans tracking-tight leading-tight'
                     : 'mt-5 text-[24px] font-sans tracking-tight'}>
                     {t.select.class5Title}
                   </h3>
                   <p className={kiosk
-                    ? 'mt-3 text-[19px] text-ink/60 leading-snug'
+                    ? 'mt-1.5 text-[14px] text-ink/60 leading-snug'
                     : 'mt-1 text-[13.5px] text-ink/60'}>
                     {t.select.class5Sub}
                   </p>
                   <span className={kiosk
-                    ? 'mt-10 inline-flex items-center gap-2 text-[20px] text-ink group-hover:text-[#E11D2E] transition-colors'
+                    ? 'mt-6 inline-flex items-center gap-1.5 text-[14px] text-ink group-hover:text-[#E11D2E] transition-colors'
                     : 'mt-6 inline-flex items-center gap-1 text-[13px] text-ink group-hover:text-[#E11D2E] transition-colors'}>
                     {t.select.class5Cta}
-                    <ArrowRight className={kiosk ? 'h-6 w-6 transition-transform group-hover:translate-x-1' : 'h-4 w-4 transition-transform group-hover:translate-x-0.5'} />
+                    <ArrowRight className={kiosk ? 'h-4 w-4 transition-transform group-hover:translate-x-0.5' : 'h-4 w-4 transition-transform group-hover:translate-x-0.5'} />
                   </span>
                 </button>
 
@@ -522,34 +522,34 @@ export function RegisterPageInner({ kiosk = false }: { kiosk?: boolean } = {}) {
                     }
                   }}
                   className={kiosk
-                    ? 'group text-left rounded-3xl border-2 border-ink/10 bg-white p-12 shadow-sm active:scale-[0.98] hover:border-[#E11D2E] hover:shadow-lg transition-all min-h-[340px]'
+                    ? 'group text-left rounded-2xl border border-ink/10 bg-white p-7 shadow-sm active:scale-[0.98] hover:border-[#E11D2E] hover:shadow-md transition-all'
                     : 'group text-left rounded-2xl border border-ink/10 bg-white p-6 md:p-7 shadow-sm hover:border-[#E11D2E] hover:shadow-md transition-all'}
                 >
                   <div className="flex items-start justify-between">
                     <span className={kiosk
-                      ? 'inline-flex h-20 w-20 items-center justify-center rounded-full bg-ink text-white group-hover:bg-[#E11D2E] transition-colors'
+                      ? 'inline-flex h-12 w-12 items-center justify-center rounded-full bg-ink text-white group-hover:bg-[#E11D2E] transition-colors'
                       : 'inline-flex h-11 w-11 items-center justify-center rounded-full bg-ink text-white group-hover:bg-[#E11D2E] transition-colors'}>
-                      <Truck className={kiosk ? 'h-10 w-10' : 'h-5 w-5'} />
+                      <Truck className={kiosk ? 'h-5.5 w-5.5' : 'h-5 w-5'} />
                     </span>
                     <span className={kiosk
-                      ? 'text-[18px] uppercase tracking-[0.2em] text-ink/35'
+                      ? 'text-[11px] uppercase tracking-[0.18em] text-ink/40'
                       : 'text-[11px] uppercase tracking-[0.18em] text-ink/40'}>02</span>
                   </div>
                   <h3 className={kiosk
-                    ? 'mt-10 text-[40px] font-sans tracking-tight leading-tight'
+                    ? 'mt-5 text-[26px] font-sans tracking-tight leading-tight'
                     : 'mt-5 text-[24px] font-sans tracking-tight'}>
                     {t.select.truckTitle}
                   </h3>
                   <p className={kiosk
-                    ? 'mt-3 text-[19px] text-ink/60 leading-snug'
+                    ? 'mt-1.5 text-[14px] text-ink/60 leading-snug'
                     : 'mt-1 text-[13.5px] text-ink/60'}>
                     {t.select.truckSub}
                   </p>
                   <span className={kiosk
-                    ? 'mt-10 inline-flex items-center gap-2 text-[20px] text-ink group-hover:text-[#E11D2E] transition-colors'
+                    ? 'mt-6 inline-flex items-center gap-1.5 text-[14px] text-ink group-hover:text-[#E11D2E] transition-colors'
                     : 'mt-6 inline-flex items-center gap-1 text-[13px] text-ink group-hover:text-[#E11D2E] transition-colors'}>
                     {t.select.truckCta}
-                    <ArrowRight className={kiosk ? 'h-6 w-6 transition-transform group-hover:translate-x-1' : 'h-4 w-4 transition-transform group-hover:translate-x-0.5'} />
+                    <ArrowRight className={kiosk ? 'h-4 w-4 transition-transform group-hover:translate-x-0.5' : 'h-4 w-4 transition-transform group-hover:translate-x-0.5'} />
                   </span>
                 </button>
               </div>
