@@ -68,6 +68,43 @@ export async function POST(
       }).catch(() => {})
     }
 
+    // Mirror the registration's avatar onto the local Student row so it
+    // shows up on every student profile page. Upserts by licenceNumber
+    // first (most reliable) and falls back to phone — same matching rule
+    // findLocalStudent uses on the read side.
+    if (registration.avatarImage) {
+      try {
+        const licence = (body.permitNumber || registration.permitNumber || '').trim()
+        const phoneDigits = (studentData.phone_number || '').replace(/\D/g, '')
+        const phoneSuffix = phoneDigits.length >= 10 ? phoneDigits.slice(-10) : phoneDigits
+
+        let target = null as Awaited<ReturnType<typeof prisma.student.findFirst>>
+        if (licence) target = await prisma.student.findFirst({ where: { licenceNumber: licence } })
+        if (!target && phoneSuffix.length >= 7) {
+          target = await prisma.student.findFirst({ where: { phone: { contains: phoneSuffix } } })
+        }
+
+        if (target) {
+          await prisma.student.update({
+            where: { id: target.id },
+            data: { avatarImage: registration.avatarImage },
+          })
+        } else {
+          await prisma.student.create({
+            data: {
+              name: studentData.full_name || 'Student',
+              phone: studentData.phone_number || null,
+              email: studentData.email || null,
+              licenceNumber: licence || null,
+              avatarImage: registration.avatarImage,
+            },
+          })
+        }
+      } catch (err) {
+        console.error('[Registrations] Avatar mirror to local Student failed:', err)
+      }
+    }
+
     return NextResponse.json({ success: true, studentId: result.insertId })
   } catch (error) {
     console.error('[Registrations] Confirm error:', error)

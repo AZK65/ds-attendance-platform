@@ -9,7 +9,7 @@ export async function POST(request: NextRequest) {
     const {
       fullName, phoneNumber, email, dob,
       address, city, province, postalCode,
-      permitNumber, permitExpiry, permitImage, idImage,
+      permitNumber, permitExpiry, permitImage, idImage, avatarImage,
       signatureImage, agreedToTerms, medical,
       vehicleType: requestedVehicleType,
       // Truck-only contract fields (ignored when vehicleType="car")
@@ -117,6 +117,7 @@ export async function POST(request: NextRequest) {
         permitExpiry: permitExpiry?.trim() || null,
         permitImage: permitImage || null,
         idImage: idImage || null,
+        avatarImage: avatarImage || null,
         signatureImage: signatureImage || null,
         medical: medical ? JSON.stringify(medical) : null,
         source: 'online-registration',

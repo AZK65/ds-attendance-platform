@@ -115,7 +115,7 @@ export function RegisterPageInner({ kiosk = false }: { kiosk?: boolean } = {}) {
       setError('')
       setFullName(''); setPhoneNumber(''); setEmail(''); setDob('')
       setAddress(''); setCity('Montreal'); setProvince('QC'); setPostalCode('')
-      setPermitNumber(''); setPermitExpiry(''); setPermitImage(null); setIdImage(null)
+      setPermitNumber(''); setPermitExpiry(''); setPermitImage(null); setIdImage(null); setAvatarImage(null)
       setSignatureImage(null); setAgreedTerms(false); setAgreedPolicy(false)
       setVehicleType('car')
       setConsentSaaqTransmission(false); setConsentFileTransfer(false)
@@ -138,6 +138,9 @@ export function RegisterPageInner({ kiosk = false }: { kiosk?: boolean } = {}) {
   const [permitImage, setPermitImage] = useState<string | null>(null)
   const [permitOcrLoading, setPermitOcrLoading] = useState(false)
   const [idImage, setIdImage] = useState<string | null>(null)
+  // Student selfie used as the avatar on every student profile page in
+  // the admin app. Captured via the iPad's front camera (capture="user").
+  const [avatarImage, setAvatarImage] = useState<string | null>(null)
   const [signatureImage, setSignatureImage] = useState<string | null>(null)
   const [agreedTerms, setAgreedTerms] = useState(false)
   const [agreedPolicy, setAgreedPolicy] = useState(false)
@@ -157,6 +160,7 @@ export function RegisterPageInner({ kiosk = false }: { kiosk?: boolean } = {}) {
 
   const permitInputRef = useRef<HTMLInputElement>(null)
   const idInputRef = useRef<HTMLInputElement>(null)
+  const avatarInputRef = useRef<HTMLInputElement>(null)
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const [isDrawing, setIsDrawing] = useState(false)
   // SignaturePad imperatives — used to clear strokes from outside.
@@ -281,9 +285,9 @@ export function RegisterPageInner({ kiosk = false }: { kiosk?: boolean } = {}) {
     switch (step) {
       case 'personal': return fullName.trim().length >= 2 && phoneNumber.replace(/\D/g, '').length >= 10
       case 'address': return province.trim().toUpperCase() === 'QC'
-      // Driver licence + ID photos are required for both car and truck —
-      // we need them on file for the school's records and the cert flow.
-      case 'documents': return !!permitImage && !!idImage
+      // Driver licence + ID + selfie photos all required for both car and
+      // truck. The selfie becomes the avatar on every student profile page.
+      case 'documents': return !!permitImage && !!idImage && !!avatarImage
       case 'agreements': {
         const base = agreedTerms && agreedPolicy && signatureImage
         if (vehicleType !== 'truck') return base
@@ -335,7 +339,7 @@ export function RegisterPageInner({ kiosk = false }: { kiosk?: boolean } = {}) {
         body: JSON.stringify({
           fullName, phoneNumber, email, dob,
           address, city, province, postalCode,
-          permitNumber, permitExpiry, permitImage, idImage,
+          permitNumber, permitExpiry, permitImage, idImage, avatarImage,
           signatureImage, agreedToTerms: agreedTerms && agreedPolicy,
           vehicleType, // server cross-checks against the admin cookie
           // Truck-only — server ignores these when vehicleType === 'car'
@@ -962,6 +966,39 @@ export function RegisterPageInner({ kiosk = false }: { kiosk?: boolean } = {}) {
                     <Upload className="h-8 w-8 mx-auto text-muted-foreground mb-2" />
                     <p className="text-sm font-medium">{t.documents.takePhoto}</p>
                     <p className="text-xs text-muted-foreground mt-1">{t.documents.idHint}</p>
+                  </button>
+                )}
+              </div>
+
+              {/* Selfie / Avatar — front camera by default on tablets and
+                  phones (capture="user"). Becomes the student's avatar on
+                  every profile page in the admin app. */}
+              <div>
+                <Label>Your Photo <span className="text-red-500">*</span></Label>
+                <input ref={avatarInputRef} type="file" accept="image/*" capture="user" className="hidden" onChange={handleImageUpload(setAvatarImage)} />
+                {avatarImage ? (
+                  <div className="mt-2 flex items-center gap-4">
+                    <img src={avatarImage} alt="Student" className="h-28 w-28 rounded-full object-cover border-2 border-amber-300" />
+                    <div className="space-y-1">
+                      <p className="text-sm font-medium">Looking good 👋</p>
+                      <p className="text-xs text-muted-foreground max-w-[36ch]">
+                        We'll use this photo on your student profile so your teachers can recognize you.
+                      </p>
+                      <Button variant="ghost" size="sm" onClick={() => setAvatarImage(null)} className="text-xs h-7 px-2">
+                        Retake
+                      </Button>
+                    </div>
+                  </div>
+                ) : (
+                  <button
+                    onClick={() => avatarInputRef.current?.click()}
+                    className="mt-2 w-full border-2 border-dashed rounded-lg p-6 text-center hover:bg-muted/50 transition-colors"
+                  >
+                    <User className="h-8 w-8 mx-auto text-muted-foreground mb-2" />
+                    <p className="text-sm font-medium">Take a selfie</p>
+                    <p className="text-xs text-muted-foreground mt-1">
+                      A clear photo of your face so your teachers can recognize you. We don't share this.
+                    </p>
                   </button>
                 )}
               </div>

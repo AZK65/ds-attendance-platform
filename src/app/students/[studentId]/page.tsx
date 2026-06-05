@@ -21,6 +21,7 @@ import {
 } from 'lucide-react'
 import Link from 'next/link'
 import { motion } from 'motion/react'
+import { StudentAvatar } from '@/components/StudentAvatar'
 
 interface TeamupEvent {
   id: string
@@ -42,6 +43,7 @@ interface StudentProfile {
   localStudent: {
     id: string
     email?: string | null
+    avatarImage?: string | null
     certificates: Array<{
       id: string; certificateType: string; contractNumber: string | null;
       attestationNumber: string | null; generatedAt: string;
@@ -337,11 +339,18 @@ export default function StudentProfilePage() {
         </Button>
 
         <div className="flex items-start justify-between gap-4">
-          <div className="min-w-0">
-            <h1 className="text-2xl font-bold truncate">{displayName}</h1>
-            <a href={`tel:+${phone}`} className="text-muted-foreground hover:text-primary flex items-center gap-1 mt-1">
-              <Phone className="h-4 w-4" /> +{phone}
-            </a>
+          <div className="flex items-center gap-4 min-w-0">
+            <StudentAvatar
+              src={data?.localStudent?.avatarImage || null}
+              name={displayName}
+              size={64}
+            />
+            <div className="min-w-0">
+              <h1 className="text-2xl font-bold truncate">{displayName}</h1>
+              <a href={`tel:+${phone}`} className="text-muted-foreground hover:text-primary flex items-center gap-1 mt-1">
+                <Phone className="h-4 w-4" /> +{phone}
+              </a>
+            </div>
           </div>
           <div className="flex gap-2 flex-wrap">
             <Button variant="default" size="sm" asChild>

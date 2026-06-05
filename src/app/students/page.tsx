@@ -72,6 +72,7 @@ import { motion } from 'motion/react'
 import { AddressAutocomplete } from '@/components/AddressAutocomplete'
 import { PhoneInput } from '@/components/PhoneInput'
 import { NewGroupWizard } from '@/components/NewGroupWizard'
+import { StudentAvatar } from '@/components/StudentAvatar'
 
 interface StudentRecord {
   student_id: number
@@ -108,6 +109,7 @@ interface Registration {
   permitExpiry?: string | null
   permitImage?: string | null
   idImage?: string | null
+  avatarImage?: string | null
   signatureImage?: string | null
   fullAddress: string | null
   city: string | null
@@ -1078,7 +1080,16 @@ function StudentsPage() {
                   <TableBody>
                     {pendingRegistrations.map(reg => (
                       <TableRow key={reg.id}>
-                        <TableCell className="font-medium">{reg.fullName || '-'}</TableCell>
+                        <TableCell className="font-medium">
+                          <div className="flex items-center gap-3">
+                            <StudentAvatar
+                              src={(reg as Registration & { avatarImage?: string | null }).avatarImage || null}
+                              name={reg.fullName || ''}
+                              size={32}
+                            />
+                            <span className="truncate">{reg.fullName || '-'}</span>
+                          </div>
+                        </TableCell>
                         <TableCell className="text-sm">{reg.phoneNumber || '-'}</TableCell>
                         <TableCell className="text-sm">{reg.email || '-'}</TableCell>
                         <TableCell className="text-sm text-muted-foreground">
@@ -1224,7 +1235,16 @@ function StudentsPage() {
                             router.push(`/groups/${encodeURIComponent(student.groupId)}/student/${encodeURIComponent(student.id)}`)
                           }}
                         >
-                          <TableCell className="font-medium">{displayName}</TableCell>
+                          <TableCell className="font-medium">
+                            <div className="flex items-center gap-3">
+                              <StudentAvatar
+                                src={(student as { avatarImage?: string | null }).avatarImage || null}
+                                name={displayName}
+                                size={32}
+                              />
+                              <span className="truncate">{displayName}</span>
+                            </div>
+                          </TableCell>
                           <TableCell className="text-sm">{formatPhoneNumber(student.phone)}</TableCell>
                           <TableCell className="text-sm text-muted-foreground">{student.groupName}</TableCell>
                           <TableCell>
@@ -2408,13 +2428,25 @@ function StudentsPage() {
               {/* Licence/ID photos + permit expiry that the student
                   uploaded on the form. Photos open full size in a new
                   tab so the admin can verify the licence number visually. */}
-              {(reviewingRegistration.permitImage || reviewingRegistration.idImage || reviewingRegistration.permitExpiry) && (
+              {(reviewingRegistration.permitImage || reviewingRegistration.idImage || reviewingRegistration.avatarImage || reviewingRegistration.permitExpiry) && (
                 <div className="rounded-lg border bg-muted/30 p-3 space-y-3">
                   <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Driver Licence & ID</p>
                   {reviewingRegistration.permitExpiry && (
                     <div className="text-sm">
                       <span className="text-muted-foreground">Licence expires:</span>{' '}
                       <strong>{reviewingRegistration.permitExpiry}</strong>
+                    </div>
+                  )}
+                  {reviewingRegistration.avatarImage && (
+                    <div>
+                      <p className="text-[11px] uppercase tracking-wider text-muted-foreground mb-1">Student photo</p>
+                      <a href={reviewingRegistration.avatarImage} target="_blank" rel="noopener noreferrer" className="inline-block">
+                        <img
+                          src={reviewingRegistration.avatarImage}
+                          alt="Student"
+                          className="h-32 w-32 rounded-full object-cover border-2 border-amber-300 hover:ring-2 hover:ring-amber-400 transition-all"
+                        />
+                      </a>
                     </div>
                   )}
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">

@@ -97,6 +97,7 @@ export async function GET(
       localStudent: localStudent ? {
         id: localStudent.id,
         email: localStudent.email,
+        avatarImage: localStudent.avatarImage,
         certificates: localStudent.certificates.map(c => ({
           id: c.id,
           certificateType: c.certificateType,

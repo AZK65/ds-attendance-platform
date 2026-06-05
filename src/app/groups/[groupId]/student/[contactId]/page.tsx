@@ -56,6 +56,7 @@ import {
 } from 'lucide-react'
 import Link from 'next/link'
 import { motion } from 'motion/react'
+import { StudentAvatar } from '@/components/StudentAvatar'
 
 interface Participant {
   id: string
@@ -143,6 +144,7 @@ interface LocalStudentRecord {
   phone: string | null
   phoneAlt: string | null
   email?: string | null
+  avatarImage?: string | null
   address: string | null
   municipality: string | null
   province: string | null
@@ -1231,13 +1233,20 @@ export default function StudentDetailPage() {
                 <span className="text-muted-foreground">Loading...</span>
               </div>
             ) : (
-              <>
-                <h1 className="text-2xl font-bold truncate">{displayName}</h1>
-                <a href={`tel:+${phone}`} className="text-muted-foreground hover:text-primary flex items-center gap-1 mt-1">
-                  <Phone className="h-4 w-4" />
-                  +{phone}
-                </a>
-              </>
+              <div className="flex items-center gap-4">
+                <StudentAvatar
+                  src={profileData?.localStudent?.avatarImage || null}
+                  name={displayName}
+                  size={64}
+                />
+                <div className="min-w-0">
+                  <h1 className="text-2xl font-bold truncate">{displayName}</h1>
+                  <a href={`tel:+${phone}`} className="text-muted-foreground hover:text-primary flex items-center gap-1 mt-1">
+                    <Phone className="h-4 w-4" />
+                    +{phone}
+                  </a>
+                </div>
+              </div>
             )}
           </div>
           {!loadingGroup && participant && (

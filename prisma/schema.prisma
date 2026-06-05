@@ -195,6 +195,7 @@ model Student {
   phone            String?
   phoneAlt         String?
   email            String?
+  avatarImage      String? // base64 student photo for profile pages
   address          String?
   apartment        String?
   municipality     String?
@@ -397,6 +398,7 @@ model StudentRegistration {
   email          String?
   permitImage    String? // base64 permit photo
   idImage        String? // base64 ID photo
+  avatarImage    String? // base64 selfie / profile photo
   signatureImage String? // base64 signature
   medical        String? // JSON: SAAQ 6224A self-declaration { conditions:number[], none:bool, attestedAt:string }
 
