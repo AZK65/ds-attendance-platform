@@ -115,7 +115,7 @@ export function RegisterPageInner({ kiosk = false }: { kiosk?: boolean } = {}) {
       setError('')
       setFullName(''); setPhoneNumber(''); setEmail(''); setDob('')
       setAddress(''); setCity('Montreal'); setProvince('QC'); setPostalCode('')
-      setPermitNumber(''); setPermitImage(null); setIdImage(null)
+      setPermitNumber(''); setPermitExpiry(''); setPermitImage(null); setIdImage(null)
       setSignatureImage(null); setAgreedTerms(false); setAgreedPolicy(false)
       setVehicleType('car')
       setConsentSaaqTransmission(false); setConsentFileTransfer(false)
@@ -134,7 +134,9 @@ export function RegisterPageInner({ kiosk = false }: { kiosk?: boolean } = {}) {
   const [province, setProvince] = useState('QC')
   const [postalCode, setPostalCode] = useState('')
   const [permitNumber, setPermitNumber] = useState('')
+  const [permitExpiry, setPermitExpiry] = useState('')
   const [permitImage, setPermitImage] = useState<string | null>(null)
+  const [permitOcrLoading, setPermitOcrLoading] = useState(false)
   const [idImage, setIdImage] = useState<string | null>(null)
   const [signatureImage, setSignatureImage] = useState<string | null>(null)
   const [agreedTerms, setAgreedTerms] = useState(false)
@@ -218,7 +220,32 @@ export function RegisterPageInner({ kiosk = false }: { kiosk?: boolean } = {}) {
     }
   }, [step])
 
-  const handleImageUpload = (setter: (v: string | null) => void) => (e: React.ChangeEvent<HTMLInputElement>) => {
+  // Fire OCR on a compressed licence image. Auto-fills permit number,
+  // expiry, DOB, name and address — but only sets fields the student
+  // hasn't already typed in themselves so we don't clobber their input.
+  const runLicenceOcr = useCallback(async (dataUrl: string) => {
+    setPermitOcrLoading(true)
+    try {
+      const res = await fetch('/api/register/ocr-licence', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ licenceImage: dataUrl }),
+      })
+      if (!res.ok) return
+      const data = await res.json() as { licenceNumber?: string; expiryDate?: string; dob?: string; name?: string; address?: string }
+      if (data.licenceNumber) setPermitNumber(prev => prev || data.licenceNumber || '')
+      if (data.expiryDate) setPermitExpiry(prev => prev || data.expiryDate || '')
+      if (data.dob) setDob(prev => prev || data.dob || '')
+      if (data.name) setFullName(prev => prev || data.name || '')
+      if (data.address) setAddress(prev => prev || data.address || '')
+    } catch (err) {
+      console.warn('Licence OCR failed:', err)
+    } finally {
+      setPermitOcrLoading(false)
+    }
+  }, [])
+
+  const handleImageUpload = (setter: (v: string | null) => void, opts: { ocr?: boolean } = {}) => (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]
     if (!file) return
     // Compress if needed
@@ -236,7 +263,9 @@ export function RegisterPageInner({ kiosk = false }: { kiosk?: boolean } = {}) {
         canvas.width = w
         canvas.height = h
         canvas.getContext('2d')?.drawImage(img, 0, 0, w, h)
-        setter(canvas.toDataURL('image/jpeg', 0.7))
+        const compressed = canvas.toDataURL('image/jpeg', 0.7)
+        setter(compressed)
+        if (opts.ocr) runLicenceOcr(compressed)
       }
       img.src = ev.target?.result as string
     }
@@ -306,7 +335,7 @@ export function RegisterPageInner({ kiosk = false }: { kiosk?: boolean } = {}) {
         body: JSON.stringify({
           fullName, phoneNumber, email, dob,
           address, city, province, postalCode,
-          permitNumber, permitImage, idImage,
+          permitNumber, permitExpiry, permitImage, idImage,
           signatureImage, agreedToTerms: agreedTerms && agreedPolicy,
           vehicleType, // server cross-checks against the admin cookie
           // Truck-only — server ignores these when vehicleType === 'car'
@@ -836,19 +865,73 @@ export function RegisterPageInner({ kiosk = false }: { kiosk?: boolean } = {}) {
               <h2 className="text-lg font-semibold flex items-center gap-2"><FileText className="h-5 w-5" /> {t.documents.heading}</h2>
               <p className="text-sm text-muted-foreground">{t.documents.sub}</p>
 
+              {/* Driver's Licence (Quebec) — the permit number + expiry are
+                  extracted automatically when the photo is taken. We hide
+                  the manual permit-number field; the student doesn't need
+                  to retype something the OCR already pulled. */}
               <div>
-                <Label>{t.documents.permitNumber}</Label>
-                <Input value={permitNumber} onChange={e => setPermitNumber(e.target.value)} placeholder="N1234-567890-01" className="mt-1 font-mono" />
-              </div>
-
-              {/* Permit Photo */}
-              <div>
-                <Label>{t.documents.permitPhoto} <span className="text-red-500">*</span></Label>
-                <input ref={permitInputRef} type="file" accept="image/*" capture="environment" className="hidden" onChange={handleImageUpload(setPermitImage)} />
+                <Label>Driver Licence (Quebec) <span className="text-red-500">*</span></Label>
+                <input
+                  ref={permitInputRef}
+                  type="file"
+                  accept="image/*"
+                  capture="environment"
+                  className="hidden"
+                  onChange={handleImageUpload((v) => {
+                    setPermitImage(v)
+                    if (!v) { setPermitNumber(''); setPermitExpiry('') }
+                  }, { ocr: true })}
+                />
                 {permitImage ? (
-                  <div className="mt-2 relative">
-                    <img src={permitImage} alt="Permit" className="w-full rounded-lg border" />
-                    <Button variant="destructive" size="sm" className="absolute top-2 right-2" onClick={() => setPermitImage(null)}>{t.documents.remove}</Button>
+                  <div className="mt-2 space-y-3">
+                    <div className="relative">
+                      <img src={permitImage} alt="Driver licence" className="w-full rounded-lg border" />
+                      <Button
+                        variant="destructive"
+                        size="sm"
+                        className="absolute top-2 right-2"
+                        onClick={() => { setPermitImage(null); setPermitNumber(''); setPermitExpiry('') }}
+                      >
+                        {t.documents.remove}
+                      </Button>
+                    </div>
+                    <div className="rounded-md border bg-muted/30 p-3 text-sm">
+                      {permitOcrLoading ? (
+                        <p className="flex items-center gap-2 text-muted-foreground">
+                          <Loader2 className="h-4 w-4 animate-spin" /> Reading licence — extracting number and expiry date…
+                        </p>
+                      ) : (
+                        <div className="space-y-2">
+                          <div className="flex items-center gap-2">
+                            <CheckCircle2 className="h-4 w-4 text-green-600" />
+                            <span className="text-xs text-muted-foreground">Auto-extracted from your licence:</span>
+                          </div>
+                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                            <div>
+                              <Label htmlFor="ocr-permit-num" className="text-xs">Licence number</Label>
+                              <Input
+                                id="ocr-permit-num"
+                                value={permitNumber}
+                                onChange={e => setPermitNumber(e.target.value)}
+                                placeholder="—"
+                                className="mt-1 font-mono text-sm"
+                              />
+                            </div>
+                            <div>
+                              <Label htmlFor="ocr-permit-exp" className="text-xs">Expiration</Label>
+                              <Input
+                                id="ocr-permit-exp"
+                                type="date"
+                                value={permitExpiry}
+                                onChange={e => setPermitExpiry(e.target.value)}
+                                className="mt-1 text-sm"
+                              />
+                            </div>
+                          </div>
+                          <p className="text-[11px] text-muted-foreground">If anything looks off, correct it above.</p>
+                        </div>
+                      )}
+                    </div>
                   </div>
                 ) : (
                   <button
@@ -857,7 +940,7 @@ export function RegisterPageInner({ kiosk = false }: { kiosk?: boolean } = {}) {
                   >
                     <Camera className="h-8 w-8 mx-auto text-muted-foreground mb-2" />
                     <p className="text-sm font-medium">{t.documents.takePhoto}</p>
-                    <p className="text-xs text-muted-foreground mt-1">{t.documents.takePhotoHint}</p>
+                    <p className="text-xs text-muted-foreground mt-1">We'll automatically read the licence number and expiration date.</p>
                   </button>
                 )}
               </div>

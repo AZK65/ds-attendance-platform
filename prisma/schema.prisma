@@ -388,6 +388,7 @@ model StudentRegistration {
   fullName       String?
   phoneNumber    String?
   permitNumber   String?
+  permitExpiry   String?  // YYYY-MM-DD extracted via OCR from the licence
   fullAddress    String?
   city           String?
   postalCode     String?

@@ -105,6 +105,10 @@ interface Registration {
   fullName: string | null
   phoneNumber: string | null
   permitNumber: string | null
+  permitExpiry?: string | null
+  permitImage?: string | null
+  idImage?: string | null
+  signatureImage?: string | null
   fullAddress: string | null
   city: string | null
   postalCode: string | null
@@ -2396,6 +2400,53 @@ function StudentsPage() {
                   />
                 </div>
               </div>
+
+              {/* Licence/ID photos + permit expiry that the student
+                  uploaded on the form. Photos open full size in a new
+                  tab so the admin can verify the licence number visually. */}
+              {(reviewingRegistration.permitImage || reviewingRegistration.idImage || reviewingRegistration.permitExpiry) && (
+                <div className="rounded-lg border bg-muted/30 p-3 space-y-3">
+                  <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Driver Licence & ID</p>
+                  {reviewingRegistration.permitExpiry && (
+                    <div className="text-sm">
+                      <span className="text-muted-foreground">Licence expires:</span>{' '}
+                      <strong>{reviewingRegistration.permitExpiry}</strong>
+                    </div>
+                  )}
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    {reviewingRegistration.permitImage && (
+                      <a
+                        href={reviewingRegistration.permitImage}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="group block"
+                      >
+                        <p className="text-[11px] uppercase tracking-wider text-muted-foreground mb-1">Licence photo</p>
+                        <img
+                          src={reviewingRegistration.permitImage}
+                          alt="Driver licence"
+                          className="w-full rounded border group-hover:ring-2 group-hover:ring-amber-400 transition-all"
+                        />
+                      </a>
+                    )}
+                    {reviewingRegistration.idImage && (
+                      <a
+                        href={reviewingRegistration.idImage}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="group block"
+                      >
+                        <p className="text-[11px] uppercase tracking-wider text-muted-foreground mb-1">ID photo</p>
+                        <img
+                          src={reviewingRegistration.idImage}
+                          alt="ID"
+                          className="w-full rounded border group-hover:ring-2 group-hover:ring-amber-400 transition-all"
+                        />
+                      </a>
+                    )}
+                  </div>
+                </div>
+              )}
 
               <MedicalDeclarationBlock medical={reviewingRegistration.medical} />
 

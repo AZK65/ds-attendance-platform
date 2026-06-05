@@ -8,7 +8,7 @@ export async function POST(request: NextRequest) {
     const {
       fullName, phoneNumber, email, dob,
       address, city, province, postalCode,
-      permitNumber, permitImage, idImage,
+      permitNumber, permitExpiry, permitImage, idImage,
       signatureImage, agreedToTerms, medical,
       vehicleType: requestedVehicleType,
       // Truck-only contract fields (ignored when vehicleType="car")
@@ -113,6 +113,7 @@ export async function POST(request: NextRequest) {
         province: province?.trim() || 'QC',
         postalCode: postalCode?.trim() || null,
         permitNumber: permitNumber?.trim() || null,
+        permitExpiry: permitExpiry?.trim() || null,
         permitImage: permitImage || null,
         idImage: idImage || null,
         signatureImage: signatureImage || null,
