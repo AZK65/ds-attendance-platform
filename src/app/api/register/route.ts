@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/db'
+import { createRegistrationInvoice } from '@/lib/registration-invoice'
 
 // POST /api/register — Public student registration
 export async function POST(request: NextRequest) {
@@ -123,6 +124,22 @@ export async function POST(request: NextRequest) {
         expiresAt: new Date(Date.now() + 365 * 24 * 60 * 60 * 1000),
       },
     })
+
+    // Cash-on-signup → auto-create an unpaid invoice so it shows up in
+    // the admin invoice list immediately. Admin marks paid once the cash
+    // is physically collected. Card-on-signup uses Clover Hosted Checkout
+    // and gets its invoice on capture (see /api/registrations/[id]/capture).
+    if (vehicleType === 'truck' && truckPaymentMethod === 'cash') {
+      try {
+        await createRegistrationInvoice({
+          registration,
+          paymentMethod: 'cash',
+          paymentStatus: 'unpaid',
+        })
+      } catch (err) {
+        console.error('[register] cash auto-invoice failed:', err)
+      }
+    }
 
     return NextResponse.json({ success: true, registrationId: registration.id })
   } catch (error) {
