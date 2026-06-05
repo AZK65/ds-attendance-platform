@@ -10,6 +10,7 @@ import {
   User, Phone, MapPin, Camera, FileText, PenTool,
   ArrowRight, ArrowLeft, Loader2, CheckCircle2, Upload,
   AlertCircle, CreditCard, Receipt, Car, Truck, Clock,
+  Shield,
 } from 'lucide-react'
 import { QaziNav } from '@/components/qazi-nav'
 import { QaziFooter } from '@/components/qazi-footer'
@@ -47,6 +48,26 @@ function RegisterPageInner() {
   const { t } = useT()
   const [step, setStep] = useState<Step>('select')
   const [error, setError] = useState('')
+  // Whether the visitor is logged in as admin. Drives admin-only paths
+  // like the truck registration form. Checked once on mount.
+  const [isAdmin, setIsAdmin] = useState(false)
+  // Tracks which path the student is on. "car" is the default (anyone);
+  // "truck" can only be selected by an admin.
+  const [vehicleType, setVehicleType] = useState<'car' | 'truck'>('car')
+
+  useEffect(() => {
+    let cancelled = false
+    ;(async () => {
+      try {
+        const res = await fetch('/api/auth')
+        if (!cancelled && res.ok) {
+          const data = await res.json()
+          setIsAdmin(!!data.authed)
+        }
+      } catch { /* not authed — public mode */ }
+    })()
+    return () => { cancelled = true }
+  }, [])
 
   // Form data
   const [fullName, setFullName] = useState('')
@@ -198,6 +219,7 @@ function RegisterPageInner() {
           address, city, province, postalCode,
           permitNumber, permitImage, idImage,
           signatureImage, agreedToTerms: agreedTerms && agreedPolicy,
+          vehicleType, // server cross-checks against the admin cookie
         }),
       })
 
@@ -392,12 +414,18 @@ function RegisterPageInner() {
                   {t.select.heading}
                 </h2>
                 <p className="mt-3 text-[15px] text-ink/60">{t.select.sub}</p>
+                {isAdmin && (
+                  <p className="mt-4 inline-flex items-center gap-2 rounded-full bg-ink/5 px-3 py-1 text-[12px] text-ink/70">
+                    <Shield className="h-3.5 w-3.5" />
+                    Admin mode — truck registration available
+                  </p>
+                )}
               </div>
 
               <div className="grid gap-4 md:grid-cols-2">
                 <button
                   type="button"
-                  onClick={() => setStep('personal')}
+                  onClick={() => { setVehicleType('car'); setStep('personal') }}
                   className="group text-left rounded-2xl border border-ink/10 bg-white p-6 md:p-7 shadow-sm hover:border-[#E11D2E] hover:shadow-md transition-all"
                 >
                   <div className="flex items-start justify-between">
@@ -416,7 +444,16 @@ function RegisterPageInner() {
 
                 <button
                   type="button"
-                  onClick={() => setStep('truck-contact')}
+                  onClick={() => {
+                    // Admins skip the public contact card and go straight to
+                    // the full registration form, tagged as truck.
+                    if (isAdmin) {
+                      setVehicleType('truck')
+                      setStep('personal')
+                    } else {
+                      setStep('truck-contact')
+                    }
+                  }}
                   className="group text-left rounded-2xl border border-ink/10 bg-white p-6 md:p-7 shadow-sm hover:border-[#E11D2E] hover:shadow-md transition-all"
                 >
                   <div className="flex items-start justify-between">

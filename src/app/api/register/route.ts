@@ -10,7 +10,15 @@ export async function POST(request: NextRequest) {
       address, city, province, postalCode,
       permitNumber, permitImage, idImage,
       signatureImage, agreedToTerms, medical,
+      vehicleType: requestedVehicleType,
     } = body
+
+    // Only logged-in admins can submit a truck registration. The public
+    // /register Truck button is a contact card, not a form, so this only
+    // matters if someone tries to forge the request.
+    const isAdmin = request.cookies.get('auth-token')?.value === 'valid'
+    const vehicleType =
+      requestedVehicleType === 'truck' && isAdmin ? 'truck' : 'car'
 
     if (!fullName?.trim() || !phoneNumber?.trim()) {
       return NextResponse.json({ error: 'Name and phone number are required' }, { status: 400 })
@@ -37,6 +45,7 @@ export async function POST(request: NextRequest) {
     const registration = await prisma.studentRegistration.create({
       data: {
         status: 'submitted',
+        vehicleType,
         fullName: fullName.trim(),
         phoneNumber: phoneDigits.length === 10 ? '1' + phoneDigits : phoneDigits,
         email: email?.trim() || null,
