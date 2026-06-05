@@ -1225,58 +1225,59 @@ export default function StudentDetailPage() {
           </Link>
         </Button>
 
-        <div className="flex items-start justify-between gap-4">
-          <div className="min-w-0">
-            {loadingGroup ? (
-              <div className="flex items-center gap-2">
-                <Loader2 className="h-5 w-5 animate-spin" />
-                <span className="text-muted-foreground">Loading...</span>
+        {/* Header — avatar + name + phone on one line, actions row below. */}
+        {loadingGroup ? (
+          <div className="flex items-center gap-2">
+            <Loader2 className="h-5 w-5 animate-spin" />
+            <span className="text-muted-foreground">Loading...</span>
+          </div>
+        ) : (
+          <div className="space-y-4">
+            <div className="flex items-center gap-5 min-w-0">
+              <StudentAvatar
+                src={profileData?.localStudent?.avatarImage || null}
+                name={displayName}
+                size={96}
+                className="shrink-0"
+              />
+              <div className="min-w-0">
+                <h1 className="text-3xl font-bold truncate leading-tight">{displayName}</h1>
+                <a href={`tel:+${phone}`} className="text-muted-foreground hover:text-primary flex items-center gap-1.5 mt-1.5">
+                  <Phone className="h-4 w-4" />
+                  +{phone}
+                </a>
               </div>
-            ) : (
-              <div className="flex items-center gap-4">
-                <StudentAvatar
-                  src={profileData?.localStudent?.avatarImage || null}
-                  name={displayName}
-                  size={64}
-                />
-                <div className="min-w-0">
-                  <h1 className="text-2xl font-bold truncate">{displayName}</h1>
-                  <a href={`tel:+${phone}`} className="text-muted-foreground hover:text-primary flex items-center gap-1 mt-1">
-                    <Phone className="h-4 w-4" />
-                    +{phone}
-                  </a>
-                </div>
+            </div>
+
+            {participant && (
+              <div className="flex gap-2 flex-wrap">
+                <Button variant="default" size="sm" asChild>
+                  <Link href={`/scheduling?bookFor=${encodeURIComponent(displayName)}&phone=${encodeURIComponent(phone)}`}>
+                    <CalendarDays className="h-4 w-4 mr-1" />
+                    Book Class
+                  </Link>
+                </Button>
+                <Button variant="outline" size="sm" asChild>
+                  <Link href={`/certificate?studentName=${encodeURIComponent(displayName)}&studentPhone=${encodeURIComponent(phone)}`}>
+                    <Award className="h-4 w-4 mr-1" />
+                    Certificate
+                  </Link>
+                </Button>
+                <Button variant="outline" size="sm" asChild>
+                  <Link href={`/invoice?studentName=${encodeURIComponent(profileData?.dbStudent?.full_name || displayName)}&studentPhone=${encodeURIComponent(phone)}${profileData?.dbStudent ? `&studentAddress=${encodeURIComponent(profileData.dbStudent.full_address || '')}&studentCity=${encodeURIComponent(profileData.dbStudent.city || '')}&studentPostalCode=${encodeURIComponent(profileData.dbStudent.postal_code || '')}&studentEmail=${encodeURIComponent(profileData.localStudent?.email || profileData.dbStudent.email || '')}` : ''}`}>
+                    <Receipt className="h-4 w-4 mr-1" />
+                    Invoice
+                  </Link>
+                </Button>
+                <AttendanceSheetButton phone={phone} />
+                <Button variant="outline" size="sm" onClick={startEditing}>
+                  <Edit3 className="h-4 w-4 mr-1" />
+                  Edit
+                </Button>
               </div>
             )}
           </div>
-          {!loadingGroup && participant && (
-            <div className="flex gap-2 flex-wrap">
-              <Button variant="default" size="sm" asChild>
-                <Link href={`/scheduling?bookFor=${encodeURIComponent(displayName)}&phone=${encodeURIComponent(phone)}`}>
-                  <CalendarDays className="h-4 w-4 mr-1" />
-                  Book Class
-                </Link>
-              </Button>
-              <Button variant="outline" size="sm" asChild>
-                <Link href={`/certificate?studentName=${encodeURIComponent(displayName)}&studentPhone=${encodeURIComponent(phone)}`}>
-                  <Award className="h-4 w-4 mr-1" />
-                  Certificate
-                </Link>
-              </Button>
-              <Button variant="outline" size="sm" asChild>
-                <Link href={`/invoice?studentName=${encodeURIComponent(profileData?.dbStudent?.full_name || displayName)}&studentPhone=${encodeURIComponent(phone)}${profileData?.dbStudent ? `&studentAddress=${encodeURIComponent(profileData.dbStudent.full_address || '')}&studentCity=${encodeURIComponent(profileData.dbStudent.city || '')}&studentPostalCode=${encodeURIComponent(profileData.dbStudent.postal_code || '')}&studentEmail=${encodeURIComponent(profileData.localStudent?.email || profileData.dbStudent.email || '')}` : ''}`}>
-                  <Receipt className="h-4 w-4 mr-1" />
-                  Invoice
-                </Link>
-              </Button>
-              <AttendanceSheetButton phone={phone} />
-              <Button variant="outline" size="sm" onClick={startEditing}>
-                <Edit3 className="h-4 w-4 mr-1" />
-                Edit
-              </Button>
-            </div>
-          )}
-        </div>
+        )}
       </motion.div>
 
       {/* Edit Section */}

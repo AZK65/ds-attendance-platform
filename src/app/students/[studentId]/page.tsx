@@ -338,16 +338,17 @@ export default function StudentProfilePage() {
           <Link href="/students"><ArrowLeft className="h-4 w-4 mr-1" /> Back to Students</Link>
         </Button>
 
-        <div className="flex items-start justify-between gap-4">
-          <div className="flex items-center gap-4 min-w-0">
+        <div className="space-y-4">
+          <div className="flex items-center gap-5 min-w-0">
             <StudentAvatar
               src={data?.localStudent?.avatarImage || null}
               name={displayName}
-              size={64}
+              size={96}
+              className="shrink-0"
             />
             <div className="min-w-0">
-              <h1 className="text-2xl font-bold truncate">{displayName}</h1>
-              <a href={`tel:+${phone}`} className="text-muted-foreground hover:text-primary flex items-center gap-1 mt-1">
+              <h1 className="text-3xl font-bold truncate leading-tight">{displayName}</h1>
+              <a href={`tel:+${phone}`} className="text-muted-foreground hover:text-primary flex items-center gap-1.5 mt-1.5">
                 <Phone className="h-4 w-4" /> +{phone}
               </a>
             </div>
