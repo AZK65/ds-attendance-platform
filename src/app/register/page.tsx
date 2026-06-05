@@ -14,17 +14,43 @@ import {
 } from 'lucide-react'
 import NextImage from 'next/image'
 import { QaziNav } from '@/components/qazi-nav'
+import { SignaturePad, type SignaturePadHandle } from '@/components/SignaturePad'
 import { QaziFooter } from '@/components/qazi-footer'
 import { AddressAutocomplete } from '@/components/AddressAutocomplete'
 import { LangProvider, useT } from './i18n'
 
-type Step = 'select' | 'truck-contact' | 'personal' | 'address' | 'documents' | 'agreements' | 'payment' | 'submitting' | 'done'
+type Step =
+  | 'select'
+  | 'truck-contact'
+  | 'personal'
+  | 'address'
+  | 'documents'
+  | 'agreements'
+  | 'rep-handoff'    // truck only — "hand the iPad to the school rep"
+  | 'rep-sign'       // truck only — rep signs
+  | 'payment-method' // truck only — pick cash or card before Clover
+  | 'payment'
+  | 'submitting'
+  | 'done'
 
-const STEPS: { key: Step; label: string; icon: React.ElementType }[] = [
+// Default flow (car). Truck inserts rep-handoff + rep-sign + payment-method
+// before payment — computed dynamically below so the progress bar reflects
+// the right path.
+const CAR_STEPS: { key: Step; label: string; icon: React.ElementType }[] = [
   { key: 'personal', label: 'Personal Info', icon: User },
   { key: 'address', label: 'Address', icon: MapPin },
   { key: 'documents', label: 'Documents', icon: FileText },
   { key: 'agreements', label: 'Agreement', icon: PenTool },
+  { key: 'payment', label: 'Payment', icon: CreditCard },
+]
+const TRUCK_STEPS: { key: Step; label: string; icon: React.ElementType }[] = [
+  { key: 'personal', label: 'Personal Info', icon: User },
+  { key: 'address', label: 'Address', icon: MapPin },
+  { key: 'documents', label: 'Documents', icon: FileText },
+  { key: 'agreements', label: 'Student Sign', icon: PenTool },
+  { key: 'rep-handoff', label: 'Hand to School', icon: User },
+  { key: 'rep-sign', label: 'School Sign', icon: PenTool },
+  { key: 'payment-method', label: 'Payment Method', icon: CreditCard },
   { key: 'payment', label: 'Payment', icon: CreditCard },
 ]
 
@@ -120,11 +146,20 @@ export function RegisterPageInner({ kiosk = false }: { kiosk?: boolean } = {}) {
   const [consentContactInfo, setConsentContactInfo] = useState(false)
   const [signedAtPlace, setSignedAtPlace] = useState('Montréal')
   const [firstCourseDate, setFirstCourseDate] = useState('')
+  // Rep counter-signature captured at the iPad (rep-sign step).
+  const [repSignatureDataUrl, setRepSignatureDataUrl] = useState<string | null>(null)
+  const [repName, setRepName] = useState('')
+  // Truck initial-fee payment method choice — drives whether we run the
+  // Clover Hosted Checkout step or just record cash and submit.
+  const [truckPaymentMethod, setTruckPaymentMethod] = useState<'cash' | 'card' | ''>('')
 
   const permitInputRef = useRef<HTMLInputElement>(null)
   const idInputRef = useRef<HTMLInputElement>(null)
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const [isDrawing, setIsDrawing] = useState(false)
+  // SignaturePad imperatives — used to clear strokes from outside.
+  const studentSigRef = useRef<SignaturePadHandle>(null)
+  const repSigRef = useRef<SignaturePadHandle>(null)
 
   // Signature canvas
   const startDrawing = useCallback((e: React.MouseEvent | React.TouchEvent) => {
@@ -208,6 +243,9 @@ export function RegisterPageInner({ kiosk = false }: { kiosk?: boolean } = {}) {
     reader.readAsDataURL(file)
   }
 
+  // Switch which steps appear in the progress bar / next-prev navigation
+  // based on whether the visitor is going down the car or truck path.
+  const STEPS = vehicleType === 'truck' ? TRUCK_STEPS : CAR_STEPS
   const stepIndex = STEPS.findIndex(s => s.key === step)
 
   const canProceed = () => {
@@ -226,6 +264,9 @@ export function RegisterPageInner({ kiosk = false }: { kiosk?: boolean } = {}) {
           && !!firstCourseDate
           && signedAtPlace.trim().length >= 2
       }
+      case 'rep-handoff': return true
+      case 'rep-sign': return !!repSignatureDataUrl && repName.trim().length >= 2
+      case 'payment-method': return truckPaymentMethod === 'cash' || truckPaymentMethod === 'card'
       case 'payment': return true
       default: return false
     }
@@ -269,6 +310,8 @@ export function RegisterPageInner({ kiosk = false }: { kiosk?: boolean } = {}) {
           // Truck-only — server ignores these when vehicleType === 'car'
           consentSaaqTransmission, consentFileTransfer, consentContactInfo,
           signedAtPlace, firstCourseDate,
+          repSignatureDataUrl, repName,
+          truckPaymentMethod,
         }),
       })
 
@@ -280,6 +323,14 @@ export function RegisterPageInner({ kiosk = false }: { kiosk?: boolean } = {}) {
       }
 
       const { registrationId } = await res.json()
+
+      // Truck + cash → no Clover checkout. Registration is already saved
+      // with truckPaymentMethod='cash' so the admin sees the cash flag in
+      // the review dialog. Go straight to the done screen.
+      if (vehicleType === 'truck' && truckPaymentMethod === 'cash') {
+        setStep('done')
+        return
+      }
 
       // Attempt to create a Clover checkout link for the first payment
       try {
@@ -931,28 +982,119 @@ export function RegisterPageInner({ kiosk = false }: { kiosk?: boolean } = {}) {
                 <div className="flex items-center justify-between">
                   <Label>{t.agreement.signature} *</Label>
                   {signatureImage && (
-                    <Button variant="ghost" size="sm" onClick={clearSignature} className="text-xs">{t.agreement.clear}</Button>
+                    <Button variant="ghost" size="sm" onClick={() => { studentSigRef.current?.clear(); setSignatureImage(null) }} className="text-xs">{t.agreement.clear}</Button>
                   )}
                 </div>
-                <div className="mt-2 border-2 rounded-lg bg-white dark:bg-gray-900 relative" style={{ touchAction: 'none' }}>
-                  <canvas
-                    ref={canvasRef}
-                    className="w-full cursor-crosshair"
-                    style={{ height: 150 }}
-                    onMouseDown={startDrawing}
-                    onMouseMove={draw}
-                    onMouseUp={stopDrawing}
-                    onMouseLeave={stopDrawing}
-                    onTouchStart={startDrawing}
-                    onTouchMove={draw}
-                    onTouchEnd={stopDrawing}
-                  />
-                  {!signatureImage && (
-                    <p className="absolute inset-0 flex items-center justify-center text-muted-foreground text-sm pointer-events-none">
-                      {t.agreement.signHint}
-                    </p>
+                <SignaturePad
+                  ref={studentSigRef}
+                  className="mt-2"
+                  height={170}
+                  placeholder={t.agreement.signHint}
+                  strokeWidth={2.5}
+                  onChange={setSignatureImage}
+                />
+              </div>
+            </motion.div>
+          )}
+
+          {/* === rep-handoff (truck only) ============================ */}
+          {step === 'rep-handoff' && (
+            <motion.div
+              key="rep-handoff"
+              initial={{ opacity: 0, x: 50 }}
+              animate={{ opacity: 1, x: 0 }}
+              exit={{ opacity: 0, x: -50 }}
+              className="rounded-2xl border-2 border-amber-300 bg-amber-50/40 dark:bg-amber-950/20 p-8 text-center space-y-5"
+            >
+              <div className="inline-flex h-16 w-16 items-center justify-center rounded-full bg-amber-100 text-amber-700 mx-auto">
+                <User className="h-7 w-7" />
+              </div>
+              <h2 className="text-[24px] tracking-tight">Please hand this device to a Qazi Driving School representative.</h2>
+              <p className="text-sm text-muted-foreground max-w-[48ch] mx-auto">
+                The next step requires the school representative to print their name and counter-sign the contract.
+                Once they confirm, you'll be brought to the payment step.
+              </p>
+              <p className="text-xs text-muted-foreground">Tap <strong>Next</strong> when the representative is ready.</p>
+            </motion.div>
+          )}
+
+          {/* === rep-sign (truck only) =============================== */}
+          {step === 'rep-sign' && (
+            <motion.div
+              key="rep-sign"
+              initial={{ opacity: 0, x: 50 }}
+              animate={{ opacity: 1, x: 0 }}
+              exit={{ opacity: 0, x: -50 }}
+              className="space-y-4"
+            >
+              <h2 className="text-lg font-semibold flex items-center gap-2">
+                <PenTool className="h-5 w-5" /> School Representative — counter-signature
+              </h2>
+              <p className="text-sm text-muted-foreground">
+                Please print your name and sign below to counter-sign the Class 1 service contract.
+              </p>
+              <div>
+                <Label htmlFor="rep-name">Representative name *</Label>
+                <Input id="rep-name" value={repName} onChange={e => setRepName(e.target.value)} placeholder="Printed name" />
+              </div>
+              <div>
+                <div className="flex items-center justify-between">
+                  <Label>Representative signature *</Label>
+                  {repSignatureDataUrl && (
+                    <Button variant="ghost" size="sm" onClick={() => { repSigRef.current?.clear(); setRepSignatureDataUrl(null) }} className="text-xs">
+                      Clear
+                    </Button>
                   )}
                 </div>
+                <SignaturePad
+                  ref={repSigRef}
+                  className="mt-2"
+                  height={170}
+                  placeholder="Sign here"
+                  strokeWidth={2.5}
+                  onChange={setRepSignatureDataUrl}
+                />
+              </div>
+            </motion.div>
+          )}
+
+          {/* === payment-method (truck only) ========================= */}
+          {step === 'payment-method' && (
+            <motion.div
+              key="payment-method"
+              initial={{ opacity: 0, x: 50 }}
+              animate={{ opacity: 1, x: 0 }}
+              exit={{ opacity: 0, x: -50 }}
+              className="space-y-4"
+            >
+              <h2 className="text-lg font-semibold flex items-center gap-2">
+                <CreditCard className="h-5 w-5" /> How will the student pay the initial fees?
+              </h2>
+              <p className="text-sm text-muted-foreground">
+                The first installment ($250) at the start of training. You can record cash now or
+                run a card through Clover Hosted Checkout on the next step.
+              </p>
+              <div className="grid gap-3 sm:grid-cols-2">
+                <button
+                  type="button"
+                  onClick={() => setTruckPaymentMethod('cash')}
+                  className={`text-left rounded-xl border-2 p-5 transition-all ${truckPaymentMethod === 'cash' ? 'border-amber-500 bg-amber-50/60' : 'border-ink/10 bg-white hover:border-amber-300'}`}
+                >
+                  <p className="text-[18px] font-medium">Cash</p>
+                  <p className="mt-1 text-[13px] text-muted-foreground">
+                    Recorded as paid in cash. No card capture step.
+                  </p>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setTruckPaymentMethod('card')}
+                  className={`text-left rounded-xl border-2 p-5 transition-all ${truckPaymentMethod === 'card' ? 'border-amber-500 bg-amber-50/60' : 'border-ink/10 bg-white hover:border-amber-300'}`}
+                >
+                  <p className="text-[18px] font-medium">Card</p>
+                  <p className="mt-1 text-[13px] text-muted-foreground">
+                    Run through Clover Hosted Checkout on the next step.
+                  </p>
+                </button>
               </div>
             </motion.div>
           )}

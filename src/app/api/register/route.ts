@@ -14,6 +14,11 @@ export async function POST(request: NextRequest) {
       // Truck-only contract fields (ignored when vehicleType="car")
       consentSaaqTransmission, consentFileTransfer, consentContactInfo,
       signedAtPlace, firstCourseDate,
+      // Truck-only — rep counter-sign captured at the iPad
+      repSignatureDataUrl, repName,
+      // Truck-only — 'cash' or 'card'. Stored as a status flag on the row;
+      // the actual Clover capture happens on the dedicated checkout route.
+      truckPaymentMethod,
     } = body
 
     // Only logged-in admins can submit a truck registration. The public
@@ -80,6 +85,25 @@ export async function POST(request: NextRequest) {
         signedAtPlace: vehicleType === 'truck' ? (signedAtPlace?.trim() || null) : null,
         firstCourseDate: vehicleType === 'truck' ? (firstCourseDate?.trim() || null) : null,
         maxCompletionDate: vehicleType === 'truck' ? computedMaxDate : null,
+        // Rep signature is captured at the iPad on the truck path. We store
+        // it under the same field admin-side counter-signing uses so the
+        // PDF generator already sees it without extra branching.
+        repSignatureImage:
+          vehicleType === 'truck' && typeof repSignatureDataUrl === 'string' && repSignatureDataUrl.startsWith('data:image/')
+            ? repSignatureDataUrl
+            : null,
+        repSignerName:
+          vehicleType === 'truck' && typeof repName === 'string' && repName.trim().length > 0
+            ? repName.trim()
+            : null,
+        repSignedAt: vehicleType === 'truck' && typeof repSignatureDataUrl === 'string' ? new Date() : null,
+        // Stash the cash/card decision into the existing paymentStatus
+        // shape so the admin review dialog's PaymentStatusBlock surfaces
+        // it without new wiring. "cash-pending" = student picked cash and
+        // the cash hasn't been collected yet.
+        ...(vehicleType === 'truck' && truckPaymentMethod === 'cash'
+          ? { paymentStatus: 'cash-pending', paymentAmount: 25000 }
+          : {}),
         fullName: fullName.trim(),
         phoneNumber: phoneDigits.length === 10 ? '1' + phoneDigits : phoneDigits,
         email: email?.trim() || null,
