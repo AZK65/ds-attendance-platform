@@ -400,6 +400,24 @@ model StudentRegistration {
   paymentError        String?   // last error from Clover
 
   source         String? // "qr", "online-registration", etc.
+
+  // ── Truck (Class 1 RSEP) contract fields ─────────────────────────────
+  // Only populated when vehicleType="truck" — used to assemble the
+  // SAAQ-compliant service contract PDF (Article 83). Three SAAQ
+  // consents are recorded independently rather than rolled into the
+  // single "terms" agreement the car flow uses.
+  consentSaaqTransmission Boolean   @default(false)
+  consentFileTransfer     Boolean   @default(false)
+  consentContactInfo      Boolean   @default(false)
+  signedAtPlace           String?   // city where the student signed
+  firstCourseDate         String?   // ISO YYYY-MM-DD (Section 04)
+  maxCompletionDate       String?   // firstCourseDate + 18 months
+  contractNumber          String?   @unique
+  // Counter-signature by the school's authorized representative —
+  // captured in the admin UI after the student submits.
+  repSignatureImage       String?   // base64 PNG data URL
+  repSignerName           String?
+  repSignedAt             DateTime?
   expiresAt      DateTime
   submittedAt    DateTime?
   confirmedAt    DateTime?

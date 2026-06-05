@@ -11,6 +11,9 @@ export async function POST(request: NextRequest) {
       permitNumber, permitImage, idImage,
       signatureImage, agreedToTerms, medical,
       vehicleType: requestedVehicleType,
+      // Truck-only contract fields (ignored when vehicleType="car")
+      consentSaaqTransmission, consentFileTransfer, consentContactInfo,
+      signedAtPlace, firstCourseDate,
     } = body
 
     // Only logged-in admins can submit a truck registration. The public
@@ -42,10 +45,41 @@ export async function POST(request: NextRequest) {
       }
     }
 
+    // Truck submissions require the 3 SAAQ consents + signed-at + first
+    // course date. Compute the +18m maximum completion date server-side
+    // so it can't be tampered with on the client.
+    let computedMaxDate: string | null = null
+    if (vehicleType === 'truck') {
+      if (!consentSaaqTransmission || !consentFileTransfer || !consentContactInfo) {
+        return NextResponse.json(
+          { error: 'All three SAAQ consents are required for truck registration' },
+          { status: 400 }
+        )
+      }
+      if (!signedAtPlace?.trim()) {
+        return NextResponse.json({ error: 'Signed-at place is required' }, { status: 400 })
+      }
+      if (!firstCourseDate?.trim()) {
+        return NextResponse.json({ error: 'First course date is required' }, { status: 400 })
+      }
+      try {
+        const [y, m, d] = firstCourseDate.split('-').map(Number)
+        const max = new Date(y, m - 1, d)
+        max.setMonth(max.getMonth() + 18)
+        computedMaxDate = `${max.getFullYear()}-${String(max.getMonth() + 1).padStart(2, '0')}-${String(max.getDate()).padStart(2, '0')}`
+      } catch { /* leave null */ }
+    }
+
     const registration = await prisma.studentRegistration.create({
       data: {
         status: 'submitted',
         vehicleType,
+        consentSaaqTransmission: vehicleType === 'truck' ? !!consentSaaqTransmission : false,
+        consentFileTransfer: vehicleType === 'truck' ? !!consentFileTransfer : false,
+        consentContactInfo: vehicleType === 'truck' ? !!consentContactInfo : false,
+        signedAtPlace: vehicleType === 'truck' ? (signedAtPlace?.trim() || null) : null,
+        firstCourseDate: vehicleType === 'truck' ? (firstCourseDate?.trim() || null) : null,
+        maxCompletionDate: vehicleType === 'truck' ? computedMaxDate : null,
         fullName: fullName.trim(),
         phoneNumber: phoneDigits.length === 10 ? '1' + phoneDigits : phoneDigits,
         email: email?.trim() || null,

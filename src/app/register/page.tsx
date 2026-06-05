@@ -92,6 +92,8 @@ export function RegisterPageInner({ kiosk = false }: { kiosk?: boolean } = {}) {
       setPermitNumber(''); setPermitImage(null); setIdImage(null)
       setSignatureImage(null); setAgreedTerms(false); setAgreedPolicy(false)
       setVehicleType('car')
+      setConsentSaaqTransmission(false); setConsentFileTransfer(false)
+      setConsentContactInfo(false); setSignedAtPlace('Montréal'); setFirstCourseDate('')
     }, 15_000)
     return () => clearTimeout(timer)
   }, [kiosk, step])
@@ -111,6 +113,13 @@ export function RegisterPageInner({ kiosk = false }: { kiosk?: boolean } = {}) {
   const [signatureImage, setSignatureImage] = useState<string | null>(null)
   const [agreedTerms, setAgreedTerms] = useState(false)
   const [agreedPolicy, setAgreedPolicy] = useState(false)
+  // Truck-only state — these capture the extra fields the SAAQ Class 1
+  // service contract requires. Ignored when vehicleType === 'car'.
+  const [consentSaaqTransmission, setConsentSaaqTransmission] = useState(false)
+  const [consentFileTransfer, setConsentFileTransfer] = useState(false)
+  const [consentContactInfo, setConsentContactInfo] = useState(false)
+  const [signedAtPlace, setSignedAtPlace] = useState('Montréal')
+  const [firstCourseDate, setFirstCourseDate] = useState('')
 
   const permitInputRef = useRef<HTMLInputElement>(null)
   const idInputRef = useRef<HTMLInputElement>(null)
@@ -206,7 +215,17 @@ export function RegisterPageInner({ kiosk = false }: { kiosk?: boolean } = {}) {
       case 'personal': return fullName.trim().length >= 2 && phoneNumber.replace(/\D/g, '').length >= 10
       case 'address': return province.trim().toUpperCase() === 'QC'
       case 'documents': return true // documents are optional
-      case 'agreements': return agreedTerms && agreedPolicy && signatureImage
+      case 'agreements': {
+        const base = agreedTerms && agreedPolicy && signatureImage
+        if (vehicleType !== 'truck') return base
+        // Truck adds 3 SAAQ consents + first-course date + signed-at place.
+        return base
+          && consentSaaqTransmission
+          && consentFileTransfer
+          && consentContactInfo
+          && !!firstCourseDate
+          && signedAtPlace.trim().length >= 2
+      }
       case 'payment': return true
       default: return false
     }
@@ -247,6 +266,9 @@ export function RegisterPageInner({ kiosk = false }: { kiosk?: boolean } = {}) {
           permitNumber, permitImage, idImage,
           signatureImage, agreedToTerms: agreedTerms && agreedPolicy,
           vehicleType, // server cross-checks against the admin cookie
+          // Truck-only — server ignores these when vehicleType === 'car'
+          consentSaaqTransmission, consentFileTransfer, consentContactInfo,
+          signedAtPlace, firstCourseDate,
         }),
       })
 
@@ -829,6 +851,80 @@ export function RegisterPageInner({ kiosk = false }: { kiosk?: boolean } = {}) {
                   <label htmlFor="policy" className="text-sm cursor-pointer">{t.agreement.agreeAccurate} *</label>
                 </div>
               </div>
+
+              {/* Truck-only: SAAQ Class 1 service contract extras
+                  (Art. 83 consents + first-course date + signed-at). */}
+              {vehicleType === 'truck' && (
+                <div className="rounded-lg border-2 border-amber-300 bg-amber-50/50 dark:bg-amber-950/20 p-4 space-y-4">
+                  <p className="text-sm font-semibold flex items-center gap-2">
+                    <Truck className="h-4 w-4" /> Class 1 Service Contract (SAAQ Article 83)
+                  </p>
+
+                  <div className="space-y-3">
+                    <div className="flex items-start gap-3">
+                      <Checkbox id="consent-saaq" checked={consentSaaqTransmission} onCheckedChange={v => setConsentSaaqTransmission(!!v)} className="mt-0.5" />
+                      <label htmlFor="consent-saaq" className="text-[13px] leading-relaxed cursor-pointer">
+                        <strong>Transmission to SAAQ.</strong> I authorize the school to transmit the
+                        information in my file to the SAAQ for complaint follow-up, quality
+                        control and validation of course attestations.
+                      </label>
+                    </div>
+                    <div className="flex items-start gap-3">
+                      <Checkbox id="consent-transfer" checked={consentFileTransfer} onCheckedChange={v => setConsentFileTransfer(!!v)} className="mt-0.5" />
+                      <label htmlFor="consent-transfer" className="text-[13px] leading-relaxed cursor-pointer">
+                        <strong>File transfer on closure.</strong> I authorize the transfer of my
+                        file to the SAAQ or another school if Qazi Driving School ceases
+                        activity or has its recognition withdrawn.
+                      </label>
+                    </div>
+                    <div className="flex items-start gap-3">
+                      <Checkbox id="consent-contact" checked={consentContactInfo} onCheckedChange={v => setConsentContactInfo(!!v)} className="mt-0.5" />
+                      <label htmlFor="consent-contact" className="text-[13px] leading-relaxed cursor-pointer">
+                        <strong>Contact info for surveys.</strong> I authorize the school to
+                        transmit my contact information and email to the SAAQ for survey
+                        purposes or to send me required documents if I can't complete training.
+                      </label>
+                    </div>
+                  </div>
+
+                  <div className="grid gap-3 sm:grid-cols-2 pt-2">
+                    <div>
+                      <Label htmlFor="firstCourseDate" className="text-xs">First course date *</Label>
+                      <Input
+                        id="firstCourseDate"
+                        type="date"
+                        value={firstCourseDate}
+                        onChange={e => setFirstCourseDate(e.target.value)}
+                        required
+                      />
+                      {firstCourseDate && (
+                        <p className="mt-1 text-[11px] text-muted-foreground">
+                          Must complete by:{' '}
+                          {(() => {
+                            try {
+                              const [y, m, d] = firstCourseDate.split('-').map(Number)
+                              const max = new Date(y, m - 1, d)
+                              max.setMonth(max.getMonth() + 18)
+                              return max.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
+                            } catch { return '—' }
+                          })()}
+                          {' '}(18 months)
+                        </p>
+                      )}
+                    </div>
+                    <div>
+                      <Label htmlFor="signedAtPlace" className="text-xs">Signed at *</Label>
+                      <Input
+                        id="signedAtPlace"
+                        value={signedAtPlace}
+                        onChange={e => setSignedAtPlace(e.target.value)}
+                        placeholder="Montréal"
+                        required
+                      />
+                    </div>
+                  </div>
+                </div>
+              )}
 
               {/* Signature */}
               <div>
