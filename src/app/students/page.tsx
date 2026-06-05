@@ -426,6 +426,21 @@ function StudentsPage() {
 
   const pendingRegistrations = pendingData?.registrations || []
 
+  // Also fetch CONFIRMED registrations so students who were confirmed
+  // but skipped the WhatsApp group assignment don't disappear from the
+  // page. They're surfaced in a dedicated "needs group" card below.
+  const { data: confirmedRegsData } = useQuery<{ registrations: Registration[] }>({
+    queryKey: ['registrations', 'confirmed'],
+    queryFn: async () => {
+      const res = await fetch('/api/registrations?status=confirmed')
+      if (!res.ok) throw new Error('Failed to fetch')
+      return res.json()
+    },
+    staleTime: 30 * 1000,
+  })
+
+  const confirmedRegistrations = confirmedRegsData?.registrations || []
+
   // Fetch active students from WhatsApp groups (only course groups with module numbers)
   const { data: participantsData, isLoading: isLoadingParticipants } = useQuery<{
     participants: ParticipantWithGroup[]
@@ -443,10 +458,13 @@ function StudentsPage() {
     refetchInterval: 60 * 60 * 1000,   // Background refresh every hour
   })
 
-  // Deduplicate participants by phone (keep the one with highest module number)
+  // Deduplicate participants by phone (keep the one with highest module
+  // number). Also inject confirmed registrations whose phone isn't yet
+  // in any WhatsApp group as synthetic "no group" entries so they don't
+  // disappear from the page just because nobody added them to a group.
   const activeStudents = useMemo(() => {
     const participants = participantsData?.participants || []
-    const byPhone = new Map<string, ParticipantWithGroup>()
+    const byPhone = new Map<string, ParticipantWithGroup & { avatarImage?: string | null; needsGroup?: boolean }>()
     for (const p of participants) {
       if (!p.phone) continue
       const existing = byPhone.get(p.phone)
@@ -454,8 +472,37 @@ function StudentsPage() {
         byPhone.set(p.phone, p)
       }
     }
+    // Build a set of last-10-digit suffixes that ARE in a group so we
+    // don't double-list anyone (registration phone might be stored as
+    // (514) 555-1234, group member as 15145551234, etc.).
+    const inGroupSuffixes = new Set<string>()
+    for (const phone of byPhone.keys()) {
+      const digits = phone.replace(/\D/g, '')
+      if (digits.length >= 10) inGroupSuffixes.add(digits.slice(-10))
+    }
+    for (const reg of confirmedRegistrations) {
+      const rawPhone = reg.phoneNumber || ''
+      const digits = rawPhone.replace(/\D/g, '')
+      if (digits.length < 7) continue
+      const suffix = digits.length >= 10 ? digits.slice(-10) : digits
+      if (inGroupSuffixes.has(suffix)) continue
+      // Synthesize a ParticipantWithGroup-shape so the rest of the page
+      // can keep treating activeStudents uniformly.
+      byPhone.set(digits, {
+        id: `reg-${reg.id}`,
+        phone: digits,
+        name: reg.fullName,
+        pushName: null,
+        groupId: '',
+        groupName: '',
+        moduleNumber: null,
+        lastMessageDate: null,
+        avatarImage: reg.avatarImage || null,
+        needsGroup: true,
+      })
+    }
     return Array.from(byPhone.values())
-  }, [participantsData])
+  }, [participantsData, confirmedRegistrations])
 
   // Fetch last/next class info for all active student phones
   const phoneList = useMemo(() => activeStudents.map(s => s.phone), [activeStudents])
@@ -1240,11 +1287,21 @@ function StudentsPage() {
                       const classes = classResults[student.phone]
                       const dbStudent = dbMatches[student.phone]
                       const displayName = dbStudent?.full_name || cleanName(student.name) || cleanName(student.pushName) || '-'
+                      const needsGroup = (student as { needsGroup?: boolean }).needsGroup
                       return (
                         <TableRow
                           key={student.phone}
                           className="cursor-pointer hover:bg-accent/50"
                           onClick={() => {
+                            // Confirmed-but-groupless rows have no groupId, so
+                            // route to the DB profile via the matched MySQL id.
+                            if (needsGroup) {
+                              const externalId = dbStudent?.student_id
+                              if (externalId) {
+                                router.push(`/students/${externalId}`)
+                              }
+                              return
+                            }
                             router.push(`/groups/${encodeURIComponent(student.groupId)}/student/${encodeURIComponent(student.id)}`)
                           }}
                         >
@@ -1259,7 +1316,15 @@ function StudentsPage() {
                             </div>
                           </TableCell>
                           <TableCell className="text-sm">{formatPhoneNumber(student.phone)}</TableCell>
-                          <TableCell className="text-sm text-muted-foreground">{student.groupName}</TableCell>
+                          <TableCell className="text-sm text-muted-foreground">
+                            {needsGroup ? (
+                              <Badge variant="outline" className="text-amber-700 border-amber-300 bg-amber-50">
+                                ⚠ No group yet
+                              </Badge>
+                            ) : (
+                              student.groupName
+                            )}
+                          </TableCell>
                           <TableCell>
                             {phase ? (
                               <Badge variant="secondary" className={`text-xs ${phase.color}`}>
