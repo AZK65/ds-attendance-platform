@@ -285,6 +285,9 @@ function ContractPage({
     saaqNumber: string
     gstNumber: string
     qstNumber: string
+    truckTheoryAddress: string
+    truckRoadAddress: string
+    truckCircuitAddress: string
   }
 }) {
   const t = lang === 'en' ? {
@@ -431,6 +434,17 @@ function ContractPage({
       React.createElement(Text, { style: styles.text }, t.sec1IncludesPre),
       React.createElement(Text, { style: styles.text }, `▸ ${t.theoryHours}\n▸ ${t.practicalHours}`),
       React.createElement(Text, { style: styles.text }, t.sec1Body2),
+      React.createElement(Sub, { num: '1.2', title: lang === 'en' ? 'Training Locations' : 'Lieux de formation' }),
+      ...[
+        { label: lang === 'en' ? 'Theoretical courses' : 'Cours théoriques', value: school.truckTheoryAddress },
+        { label: lang === 'en' ? 'Road training starts' : 'Départ des sorties sur route', value: school.truckRoadAddress },
+        { label: lang === 'en' ? 'Closed circuit' : 'Circuit fermé', value: school.truckCircuitAddress },
+      ].map((row, i) =>
+        React.createElement(View, { key: i, style: { flexDirection: 'row', marginBottom: 4 } },
+          React.createElement(Text, { style: [styles.partyFieldLabel, { width: 140 }] as any }, row.label.toUpperCase()),
+          React.createElement(Text, { style: [styles.partyFieldValue, { borderBottomWidth: 0.5, borderBottomColor: '#bbb' }] as any }, row.value || '—'),
+        ),
+      ),
     ),
 
     // Section 02 — Cost (display only — payments not auto-scheduled per user)
@@ -607,11 +621,14 @@ async function handleGenerate({ registrationId, lang }: { registrationId: string
     const school = {
       name: certSettings?.schoolName || 'Qazi Driving School',
       address: [certSettings?.schoolAddress, certSettings?.schoolCity, certSettings?.schoolProvince, certSettings?.schoolPostalCode].filter(Boolean).join(', '),
-      phone: '514 274 6948',
+      phone: certSettings?.schoolPhone || '514 274 6948',
       email: invoiceSettings?.senderEmail || '',
       saaqNumber: certSettings?.schoolNumber || '',
       gstNumber: invoiceSettings?.gstNumber || '',
       qstNumber: invoiceSettings?.qstNumber || '',
+      truckTheoryAddress: certSettings?.truckTheoryAddress || '',
+      truckRoadAddress: certSettings?.truckRoadAddress || '',
+      truckCircuitAddress: certSettings?.truckCircuitAddress || '',
     }
 
     const contractDateEn = new Date().toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })

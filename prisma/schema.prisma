@@ -109,6 +109,10 @@ model ZoomNameMatch {
   @@unique([zoomName, whatsappPhone])
 }
 
+// Note: CertificateSettings also stores the SAAQ Class 1 training
+// addresses used by the truck service contract PDF. Kept here (rather
+// than a new table) because admins already manage school-side info on
+// the existing certificate settings page.
 model CertificateSettings {
   id                    String   @id @default("default")
   nextContractNumber    Int      @default(1)
@@ -120,6 +124,12 @@ model CertificateSettings {
   schoolProvince        String   @default("QC")
   schoolPostalCode      String   @default("H3N 1S2")
   schoolNumber          String   @default("L526")
+  // SAAQ Class 1 service contract — addresses (Art. 83 (b)(c)(e))
+  truckTheoryAddress    String   @default("")
+  truckRoadAddress      String   @default("")
+  truckCircuitAddress   String   @default("")
+  // Optional school phone shown in the contract parties block
+  schoolPhone           String   @default("514 274 6948")
   createdAt             DateTime @default(now())
   updatedAt             DateTime @updatedAt
 }

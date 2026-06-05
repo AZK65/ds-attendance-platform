@@ -1,0 +1,136 @@
+PROJECT SUMMARY — DS Attendance Platform ("Qazi Groups")
+=========================================================
+
+Repo: AZK65/ds-attendance-platform
+Local path: /Users/arsalaanq/ds-attendance-platform
+Deployed: DigitalOcean droplet at /root/ds-attendance-platform via Docker
+Deploy command: cd /root/ds-attendance-platform && git pull && docker compose build --no-cache && docker compose up -d
+
+WHAT IT DOES
+------------
+A Next.js web app for Qazi Driving School that manages WhatsApp groups and Zoom class attendance:
+- Connects to WhatsApp via whatsapp-web.js (Puppeteer/Chromium in Docker)
+- Lists WhatsApp groups and their members
+- Sends group messages and private individual reminders to members about upcoming classes
+- Fetches Zoom meeting participants via Zoom Server-to-Server OAuth API
+- Fuzzy-matches Zoom participant names to WhatsApp group members (handles "(iPhone)" suffixes, #1120 tags, device names, possessives)
+- Allows manual matching for unrecognized names, saves learned matches to DB
+- Generates PDF attendance reports
+- Filters out Zoom host account ("Qazi Driving School") from attendance
+
+TECH STACK
+----------
+- Framework: Next.js 16.1.4, React 19.2.3, TypeScript
+- Database: SQLite via Prisma ORM
+- Styling: Tailwind CSS 4, Radix UI (shadcn/ui components)
+- WhatsApp: whatsapp-web.js v1.34.4 with Puppeteer (Chromium in Docker)
+- Zoom: Server-to-Server OAuth (ZOOM_ACCOUNT_ID, ZOOM_CLIENT_ID, ZOOM_CLIENT_SECRET)
+- PDF: @react-pdf/renderer + pdfkit
+- Docker: node:20-slim with Chromium, shm_size: 1gb, persistent volumes for SQLite + WhatsApp session
+
+KEY FILES
+---------
+src/lib/whatsapp/client.ts          — WhatsApp connection, group/participant fetching, message sending (group + private), QR code
+src/lib/zoom/client.ts              — Zoom OAuth, fetch meetings/participants, normalizeName(), matchZoomToWhatsApp() fuzzy matching
+src/app/groups/[groupId]/page.tsx   — Main group detail page: members list, Send Class Message, Send Reminder, Process Attendance (Zoom matching + manual matching + PDF)
+src/app/api/zoom/participants/route.ts       — Zoom participants API: fetches participants, filters host, matches with WhatsApp
+src/app/api/groups/[groupId]/notify/route.ts — Private reminder API: streams SSE progress as it sends individual WhatsApp messages
+src/app/api/groups/[groupId]/message/route.ts — Group message API
+src/app/api/zoom/learned-matches/route.ts    — Save/retrieve learned Zoom<->WhatsApp name matches
+src/middleware.ts                    — Auth middleware (password-based via AUTH_PASSWORD env var)
+prisma/schema.prisma                — DB schema
+
+FULL FILE TREE (src/)
+---------------------
+src/
+├── app/
+│   ├── api/
+│   │   ├── attendance/
+│   │   │   ├── pdf/route.ts
+│   │   │   ├── zoom-pdf/route.ts
+│   │   │   └── route.ts
+│   │   ├── auth/route.ts
+│   │   ├── contacts/route.ts
+│   │   ├── groups/
+│   │   │   ├── [groupId]/
+│   │   │   │   ├── members/route.ts
+│   │   │   │   ├── message/route.ts
+│   │   │   │   ├── notify/route.ts
+│   │   │   │   ├── pdf/route.ts
+│   │   │   │   └── route.ts
+│   │   │   ├── participants/route.ts
+│   │   │   └── route.ts
+│   │   ├── whatsapp/
+│   │   │   ├── connect/route.ts
+│   │   │   ├── disconnect/route.ts
+│   │   │   ├── qr/route.ts
+│   │   │   └── status/route.ts
+│   │   └── zoom/
+│   │       ├── attendance/route.ts
+│   │       ├── learned-matches/route.ts
+│   │       ├── meetings/route.ts
+│   │       ├── participants/route.ts
+│   │       └── recent-meetings/route.ts
+│   ├── connect/page.tsx
+│   ├── groups/
+│   │   ├── [groupId]/page.tsx
+│   │   └── page.tsx
+│   ├── login/page.tsx
+│   ├── globals.css
+│   ├── layout.tsx
+│   └── page.tsx
+├── components/
+│   ├── ui/ (badge, button, card, command, dialog, input, label, select, table, textarea)
+│   ├── AttendanceSheet.tsx
+│   ├── ConnectionStatus.tsx
+│   ├── ContactSearchModal.tsx
+│   ├── GroupCard.tsx
+│   ├── QRCodeDisplay.tsx
+│   └── providers.tsx
+├── lib/
+│   ├── whatsapp/client.ts
+│   ├── zoom/client.ts
+│   ├── db.ts
+│   └── utils.ts
+├── types/index.ts
+└── middleware.ts
+
+PRISMA MODELS
+-------------
+- Group: WhatsApp group info (id, name, participantCount, lastSynced)
+- Contact: WhatsApp members (id, phone, name, pushName)
+- AttendanceSheet: per-group attendance sheet (linked to Group)
+- AttendanceRecord: individual attendance record (linked to Sheet + Contact, with status/date)
+- ZoomAttendance: saved Zoom attendance results per meeting (matchedRecords, absentRecords, unmatchedZoom as JSON)
+- ZoomNameMatch: learned manual matches (zoomName -> whatsappPhone/whatsappName) so next class auto-matches
+
+DOCKER DEPLOYMENT
+-----------------
+- docker-compose.yml exposes port 3000
+- Volumes: app-data (SQLite), whatsapp-auth, whatsapp-cache
+- Environment variables: ZOOM_ACCOUNT_ID, ZOOM_CLIENT_ID, ZOOM_CLIENT_SECRET, AUTH_PASSWORD, DATABASE_URL
+- IMPORTANT: Use "docker compose build --no-cache" to force rebuild when code changes (Docker caches aggressively)
+
+RECENT FEATURES (as of Jan 2026)
+---------------------------------
+1. Send Reminder — Bell icon button opens modal to send private WhatsApp messages to selected members with module number, time, and Zoom link. Shows live streaming progress log.
+2. Zoom name matching fixes — Strips "(iPhone)", device words, possessives, #\d+ patterns before fuzzy matching. Learned matches work with normalized names too.
+3. Host filtering — Zoom participants with user_email set (the licensed host account) are filtered out before matching.
+
+ZOOM MATCHING ALGORITHM (src/lib/zoom/client.ts)
+-------------------------------------------------
+normalizeName() strips:
+  - Parenthesized content: "Ahmed (iPhone)" -> "ahmed"
+  - Bracketed content: "Ahmed [mobile]" -> "ahmed"
+  - Number tags: "Kulwinder Singh #1120" -> "kulwinder singh"
+  - Trailing numbers: "John 123" -> "john"
+  - Possessive 's: "Ahmed's" -> "ahmed"
+  - Non-alpha chars
+  - Device words: iphone, ipad, android, samsung, pixel, galaxy, phone, tablet, device, mobile, macbook, laptop
+
+matchZoomToWhatsApp() phases:
+  Phase 1: Learned matches (from ZoomNameMatch DB table) — tries both raw and normalized names
+  Phase 2: Exact normalized match
+  Phase 3: First+Last name match (any order)
+  Phase 4: First name only match (if unique)
+  Phase 5: Levenshtein distance fuzzy match (threshold based on name length)

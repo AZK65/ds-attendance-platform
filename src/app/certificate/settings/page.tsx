@@ -20,6 +20,10 @@ interface CertificateSettings {
   schoolProvince: string
   schoolPostalCode: string
   schoolNumber: string
+  schoolPhone?: string
+  truckTheoryAddress?: string
+  truckRoadAddress?: string
+  truckCircuitAddress?: string
 }
 
 export default function CertificateSettingsPage() {
@@ -316,6 +320,55 @@ export default function CertificateSettingsPage() {
                     placeholder="L526"
                   />
                 </div>
+                <div>
+                  <Label htmlFor="schoolPhone">School Phone</Label>
+                  <Input
+                    id="schoolPhone"
+                    value={formData.schoolPhone || ''}
+                    onChange={(e) => handleInputChange('schoolPhone', e.target.value)}
+                    placeholder="514 274 6948"
+                  />
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+
+          {/* SAAQ Class 1 Service Contract — training addresses */}
+          <Card>
+            <CardHeader>
+              <CardTitle>Class 1 (Truck) Service Contract</CardTitle>
+              <CardDescription>
+                Training addresses surfaced in the SAAQ Class 1 service contract PDF.
+                Leave blank to print a dash on the contract.
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-3">
+              <div>
+                <Label htmlFor="truckTheoryAddress">Theory address</Label>
+                <Input
+                  id="truckTheoryAddress"
+                  value={formData.truckTheoryAddress || ''}
+                  onChange={(e) => handleInputChange('truckTheoryAddress', e.target.value)}
+                  placeholder="786 rue Jean-Talon Ouest, Montréal QC"
+                />
+              </div>
+              <div>
+                <Label htmlFor="truckRoadAddress">Road training start address</Label>
+                <Input
+                  id="truckRoadAddress"
+                  value={formData.truckRoadAddress || ''}
+                  onChange={(e) => handleInputChange('truckRoadAddress', e.target.value)}
+                  placeholder="Where in-truck sessions depart from"
+                />
+              </div>
+              <div>
+                <Label htmlFor="truckCircuitAddress">Closed circuit address (if applicable)</Label>
+                <Input
+                  id="truckCircuitAddress"
+                  value={formData.truckCircuitAddress || ''}
+                  onChange={(e) => handleInputChange('truckCircuitAddress', e.target.value)}
+                  placeholder="Optional"
+                />
               </div>
             </CardContent>
           </Card>

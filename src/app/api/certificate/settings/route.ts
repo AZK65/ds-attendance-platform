@@ -42,6 +42,11 @@ export async function PUT(request: NextRequest) {
         schoolProvince: body.schoolProvince,
         schoolPostalCode: body.schoolPostalCode,
         schoolNumber: body.schoolNumber,
+        // Truck (Class 1) contract-specific addresses + phone
+        ...(typeof body.schoolPhone === 'string' ? { schoolPhone: body.schoolPhone } : {}),
+        ...(typeof body.truckTheoryAddress === 'string' ? { truckTheoryAddress: body.truckTheoryAddress } : {}),
+        ...(typeof body.truckRoadAddress === 'string' ? { truckRoadAddress: body.truckRoadAddress } : {}),
+        ...(typeof body.truckCircuitAddress === 'string' ? { truckCircuitAddress: body.truckCircuitAddress } : {}),
       },
       create: {
         id: 'default',
@@ -54,6 +59,10 @@ export async function PUT(request: NextRequest) {
         schoolProvince: body.schoolProvince || 'QC',
         schoolPostalCode: body.schoolPostalCode || 'H3N 1S2',
         schoolNumber: body.schoolNumber || 'L526',
+        schoolPhone: body.schoolPhone || '514 274 6948',
+        truckTheoryAddress: body.truckTheoryAddress || '',
+        truckRoadAddress: body.truckRoadAddress || '',
+        truckCircuitAddress: body.truckCircuitAddress || '',
       }
     })
 

@@ -64,6 +64,8 @@ import {
   ArrowUpDown,
   ArrowUp,
   ArrowDown,
+  Truck,
+  FileText,
 } from 'lucide-react'
 import { useRouter } from 'next/navigation'
 import { motion } from 'motion/react'
@@ -123,6 +125,18 @@ interface Registration {
   paymentAuthorizedAt: string | null
   paymentCapturedAt: string | null
   paymentError: string | null
+  // Truck (Class 1 SAAQ) contract fields
+  vehicleType?: string | null
+  consentSaaqTransmission?: boolean | null
+  consentFileTransfer?: boolean | null
+  consentContactInfo?: boolean | null
+  signedAtPlace?: string | null
+  firstCourseDate?: string | null
+  maxCompletionDate?: string | null
+  contractNumber?: string | null
+  repSignatureImage?: string | null
+  repSignerName?: string | null
+  repSignedAt?: string | null
 }
 
 interface ReviewFormData {
@@ -2385,6 +2399,16 @@ function StudentsPage() {
 
               <MedicalDeclarationBlock medical={reviewingRegistration.medical} />
 
+              {/* Truck (Class 1) service contract panel — only for truck
+                  registrations. Surfaces consents/dates, lets the admin
+                  preview/print the PDF, counter-sign it, and email it. */}
+              {reviewingRegistration.vehicleType === 'truck' && (
+                <TruckContractPanel
+                  reg={reviewingRegistration}
+                  onChanged={() => queryClient.invalidateQueries({ queryKey: ['registrations', 'submitted'] })}
+                />
+              )}
+
               <PaymentStatusBlock reg={reviewingRegistration} />
 
               {confirmMutation.error && (
@@ -2472,6 +2496,221 @@ const SAAQ_CONDITIONS_EN = [
 // ---------------------------------------------------------------------------
 // Clover auth-then-capture status block
 // ---------------------------------------------------------------------------
+// Class 1 service contract panel — preview, counter-sign, email.
+// Renders only inside the truck registration review dialog.
+function TruckContractPanel({ reg, onChanged }: { reg: Registration; onChanged: () => void }) {
+  const canvasRef = useRef<HTMLCanvasElement>(null)
+  const [drawing, setDrawing] = useState(false)
+  const [hasInk, setHasInk] = useState(false)
+  const [repName, setRepName] = useState('')
+  const [signError, setSignError] = useState<string | null>(null)
+  const [emailError, setEmailError] = useState<string | null>(null)
+  const [emailSent, setEmailSent] = useState(false)
+  const [overrideTo, setOverrideTo] = useState('')
+
+  // Initialise the canvas once it's in the DOM.
+  useEffect(() => {
+    const canvas = canvasRef.current
+    if (!canvas) return
+    const rect = canvas.getBoundingClientRect()
+    canvas.width = rect.width * 2
+    canvas.height = rect.height * 2
+    const ctx = canvas.getContext('2d')
+    if (ctx) {
+      ctx.scale(2, 2)
+      ctx.strokeStyle = '#000'
+      ctx.lineWidth = 1.8
+      ctx.lineCap = 'round'
+    }
+  }, [])
+
+  const getPos = (e: React.MouseEvent | React.TouchEvent) => {
+    const canvas = canvasRef.current
+    if (!canvas) return { x: 0, y: 0 }
+    const rect = canvas.getBoundingClientRect()
+    const evt = 'touches' in e ? e.touches[0] : e
+    return { x: evt.clientX - rect.left, y: evt.clientY - rect.top }
+  }
+  const start = (e: React.MouseEvent | React.TouchEvent) => {
+    setDrawing(true)
+    const ctx = canvasRef.current?.getContext('2d')
+    if (!ctx) return
+    const { x, y } = getPos(e)
+    ctx.beginPath(); ctx.moveTo(x, y)
+  }
+  const move = (e: React.MouseEvent | React.TouchEvent) => {
+    if (!drawing) return
+    const ctx = canvasRef.current?.getContext('2d')
+    if (!ctx) return
+    const { x, y } = getPos(e)
+    ctx.lineTo(x, y); ctx.stroke()
+    setHasInk(true)
+  }
+  const stop = () => setDrawing(false)
+  const clear = () => {
+    const canvas = canvasRef.current
+    if (!canvas) return
+    const ctx = canvas.getContext('2d')
+    if (!ctx) return
+    ctx.clearRect(0, 0, canvas.width, canvas.height)
+    setHasInk(false)
+  }
+
+  const signMutation = useMutation({
+    mutationFn: async () => {
+      const canvas = canvasRef.current
+      if (!canvas || !hasInk) throw new Error('Please sign in the box first')
+      if (!repName.trim()) throw new Error('Enter the signer name')
+      const dataUrl = canvas.toDataURL('image/png')
+      const res = await fetch('/api/register/sign-rep', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ registrationId: reg.id, signatureDataUrl: dataUrl, repName: repName.trim() }),
+      })
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}))
+        throw new Error(err.error || 'Failed to save signature')
+      }
+      return res.json()
+    },
+    onSuccess: () => { setSignError(null); clear(); onChanged() },
+    onError: e => setSignError(e instanceof Error ? e.message : 'Failed'),
+  })
+
+  const emailMutation = useMutation({
+    mutationFn: async () => {
+      const res = await fetch('/api/register/email-contract', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ registrationId: reg.id, to: overrideTo.trim() || undefined }),
+      })
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}))
+        throw new Error(err.error || 'Failed to send')
+      }
+      return res.json()
+    },
+    onSuccess: () => { setEmailError(null); setEmailSent(true) },
+    onError: e => setEmailError(e instanceof Error ? e.message : 'Failed'),
+  })
+
+  const contractHref = `/api/register/contract?registrationId=${encodeURIComponent(reg.id)}`
+  const alreadySigned = !!reg.repSignatureImage
+  const consentsOk = reg.consentSaaqTransmission && reg.consentFileTransfer && reg.consentContactInfo
+
+  return (
+    <div className="rounded-lg border-2 border-amber-300 bg-amber-50/40 dark:bg-amber-950/20 p-4 space-y-4">
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-2">
+          <Truck className="h-5 w-5 text-amber-700" />
+          <div>
+            <p className="font-semibold text-sm">Class 1 Service Contract</p>
+            <p className="text-[11px] text-muted-foreground">
+              {reg.contractNumber ? `Contract ${reg.contractNumber}` : 'Not yet numbered'} ·
+              {alreadySigned ? ' Counter-signed' : ' Awaiting counter-signature'}
+            </p>
+          </div>
+        </div>
+        <a
+          href={contractHref}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="text-xs inline-flex items-center gap-1 px-3 py-1.5 border rounded hover:bg-muted"
+        >
+          <FileText className="h-3.5 w-3.5" /> Preview PDF
+        </a>
+      </div>
+
+      {/* Quick facts pulled from the registration */}
+      <div className="grid grid-cols-2 gap-2 text-[12px] bg-white dark:bg-background rounded p-2 border">
+        <div><span className="text-muted-foreground">First course:</span> {reg.firstCourseDate || '—'}</div>
+        <div><span className="text-muted-foreground">Max complete:</span> {reg.maxCompletionDate || '—'}</div>
+        <div><span className="text-muted-foreground">Signed at:</span> {reg.signedAtPlace || '—'}</div>
+        <div className={consentsOk ? 'text-green-700' : 'text-amber-700'}>
+          {consentsOk ? '✓ 3 SAAQ consents' : '⚠ Consents incomplete'}
+        </div>
+      </div>
+
+      {/* Counter-signature */}
+      {!alreadySigned ? (
+        <div className="space-y-2">
+          <Label className="text-xs">School representative — sign here *</Label>
+          <Input
+            value={repName}
+            onChange={e => setRepName(e.target.value)}
+            placeholder="Printed name (e.g. Mohammed Qazi)"
+            className="h-8 text-sm"
+          />
+          <div className="bg-white border-2 rounded relative" style={{ touchAction: 'none', height: 120 }}>
+            <canvas
+              ref={canvasRef}
+              className="w-full h-full cursor-crosshair"
+              onMouseDown={start}
+              onMouseMove={move}
+              onMouseUp={stop}
+              onMouseLeave={stop}
+              onTouchStart={start}
+              onTouchMove={move}
+              onTouchEnd={stop}
+            />
+            {!hasInk && (
+              <p className="absolute inset-0 flex items-center justify-center text-muted-foreground text-xs pointer-events-none">
+                Sign with mouse or finger
+              </p>
+            )}
+          </div>
+          <div className="flex items-center gap-2">
+            <Button size="sm" variant="ghost" onClick={clear} disabled={!hasInk}>Clear</Button>
+            <Button size="sm" onClick={() => signMutation.mutate()} disabled={signMutation.isPending || !hasInk || !repName.trim()}>
+              {signMutation.isPending ? <Loader2 className="h-3 w-3 animate-spin mr-1" /> : null}
+              Save signature
+            </Button>
+            {signError && <span className="text-xs text-destructive">{signError}</span>}
+          </div>
+        </div>
+      ) : (
+        <div className="rounded border bg-green-50/40 dark:bg-green-950/30 p-2 text-xs flex items-center gap-2">
+          <CheckCircle className="h-4 w-4 text-green-600" />
+          <span>
+            Counter-signed by <strong>{reg.repSignerName || '—'}</strong>
+            {reg.repSignedAt && ` on ${new Date(reg.repSignedAt).toLocaleDateString('en-CA')}`}.
+          </span>
+        </div>
+      )}
+
+      {/* Email contract */}
+      <div className="space-y-2">
+        <Label className="text-xs">Email the signed contract to the student</Label>
+        <div className="flex items-center gap-2">
+          <Input
+            type="email"
+            value={overrideTo}
+            onChange={e => setOverrideTo(e.target.value)}
+            placeholder={reg.email || 'no email on file'}
+            className="h-8 text-sm flex-1"
+            disabled={emailMutation.isPending}
+          />
+          <Button
+            size="sm"
+            disabled={emailMutation.isPending || (!reg.email && !overrideTo.trim())}
+            onClick={() => emailMutation.mutate()}
+          >
+            {emailMutation.isPending ? <Loader2 className="h-3 w-3 animate-spin mr-1" /> : null}
+            {emailSent ? 'Sent ✓' : 'Send'}
+          </Button>
+        </div>
+        {!reg.email && !overrideTo && (
+          <p className="text-[11px] text-amber-600">No email on file. Enter one above.</p>
+        )}
+        {emailError && <p className="text-[11px] text-destructive">{emailError}</p>}
+        {!alreadySigned && (
+          <p className="text-[11px] text-muted-foreground">Tip: counter-sign first — the emailed copy will include both signatures.</p>
+        )}
+      </div>
+    </div>
+  )
+}
+
 function PaymentStatusBlock({ reg }: { reg: Registration }) {
   const status = reg.paymentStatus
   const amount = reg.paymentAmount ? (reg.paymentAmount / 100).toFixed(2) : '250.00'
