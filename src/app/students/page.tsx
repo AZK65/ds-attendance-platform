@@ -65,6 +65,7 @@ import {
   ArrowUp,
   ArrowDown,
   Truck,
+  Car,
   FileText,
 } from 'lucide-react'
 import { useRouter } from 'next/navigation'
@@ -1069,6 +1070,7 @@ function StudentsPage() {
                 <Table>
                   <TableHeader>
                     <TableRow>
+                      <TableHead>Type</TableHead>
                       <TableHead>Name</TableHead>
                       <TableHead>Phone</TableHead>
                       <TableHead>Email</TableHead>
@@ -1080,6 +1082,17 @@ function StudentsPage() {
                   <TableBody>
                     {pendingRegistrations.map(reg => (
                       <TableRow key={reg.id}>
+                        <TableCell>
+                          {reg.vehicleType === 'truck' ? (
+                            <Badge className="bg-amber-100 text-amber-800 border-amber-300 hover:bg-amber-100 font-medium">
+                              <Truck className="h-3 w-3 mr-1" /> Truck
+                            </Badge>
+                          ) : (
+                            <Badge className="bg-blue-100 text-blue-800 border-blue-300 hover:bg-blue-100 font-medium">
+                              <Car className="h-3 w-3 mr-1" /> Car
+                            </Badge>
+                          )}
+                        </TableCell>
                         <TableCell className="font-medium">
                           <div className="flex items-center gap-3">
                             <StudentAvatar
@@ -2310,6 +2323,15 @@ function StudentsPage() {
             <DialogTitle className="flex items-center gap-2">
               <Eye className="h-5 w-5" />
               Review Registration
+              {reviewingRegistration?.vehicleType === 'truck' ? (
+                <Badge className="bg-amber-100 text-amber-800 border-amber-300 hover:bg-amber-100 ml-1">
+                  <Truck className="h-3 w-3 mr-1" /> Class 1 Truck
+                </Badge>
+              ) : (
+                <Badge className="bg-blue-100 text-blue-800 border-blue-300 hover:bg-blue-100 ml-1">
+                  <Car className="h-3 w-3 mr-1" /> Class 5 Car
+                </Badge>
+              )}
             </DialogTitle>
             <DialogDescription>
               Review the student&apos;s submitted information. You can edit fields before confirming.
