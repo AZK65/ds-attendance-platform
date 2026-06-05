@@ -12,6 +12,7 @@ import {
   AlertCircle, CreditCard, Receipt, Car, Truck, Clock,
   Shield,
 } from 'lucide-react'
+import Image from 'next/image'
 import { QaziNav } from '@/components/qazi-nav'
 import { QaziFooter } from '@/components/qazi-footer'
 import { AddressAutocomplete } from '@/components/AddressAutocomplete'
@@ -286,7 +287,22 @@ export function RegisterPageInner({ kiosk = false }: { kiosk?: boolean } = {}) {
   return (
     <div className={`min-h-screen bg-[#F7F7F5] text-[#0B0B0F] ${kiosk ? 'kiosk-mode' : ''}`}>
       {!kiosk && <QaziNav />}
+      {kiosk && (
+        // Kiosk header — just the logo in the corner so the iPad is
+        // unmistakably branded but stays focused on the form.
+        <div className="absolute top-6 left-6 z-20">
+          <Image
+            src="/qazi-logo.png"
+            alt="Qazi Driving School"
+            width={120}
+            height={48}
+            priority
+            className="h-12 w-auto drop-shadow"
+          />
+        </div>
+      )}
       {/* Hero */}
+      {!kiosk && (
       <section className="relative overflow-hidden bg-[#0B0B0F] text-white">
         <div
           aria-hidden
@@ -369,8 +385,9 @@ export function RegisterPageInner({ kiosk = false }: { kiosk?: boolean } = {}) {
           </motion.div>
         </div>
       </section>
+      )}
 
-      <div className="max-w-2xl mx-auto px-6 py-10 md:py-14">
+      <div className={kiosk ? 'max-w-4xl mx-auto px-6 py-10' : 'max-w-2xl mx-auto px-6 py-10 md:py-14'}>
 
         {/* Progress */}
         {step !== 'submitting' && step !== 'done' && step !== 'select' && step !== 'truck-contact' && (
