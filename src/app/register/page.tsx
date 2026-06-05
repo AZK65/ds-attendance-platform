@@ -252,7 +252,9 @@ export function RegisterPageInner({ kiosk = false }: { kiosk?: boolean } = {}) {
     switch (step) {
       case 'personal': return fullName.trim().length >= 2 && phoneNumber.replace(/\D/g, '').length >= 10
       case 'address': return province.trim().toUpperCase() === 'QC'
-      case 'documents': return true // documents are optional
+      // Driver licence + ID photos are required for both car and truck —
+      // we need them on file for the school's records and the cert flow.
+      case 'documents': return !!permitImage && !!idImage
       case 'agreements': {
         const base = agreedTerms && agreedPolicy && signatureImage
         if (vehicleType !== 'truck') return base
@@ -841,7 +843,7 @@ export function RegisterPageInner({ kiosk = false }: { kiosk?: boolean } = {}) {
 
               {/* Permit Photo */}
               <div>
-                <Label>{t.documents.permitPhoto}</Label>
+                <Label>{t.documents.permitPhoto} <span className="text-red-500">*</span></Label>
                 <input ref={permitInputRef} type="file" accept="image/*" capture="environment" className="hidden" onChange={handleImageUpload(setPermitImage)} />
                 {permitImage ? (
                   <div className="mt-2 relative">
@@ -862,7 +864,7 @@ export function RegisterPageInner({ kiosk = false }: { kiosk?: boolean } = {}) {
 
               {/* ID Photo */}
               <div>
-                <Label>{t.documents.idPhoto}</Label>
+                <Label>{t.documents.idPhoto} <span className="text-red-500">*</span></Label>
                 <input ref={idInputRef} type="file" accept="image/*" capture="environment" className="hidden" onChange={handleImageUpload(setIdImage)} />
                 {idImage ? (
                   <div className="mt-2 relative">
@@ -945,6 +947,40 @@ export function RegisterPageInner({ kiosk = false }: { kiosk?: boolean } = {}) {
                   <p className="text-sm font-semibold flex items-center gap-2">
                     <Truck className="h-4 w-4" /> Class 1 Service Contract (SAAQ Article 83)
                   </p>
+
+                  {/* Plain-language checklist. Mirrors the dense paragraphs in
+                      the terms scroll so students can see the things they're
+                      most likely to ask about at a glance. The contract PDF
+                      remains the legally controlling document. */}
+                  <div className="rounded-md border border-amber-200 bg-white/70 dark:bg-amber-950/30 p-3">
+                    <p className="text-[12px] uppercase tracking-[0.14em] text-amber-700 font-semibold mb-2">
+                      Key points — at a glance
+                    </p>
+                    <ul className="space-y-2 text-[13px] leading-relaxed">
+                      {[
+                        { strong: 'Course length', body: '75 hours of theory + 50 hours of practical driving = 125 hours total.' },
+                        { strong: 'Contract duration', body: 'You have 18 months from your first class to finish the program.' },
+                        { strong: 'Missed theory class', body: '$30 per hour for any theory hour you miss. You must make it up before progressing.' },
+                        { strong: 'Cancelling a road class', body: 'Cancel at least 48 hours in advance. Less than 48h notice = $65 fee.' },
+                        { strong: 'Total cost', body: '$8,750 before taxes — $2,250 theory + $6,500 practical. Paid in 4 installments.' },
+                        { strong: 'If you stop the course', body: 'You only pay for what you used + the lesser of $50 or 10% of unused services. Refunds within 10 days.' },
+                        { strong: 'Receipts', body: 'You receive a receipt for every payment — keep them until you get your licence.' },
+                        { strong: 'Course attestation', body: 'Provided free at the end of training (or within 10 days if you cancel).' },
+                      ].map((item, i) => (
+                        <li key={i} className="flex items-start gap-2">
+                          <CheckCircle2 className="h-4 w-4 mt-0.5 shrink-0 text-amber-600" />
+                          <span>
+                            <strong className="font-semibold">{item.strong}.</strong>{' '}
+                            <span className="text-foreground/80">{item.body}</span>
+                          </span>
+                        </li>
+                      ))}
+                    </ul>
+                    <p className="mt-3 text-[11px] text-muted-foreground italic">
+                      This summary is a plain-language overview. The full SAAQ Class 1 service
+                      contract — signed by both you and the school — is the legally binding document.
+                    </p>
+                  </div>
 
                   <div className="space-y-3">
                     <div className="flex items-start gap-3">
