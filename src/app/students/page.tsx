@@ -1071,6 +1071,7 @@ function StudentsPage() {
                       <TableHead>Phone</TableHead>
                       <TableHead>Email</TableHead>
                       <TableHead>Submitted</TableHead>
+                      <TableHead>Payment</TableHead>
                       <TableHead className="w-[100px]"></TableHead>
                     </TableRow>
                   </TableHeader>
@@ -1086,6 +1087,9 @@ function StudentsPage() {
                                 month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit',
                               })
                             : '-'}
+                        </TableCell>
+                        <TableCell>
+                          <PaymentPill reg={reg} />
                         </TableCell>
                         <TableCell>
                           <Button
@@ -2762,6 +2766,65 @@ function TruckContractPanel({ reg, onChanged }: { reg: Registration; onChanged: 
   )
 }
 
+/**
+ * Compact one-line payment status pill — used in the pending registrations
+ * table so you can spot card failures / missing payments at a glance
+ * without opening the review dialog.
+ */
+function PaymentPill({ reg }: { reg: Registration }) {
+  const status = reg.paymentStatus
+  if (!status) {
+    return (
+      <Badge variant="outline" className="text-amber-700 border-amber-300 bg-amber-50">
+        ⚠ No payment
+      </Badge>
+    )
+  }
+  if (status === 'captured') {
+    return (
+      <Badge variant="outline" className="text-emerald-700 border-emerald-300 bg-emerald-50">
+        ✓ Paid (card)
+      </Badge>
+    )
+  }
+  if (status === 'authorized') {
+    return (
+      <Badge variant="outline" className="text-blue-700 border-blue-300 bg-blue-50">
+        💳 Card held
+      </Badge>
+    )
+  }
+  if (status === 'cash-pending') {
+    return (
+      <Badge variant="outline" className="text-amber-700 border-amber-300 bg-amber-50">
+        💵 Cash — collect
+      </Badge>
+    )
+  }
+  if (status === 'cash-paid') {
+    return (
+      <Badge variant="outline" className="text-emerald-700 border-emerald-300 bg-emerald-50">
+        ✓ Paid (cash)
+      </Badge>
+    )
+  }
+  if (status === 'voided') {
+    return (
+      <Badge variant="outline" className="text-muted-foreground border-muted">
+        Released
+      </Badge>
+    )
+  }
+  if (status === 'failed') {
+    return (
+      <Badge variant="outline" className="text-red-700 border-red-300 bg-red-50">
+        ✗ Card failed
+      </Badge>
+    )
+  }
+  return <Badge variant="outline">{status}</Badge>
+}
+
 function PaymentStatusBlock({ reg }: { reg: Registration }) {
   const status = reg.paymentStatus
   const amount = reg.paymentAmount ? (reg.paymentAmount / 100).toFixed(2) : '250.00'
@@ -2770,8 +2833,29 @@ function PaymentStatusBlock({ reg }: { reg: Registration }) {
 
   if (!status) {
     return (
-      <div className="rounded-lg border bg-muted/30 px-3 py-2 text-xs text-muted-foreground">
-        No card on file (older registration).
+      <div className="rounded-lg border border-amber-300 bg-amber-50/60 px-3 py-2.5">
+        <p className="text-sm font-medium text-amber-800">⚠ No payment attempted</p>
+        <p className="text-[11px] text-muted-foreground mt-0.5">
+          Student submitted the form but no card was authorized and no cash was selected.
+        </p>
+      </div>
+    )
+  }
+  if (status === 'cash-pending') {
+    return (
+      <div className="rounded-lg border border-amber-300 bg-amber-50/60 px-3 py-2.5">
+        <p className="text-sm font-medium text-amber-800">💵 Cash chosen — not yet collected</p>
+        <p className="text-[11px] text-muted-foreground mt-0.5">
+          Student chose to pay the ${amount} initial fee in cash. Collect the cash and mark the
+          auto-generated invoice as paid in the Invoice list.
+        </p>
+      </div>
+    )
+  }
+  if (status === 'cash-paid') {
+    return (
+      <div className="rounded-lg border border-emerald-300 bg-emerald-50/60 px-3 py-2.5">
+        <p className="text-sm font-medium text-emerald-800">✓ ${amount} received in cash</p>
       </div>
     )
   }
@@ -2822,10 +2906,13 @@ function PaymentStatusBlock({ reg }: { reg: Registration }) {
 
   // failed
   return (
-    <div className="rounded-lg border border-destructive/30 bg-destructive/5 px-3 py-2.5">
-      <p className="text-sm font-medium text-destructive">⚠ Payment failed</p>
+    <div className="rounded-lg border border-red-400 bg-red-50/70 dark:bg-red-950/30 px-3 py-2.5">
+      <p className="text-sm font-medium text-red-700 dark:text-red-300">✗ Card payment failed — registration UNPAID</p>
+      <p className="text-[11px] text-muted-foreground mt-0.5">
+        The student's card did not authorize. They will need to retry the payment before you can confirm them.
+      </p>
       {reg.paymentError && (
-        <p className="text-[11px] text-muted-foreground mt-0.5">{reg.paymentError}</p>
+        <p className="text-[11px] text-red-700/80 mt-1 font-mono">{reg.paymentError}</p>
       )}
     </div>
   )
