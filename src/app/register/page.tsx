@@ -44,7 +44,14 @@ export default function RegisterPage() {
   )
 }
 
-function RegisterPageInner() {
+/**
+ * Inner component, exported so the iPad kiosk route can reuse the
+ * whole multi-step flow without duplicating 800+ lines of state. The
+ * `kiosk` prop toggles chrome — no QaziNav/Footer, beefier touch
+ * targets on the select screen, auto-reset back to select after a
+ * completed submission so the next walk-in starts fresh.
+ */
+export function RegisterPageInner({ kiosk = false }: { kiosk?: boolean } = {}) {
   const { t } = useT()
   const [step, setStep] = useState<Step>('select')
   const [error, setError] = useState('')
@@ -68,6 +75,25 @@ function RegisterPageInner() {
     })()
     return () => { cancelled = true }
   }, [])
+
+  // In kiosk mode, after a successful submission the next walk-in student
+  // shouldn't see the previous student's confirmation screen. Reset back
+  // to the select screen after a short pause so they can read "thank you"
+  // first.
+  useEffect(() => {
+    if (!kiosk) return
+    if (step !== 'done') return
+    const timer = setTimeout(() => {
+      setStep('select')
+      setError('')
+      setFullName(''); setPhoneNumber(''); setEmail(''); setDob('')
+      setAddress(''); setCity('Montreal'); setProvince('QC'); setPostalCode('')
+      setPermitNumber(''); setPermitImage(null); setIdImage(null)
+      setSignatureImage(null); setAgreedTerms(false); setAgreedPolicy(false)
+      setVehicleType('car')
+    }, 15_000)
+    return () => clearTimeout(timer)
+  }, [kiosk, step])
 
   // Form data
   const [fullName, setFullName] = useState('')
@@ -258,8 +284,8 @@ function RegisterPageInner() {
   }
 
   return (
-    <div className="min-h-screen bg-[#F7F7F5] text-[#0B0B0F]">
-      <QaziNav />
+    <div className={`min-h-screen bg-[#F7F7F5] text-[#0B0B0F] ${kiosk ? 'kiosk-mode' : ''}`}>
+      {!kiosk && <QaziNav />}
       {/* Hero */}
       <section className="relative overflow-hidden bg-[#0B0B0F] text-white">
         <div
@@ -407,38 +433,62 @@ function RegisterPageInner() {
               animate={{ opacity: 1, y: 0 }}
               exit={{ opacity: 0, y: -10 }}
               transition={{ duration: 0.4 }}
-              className="space-y-8"
+              className={kiosk ? 'space-y-14 py-16' : 'space-y-8'}
             >
-              <div className="text-center max-w-[44ch] mx-auto">
-                <h2 className="text-[28px] md:text-[34px] tracking-tight leading-[1.1]">
+              <div className={kiosk ? 'text-center max-w-[40ch] mx-auto' : 'text-center max-w-[44ch] mx-auto'}>
+                <h2 className={kiosk
+                  ? 'text-[44px] md:text-[60px] tracking-tight leading-[1.05]'
+                  : 'text-[28px] md:text-[34px] tracking-tight leading-[1.1]'}>
                   {t.select.heading}
                 </h2>
-                <p className="mt-3 text-[15px] text-ink/60">{t.select.sub}</p>
+                <p className={kiosk ? 'mt-6 text-[22px] md:text-[24px] text-ink/65' : 'mt-3 text-[15px] text-ink/60'}>
+                  {t.select.sub}
+                </p>
                 {isAdmin && (
-                  <p className="mt-4 inline-flex items-center gap-2 rounded-full bg-ink/5 px-3 py-1 text-[12px] text-ink/70">
-                    <Shield className="h-3.5 w-3.5" />
+                  <p className={kiosk
+                    ? 'mt-8 inline-flex items-center gap-2 rounded-full bg-ink/5 px-5 py-2 text-[16px] text-ink/70'
+                    : 'mt-4 inline-flex items-center gap-2 rounded-full bg-ink/5 px-3 py-1 text-[12px] text-ink/70'}>
+                    <Shield className={kiosk ? 'h-4.5 w-4.5' : 'h-3.5 w-3.5'} />
                     Admin mode — truck registration available
                   </p>
                 )}
               </div>
 
-              <div className="grid gap-4 md:grid-cols-2">
+              <div className={kiosk
+                ? 'grid gap-8 md:grid-cols-2 max-w-[1000px] mx-auto'
+                : 'grid gap-4 md:grid-cols-2'}>
                 <button
                   type="button"
                   onClick={() => { setVehicleType('car'); setStep('personal') }}
-                  className="group text-left rounded-2xl border border-ink/10 bg-white p-6 md:p-7 shadow-sm hover:border-[#E11D2E] hover:shadow-md transition-all"
+                  className={kiosk
+                    ? 'group text-left rounded-3xl border-2 border-ink/10 bg-white p-12 shadow-sm active:scale-[0.98] hover:border-[#E11D2E] hover:shadow-lg transition-all min-h-[340px]'
+                    : 'group text-left rounded-2xl border border-ink/10 bg-white p-6 md:p-7 shadow-sm hover:border-[#E11D2E] hover:shadow-md transition-all'}
                 >
                   <div className="flex items-start justify-between">
-                    <span className="inline-flex h-11 w-11 items-center justify-center rounded-full bg-ink text-white group-hover:bg-[#E11D2E] transition-colors">
-                      <Car className="h-5 w-5" />
+                    <span className={kiosk
+                      ? 'inline-flex h-20 w-20 items-center justify-center rounded-full bg-ink text-white group-hover:bg-[#E11D2E] transition-colors'
+                      : 'inline-flex h-11 w-11 items-center justify-center rounded-full bg-ink text-white group-hover:bg-[#E11D2E] transition-colors'}>
+                      <Car className={kiosk ? 'h-10 w-10' : 'h-5 w-5'} />
                     </span>
-                    <span className="text-[11px] uppercase tracking-[0.18em] text-ink/40">01</span>
+                    <span className={kiosk
+                      ? 'text-[18px] uppercase tracking-[0.2em] text-ink/35'
+                      : 'text-[11px] uppercase tracking-[0.18em] text-ink/40'}>01</span>
                   </div>
-                  <h3 className="mt-5 text-[24px] font-sans tracking-tight">{t.select.class5Title}</h3>
-                  <p className="mt-1 text-[13.5px] text-ink/60">{t.select.class5Sub}</p>
-                  <span className="mt-6 inline-flex items-center gap-1 text-[13px] text-ink group-hover:text-[#E11D2E] transition-colors">
+                  <h3 className={kiosk
+                    ? 'mt-10 text-[40px] font-sans tracking-tight leading-tight'
+                    : 'mt-5 text-[24px] font-sans tracking-tight'}>
+                    {t.select.class5Title}
+                  </h3>
+                  <p className={kiosk
+                    ? 'mt-3 text-[19px] text-ink/60 leading-snug'
+                    : 'mt-1 text-[13.5px] text-ink/60'}>
+                    {t.select.class5Sub}
+                  </p>
+                  <span className={kiosk
+                    ? 'mt-10 inline-flex items-center gap-2 text-[20px] text-ink group-hover:text-[#E11D2E] transition-colors'
+                    : 'mt-6 inline-flex items-center gap-1 text-[13px] text-ink group-hover:text-[#E11D2E] transition-colors'}>
                     {t.select.class5Cta}
-                    <ArrowRight className="h-4 w-4 transition-transform group-hover:translate-x-0.5" />
+                    <ArrowRight className={kiosk ? 'h-6 w-6 transition-transform group-hover:translate-x-1' : 'h-4 w-4 transition-transform group-hover:translate-x-0.5'} />
                   </span>
                 </button>
 
@@ -454,19 +504,35 @@ function RegisterPageInner() {
                       setStep('truck-contact')
                     }
                   }}
-                  className="group text-left rounded-2xl border border-ink/10 bg-white p-6 md:p-7 shadow-sm hover:border-[#E11D2E] hover:shadow-md transition-all"
+                  className={kiosk
+                    ? 'group text-left rounded-3xl border-2 border-ink/10 bg-white p-12 shadow-sm active:scale-[0.98] hover:border-[#E11D2E] hover:shadow-lg transition-all min-h-[340px]'
+                    : 'group text-left rounded-2xl border border-ink/10 bg-white p-6 md:p-7 shadow-sm hover:border-[#E11D2E] hover:shadow-md transition-all'}
                 >
                   <div className="flex items-start justify-between">
-                    <span className="inline-flex h-11 w-11 items-center justify-center rounded-full bg-ink text-white group-hover:bg-[#E11D2E] transition-colors">
-                      <Truck className="h-5 w-5" />
+                    <span className={kiosk
+                      ? 'inline-flex h-20 w-20 items-center justify-center rounded-full bg-ink text-white group-hover:bg-[#E11D2E] transition-colors'
+                      : 'inline-flex h-11 w-11 items-center justify-center rounded-full bg-ink text-white group-hover:bg-[#E11D2E] transition-colors'}>
+                      <Truck className={kiosk ? 'h-10 w-10' : 'h-5 w-5'} />
                     </span>
-                    <span className="text-[11px] uppercase tracking-[0.18em] text-ink/40">02</span>
+                    <span className={kiosk
+                      ? 'text-[18px] uppercase tracking-[0.2em] text-ink/35'
+                      : 'text-[11px] uppercase tracking-[0.18em] text-ink/40'}>02</span>
                   </div>
-                  <h3 className="mt-5 text-[24px] font-sans tracking-tight">{t.select.truckTitle}</h3>
-                  <p className="mt-1 text-[13.5px] text-ink/60">{t.select.truckSub}</p>
-                  <span className="mt-6 inline-flex items-center gap-1 text-[13px] text-ink group-hover:text-[#E11D2E] transition-colors">
+                  <h3 className={kiosk
+                    ? 'mt-10 text-[40px] font-sans tracking-tight leading-tight'
+                    : 'mt-5 text-[24px] font-sans tracking-tight'}>
+                    {t.select.truckTitle}
+                  </h3>
+                  <p className={kiosk
+                    ? 'mt-3 text-[19px] text-ink/60 leading-snug'
+                    : 'mt-1 text-[13.5px] text-ink/60'}>
+                    {t.select.truckSub}
+                  </p>
+                  <span className={kiosk
+                    ? 'mt-10 inline-flex items-center gap-2 text-[20px] text-ink group-hover:text-[#E11D2E] transition-colors'
+                    : 'mt-6 inline-flex items-center gap-1 text-[13px] text-ink group-hover:text-[#E11D2E] transition-colors'}>
                     {t.select.truckCta}
-                    <ArrowRight className="h-4 w-4 transition-transform group-hover:translate-x-0.5" />
+                    <ArrowRight className={kiosk ? 'h-6 w-6 transition-transform group-hover:translate-x-1' : 'h-4 w-4 transition-transform group-hover:translate-x-0.5'} />
                   </span>
                 </button>
               </div>
@@ -904,7 +970,7 @@ function RegisterPageInner() {
         </div>
 
       </div>
-      <QaziFooter />
+      {!kiosk && <QaziFooter />}
     </div>
   )
 }
