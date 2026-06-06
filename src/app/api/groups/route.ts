@@ -45,6 +45,7 @@ export async function GET() {
         name: g.name,
         participantCount: g.participantCount,
         moduleNumber: g.moduleNumber ?? null,
+        vehicleType: g.vehicleType,
         lastMessageDate: g.lastMessageDate?.toISOString() ?? null,
         lastMessagePreview: g.lastMessagePreview ?? null
       })),
@@ -84,10 +85,19 @@ export async function GET() {
       })
     }
 
+    // Re-read from Prisma so we get the persisted vehicleType (default
+    // 'car') for every group. The objects returned from WhatsApp don't
+    // carry that field.
+    const annotated = await prisma.group.findMany({
+      where: { id: { in: groups.map(g => g.id) } },
+      select: { id: true, vehicleType: true },
+    })
+    const typeById = new Map(annotated.map(g => [g.id, g.vehicleType]))
+
     return NextResponse.json({
-      groups,
+      groups: groups.map(g => ({ ...g, vehicleType: typeById.get(g.id) || 'car' })),
       fromCache: false,
-      isConnected: true
+      isConnected: true,
     })
   } catch (error) {
     console.error('Get groups error:', error)

@@ -23,6 +23,11 @@ model Group {
   createdAt          DateTime         @default(now())
   updatedAt          DateTime         @updatedAt
   moduleNumber       Int?
+  // "car" (Class 5 theory cohort, default — phases 1-4 over 12 modules)
+  // or "truck" (Class 1, intake-style; no module phases). Drives which
+  // tab the group lives under on /groups and which teacher's Teamup
+  // calendar receives scheduled events.
+  vehicleType        String           @default("car")
   lastMessageDate    DateTime?
   lastMessagePreview String?
   attendanceSheet    AttendanceSheet?

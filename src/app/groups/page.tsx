@@ -39,6 +39,7 @@ interface Group {
   name: string
   participantCount: number
   moduleNumber?: number | null
+  vehicleType?: string | null
   lastMessageDate?: string | null
   lastMessagePreview?: string | null
 }
@@ -66,6 +67,11 @@ export default function GroupsPage() {
   const [debouncedSearch, setDebouncedSearch] = useState('')
   const router = useRouter()
   const queryClient = useQueryClient()
+
+  // Tab — segregates the page between Class 5 (Car) cohorts and Class 1
+  // (Truck) cohorts. Defaults to Car since the existing fleet of groups
+  // is overwhelmingly car groups.
+  const [activeTab, setActiveTab] = useState<'car' | 'truck'>('car')
 
   // New Group dialog state
   const [showNewGroup, setShowNewGroup] = useState(false)
@@ -283,10 +289,28 @@ export default function GroupsPage() {
     return null
   }
 
+  // Counts for the tab labels — computed off the full group list so the
+  // "Truck (3)" badge stays correct regardless of which tab is active.
+  const tabCounts = useMemo(() => {
+    const all = (data?.groups || []) as Group[]
+    let car = 0, truck = 0
+    for (const g of all) {
+      if (g.vehicleType === 'truck') truck++
+      else car++
+    }
+    return { car, truck }
+  }, [data?.groups])
+
   const groupsByPhase = useMemo(() => {
     if (!data?.groups) return { phase1: [], phase2: [], phase3: [], phase4: [], noPhase: [] }
 
-    const groups = [...data.groups] as Group[]
+    // Filter by active tab first. Anything with no vehicleType on the
+    // record defaults to 'car' on the server side — but we double-check
+    // here so legacy groups still appear in the Car tab.
+    const groups = ([...data.groups] as Group[]).filter(g => {
+      const t = g.vehicleType || 'car'
+      return t === activeTab
+    })
 
     // Sort within each phase by module number (ascending) then by name
     const sortGroups = (groupList: Group[]) => {
@@ -305,9 +329,9 @@ export default function GroupsPage() {
     const noPhase = groups.filter(g => getPhase(g.moduleNumber) === null).sort((a, b) => (a.name || '').localeCompare(b.name || ''))
 
     return { phase1, phase2, phase3, phase4, noPhase }
-  }, [data?.groups])
+  }, [data?.groups, activeTab])
 
-  const totalGroups = (data?.groups?.length || 0)
+  const totalGroups = activeTab === 'car' ? tabCounts.car : tabCounts.truck
 
   return (
     <div className="min-h-screen bg-background">
@@ -538,6 +562,43 @@ export default function GroupsPage() {
           </div>
         </CommandDialog>
 
+        {/* Car / Truck tabs */}
+        <div className="mb-6 flex items-center gap-2 border-b pb-1">
+          {([
+            { key: 'car' as const, label: 'Car', count: tabCounts.car },
+            { key: 'truck' as const, label: 'Truck', count: tabCounts.truck },
+          ]).map(tab => {
+            const active = activeTab === tab.key
+            return (
+              <button
+                key={tab.key}
+                type="button"
+                onClick={() => setActiveTab(tab.key)}
+                className={`relative px-4 py-2 text-sm font-medium transition-colors ${
+                  active
+                    ? 'text-foreground'
+                    : 'text-muted-foreground hover:text-foreground'
+                }`}
+              >
+                <span className="flex items-center gap-2">
+                  {tab.label}
+                  <span className={`inline-flex items-center justify-center text-[11px] font-semibold rounded-full px-2 py-0.5 ${
+                    active ? 'bg-foreground text-background' : 'bg-muted text-muted-foreground'
+                  }`}>
+                    {tab.count}
+                  </span>
+                </span>
+                {active && (
+                  <motion.div
+                    layoutId="groupsTab"
+                    className="absolute bottom-[-5px] left-0 right-0 h-[2px] bg-foreground"
+                  />
+                )}
+              </button>
+            )
+          })}
+        </div>
+
         <AnimatePresence mode="wait">
           {isLoading ? (
             <motion.div
@@ -716,10 +777,12 @@ export default function GroupsPage() {
             <DialogHeader>
               <DialogTitle className="flex items-center gap-2">
                 <Plus className="h-5 w-5" />
-                Create New Group
+                Create New {activeTab === 'truck' ? 'Truck' : 'Car'} Group
               </DialogTitle>
               <DialogDescription>
-                Name the group and select pending students to add.
+                {activeTab === 'truck'
+                  ? 'Creates a Class 1 (Truck) cohort group. Truck students from your pending list will be added.'
+                  : 'Creates a Class 5 (Car) theory cohort. Walks you through schedule + reminders after.'}
               </DialogDescription>
             </DialogHeader>
 
@@ -810,7 +873,9 @@ export default function GroupsPage() {
                         const res = await fetch('/api/groups/create', {
                           method: 'POST',
                           headers: { 'Content-Type': 'application/json' },
-                          body: JSON.stringify({ name: newGroupName.trim(), participants: phones }),
+                          // Tag the new group with whichever tab is active when the
+                          // wizard was opened so it lands in the right list immediately.
+                          body: JSON.stringify({ name: newGroupName.trim(), participants: phones, vehicleType: activeTab }),
                         })
                         if (!res.ok) {
                           const err = await res.json()

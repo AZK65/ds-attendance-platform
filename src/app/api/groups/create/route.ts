@@ -10,15 +10,18 @@ export async function POST(request: NextRequest) {
   }
 
   try {
-    const { name, participants, participantNames } = await request.json() as {
+    const { name, participants, participantNames, vehicleType: requestedType } = await request.json() as {
       name: string
       participants: string[]
       participantNames?: string[]
+      vehicleType?: 'car' | 'truck'
     }
 
     if (!name || !name.trim()) {
       return NextResponse.json({ error: 'Group name is required' }, { status: 400 })
     }
+
+    const vehicleType: 'car' | 'truck' = requestedType === 'truck' ? 'truck' : 'car'
 
     let groupId: string
     let title: string
@@ -42,11 +45,12 @@ export async function POST(request: NextRequest) {
     try {
       await prisma.group.upsert({
         where: { id: groupId },
-        update: { name: title, lastSynced: new Date() },
+        update: { name: title, lastSynced: new Date(), vehicleType },
         create: {
           id: groupId,
           name: title,
           participantCount: (participants?.length || 0) + 1,
+          vehicleType,
         },
       })
 
