@@ -1,13 +1,14 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { OCR_MODEL } from '@/lib/openrouter'
 
 // POST /api/register/ocr-licence
 // Public endpoint — runs OCR on a single Quebec driver's-licence photo and
 // returns the fields we want to auto-fill in the registration form
 // (licence number, expiration date, DOB, name, address).
 //
-// Uses OpenRouter / Gemini 2.0 Flash, same provider the certificate flow's
-// OCR uses, but with a registration-specific prompt and a stricter output
-// shape so we never accidentally surface unrelated data.
+// Uses OpenRouter (model from OCR_MODEL), same provider the certificate
+// flow's OCR uses, but with a registration-specific prompt and a stricter
+// output shape so we never accidentally surface unrelated data.
 
 const OPENROUTER_API_KEY = process.env.OPENROUTER_API_KEY
 
@@ -52,7 +53,7 @@ export async function POST(request: NextRequest) {
         'X-Title': 'DS Attendance Platform - Registration',
       },
       body: JSON.stringify({
-        model: 'google/gemini-2.0-flash-001',
+        model: OCR_MODEL,
         messages: [{
           role: 'user',
           content: [

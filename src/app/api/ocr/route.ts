@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { OCR_MODEL } from '@/lib/openrouter'
 
 const OPENROUTER_API_KEY = process.env.OPENROUTER_API_KEY
 
@@ -141,7 +142,7 @@ async function processLicenceImage(licenceImage: string): Promise<Partial<Extrac
       'X-Title': 'DS Attendance Platform - Certificate Maker'
     },
     body: JSON.stringify({
-      model: 'google/gemini-2.0-flash-001',
+      model: OCR_MODEL,
       messages: [
         {
           role: 'user',
@@ -211,7 +212,7 @@ async function processAttendanceImage(attendanceImage: string): Promise<Partial<
       'X-Title': 'DS Attendance Platform - Certificate Maker'
     },
     body: JSON.stringify({
-      model: 'google/gemini-2.0-flash-001',
+      model: OCR_MODEL,
       messages: [
         {
           role: 'user',
@@ -319,7 +320,7 @@ async function processCombinedImage(combinedImage: string): Promise<Partial<Extr
       'X-Title': 'DS Attendance Platform - Certificate Maker'
     },
     body: JSON.stringify({
-      model: 'google/gemini-2.0-flash-001',
+      model: OCR_MODEL,
       messages: [
         {
           role: 'user',
