@@ -258,7 +258,10 @@ export function RegisterPageInner({ kiosk = false }: { kiosk?: boolean } = {}) {
       const img = new Image()
       img.onload = () => {
         const canvas = document.createElement('canvas')
-        const maxSize = 1200
+        // Match the certificate flow's settings (2500px / 0.85). At the old
+        // 1200px / 0.7 the small Quebec licence number was too degraded for
+        // the OCR model to read, so it returned empty fields.
+        const maxSize = 2500
         let w = img.width, h = img.height
         if (w > maxSize || h > maxSize) {
           if (w > h) { h = (h / w) * maxSize; w = maxSize }
@@ -267,7 +270,7 @@ export function RegisterPageInner({ kiosk = false }: { kiosk?: boolean } = {}) {
         canvas.width = w
         canvas.height = h
         canvas.getContext('2d')?.drawImage(img, 0, 0, w, h)
-        const compressed = canvas.toDataURL('image/jpeg', 0.7)
+        const compressed = canvas.toDataURL('image/jpeg', 0.85)
         setter(compressed)
         if (opts.ocr) runLicenceOcr(compressed)
       }
