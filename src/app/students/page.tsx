@@ -441,26 +441,6 @@ function StudentsPage() {
 
   const confirmedRegistrations = confirmedRegsData?.registrations || []
 
-  // Explicitly compute the list of confirmed students who are NOT yet in
-  // any WhatsApp group. Rendered as a dedicated card so they're always
-  // visible regardless of what activeStudents does. Phone-suffix match
-  // (last 10 digits) so we de-dupe correctly even if formats differ.
-  const orphanedConfirmed = useMemo(() => {
-    if (confirmedRegistrations.length === 0) return []
-    const groupSuffixes = new Set<string>()
-    const parts = participantsData?.participants || []
-    for (const p of parts) {
-      const d = (p.phone || '').replace(/\D/g, '')
-      if (d.length >= 10) groupSuffixes.add(d.slice(-10))
-    }
-    return confirmedRegistrations.filter(reg => {
-      const d = (reg.phoneNumber || '').replace(/\D/g, '')
-      if (d.length < 7) return false
-      const suffix = d.length >= 10 ? d.slice(-10) : d
-      return !groupSuffixes.has(suffix)
-    })
-  }, [confirmedRegistrations, participantsData])
-
   // Fetch active students from WhatsApp groups (only course groups with module numbers)
   const { data: participantsData, isLoading: isLoadingParticipants } = useQuery<{
     participants: ParticipantWithGroup[]
@@ -523,6 +503,26 @@ function StudentsPage() {
     }
     return Array.from(byPhone.values())
   }, [participantsData, confirmedRegistrations])
+
+  // Explicitly compute the list of confirmed students who are NOT yet in
+  // any WhatsApp group. Rendered as a dedicated card so they're always
+  // visible regardless of what activeStudents does. Phone-suffix match
+  // (last 10 digits) so we de-dupe correctly even if formats differ.
+  const orphanedConfirmed = useMemo(() => {
+    if (confirmedRegistrations.length === 0) return []
+    const groupSuffixes = new Set<string>()
+    const parts = participantsData?.participants || []
+    for (const p of parts) {
+      const d = (p.phone || '').replace(/\D/g, '')
+      if (d.length >= 10) groupSuffixes.add(d.slice(-10))
+    }
+    return confirmedRegistrations.filter(reg => {
+      const d = (reg.phoneNumber || '').replace(/\D/g, '')
+      if (d.length < 7) return false
+      const suffix = d.length >= 10 ? d.slice(-10) : d
+      return !groupSuffixes.has(suffix)
+    })
+  }, [confirmedRegistrations, participantsData])
 
   // Fetch last/next class info for all active student phones
   const phoneList = useMemo(() => activeStudents.map(s => s.phone), [activeStudents])
