@@ -1961,6 +1961,10 @@ function CertificatePageInner() {
         sortie15Date: ocrData.sortie15Date || prev.sortie15Date,
         registrationDate: ocrData.registrationDate || prev.registrationDate,
         expiryDate: ocrData.expiryDate || prev.expiryDate,
+        // DB student data wins, but fall back to OCR when the database has no
+        // licence number on file (otherwise the scanned licence is discarded
+        // and the field stays empty).
+        licenceNumber: prev.licenceNumber || ocrData.licenceNumber || '',
       }))
       setDbStep('review')
     } catch (error) {
