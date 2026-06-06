@@ -96,7 +96,9 @@ export async function createRegistrationInvoice(
     `Auto-generated from registration ${registration.id}.`,
     paymentMethod === 'cash'
       ? 'Cash chosen during sign-up — confirm receipt before marking paid.'
-      : 'Card payment captured via Clover.',
+      : paymentStatus === 'paid'
+        ? 'Card payment captured via Clover.'
+        : 'Card chosen during sign-up — charge on the school terminal before marking paid.',
     tag, // de-dupe sentinel
   ]
   const notes = noteParts.join('\n')

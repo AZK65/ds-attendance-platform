@@ -20,6 +20,9 @@ export async function POST(request: NextRequest) {
       // Truck-only — 'cash' or 'card'. Stored as a status flag on the row;
       // the actual Clover capture happens on the dedicated checkout route.
       truckPaymentMethod,
+      // Truck-only, card only — 'online' (Clover) or 'in-person' (school
+      // terminal). In-person is collected like cash but recorded as card.
+      cardLocation,
     } = body
 
     // Only logged-in admins can submit a truck registration. The public
@@ -28,6 +31,17 @@ export async function POST(request: NextRequest) {
     const isAdmin = request.cookies.get('auth-token')?.value === 'valid'
     const vehicleType =
       requestedVehicleType === 'truck' && isAdmin ? 'truck' : 'car'
+
+    // Fee collected in person → no Clover, auto-create an unpaid invoice.
+    // Covers cash and card-on-terminal; only the recorded method differs.
+    const inPersonMethod: 'cash' | 'card' | null =
+      vehicleType === 'truck'
+        ? truckPaymentMethod === 'cash'
+          ? 'cash'
+          : truckPaymentMethod === 'card' && cardLocation === 'in-person'
+            ? 'card'
+            : null
+        : null
 
     if (!fullName?.trim() || !phoneNumber?.trim()) {
       return NextResponse.json({ error: 'Name and phone number are required' }, { status: 400 })
@@ -98,13 +112,15 @@ export async function POST(request: NextRequest) {
             ? repName.trim()
             : null,
         repSignedAt: vehicleType === 'truck' && typeof repSignatureDataUrl === 'string' ? new Date() : null,
-        // Stash the cash/card decision into the existing paymentStatus
-        // shape so the admin review dialog's PaymentStatusBlock surfaces
-        // it without new wiring. "cash-pending" = student picked cash and
-        // the cash hasn't been collected yet.
-        ...(vehicleType === 'truck' && truckPaymentMethod === 'cash'
+        // Stash the in-person collection decision into the existing
+        // paymentStatus shape so the admin review dialog's PaymentStatusBlock
+        // surfaces it without new wiring. "cash-pending" / "card-pending" =
+        // fee picked but not yet collected at the school.
+        ...(inPersonMethod === 'cash'
           ? { paymentStatus: 'cash-pending', paymentAmount: 25000 }
-          : {}),
+          : inPersonMethod === 'card'
+            ? { paymentStatus: 'card-pending', paymentAmount: 25000 }
+            : {}),
         fullName: fullName.trim(),
         phoneNumber: phoneDigits.length === 10 ? '1' + phoneDigits : phoneDigits,
         email: email?.trim() || null,
@@ -126,19 +142,20 @@ export async function POST(request: NextRequest) {
       },
     })
 
-    // Cash-on-signup → auto-create an unpaid invoice so it shows up in
-    // the admin invoice list immediately. Admin marks paid once the cash
-    // is physically collected. Card-on-signup uses Clover Hosted Checkout
-    // and gets its invoice on capture (see /api/registrations/[id]/capture).
-    if (vehicleType === 'truck' && truckPaymentMethod === 'cash') {
+    // In-person collection → auto-create an unpaid invoice so it shows up in
+    // the admin invoice list immediately. Admin marks paid once the fee is
+    // physically collected (cash, or card on the school terminal). Card-online
+    // uses Clover Hosted Checkout and gets its invoice on capture
+    // (see /api/registrations/[id]/capture).
+    if (inPersonMethod) {
       try {
         await createRegistrationInvoice({
           registration,
-          paymentMethod: 'cash',
+          paymentMethod: inPersonMethod,
           paymentStatus: 'unpaid',
         })
       } catch (err) {
-        console.error('[register] cash auto-invoice failed:', err)
+        console.error('[register] in-person auto-invoice failed:', err)
       }
     }
 

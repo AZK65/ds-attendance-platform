@@ -63,6 +63,21 @@ const PAYMENT_SCHEDULE = [
   { num: 6, amount: 150, phase: 'Phase 4', roadClass: 'Road Class 12' },
 ]
 
+// Class 1 (truck) — full program from the SAAQ service contract:
+// $2,250 theory + $6,500 practical + $300 SAAQ road exam in Laval = $9,050
+// before taxes, paid in four equal installments. Kept in sync with the
+// "Total cost" key-point line in the truck agreement step and the truck
+// invoice package (scripts/seed-truck-package.ts).
+const TRUCK_PACKAGE_TOTAL = 9050
+const TRUCK_PAYMENT_SCHEDULE = [
+  { num: 1, amount: 2262.5, phase: 'Installment 1', roadClass: 'On registration', first: true },
+  { num: 2, amount: 2262.5, phase: 'Installment 2', roadClass: 'Theory phase' },
+  { num: 3, amount: 2262.5, phase: 'Installment 3', roadClass: 'Practical phase' },
+  { num: 4, amount: 2262.5, phase: 'Installment 4', roadClass: 'Final + Laval exam' },
+]
+const money = (n: number) =>
+  n.toLocaleString('en-US', { minimumFractionDigits: Number.isInteger(n) ? 0 : 2, maximumFractionDigits: 2 })
+
 export default function RegisterPage() {
   return (
     <LangProvider>
@@ -120,6 +135,7 @@ export function RegisterPageInner({ kiosk = false }: { kiosk?: boolean } = {}) {
       setVehicleType('car')
       setConsentSaaqTransmission(false); setConsentFileTransfer(false)
       setConsentContactInfo(false); setSignedAtPlace('Montréal'); setFirstCourseDate('')
+      setTruckPaymentMethod(''); setCardLocation('')
     }, 15_000)
     return () => clearTimeout(timer)
   }, [kiosk, step])
@@ -157,6 +173,10 @@ export function RegisterPageInner({ kiosk = false }: { kiosk?: boolean } = {}) {
   // Truck initial-fee payment method choice — drives whether we run the
   // Clover Hosted Checkout step or just record cash and submit.
   const [truckPaymentMethod, setTruckPaymentMethod] = useState<'cash' | 'card' | ''>('')
+  // When card is chosen: "online" runs Clover Hosted Checkout, "in-person"
+  // skips Clover (terminal at the school) and records an unpaid card invoice,
+  // mirroring the cash flow but flagged as card.
+  const [cardLocation, setCardLocation] = useState<'online' | 'in-person' | ''>('')
 
   const permitInputRef = useRef<HTMLInputElement>(null)
   const idInputRef = useRef<HTMLInputElement>(null)
@@ -284,6 +304,19 @@ export function RegisterPageInner({ kiosk = false }: { kiosk?: boolean } = {}) {
   const STEPS = vehicleType === 'truck' ? TRUCK_STEPS : CAR_STEPS
   const stepIndex = STEPS.findIndex(s => s.key === step)
 
+  // Payment-step pricing. Car uses the localized 6-installment $1,000
+  // schedule; truck shows the Class 1 service-contract plan (4 equal
+  // installments totalling $9,050 before taxes).
+  const isTruckPayment = vehicleType === 'truck'
+  const paymentRows: { num: number; amount: number; first: boolean; label: string; sub: string | null }[] =
+    isTruckPayment
+      ? TRUCK_PAYMENT_SCHEDULE.map(p => ({ num: p.num, amount: p.amount, first: !!p.first, label: p.phase, sub: p.roadClass }))
+      : PAYMENT_SCHEDULE.map((p, i) => ({ num: p.num, amount: p.amount, first: !!p.first, label: t.payment.rows[i].phase, sub: t.payment.rows[i].roadClass }))
+  const paymentIntro = isTruckPayment
+    ? 'The total course cost is $9,050 before taxes, payable in four equal installments.'
+    : t.payment.intro
+  const paymentTotalAmount = isTruckPayment ? `$${money(TRUCK_PACKAGE_TOTAL)}` : '$1,000'
+
   const canProceed = () => {
     switch (step) {
       case 'personal': return fullName.trim().length >= 2 && phoneNumber.replace(/\D/g, '').length >= 10
@@ -304,7 +337,11 @@ export function RegisterPageInner({ kiosk = false }: { kiosk?: boolean } = {}) {
       }
       case 'rep-handoff': return true
       case 'rep-sign': return !!repSignatureDataUrl && repName.trim().length >= 2
-      case 'payment-method': return truckPaymentMethod === 'cash' || truckPaymentMethod === 'card'
+      case 'payment-method':
+        if (truckPaymentMethod === 'cash') return true
+        // Card requires picking online vs in-person before continuing.
+        if (truckPaymentMethod === 'card') return cardLocation === 'online' || cardLocation === 'in-person'
+        return false
       case 'payment': return true
       default: return false
     }
@@ -349,7 +386,7 @@ export function RegisterPageInner({ kiosk = false }: { kiosk?: boolean } = {}) {
           consentSaaqTransmission, consentFileTransfer, consentContactInfo,
           signedAtPlace, firstCourseDate,
           repSignatureDataUrl, repName,
-          truckPaymentMethod,
+          truckPaymentMethod, cardLocation,
         }),
       })
 
@@ -362,10 +399,16 @@ export function RegisterPageInner({ kiosk = false }: { kiosk?: boolean } = {}) {
 
       const { registrationId } = await res.json()
 
-      // Truck + cash → no Clover checkout. Registration is already saved
-      // with truckPaymentMethod='cash' so the admin sees the cash flag in
-      // the review dialog. Go straight to the done screen.
-      if (vehicleType === 'truck' && truckPaymentMethod === 'cash') {
+      // No Clover checkout when the fee is collected in person:
+      //  • cash, or
+      //  • card run on the school's terminal (card + in-person).
+      // The registration is already saved with the right method so the admin
+      // sees the correct "collect" flag in the review dialog. Go to done.
+      const collectInPerson =
+        vehicleType === 'truck' &&
+        (truckPaymentMethod === 'cash' ||
+          (truckPaymentMethod === 'card' && cardLocation === 'in-person'))
+      if (collectInPerson) {
         setStep('done')
         return
       }
@@ -1085,7 +1128,8 @@ export function RegisterPageInner({ kiosk = false }: { kiosk?: boolean } = {}) {
                         { strong: 'Contract duration', body: 'You have 18 months from your first class to finish the program.' },
                         { strong: 'Missed theory class', body: '$30 per hour for any theory hour you miss. You must make it up before progressing.' },
                         { strong: 'Cancelling a road class', body: 'Cancel at least 48 hours in advance. Less than 48h notice = $65 fee.' },
-                        { strong: 'Total cost', body: '$8,750 before taxes — $2,250 theory + $6,500 practical. Paid in 4 installments.' },
+                        { strong: 'Exam in Laval', body: 'SAAQ road exam in Laval — $300, included in the total package.' },
+                        { strong: 'Total cost', body: '$9,050 before taxes — $2,250 theory + $6,500 practical + $300 SAAQ exam in Laval. Paid in 4 installments.' },
                         { strong: 'If you stop the course', body: 'You only pay for what you used + the lesser of $50 or 10% of unused services. Refunds within 10 days.' },
                         { strong: 'Receipts', body: 'You receive a receipt for every payment — keep them until you get your licence.' },
                         { strong: 'Course attestation', body: 'Provided free at the end of training (or within 10 days if you cancel).' },
@@ -1271,7 +1315,7 @@ export function RegisterPageInner({ kiosk = false }: { kiosk?: boolean } = {}) {
               <div className="grid gap-3 sm:grid-cols-2">
                 <button
                   type="button"
-                  onClick={() => setTruckPaymentMethod('cash')}
+                  onClick={() => { setTruckPaymentMethod('cash'); setCardLocation('') }}
                   className={`text-left rounded-xl border-2 p-5 transition-all ${truckPaymentMethod === 'cash' ? 'border-amber-500 bg-amber-50/60' : 'border-ink/10 bg-white hover:border-amber-300'}`}
                 >
                   <p className="text-[18px] font-medium">Cash</p>
@@ -1286,10 +1330,39 @@ export function RegisterPageInner({ kiosk = false }: { kiosk?: boolean } = {}) {
                 >
                   <p className="text-[18px] font-medium">Card</p>
                   <p className="mt-1 text-[13px] text-muted-foreground">
-                    Run through Clover Hosted Checkout on the next step.
+                    Pay online with Clover, or in person on the school terminal.
                   </p>
                 </button>
               </div>
+
+              {/* Card sub-choice — only after Card is picked */}
+              {truckPaymentMethod === 'card' && (
+                <div className="space-y-3 pt-1">
+                  <p className="text-sm font-medium">Where will the card be paid?</p>
+                  <div className="grid gap-3 sm:grid-cols-2">
+                    <button
+                      type="button"
+                      onClick={() => setCardLocation('online')}
+                      className={`text-left rounded-xl border-2 p-5 transition-all ${cardLocation === 'online' ? 'border-amber-500 bg-amber-50/60' : 'border-ink/10 bg-white hover:border-amber-300'}`}
+                    >
+                      <p className="text-[18px] font-medium">Online</p>
+                      <p className="mt-1 text-[13px] text-muted-foreground">
+                        Run through Clover Hosted Checkout on the next step.
+                      </p>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setCardLocation('in-person')}
+                      className={`text-left rounded-xl border-2 p-5 transition-all ${cardLocation === 'in-person' ? 'border-amber-500 bg-amber-50/60' : 'border-ink/10 bg-white hover:border-amber-300'}`}
+                    >
+                      <p className="text-[18px] font-medium">In person</p>
+                      <p className="mt-1 text-[13px] text-muted-foreground">
+                        Charged on the school terminal. Recorded as card — collect now.
+                      </p>
+                    </button>
+                  </div>
+                </div>
+              )}
             </motion.div>
           )}
 
@@ -1302,14 +1375,14 @@ export function RegisterPageInner({ kiosk = false }: { kiosk?: boolean } = {}) {
               className="space-y-5"
             >
               <h2 className="text-lg font-semibold flex items-center gap-2"><Receipt className="h-5 w-5" /> {t.payment.heading}</h2>
-              <p className="text-sm text-muted-foreground">{t.payment.intro}</p>
+              <p className="text-sm text-muted-foreground">{paymentIntro}</p>
 
               <div className="rounded-xl border bg-card overflow-hidden">
-                {PAYMENT_SCHEDULE.map((p, i) => (
+                {paymentRows.map((p, i) => (
                   <div
                     key={p.num}
                     className={`flex items-center gap-3 px-4 py-3 ${
-                      i !== PAYMENT_SCHEDULE.length - 1 ? 'border-b' : ''
+                      i !== paymentRows.length - 1 ? 'border-b' : ''
                     } ${p.first ? 'bg-primary/5' : ''}`}
                   >
                     <div className={`flex items-center justify-center h-8 w-8 rounded-full text-xs font-semibold shrink-0 ${
@@ -1318,22 +1391,22 @@ export function RegisterPageInner({ kiosk = false }: { kiosk?: boolean } = {}) {
                       {p.num}
                     </div>
                     <div className="flex-1 min-w-0">
-                      <p className="text-sm font-medium">{t.payment.rows[i].phase}</p>
-                      {t.payment.rows[i].roadClass && (
-                        <p className="text-xs text-muted-foreground">{t.payment.rows[i].roadClass}</p>
+                      <p className="text-sm font-medium">{p.label}</p>
+                      {p.sub && (
+                        <p className="text-xs text-muted-foreground">{p.sub}</p>
                       )}
                       {p.first && (
                         <p className="text-xs text-primary font-medium mt-0.5">{t.payment.dueToday}</p>
                       )}
                     </div>
                     <div className="text-right">
-                      <p className="text-sm font-semibold tabular-nums">${p.amount}</p>
+                      <p className="text-sm font-semibold tabular-nums">${money(p.amount)}</p>
                     </div>
                   </div>
                 ))}
                 <div className="flex items-center justify-between px-4 py-3 bg-muted/50 border-t">
                   <p className="text-sm font-semibold">{t.payment.total}</p>
-                  <p className="text-sm font-bold tabular-nums">$1,000</p>
+                  <p className="text-sm font-bold tabular-nums">{paymentTotalAmount}</p>
                 </div>
               </div>
 

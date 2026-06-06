@@ -2980,6 +2980,13 @@ function PaymentPill({ reg }: { reg: Registration }) {
       </Badge>
     )
   }
+  if (status === 'card-pending') {
+    return (
+      <Badge variant="outline" className="text-amber-700 border-amber-300 bg-amber-50">
+        💳 Card — collect in person
+      </Badge>
+    )
+  }
   if (status === 'cash-paid') {
     return (
       <Badge variant="outline" className="text-emerald-700 border-emerald-300 bg-emerald-50">
@@ -3027,6 +3034,17 @@ function PaymentStatusBlock({ reg }: { reg: Registration }) {
         <p className="text-[11px] text-muted-foreground mt-0.5">
           Student chose to pay the ${amount} initial fee in cash. Collect the cash and mark the
           auto-generated invoice as paid in the Invoice list.
+        </p>
+      </div>
+    )
+  }
+  if (status === 'card-pending') {
+    return (
+      <div className="rounded-lg border border-amber-300 bg-amber-50/60 px-3 py-2.5">
+        <p className="text-sm font-medium text-amber-800">💳 Card (in person) — not yet collected</p>
+        <p className="text-[11px] text-muted-foreground mt-0.5">
+          Student chose to pay the ${amount} initial fee by card on the school terminal. Charge the
+          card and mark the auto-generated invoice as paid in the Invoice list.
         </p>
       </div>
     )
