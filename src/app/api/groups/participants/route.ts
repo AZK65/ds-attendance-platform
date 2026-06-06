@@ -11,6 +11,7 @@ interface ParticipantWithGroup {
   groupId: string
   groupName: string
   moduleNumber: number | null
+  vehicleType: string
   lastMessageDate: string | null
 }
 
@@ -31,7 +32,10 @@ export async function GET(request: NextRequest) {
       const participants: ParticipantWithGroup[] = cachedMembers
         .filter(m => {
           if (!m.group.name || m.group.name === 'Status Broadcast') return false
-          if (courseOnly && !m.group.moduleNumber) return false
+          // Course groups = car cohorts (have a module number) OR truck
+          // groups (intake-style, no modules). Keep both; drop only the
+          // non-course groups when courseOnly is set.
+          if (courseOnly && !m.group.moduleNumber && m.group.vehicleType !== 'truck') return false
           return true
         })
         .map(m => ({
@@ -42,6 +46,7 @@ export async function GET(request: NextRequest) {
           groupId: m.groupId,
           groupName: m.group.name,
           moduleNumber: m.group.moduleNumber ?? null,
+          vehicleType: m.group.vehicleType,
           lastMessageDate: m.group.lastMessageDate?.toISOString() ?? null,
         }))
 
@@ -81,7 +86,7 @@ export async function GET(request: NextRequest) {
         contactId: true,
         contact: { select: { id: true, phone: true, name: true, pushName: true } },
         attendanceSheet: {
-          select: { group: { select: { id: true, name: true, moduleNumber: true, lastMessageDate: true } } }
+          select: { group: { select: { id: true, name: true, moduleNumber: true, vehicleType: true, lastMessageDate: true } } }
         },
       },
       distinct: ['contactId'],
@@ -96,6 +101,7 @@ export async function GET(request: NextRequest) {
       groupId: r.attendanceSheet.group.id,
       groupName: r.attendanceSheet.group.name,
       moduleNumber: r.attendanceSheet.group.moduleNumber ?? null,
+      vehicleType: r.attendanceSheet.group.vehicleType,
       lastMessageDate: r.attendanceSheet.group.lastMessageDate?.toISOString() ?? null,
     }))
 
@@ -168,6 +174,9 @@ async function fetchLiveParticipants(courseOnly: boolean): Promise<ParticipantWi
           groupId: group.id,
           groupName: group.name!,
           moduleNumber: group.moduleNumber || null,
+          // Live WhatsApp data carries no vehicleType (DB-only field); the
+          // cached path fills it in correctly on the next sync.
+          vehicleType: 'car',
           lastMessageDate: group.lastMessageDate ? group.lastMessageDate.toISOString() : null
         }))
       })

@@ -166,6 +166,7 @@ interface ParticipantWithGroup {
   groupId: string
   groupName: string
   moduleNumber: number | null
+  vehicleType?: string
   lastMessageDate: string | null
 }
 
@@ -294,6 +295,9 @@ function StudentsPage() {
       body: JSON.stringify({ key: 'students-sort', value: val }),
     }).catch(() => {})
   }
+
+  // All / Car / Truck filter for the active students list.
+  const [vehicleTab, setVehicleTab] = useState<'all' | 'car' | 'truck'>('all')
 
   // MySQL database search (for students not in active groups)
   const { data: dbSearchResults } = useQuery<{ students: Array<{ student_id: number; full_name: string; phone_number: string; city: string; permit_number: string }> }>({
@@ -497,6 +501,7 @@ function StudentsPage() {
         groupId: '',
         groupName: '',
         moduleNumber: null,
+        vehicleType: reg.vehicleType || 'car',
         lastMessageDate: null,
         avatarImage: reg.avatarImage || null,
         needsGroup: true,
@@ -552,8 +557,24 @@ function StudentsPage() {
   const dbMatches = matchesData?.matches || {}
 
   // Filter and sort active students (client-side)
+  // Counts per vehicle tab (truck = group/registration tagged "truck",
+  // everything else counts as car).
+  const vehicleCounts = useMemo(() => {
+    let car = 0, truck = 0
+    for (const s of activeStudents) {
+      if (s.vehicleType === 'truck') truck++
+      else car++
+    }
+    return { all: activeStudents.length, car, truck }
+  }, [activeStudents])
+
   const filteredStudents = useMemo(() => {
     let result = activeStudents
+    if (vehicleTab !== 'all') {
+      result = result.filter(s =>
+        vehicleTab === 'truck' ? s.vehicleType === 'truck' : s.vehicleType !== 'truck'
+      )
+    }
     const q = searchQuery.trim().toLowerCase()
     if (q) {
       result = result.filter(s => {
@@ -602,7 +623,7 @@ function StudentsPage() {
       }
     })
     return sorted
-  }, [activeStudents, dbMatches, searchQuery, sortBy, classResults])
+  }, [activeStudents, dbMatches, searchQuery, sortBy, classResults, vehicleTab])
 
   // Create mutation
   const createMutation = useMutation({
@@ -1248,6 +1269,32 @@ function StudentsPage() {
                 </DropdownMenu>
               </div>
             </div>
+            {/* All / Car / Truck tabs */}
+            <div className="flex items-center gap-1 mt-3 border-b">
+              {([
+                { key: 'all', label: 'All', icon: Users, count: vehicleCounts.all },
+                { key: 'car', label: 'Car', icon: Car, count: vehicleCounts.car },
+                { key: 'truck', label: 'Truck', icon: Truck, count: vehicleCounts.truck },
+              ] as const).map(tab => {
+                const Icon = tab.icon
+                const isActive = vehicleTab === tab.key
+                return (
+                  <button
+                    key={tab.key}
+                    onClick={() => setVehicleTab(tab.key)}
+                    className={`flex items-center gap-1.5 px-3 py-2 text-sm font-medium border-b-2 -mb-px transition-colors ${
+                      isActive
+                        ? 'border-primary text-foreground'
+                        : 'border-transparent text-muted-foreground hover:text-foreground'
+                    }`}
+                  >
+                    <Icon className="h-4 w-4" />
+                    {tab.label}
+                    <Badge variant="secondary" className="ml-0.5">{tab.count}</Badge>
+                  </button>
+                )
+              })}
+            </div>
           </CardHeader>
           <CardContent>
             {/* Cache indicator — show when using cached data */}
@@ -1268,7 +1315,15 @@ function StudentsPage() {
               </div>
             ) : filteredStudents.length === 0 && (!dbSearchResults?.students?.length) ? (
               <div className="text-center py-8">
-                <p className="text-muted-foreground">No students match &ldquo;{searchQuery}&rdquo;</p>
+                <p className="text-muted-foreground">
+                  {searchQuery.trim()
+                    ? <>No students match &ldquo;{searchQuery}&rdquo;</>
+                    : vehicleTab === 'truck'
+                      ? 'No truck students yet.'
+                      : vehicleTab === 'car'
+                        ? 'No car students yet.'
+                        : 'No active students found.'}
+                </p>
               </div>
             ) : (
               <div className="border rounded-lg overflow-x-auto">
