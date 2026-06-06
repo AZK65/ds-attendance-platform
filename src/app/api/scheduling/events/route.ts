@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { scheduleReminderFromEvent } from '@/lib/in-car-reminders'
 
 const BASE_URL = 'https://api.teamup.com'
 
@@ -88,6 +89,25 @@ export async function POST(request: NextRequest) {
     }
 
     const data = await res.json()
+
+    // Server-side reminder scheduling. The client used to call
+    // /api/scheduling/notify only when its studentPhone form field was
+    // populated; if the field was empty (as it was for Lakshmi Devi's
+    // June 6 11 AM class) the reminder silently never queued. Parsing
+    // the notes the server just persisted closes that gap — if the
+    // notes carry "Phone: …" we always queue a reminder, regardless of
+    // what the client passed at submit time.
+    try {
+      await scheduleReminderFromEvent({
+        startDateIso: startDate,
+        notes,
+        title,
+        subcalendarId: Array.isArray(subcalendarIds) ? Number(subcalendarIds[0]) : undefined,
+      })
+    } catch (err) {
+      console.error('[events POST] scheduleReminderFromEvent failed (non-fatal):', err)
+    }
+
     return NextResponse.json(data.event || data)
   } catch (error) {
     console.error('Failed to create event:', error)
