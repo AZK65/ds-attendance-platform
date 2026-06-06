@@ -855,6 +855,10 @@ function StudentsPage() {
       }
       setReviewingRegistration(null)
       queryClient.invalidateQueries({ queryKey: ['registrations', 'submitted'] })
+      // Also refresh the confirmed list — otherwise a just-confirmed student
+      // who skips the WhatsApp-group step disappears from the page until the
+      // confirmed query's staleTime lapses (it has no refetchInterval).
+      queryClient.invalidateQueries({ queryKey: ['registrations', 'confirmed'] })
     },
   })
 
