@@ -59,18 +59,35 @@ async function cancelRemindersForEvent(args: {
   const classTimePart = startDt.includes('T') ? startDt.split('T')[1].slice(0, 5) : null
 
   const pending = await prisma.scheduledMessage.findMany({ where: { status: 'pending' } })
+  // Suffix-match phones — saved memberPhones can be raw digits ("15145551234")
+  // while the event notes carry "(514) 555-1234" or similar. Stripping +
+  // comparing the last 10 digits gives us reliable matches either way.
+  const phoneSuffix = phone ? phone.replace(/\D/g, '').slice(-10) : null
+  const phoneMatches = (memberPhonesJson: string): boolean => {
+    if (!phoneSuffix) return false
+    try {
+      const phones: string[] = JSON.parse(memberPhonesJson)
+      return phones.some(p => p.replace(/\D/g, '').slice(-10) === phoneSuffix)
+    } catch { return false }
+  }
   const toCancel = pending.filter(r => {
     // Theory: group reminder keyed by groupId + classDateISO
     if (groupId && r.groupId === groupId && r.classDateISO === classDate && r.isGroupMessage) return true
     // Truck: phone-targeted reminder, scheduledAt = classTime - 6h
     if (phone && r.groupId === 'truck-classes' && classTimePart) {
-      try {
-        const phones: string[] = JSON.parse(r.memberPhones)
-        if (!phones.includes(phone)) return false
-      } catch { return false }
+      if (!phoneMatches(r.memberPhones)) return false
       const classTime = new Date(`${classDate}T${classTimePart}:00`)
       const expectedReminder = new Date(classTime.getTime() - 6 * 60 * 60 * 1000)
       return Math.abs(r.scheduledAt.getTime() - expectedReminder.getTime()) < 2 * 60 * 1000
+    }
+    // In-car (road) class reminder. Created by /api/scheduling/notify with
+    // groupId='in-car-reminders' and scheduledAt = classTime - 3h. We
+    // match on phone + classDateISO so cancelling/moving the underlying
+    // Teamup event clears the reminder properly. This was the missing
+    // case that caused "Hi {student}, your Session X is in 3 hours" to
+    // fire after the class had been deleted.
+    if (phone && r.groupId === 'in-car-reminders' && r.classDateISO === classDate) {
+      return phoneMatches(r.memberPhones)
     }
     return false
   })
