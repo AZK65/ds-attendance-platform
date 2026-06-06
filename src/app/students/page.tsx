@@ -505,26 +505,6 @@ function StudentsPage() {
     return Array.from(byPhone.values())
   }, [participantsData, confirmedRegistrations])
 
-  // Explicitly compute the list of confirmed students who are NOT yet in
-  // any WhatsApp group. Rendered as a dedicated card so they're always
-  // visible regardless of what activeStudents does. Phone-suffix match
-  // (last 10 digits) so we de-dupe correctly even if formats differ.
-  const orphanedConfirmed = useMemo(() => {
-    if (confirmedRegistrations.length === 0) return []
-    const groupSuffixes = new Set<string>()
-    const parts = participantsData?.participants || []
-    for (const p of parts) {
-      const d = (p.phone || '').replace(/\D/g, '')
-      if (d.length >= 10) groupSuffixes.add(d.slice(-10))
-    }
-    return confirmedRegistrations.filter(reg => {
-      const d = (reg.phoneNumber || '').replace(/\D/g, '')
-      if (d.length < 7) return false
-      const suffix = d.length >= 10 ? d.slice(-10) : d
-      return !groupSuffixes.has(suffix)
-    })
-  }, [confirmedRegistrations, participantsData])
-
   // Fetch last/next class info for all active student phones
   const phoneList = useMemo(() => activeStudents.map(s => s.phone), [activeStudents])
 
@@ -1196,102 +1176,6 @@ function StudentsPage() {
                             <Eye className="h-4 w-4 mr-1" />
                             Review
                           </Button>
-                        </TableCell>
-                      </TableRow>
-                    ))}
-                  </TableBody>
-                </Table>
-              </div>
-            </CardContent>
-          </Card>
-        </motion.div>
-      )}
-
-      {/* Confirmed but no WhatsApp group yet — explicit list so these
-          students never disappear from the page just because nobody added
-          them to a WA group. Click a row to open the DB profile. */}
-      {orphanedConfirmed.length > 0 && (
-        <motion.div
-          initial={{ opacity: 0, y: 10 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ delay: 0.07, duration: 0.25 }}
-        >
-          <Card className="border-amber-200 bg-amber-50/40">
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2 text-lg">
-                <UserPlus className="h-5 w-5 text-amber-700" />
-                Confirmed — Not in a Group Yet
-                <Badge variant="secondary" className="bg-amber-100 text-amber-800">
-                  {orphanedConfirmed.length}
-                </Badge>
-              </CardTitle>
-              <p className="text-xs text-muted-foreground mt-1">
-                Students who were confirmed but skipped the WhatsApp group step. Click a row to open
-                their profile or use it to add them to an existing group later.
-              </p>
-            </CardHeader>
-            <CardContent>
-              <div className="border rounded-lg overflow-x-auto bg-white">
-                <Table>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead>Type</TableHead>
-                      <TableHead>Name</TableHead>
-                      <TableHead>Phone</TableHead>
-                      <TableHead>Email</TableHead>
-                      <TableHead>Confirmed</TableHead>
-                      <TableHead className="w-[100px]"></TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {orphanedConfirmed.map(reg => (
-                      <TableRow
-                        key={reg.id}
-                        className="cursor-pointer hover:bg-amber-100/40"
-                        onClick={() => {
-                          if (reg.externalId) router.push(`/students/${reg.externalId}`)
-                        }}
-                      >
-                        <TableCell>
-                          {reg.vehicleType === 'truck' ? (
-                            <Badge className="bg-amber-100 text-amber-800 border-amber-300 hover:bg-amber-100">
-                              <Truck className="h-3 w-3 mr-1" /> Truck
-                            </Badge>
-                          ) : (
-                            <Badge className="bg-blue-100 text-blue-800 border-blue-300 hover:bg-blue-100">
-                              <Car className="h-3 w-3 mr-1" /> Car
-                            </Badge>
-                          )}
-                        </TableCell>
-                        <TableCell className="font-medium">
-                          <div className="flex items-center gap-3">
-                            <StudentAvatar
-                              src={(reg as Registration & { avatarImage?: string | null }).avatarImage || null}
-                              name={reg.fullName || ''}
-                              size={32}
-                            />
-                            <span className="truncate">{reg.fullName || '-'}</span>
-                          </div>
-                        </TableCell>
-                        <TableCell className="text-sm">{reg.phoneNumber || '-'}</TableCell>
-                        <TableCell className="text-sm">{reg.email || '-'}</TableCell>
-                        <TableCell className="text-sm text-muted-foreground">
-                          {reg.confirmedAt
-                            ? new Date(reg.confirmedAt).toLocaleString('en-US', {
-                                month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit',
-                              })
-                            : '-'}
-                        </TableCell>
-                        <TableCell>
-                          {reg.externalId ? (
-                            <Button variant="outline" size="sm" asChild>
-                              <Link href={`/students/${reg.externalId}`}>
-                                <Eye className="h-3.5 w-3.5 mr-1" /> Open
-                              </Link>
-                            </Button>
-                          ) : (
-                            <span className="text-xs text-muted-foreground">no link</span>
-                          )}
                         </TableCell>
                       </TableRow>
                     ))}
