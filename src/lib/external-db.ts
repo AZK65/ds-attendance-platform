@@ -337,8 +337,13 @@ export async function createStudent(data: CreateStudentData): Promise<{ insertId
   const phoneDigits = (data.phone_number || '').replace(/\D/g, '')
   if (phoneDigits.length >= 7) {
     const searchPhone = phoneDigits.slice(-10)
+    // Match against the digits-only form of the stored column — otherwise a
+    // previously stored "+1 514-915-7861" never matches a bare "5149157861"
+    // and we insert a duplicate. Mirrors searchStudents / searchStudentsByPhones.
     const [existing] = await db.execute<mysql.RowDataPacket[]>(
-      'SELECT student_id FROM student WHERE phone_number LIKE ? LIMIT 1',
+      `SELECT student_id FROM student
+       WHERE REGEXP_REPLACE(COALESCE(phone_number, ''), '[^0-9]', '') LIKE ?
+       LIMIT 1`,
       [`%${searchPhone}%`]
     )
     if ((existing as mysql.RowDataPacket[]).length > 0) {
