@@ -19,13 +19,15 @@ export async function GET(request: NextRequest) {
 
   try {
     // Fetch from all sources in parallel
-    const [dbStudent, invoices, localStudent] = await Promise.all([
+    const [dbStudent, invoices, localStudent, vehicleType] = await Promise.all([
       // 1. External MySQL: try to find student by phone, then by name
       findExternalStudent(phone, name),
       // 2. Local SQLite: find invoices for this student
       findStudentInvoices(phone, name),
       // 3. Local SQLite: find student record with certificates
       findLocalStudent(phone, name, licenceNumber),
+      // 4. Car vs truck — from online registration or group membership
+      findVehicleType(phone, name),
     ])
 
     // Fetch exam attempts for this student
@@ -50,6 +52,7 @@ export async function GET(request: NextRequest) {
 
     return NextResponse.json({
       dbStudent,
+      vehicleType,
       localStudent: localStudent ? {
         id: localStudent.id,
         name: localStudent.name,
@@ -192,6 +195,39 @@ async function findExternalStudent(phone: string, name: string): Promise<Student
     console.error('[Student Profile] External DB error:', error)
     return null
   }
+}
+
+// Car vs truck for a student matched by phone/name. Prefer what they picked
+// at online registration; else infer from group membership (a truck group
+// means a truck student); else default to car.
+async function findVehicleType(phone: string, name: string): Promise<string> {
+  const phoneDigits = phone.replace(/\D/g, '')
+  const phoneSuffix = phoneDigits.length >= 7 ? phoneDigits.slice(-10) : ''
+  const cleanName = name.replace(/\s*#\d+\s*/g, ' ').replace(/\s+/g, ' ').trim()
+
+  if (phoneSuffix) {
+    const reg = await prisma.studentRegistration.findFirst({
+      where: { phoneNumber: { contains: phoneSuffix }, status: { in: ['confirmed', 'submitted'] } },
+      orderBy: { createdAt: 'desc' },
+      select: { vehicleType: true },
+    })
+    if (reg?.vehicleType) return reg.vehicleType
+
+    const truckMember = await prisma.groupMember.findFirst({
+      where: { phone: { contains: phoneSuffix }, group: { vehicleType: 'truck' } },
+      select: { id: true },
+    })
+    if (truckMember) return 'truck'
+  } else if (cleanName.length >= 2) {
+    const reg = await prisma.studentRegistration.findFirst({
+      where: { fullName: { contains: cleanName }, status: { in: ['confirmed', 'submitted'] } },
+      orderBy: { createdAt: 'desc' },
+      select: { vehicleType: true },
+    })
+    if (reg?.vehicleType) return reg.vehicleType
+  }
+
+  return 'car'
 }
 
 // Find local student record with certificates (from certificate generation)

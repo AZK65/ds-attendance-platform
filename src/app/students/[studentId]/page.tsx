@@ -18,6 +18,7 @@ import {
   BookOpen, GraduationCap, Database, CalendarDays, Download,
   CheckCircle, XCircle, ChevronDown, ChevronUp, ClipboardList,
   Shield, FileSignature, Pencil, ChevronRight, HeartPulse, AlertTriangle,
+  Truck, Car,
 } from 'lucide-react'
 import Link from 'next/link'
 import { motion } from 'motion/react'
@@ -53,6 +54,7 @@ interface StudentProfile {
     id: string; invoiceNumber: string; invoiceDate: string; total: number;
     paymentStatus: string; lineItems: string;
   }>
+  vehicleType?: string | null
   groups: Array<{ groupId: string; groupName: string; moduleNumber: number | null }>
   exams?: Array<{
     id: string; examCode: string; groupName: string; score: number | null;
@@ -347,7 +349,18 @@ export default function StudentProfilePage() {
               className="shrink-0"
             />
             <div className="min-w-0">
-              <h1 className="text-3xl font-bold truncate leading-tight">{displayName}</h1>
+              <div className="flex items-center gap-2.5 min-w-0">
+                <h1 className="text-3xl font-bold truncate leading-tight">{displayName}</h1>
+                {data?.vehicleType === 'truck' ? (
+                  <Badge className="bg-amber-100 text-amber-800 border-amber-300 hover:bg-amber-100 font-medium shrink-0">
+                    <Truck className="h-3.5 w-3.5 mr-1" /> Truck
+                  </Badge>
+                ) : (
+                  <Badge className="bg-blue-100 text-blue-800 border-blue-300 hover:bg-blue-100 font-medium shrink-0">
+                    <Car className="h-3.5 w-3.5 mr-1" /> Car
+                  </Badge>
+                )}
+              </div>
               <a href={`tel:+${phone}`} className="text-muted-foreground hover:text-primary flex items-center gap-1.5 mt-1.5">
                 <Phone className="h-4 w-4" /> +{phone}
               </a>

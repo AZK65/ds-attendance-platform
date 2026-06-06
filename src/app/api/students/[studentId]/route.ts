@@ -46,7 +46,7 @@ export async function GET(
             where: { phone: { contains: phoneSearch } },
             include: {
               contact: true,
-              group: { select: { id: true, name: true, moduleNumber: true } },
+              group: { select: { id: true, name: true, moduleNumber: true, vehicleType: true } },
             },
           })
         : [],
@@ -84,8 +84,16 @@ export async function GET(
       orderBy: { createdAt: 'desc' },
     })
 
+    // Car vs truck: prefer what the student picked at online registration,
+    // else infer from group membership (a truck group means truck student),
+    // else default to car.
+    const vehicleType =
+      registration?.vehicleType ||
+      (groupMemberships.some(gm => gm.group.vehicleType === 'truck') ? 'truck' : 'car')
+
     return NextResponse.json({
       student: dbStudent,
+      vehicleType,
       registration: registration ? {
         id: registration.id,
         medical: registration.medical,
