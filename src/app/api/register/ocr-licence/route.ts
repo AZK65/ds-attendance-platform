@@ -89,7 +89,22 @@ Use empty string for any field you cannot read clearly.`,
     if (!res.ok) {
       const errText = await res.text()
       console.error('[ocr-licence] OpenRouter failed:', res.status, errText.slice(0, 300))
-      return NextResponse.json({ ...EMPTY, _warning: 'OCR provider error' })
+      // Surface the provider's status + message so a config problem (data
+      // policy, disabled key, rate limit) is distinguishable from an
+      // unreadable photo. OpenRouter's error body is generic and never
+      // contains our API key.
+      let providerMessage = ''
+      try {
+        const parsed = JSON.parse(errText)
+        providerMessage = parsed?.error?.message || parsed?.message || ''
+      } catch {
+        providerMessage = errText.slice(0, 200)
+      }
+      return NextResponse.json({
+        ...EMPTY,
+        _warning: `OCR provider error ${res.status}`,
+        _providerMessage: providerMessage.slice(0, 200),
+      })
     }
 
     const data = await res.json()
