@@ -347,6 +347,7 @@ export default function StudentProfilePage() {
               name={displayName}
               size={96}
               className="shrink-0"
+              zoomable
             />
             <div className="min-w-0">
               <div className="flex items-center gap-2.5 min-w-0">
