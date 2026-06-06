@@ -87,6 +87,33 @@ const emptyData: ExtractedData = {
   sortie15Date: ''
 }
 
+// Thrown when OpenRouter itself rejects the request (bad key, no credits,
+// data-policy block, rate limit, retired model). We propagate a readable
+// reason to the UI instead of silently returning empty fields.
+class OcrProviderError extends Error {
+  constructor(public status: number, public providerBody: string) {
+    super(`OpenRouter ${status}`)
+    this.name = 'OcrProviderError'
+  }
+  get userMessage(): string {
+    let providerMessage = ''
+    try {
+      const parsed = JSON.parse(this.providerBody)
+      providerMessage = parsed?.error?.message || parsed?.message || ''
+    } catch {
+      providerMessage = this.providerBody.slice(0, 200)
+    }
+    const hint =
+      this.status === 401 ? 'Invalid or disabled OpenRouter API key.'
+      : this.status === 402 ? 'OpenRouter is out of credits — add billing/credits to the account.'
+      : this.status === 429 ? 'OpenRouter rate limit hit — wait a moment and retry.'
+      : /data policy|no endpoints/i.test(providerMessage)
+        ? 'OpenRouter data-policy block — enable model/prompt access in OpenRouter → Settings → Privacy.'
+      : ''
+    return `OCR provider error ${this.status}. ${hint} ${providerMessage}`.trim()
+  }
+}
+
 function cleanJsonResponse(content: string): string {
   let cleanContent = content.trim()
   if (cleanContent.startsWith('```json')) {
@@ -152,7 +179,7 @@ Use empty string for fields you cannot read clearly.`
   if (!response.ok) {
     const errorText = await response.text()
     console.error('Licence OCR failed:', response.status, errorText)
-    return {}
+    throw new OcrProviderError(response.status, errorText)
   }
 
   const data = await response.json()
@@ -260,7 +287,7 @@ Use empty string for fields not found. Read each date carefully - the format is 
   if (!response.ok) {
     const errorText = await response.text()
     console.error('Attendance OCR failed:', response.status, errorText)
-    return {}
+    throw new OcrProviderError(response.status, errorText)
   }
 
   const data = await response.json()
@@ -368,7 +395,7 @@ Use empty string for fields not found. Remember: dates are DD/MM/YYYY - read car
   if (!response.ok) {
     const errorText = await response.text()
     console.error('Combined OCR failed:', response.status, errorText)
-    return {}
+    throw new OcrProviderError(response.status, errorText)
   }
 
   const data = await response.json()
@@ -458,6 +485,12 @@ export async function POST(request: NextRequest) {
     console.log('OCR completed, extracted fields:', Object.entries(extractedData).filter(([, v]) => v).map(([k]) => k).join(', ') || 'none')
     return NextResponse.json(extractedData)
   } catch (error) {
+    // Provider rejected the request (key/credits/data-policy/model). Surface
+    // the reason to the UI instead of a generic 500 so the admin can act.
+    if (error instanceof OcrProviderError) {
+      console.error('OCR provider error:', error.status, error.providerBody.slice(0, 300))
+      return NextResponse.json({ error: error.userMessage }, { status: 502 })
+    }
     console.error('OCR error:', error instanceof Error ? error.message : error)
     console.error('OCR error stack:', error instanceof Error ? error.stack : 'No stack')
     return NextResponse.json(
