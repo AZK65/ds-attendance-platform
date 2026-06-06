@@ -70,7 +70,7 @@ import {
 } from 'lucide-react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
-import { motion } from 'motion/react'
+import { motion, AnimatePresence } from 'motion/react'
 import { AddressAutocomplete } from '@/components/AddressAutocomplete'
 import { PhoneInput } from '@/components/PhoneInput'
 import { NewGroupWizard } from '@/components/NewGroupWizard'
@@ -1326,7 +1326,15 @@ function StudentsPage() {
                 </p>
               </div>
             ) : (
-              <div className="border rounded-lg overflow-x-auto">
+              <AnimatePresence mode="wait">
+                <motion.div
+                  key={vehicleTab}
+                  initial={{ opacity: 0, x: 12 }}
+                  animate={{ opacity: 1, x: 0 }}
+                  exit={{ opacity: 0, x: -12 }}
+                  transition={{ duration: 0.18, ease: 'easeOut' }}
+                  className="border rounded-lg overflow-x-auto"
+                >
                 <Table>
                   <TableHeader>
                     <TableRow>
@@ -1367,11 +1375,28 @@ function StudentsPage() {
                         >
                           <TableCell className="font-medium">
                             <div className="flex items-center gap-3">
-                              <StudentAvatar
-                                src={(student as { avatarImage?: string | null }).avatarImage || null}
-                                name={displayName}
-                                size={32}
-                              />
+                              <div className="relative flex-shrink-0">
+                                <StudentAvatar
+                                  src={(student as { avatarImage?: string | null }).avatarImage || null}
+                                  name={displayName}
+                                  size={32}
+                                />
+                                {student.vehicleType === 'truck' ? (
+                                  <span
+                                    title="Truck (Class 1)"
+                                    className="absolute -bottom-1 -right-1 flex h-4 w-4 items-center justify-center rounded-full bg-amber-100 text-amber-700 ring-2 ring-background"
+                                  >
+                                    <Truck className="h-2.5 w-2.5" />
+                                  </span>
+                                ) : (
+                                  <span
+                                    title="Car"
+                                    className="absolute -bottom-1 -right-1 flex h-4 w-4 items-center justify-center rounded-full bg-blue-100 text-blue-700 ring-2 ring-background"
+                                  >
+                                    <Car className="h-2.5 w-2.5" />
+                                  </span>
+                                )}
+                              </div>
                               <span className="truncate">{displayName}</span>
                             </div>
                           </TableCell>
@@ -1487,7 +1512,8 @@ function StudentsPage() {
                     })}
                   </TableBody>
                 </Table>
-              </div>
+                </motion.div>
+              </AnimatePresence>
             )}
 
             {/* MySQL Database Results — students not in active groups */}
