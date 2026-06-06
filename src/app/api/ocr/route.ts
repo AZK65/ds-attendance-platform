@@ -172,11 +172,10 @@ Use empty string for fields you cannot read clearly.`
           ]
         }
       ],
-      // Gemini Flash is a thinking model; reasoning tokens count against
-      // max_tokens and were truncating the JSON mid-string. Disable reasoning
-      // so the full budget goes to the extraction output.
-      reasoning: { enabled: false },
-      max_tokens: 800,
+      // Gemini Flash is a thinking model with mandatory reasoning; those
+      // tokens count against max_tokens, so the cap must leave room for the
+      // hidden reasoning AND the full JSON or the output truncates mid-string.
+      max_tokens: 4000,
       temperature: 0
     })
   })
@@ -284,11 +283,10 @@ Use empty string for fields not found. Read each date carefully - the format is 
           ]
         }
       ],
-      // Gemini Flash is a thinking model; reasoning tokens count against
-      // max_tokens and were truncating the JSON mid-string. Disable reasoning
-      // so the full budget goes to the extraction output.
-      reasoning: { enabled: false },
-      max_tokens: 4000,
+      // Gemini Flash is a thinking model with mandatory reasoning; those
+      // tokens count against max_tokens, so the cap must leave room for the
+      // hidden reasoning AND the full JSON or the output truncates mid-string.
+      max_tokens: 8000,
       temperature: 0
     })
   })
@@ -396,11 +394,10 @@ Use empty string for fields not found. Remember: dates are DD/MM/YYYY - read car
           ]
         }
       ],
-      // Gemini Flash is a thinking model; reasoning tokens count against
-      // max_tokens and were truncating the JSON mid-string. Disable reasoning
-      // so the full budget goes to the extraction output.
-      reasoning: { enabled: false },
-      max_tokens: 4000,
+      // Gemini Flash is a thinking model with mandatory reasoning; those
+      // tokens count against max_tokens, so the cap must leave room for the
+      // hidden reasoning AND the full JSON or the output truncates mid-string.
+      max_tokens: 8000,
       temperature: 0
     })
   })
