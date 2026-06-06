@@ -82,7 +82,11 @@ Use empty string for any field you cannot read clearly.`,
             { type: 'image_url', image_url: { url: licenceImage } },
           ],
         }],
-        max_tokens: 500,
+        // Gemini Flash is a thinking model; reasoning tokens count against
+        // max_tokens and truncate the JSON. Disable reasoning so the budget
+        // goes to the extraction output.
+        reasoning: { enabled: false },
+        max_tokens: 800,
         temperature: 0,
       }),
     })

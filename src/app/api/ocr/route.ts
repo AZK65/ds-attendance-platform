@@ -172,7 +172,11 @@ Use empty string for fields you cannot read clearly.`
           ]
         }
       ],
-      max_tokens: 500,
+      // Gemini Flash is a thinking model; reasoning tokens count against
+      // max_tokens and were truncating the JSON mid-string. Disable reasoning
+      // so the full budget goes to the extraction output.
+      reasoning: { enabled: false },
+      max_tokens: 800,
       temperature: 0
     })
   })
@@ -280,7 +284,11 @@ Use empty string for fields not found. Read each date carefully - the format is 
           ]
         }
       ],
-      max_tokens: 2000,
+      // Gemini Flash is a thinking model; reasoning tokens count against
+      // max_tokens and were truncating the JSON mid-string. Disable reasoning
+      // so the full budget goes to the extraction output.
+      reasoning: { enabled: false },
+      max_tokens: 4000,
       temperature: 0
     })
   })
@@ -388,7 +396,11 @@ Use empty string for fields not found. Remember: dates are DD/MM/YYYY - read car
           ]
         }
       ],
-      max_tokens: 2000,
+      // Gemini Flash is a thinking model; reasoning tokens count against
+      // max_tokens and were truncating the JSON mid-string. Disable reasoning
+      // so the full budget goes to the extraction output.
+      reasoning: { enabled: false },
+      max_tokens: 4000,
       temperature: 0
     })
   })
