@@ -144,8 +144,17 @@ model TeacherPhone {
   subcalendarId Int      @unique
   name          String
   phone         String
+  // Optional key that groups multiple subcalendars together when they
+  // belong to the same physical teacher. Example: Fayyaz has both
+  // "Fayyaz Car-Theory" and "Fayyaz Truck" calendars; setting
+  // teacherKey="fayyaz" on both rows lets the scheduling duplicate
+  // check treat them as one teacher (a truck class at 5pm blocks a
+  // car class at 5pm and vice versa).
+  teacherKey    String?
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
+
+  @@index([teacherKey])
 }
 
 model MessageLog {

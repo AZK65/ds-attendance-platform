@@ -18,19 +18,30 @@ export async function GET() {
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json()
-    const { subcalendarId, name, phone } = body
+    const { subcalendarId, name, phone, teacherKey } = body
 
-    if (!subcalendarId || !name || !phone) {
+    if (!subcalendarId || !name) {
       return NextResponse.json(
-        { error: 'subcalendarId, name, and phone are required' },
+        { error: 'subcalendarId and name are required' },
         { status: 400 }
       )
     }
 
+    // Normalize the grouping key — lowercase, trim whitespace.
+    // Empty/missing key clears the grouping (subcalendar is its own teacher).
+    const normalizedKey = typeof teacherKey === 'string' && teacherKey.trim().length > 0
+      ? teacherKey.trim().toLowerCase()
+      : null
+
     const teacher = await prisma.teacherPhone.upsert({
       where: { subcalendarId: parseInt(subcalendarId) },
-      update: { name, phone },
-      create: { subcalendarId: parseInt(subcalendarId), name, phone },
+      update: { name, phone: phone || '', teacherKey: normalizedKey },
+      create: {
+        subcalendarId: parseInt(subcalendarId),
+        name,
+        phone: phone || '',
+        teacherKey: normalizedKey,
+      },
     })
 
     return NextResponse.json({ success: true, teacher })

@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useMemo, useEffect, useRef, Suspense } from 'react'
+import React, { useState, useMemo, useEffect, useRef, Suspense } from 'react'
 import { useSearchParams } from 'next/navigation'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { Button } from '@/components/ui/button'
@@ -358,6 +358,12 @@ function SchedulingPage() {
   // Teacher phone management
   const [showTeacherSettings, setShowTeacherSettings] = useState(false)
   const [teacherPhones, setTeacherPhones] = useState<Record<number, string>>({})
+  // teacherKeys map: subcalendarId → grouping key. When two subcalendars
+  // share a key they're treated as the same physical teacher for
+  // double-booking purposes (e.g. Fayyaz Car-Theory + Fayyaz Truck both
+  // get teacherKey="fayyaz" so a class on either blocks both at the
+  // same time slot).
+  const [teacherKeys, setTeacherKeys] = useState<Record<number, string>>({})
   const [savingTeacherPhones, setSavingTeacherPhones] = useState(false)
 
   // Export dialog
@@ -465,7 +471,7 @@ function SchedulingPage() {
   const isEventPresent = (eventId: string) => !!attendanceMap[eventId]
 
   // Fetch teacher phone numbers
-  const { data: teacherPhoneData } = useQuery<{ teachers: { subcalendarId: number; name: string; phone: string }[] }>({
+  const { data: teacherPhoneData } = useQuery<{ teachers: { subcalendarId: number; name: string; phone: string; teacherKey: string | null }[] }>({
     queryKey: ['teacher-phones'],
     queryFn: async () => {
       const res = await fetch('/api/scheduling/teacher-phones')
@@ -528,28 +534,35 @@ function SchedulingPage() {
     return null
   }
 
-  // Initialize teacher phones when data loads
+  // Initialize teacher phones + grouping keys when data loads
   useEffect(() => {
     if (teacherPhoneData?.teachers) {
       const phoneMap: Record<number, string> = {}
-      teacherPhoneData.teachers.forEach(t => { phoneMap[t.subcalendarId] = t.phone })
+      const keyMap: Record<number, string> = {}
+      teacherPhoneData.teachers.forEach(t => {
+        phoneMap[t.subcalendarId] = t.phone
+        if (t.teacherKey) keyMap[t.subcalendarId] = t.teacherKey
+      })
       setTeacherPhones(phoneMap)
+      setTeacherKeys(keyMap)
     }
   }, [teacherPhoneData])
 
-  // Save teacher phones
+  // Save teacher phones + grouping keys
   const handleSaveTeacherPhones = async () => {
     setSavingTeacherPhones(true)
     try {
       for (const teacher of activeTeachers) {
-        const phone = teacherPhones[teacher.id]
-        if (phone) {
-          await fetch('/api/scheduling/teacher-phones', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ subcalendarId: teacher.id, name: teacher.name, phone }),
-          })
-        }
+        const phone = teacherPhones[teacher.id] || ''
+        const teacherKey = teacherKeys[teacher.id] || ''
+        // Only persist rows where we have a phone OR a teacherKey — there's
+        // nothing to write if both are empty.
+        if (!phone && !teacherKey) continue
+        await fetch('/api/scheduling/teacher-phones', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ subcalendarId: teacher.id, name: teacher.name, phone, teacherKey }),
+        })
       }
       queryClient.invalidateQueries({ queryKey: ['teacher-phones'] })
     } catch (err) {
@@ -559,6 +572,29 @@ function SchedulingPage() {
       setShowTeacherSettings(false)
     }
   }
+
+  // subcalendarId → key map (used by checkDuplicate to expand a single
+  // subcalendar to all sibling subcalendars belonging to the same teacher).
+  const subcalendarKeyMap = useMemo(() => {
+    const map = new Map<string, string>()
+    for (const t of (teacherPhoneData?.teachers || [])) {
+      if (t.teacherKey) map.set(String(t.subcalendarId), t.teacherKey)
+    }
+    return map
+  }, [teacherPhoneData])
+
+  // Reverse map — teacherKey → set of subcalendarIds belonging to that teacher.
+  const teacherKeyToSubcalendars = useMemo(() => {
+    const map = new Map<string, Set<string>>()
+    for (const t of (teacherPhoneData?.teachers || [])) {
+      if (!t.teacherKey) continue
+      const id = String(t.subcalendarId)
+      const set = map.get(t.teacherKey) || new Set<string>()
+      set.add(id)
+      map.set(t.teacherKey, set)
+    }
+    return map
+  }, [teacherPhoneData])
 
   // Notify teacher about class change (fire-and-forget)
   const notifyTeacher = (subcalendarId: string, type: 'created' | 'updated' | 'deleted', data: EventFormData) => {
@@ -1590,18 +1626,29 @@ function SchedulingPage() {
   const checkDuplicate = (data: EventFormData, excludeEventId?: string): string | null => {
     if (!data.date || !data.subcalendarId) return null
 
-    // Rule 1 — teacher clash (any student)
+    // Rule 1 — teacher clash (any student). When a teacher owns multiple
+    // subcalendars (e.g. Fayyaz has a Car-Theory cal and a Truck cal),
+    // expand to ALL of their subcalendars so a truck class blocks a car
+    // class at the same time and vice versa.
     if (data.startTime) {
+      const ownKey = subcalendarKeyMap.get(data.subcalendarId)
+      const conflictSubcalendars = ownKey
+        ? (teacherKeyToSubcalendars.get(ownKey) || new Set([data.subcalendarId]))
+        : new Set([data.subcalendarId])
       const teacherClash = events.find(ev => {
         if (excludeEventId && ev.id === excludeEventId) return false
         const evDate = ev.start_dt.split('T')[0]
         const evTime = ev.start_dt.slice(11, 16)
         const evTeacher = ev.subcalendar_ids[0]?.toString()
-        return evDate === data.date && evTime === data.startTime && evTeacher === data.subcalendarId
+        return evDate === data.date && evTime === data.startTime && evTeacher !== undefined && conflictSubcalendars.has(evTeacher)
       })
       if (teacherClash) {
         const teacher = activeTeachers.find(t => t.id === teacherClash.subcalendar_ids[0])
-        return `${teacher?.name || 'Teacher'} already has a class on ${data.date} at ${data.startTime} (${teacherClash.title})`
+        const ownTeacher = activeTeachers.find(t => t.id?.toString() === data.subcalendarId)
+        const sameCal = teacher?.id?.toString() === data.subcalendarId
+        return sameCal
+          ? `${teacher?.name || 'Teacher'} already has a class on ${data.date} at ${data.startTime} (${teacherClash.title})`
+          : `${ownTeacher?.name || 'Teacher'} is already teaching on a sibling calendar (${teacher?.name}) at ${data.date} ${data.startTime} (${teacherClash.title})`
       }
     }
 
@@ -3571,24 +3618,43 @@ function SchedulingPage() {
             </DialogDescription>
           </DialogHeader>
 
-          <div className="space-y-3 py-2">
-            {activeTeachers.map(teacher => (
-              <div key={teacher.id} className="flex items-center gap-3">
-                <div className="flex items-center gap-2 min-w-[120px]">
-                  <div className="w-3 h-3 rounded-full flex-shrink-0" style={{ backgroundColor: getColor(teacher.color) }} />
-                  <span className="text-sm font-medium">{teacher.name}</span>
-                </div>
-                <Input
-                  placeholder="15145551234"
-                  value={teacherPhones[teacher.id] || ''}
-                  onChange={(e) => setTeacherPhones(prev => ({ ...prev, [teacher.id]: e.target.value }))}
-                  className="flex-1"
-                />
-              </div>
-            ))}
-            {activeTeachers.length === 0 && (
-              <p className="text-sm text-muted-foreground text-center py-4">No teachers found. Make sure subcalendars are configured in Teamup.</p>
-            )}
+          <div className="space-y-4 py-2">
+            <div className="rounded-md border bg-muted/30 p-3 text-[12.5px] leading-relaxed text-muted-foreground">
+              <p>
+                <strong className="text-foreground">Grouping key:</strong> if one physical teacher has
+                multiple Teamup calendars (e.g. Fayyaz Car-Theory + Fayyaz Truck), give them the
+                same key — like <code className="px-1 py-0.5 rounded bg-muted">fayyaz</code> — and
+                the scheduler will treat them as one person. A class on either calendar will block
+                the other at the same time.
+              </p>
+            </div>
+            <div className="grid grid-cols-[120px_1fr_140px] gap-x-3 gap-y-2 items-center">
+              <span className="text-[11px] uppercase tracking-wider text-muted-foreground">Teacher</span>
+              <span className="text-[11px] uppercase tracking-wider text-muted-foreground">Phone</span>
+              <span className="text-[11px] uppercase tracking-wider text-muted-foreground">Grouping key</span>
+              {activeTeachers.map(teacher => (
+                <React.Fragment key={teacher.id}>
+                  <div className="flex items-center gap-2 min-w-0">
+                    <div className="w-3 h-3 rounded-full flex-shrink-0" style={{ backgroundColor: getColor(teacher.color) }} />
+                    <span className="text-sm font-medium truncate">{teacher.name}</span>
+                  </div>
+                  <Input
+                    placeholder="15145551234"
+                    value={teacherPhones[teacher.id] || ''}
+                    onChange={(e) => setTeacherPhones(prev => ({ ...prev, [teacher.id]: e.target.value }))}
+                  />
+                  <Input
+                    placeholder="e.g. fayyaz"
+                    value={teacherKeys[teacher.id] || ''}
+                    onChange={(e) => setTeacherKeys(prev => ({ ...prev, [teacher.id]: e.target.value }))}
+                    className="font-mono text-xs"
+                  />
+                </React.Fragment>
+              ))}
+              {activeTeachers.length === 0 && (
+                <p className="col-span-3 text-sm text-muted-foreground text-center py-4">No teachers found. Make sure subcalendars are configured in Teamup.</p>
+              )}
+            </div>
           </div>
 
           <DialogFooter>
