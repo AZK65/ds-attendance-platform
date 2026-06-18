@@ -5,21 +5,32 @@ import Image from 'next/image'
 import { usePathname } from 'next/navigation'
 import { useTheme } from 'next-themes'
 import { motion, AnimatePresence } from 'motion/react'
-import { Home, Users, Award, CalendarDays, Link as LinkIcon, Receipt, UserPlus, MessageCircle, Sun, Moon, BarChart3, Target } from 'lucide-react'
+import { Home, Users, Award, CalendarDays, Receipt, UserPlus, MessageCircle, Sun, Moon, BarChart3, Target, MoreHorizontal, ChevronDown } from 'lucide-react'
 import { useQuery } from '@tanstack/react-query'
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu'
 import { ConnectionStatus } from './ConnectionStatus'
 import { NotificationBell } from './NotificationBell'
 import { useEffect, useState } from 'react'
 
-const NAV_ITEMS = [
+// Tabs shown directly in the bar — the day-to-day ones.
+const PRIMARY_ITEMS = [
   { href: '/scheduling', label: 'Home', icon: Home },
+  { href: '/students', label: 'Students', icon: UserPlus },
+  { href: '/leads', label: 'Leads', icon: Target },
+  { href: '/invoice', label: 'Invoices', icon: Receipt },
+  { href: '/inbox', label: 'Inbox', icon: MessageCircle },
+]
+
+// Tabs tucked under the "More" dropdown to keep the bar uncrowded.
+const MORE_ITEMS = [
   { href: '/groups', label: 'Groups', icon: Users },
   { href: '/certificate', label: 'Certificates', icon: Award },
   { href: '/scheduling', label: 'Scheduling', icon: CalendarDays },
-  { href: '/invoice', label: 'Invoices', icon: Receipt },
-  { href: '/students', label: 'Students', icon: UserPlus },
-  { href: '/leads', label: 'Leads', icon: Target },
-  { href: '/inbox', label: 'Inbox', icon: MessageCircle },
   { href: '/analytics', label: 'Analytics', icon: BarChart3 },
 ]
 
@@ -86,6 +97,7 @@ export function Navbar() {
     if (href === '/') return pathname === '/'
     return pathname.startsWith(href)
   }
+  const moreActive = MORE_ITEMS.some(item => isActive(item.href))
 
   return (
     <nav className="border-b bg-background sticky top-0 z-50">
@@ -104,9 +116,9 @@ export function Navbar() {
 
           {/* Nav Links */}
           <div className="flex items-center gap-1 overflow-x-auto">
-            {NAV_ITEMS.map(({ href, label, icon: Icon }) => (
+            {PRIMARY_ITEMS.map(({ href, label, icon: Icon }) => (
               <Link
-                key={href}
+                key={label}
                 href={href}
                 className={`relative flex items-center gap-1.5 px-3 py-1.5 rounded-md text-sm font-medium transition-colors whitespace-nowrap ${
                   isActive(href)
@@ -132,6 +144,38 @@ export function Navbar() {
                 </span>
               </Link>
             ))}
+
+            {/* More dropdown for the less-frequent tabs */}
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <button
+                  className={`relative flex items-center gap-1.5 px-3 py-1.5 rounded-md text-sm font-medium transition-colors whitespace-nowrap ${
+                    moreActive
+                      ? 'bg-primary text-primary-foreground'
+                      : 'text-muted-foreground hover:text-foreground hover:bg-muted'
+                  }`}
+                >
+                  <MoreHorizontal className="h-4 w-4" />
+                  <span className="hidden md:inline">More</span>
+                  <ChevronDown className="h-3 w-3 opacity-70" />
+                </button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end">
+                {MORE_ITEMS.map(({ href, label, icon: Icon }) => (
+                  <DropdownMenuItem key={label} asChild>
+                    <Link
+                      href={href}
+                      className={`flex items-center gap-2 cursor-pointer ${
+                        isActive(href) ? 'font-medium text-foreground' : ''
+                      }`}
+                    >
+                      <Icon className="h-4 w-4" />
+                      {label}
+                    </Link>
+                  </DropdownMenuItem>
+                ))}
+              </DropdownMenuContent>
+            </DropdownMenu>
           </div>
 
           {/* Theme Toggle + Notification Bell + Connection Status */}
