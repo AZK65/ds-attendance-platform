@@ -5,7 +5,8 @@ import Image from 'next/image'
 import { usePathname } from 'next/navigation'
 import { useTheme } from 'next-themes'
 import { motion, AnimatePresence } from 'motion/react'
-import { Home, Users, Award, CalendarDays, Link as LinkIcon, Receipt, UserPlus, MessageCircle, Sun, Moon, BarChart3 } from 'lucide-react'
+import { Home, Users, Award, CalendarDays, Link as LinkIcon, Receipt, UserPlus, MessageCircle, Sun, Moon, BarChart3, Target } from 'lucide-react'
+import { useQuery } from '@tanstack/react-query'
 import { ConnectionStatus } from './ConnectionStatus'
 import { NotificationBell } from './NotificationBell'
 import { useEffect, useState } from 'react'
@@ -17,6 +18,7 @@ const NAV_ITEMS = [
   { href: '/scheduling', label: 'Scheduling', icon: CalendarDays },
   { href: '/invoice', label: 'Invoices', icon: Receipt },
   { href: '/students', label: 'Students', icon: UserPlus },
+  { href: '/leads', label: 'Leads', icon: Target },
   { href: '/inbox', label: 'Inbox', icon: MessageCircle },
   { href: '/analytics', label: 'Analytics', icon: BarChart3 },
 ]
@@ -67,6 +69,19 @@ function ThemeToggle() {
 export function Navbar() {
   const pathname = usePathname()
 
+  // New-lead count for the badge on the Leads tab. Polls so leads coming in
+  // from Google Ads surface without a refresh.
+  const { data: leadData } = useQuery<{ newCount: number }>({
+    queryKey: ['leads', 'newCount'],
+    queryFn: async () => {
+      const res = await fetch('/api/leads?countOnly=1')
+      if (!res.ok) return { newCount: 0 }
+      return res.json()
+    },
+    refetchInterval: 60000,
+  })
+  const newLeadCount = leadData?.newCount || 0
+
   const isActive = (href: string) => {
     if (href === '/') return pathname === '/'
     return pathname.startsWith(href)
@@ -109,6 +124,11 @@ export function Navbar() {
                 <span className="relative z-10 flex items-center gap-1.5">
                   <Icon className="h-4 w-4" />
                   <span className="hidden md:inline">{label}</span>
+                  {href === '/leads' && newLeadCount > 0 && (
+                    <span className="ml-0.5 min-w-[18px] h-[18px] px-1 inline-flex items-center justify-center rounded-full bg-red-500 text-white text-[10px] font-semibold leading-none">
+                      {newLeadCount > 99 ? '99+' : newLeadCount}
+                    </span>
+                  )}
                 </span>
               </Link>
             ))}

@@ -505,3 +505,33 @@ model TeamupEventSnapshot {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 }
+
+// Inbound sales leads. Currently fed by the Google Ads Lead Form webhook
+// (/api/leads/webhook); `source` lets us add other channels later.
+model Lead {
+  id        String   @id @default(cuid())
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // Parsed contact details from the lead form
+  name  String?
+  email String?
+  phone String?
+  notes String? // qualifying-question answers / extra fields, newline-joined
+
+  source String  @default("google_ads")
+  status String  @default("new") // new | contacted | archived
+  isRead Boolean @default(false)
+  isTest Boolean @default(false) // Google "send test data" payloads
+
+  // Google attribution + dedupe (retries upsert on the same lead_id)
+  leadId     String? @unique
+  formId     String?
+  campaignId String?
+  gclId      String?
+
+  rawData String? // full JSON payload as received, for safety
+
+  @@index([status])
+  @@index([createdAt])
+}
