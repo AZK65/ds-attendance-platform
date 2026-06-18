@@ -41,3 +41,25 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ error: 'Failed to fetch leads' }, { status: 500 })
   }
 }
+
+// POST /api/leads — manually add a lead (phone-in inquiries, old email leads)
+// Body: { name?, email?, phone?, notes? }
+export async function POST(request: NextRequest) {
+  try {
+    const body = await request.json() as { name?: string; email?: string; phone?: string; notes?: string }
+    const name = body.name?.trim() || null
+    const email = body.email?.trim() || null
+    const phone = body.phone?.trim() || null
+    const notes = body.notes?.trim() || null
+    if (!name && !email && !phone) {
+      return NextResponse.json({ error: 'Enter at least a name, phone, or email' }, { status: 400 })
+    }
+    const lead = await prisma.lead.create({
+      data: { name, email, phone, notes, source: 'manual' },
+    })
+    return NextResponse.json({ lead })
+  } catch (error) {
+    console.error('Error creating lead:', error)
+    return NextResponse.json({ error: 'Failed to create lead' }, { status: 500 })
+  }
+}

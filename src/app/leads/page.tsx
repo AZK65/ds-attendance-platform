@@ -1,18 +1,23 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useRef } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { motion } from 'motion/react'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Input } from '@/components/ui/input'
+import { Label } from '@/components/ui/label'
+import { Textarea } from '@/components/ui/textarea'
+import {
+  Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter,
+} from '@/components/ui/dialog'
 import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 } from '@/components/ui/table'
 import {
   Target, Loader2, Search, Phone, Mail, MessageCircle, Trash2,
-  CheckCircle, Archive, Inbox, Clock,
+  CheckCircle, Archive, Inbox, Clock, Plus, Upload,
 } from 'lucide-react'
 
 interface Lead {
@@ -50,6 +55,10 @@ export default function LeadsPage() {
   const queryClient = useQueryClient()
   const [tab, setTab] = useState<Tab>('active')
   const [search, setSearch] = useState('')
+  const [showAdd, setShowAdd] = useState(false)
+  const [addForm, setAddForm] = useState({ name: '', phone: '', email: '', notes: '' })
+  const [importMsg, setImportMsg] = useState('')
+  const fileInputRef = useRef<HTMLInputElement>(null)
 
   const { data, isLoading } = useQuery<{ leads: Lead[]; newCount: number }>({
     queryKey: ['leads', tab, search],
@@ -87,6 +96,54 @@ export default function LeadsPage() {
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ['leads'] }),
   })
 
+  const addMutation = useMutation({
+    mutationFn: async (form: typeof addForm) => {
+      const res = await fetch('/api/leads', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(form),
+      })
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}))
+        throw new Error(err.error || 'Failed to add lead')
+      }
+      return res.json()
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['leads'] })
+      setShowAdd(false)
+      setAddForm({ name: '', phone: '', email: '', notes: '' })
+    },
+  })
+
+  const importMutation = useMutation({
+    mutationFn: async (csv: string) => {
+      const res = await fetch('/api/leads/import', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ csv }),
+      })
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.error || 'Import failed')
+      return data as { imported: number; updated: number; skipped: number; total: number }
+    },
+    onSuccess: (r) => {
+      queryClient.invalidateQueries({ queryKey: ['leads'] })
+      setImportMsg(`Imported ${r.imported} new · ${r.updated} already present · ${r.skipped} skipped (of ${r.total}).`)
+    },
+    onError: (e) => setImportMsg(e instanceof Error ? e.message : 'Import failed'),
+  })
+
+  const handleFile = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    if (!file) return
+    setImportMsg('')
+    const reader = new FileReader()
+    reader.onload = () => importMutation.mutate(String(reader.result || ''))
+    reader.readAsText(file)
+    e.target.value = '' // allow re-importing the same file
+  }
+
   const TABS: { key: Tab; label: string; icon: typeof Inbox }[] = [
     { key: 'active', label: 'Active', icon: Inbox },
     { key: 'archived', label: 'Archived', icon: Archive },
@@ -99,14 +156,47 @@ export default function LeadsPage() {
         initial={{ opacity: 0, y: -10 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ duration: 0.25 }}
+        className="flex items-start justify-between gap-4 flex-wrap"
       >
-        <h1 className="text-2xl font-bold flex items-center gap-2">
-          <Target className="h-6 w-6" /> Leads
-        </h1>
-        <p className="text-muted-foreground text-sm mt-1">
-          Leads from your Google Ads lead form, in real time.
-        </p>
+        <div>
+          <h1 className="text-2xl font-bold flex items-center gap-2">
+            <Target className="h-6 w-6" /> Leads
+          </h1>
+          <p className="text-muted-foreground text-sm mt-1">
+            Leads from your Google Ads lead form, in real time.
+          </p>
+        </div>
+        <div className="flex items-center gap-2">
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept=".csv,text/csv"
+            className="hidden"
+            onChange={handleFile}
+          />
+          <Button
+            variant="outline"
+            onClick={() => fileInputRef.current?.click()}
+            disabled={importMutation.isPending}
+          >
+            {importMutation.isPending
+              ? <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+              : <Upload className="h-4 w-4 mr-2" />}
+            Import CSV
+          </Button>
+          <Button onClick={() => setShowAdd(true)}>
+            <Plus className="h-4 w-4 mr-2" /> Add Lead
+          </Button>
+        </div>
       </motion.div>
+
+      {importMsg && (
+        <div className="flex items-center gap-2 p-3 bg-blue-50 border border-blue-200 rounded-lg text-blue-800 text-sm">
+          <CheckCircle className="h-4 w-4 flex-shrink-0" />
+          {importMsg}
+          <button onClick={() => setImportMsg('')} className="ml-auto text-blue-600">✕</button>
+        </div>
+      )}
 
       <Card>
         <CardHeader>
@@ -266,6 +356,50 @@ export default function LeadsPage() {
           )}
         </CardContent>
       </Card>
+
+      <Dialog open={showAdd} onOpenChange={setShowAdd}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Add Lead</DialogTitle>
+            <DialogDescription>
+              For phone-in inquiries or older leads from your email.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-3">
+            <div className="space-y-1.5">
+              <Label>Name</Label>
+              <Input value={addForm.name} onChange={e => setAddForm(f => ({ ...f, name: e.target.value }))} placeholder="Full name" />
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-1.5">
+                <Label>Phone</Label>
+                <Input value={addForm.phone} onChange={e => setAddForm(f => ({ ...f, phone: e.target.value }))} placeholder="+1 514 555 1234" />
+              </div>
+              <div className="space-y-1.5">
+                <Label>Email</Label>
+                <Input value={addForm.email} onChange={e => setAddForm(f => ({ ...f, email: e.target.value }))} placeholder="name@email.com" />
+              </div>
+            </div>
+            <div className="space-y-1.5">
+              <Label>Notes</Label>
+              <Textarea value={addForm.notes} onChange={e => setAddForm(f => ({ ...f, notes: e.target.value }))} placeholder="What they're interested in, message, etc." rows={3} />
+            </div>
+            {addMutation.error && (
+              <p className="text-sm text-red-600">{(addMutation.error as Error).message}</p>
+            )}
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowAdd(false)}>Cancel</Button>
+            <Button
+              onClick={() => addMutation.mutate(addForm)}
+              disabled={addMutation.isPending || (!addForm.name && !addForm.phone && !addForm.email)}
+            >
+              {addMutation.isPending && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
+              Add Lead
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </main>
   )
 }
