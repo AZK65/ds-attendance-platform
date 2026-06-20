@@ -22,6 +22,7 @@ const PRIMARY_ITEMS = [
   { href: '/scheduling', label: 'Home', icon: Home },
   { href: '/groups', label: 'Groups', icon: Users },
   { href: '/students', label: 'Students', icon: UserPlus },
+  { href: '/certificate', label: 'Certificates', icon: Award },
   { href: '/invoice', label: 'Invoices', icon: Receipt },
   { href: '/inbox', label: 'Inbox', icon: MessageCircle },
 ]
@@ -30,7 +31,6 @@ const PRIMARY_ITEMS = [
 // (Home already opens /scheduling, so there's no separate Scheduling tab.)
 const MORE_ITEMS = [
   { href: '/leads', label: 'Leads', icon: Target },
-  { href: '/certificate', label: 'Certificates', icon: Award },
   { href: '/kiosks', label: 'Kiosks', icon: Monitor },
   { href: '/analytics', label: 'Analytics', icon: BarChart3 },
 ]
