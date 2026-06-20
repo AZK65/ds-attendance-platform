@@ -5,7 +5,7 @@ import Image from 'next/image'
 import { usePathname } from 'next/navigation'
 import { useTheme } from 'next-themes'
 import { motion, AnimatePresence } from 'motion/react'
-import { Home, Users, Award, CalendarDays, Receipt, UserPlus, MessageCircle, Sun, Moon, BarChart3, Target, Monitor, MoreHorizontal, ChevronDown } from 'lucide-react'
+import { Home, Users, Award, Receipt, UserPlus, MessageCircle, Sun, Moon, BarChart3, Target, Monitor, MoreHorizontal, ChevronDown } from 'lucide-react'
 import { useQuery } from '@tanstack/react-query'
 import {
   DropdownMenu,
@@ -20,17 +20,17 @@ import { useEffect, useState } from 'react'
 // Tabs shown directly in the bar — the day-to-day ones.
 const PRIMARY_ITEMS = [
   { href: '/scheduling', label: 'Home', icon: Home },
+  { href: '/groups', label: 'Groups', icon: Users },
   { href: '/students', label: 'Students', icon: UserPlus },
-  { href: '/leads', label: 'Leads', icon: Target },
   { href: '/invoice', label: 'Invoices', icon: Receipt },
   { href: '/inbox', label: 'Inbox', icon: MessageCircle },
 ]
 
 // Tabs tucked under the "More" dropdown to keep the bar uncrowded.
+// (Home already opens /scheduling, so there's no separate Scheduling tab.)
 const MORE_ITEMS = [
-  { href: '/groups', label: 'Groups', icon: Users },
+  { href: '/leads', label: 'Leads', icon: Target },
   { href: '/certificate', label: 'Certificates', icon: Award },
-  { href: '/scheduling', label: 'Scheduling', icon: CalendarDays },
   { href: '/kiosks', label: 'Kiosks', icon: Monitor },
   { href: '/analytics', label: 'Analytics', icon: BarChart3 },
 ]
@@ -137,11 +137,6 @@ export function Navbar() {
                 <span className="relative z-10 flex items-center gap-1.5">
                   <Icon className="h-4 w-4" />
                   <span className="hidden md:inline">{label}</span>
-                  {href === '/leads' && newLeadCount > 0 && (
-                    <span className="ml-0.5 min-w-[18px] h-[18px] px-1 inline-flex items-center justify-center rounded-full bg-red-500 text-white text-[10px] font-semibold leading-none">
-                      {newLeadCount > 99 ? '99+' : newLeadCount}
-                    </span>
-                  )}
                 </span>
               </Link>
             ))}
@@ -159,6 +154,10 @@ export function Navbar() {
                   <MoreHorizontal className="h-4 w-4" />
                   <span className="hidden md:inline">More</span>
                   <ChevronDown className="h-3 w-3 opacity-70" />
+                  {/* Red dot so new leads are noticeable without opening the menu */}
+                  {newLeadCount > 0 && (
+                    <span className="absolute -top-0.5 -right-0.5 h-2 w-2 rounded-full bg-red-500" />
+                  )}
                 </button>
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end">
@@ -172,6 +171,11 @@ export function Navbar() {
                     >
                       <Icon className="h-4 w-4" />
                       {label}
+                      {href === '/leads' && newLeadCount > 0 && (
+                        <span className="ml-auto min-w-[18px] h-[18px] px-1 inline-flex items-center justify-center rounded-full bg-red-500 text-white text-[10px] font-semibold leading-none">
+                          {newLeadCount > 99 ? '99+' : newLeadCount}
+                        </span>
+                      )}
                     </Link>
                   </DropdownMenuItem>
                 ))}
