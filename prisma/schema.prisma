@@ -414,6 +414,7 @@ model StudentRegistration {
   idImage        String? // base64 ID photo
   avatarImage    String? // base64 selfie / profile photo
   signatureImage String? // base64 signature
+  idType         String? // car single-ID type: licence | passport | health | pr | other
   medical        String? // JSON: SAAQ 6224A self-declaration { conditions:number[], none:bool, attestedAt:string }
 
   // Clover auth-then-capture payment state for the $250 first installment.

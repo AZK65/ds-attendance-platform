@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/db'
 import { createStudent } from '@/lib/external-db'
+import { sendEmailViaResend, getEmailSender } from '@/lib/email'
 
 // POST /api/registrations/[id]/confirm — Admin confirms a submitted registration → writes to MySQL
 export async function POST(
@@ -102,6 +103,43 @@ export async function POST(
         }
       } catch (err) {
         console.error('[Registrations] Avatar mirror to local Student failed:', err)
+      }
+    }
+
+    // Email the student that their registration is approved. Non-fatal — a
+    // mail failure must never block the confirmation itself.
+    if (studentData.email) {
+      try {
+        const sender = await getEmailSender()
+        if (sender) {
+          const firstName = (studentData.full_name || '').trim().split(/\s+/)[0] || ''
+          const courseName = registration.vehicleType === 'truck' ? 'Class 1 (Truck)' : 'Class 5 (Car)'
+          await sendEmailViaResend({
+            from: sender.from,
+            to: [studentData.email],
+            subject: `Your registration is confirmed — ${sender.schoolName}`,
+            html: `
+              <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; color:#0B0B0F;">
+                <h2 style="color:#0B0B0F;">You're registered! 🎉</h2>
+                <p>Hi ${firstName || 'there'},</p>
+                <p>Your registration for the <strong>${courseName}</strong> course at
+                   <strong>${sender.schoolName}</strong> has been confirmed. Welcome aboard!</p>
+                <p>Our team will be in touch with your class schedule and next steps. If you have any
+                   questions in the meantime, just reply to this email.</p>
+                <hr style="border:none;border-top:1px solid #eee;margin:20px 0;" />
+                <p style="color:#555;">Bonjour ${firstName || ''}, votre inscription au cours
+                   <strong>${courseName}</strong> est confirmée. Bienvenue&nbsp;!</p>
+                <br/>
+                <p>Merci / Thank you,<br/><strong>${sender.schoolName}</strong></p>
+              </div>
+            `,
+          })
+          console.log(`[Registrations] Confirmation email sent to ${studentData.email}`)
+        } else {
+          console.warn('[Registrations] No sender email configured — skipping confirmation email')
+        }
+      } catch (err) {
+        console.error('[Registrations] Confirmation email failed:', err)
       }
     }
 

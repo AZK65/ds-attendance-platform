@@ -11,6 +11,7 @@ export async function POST(request: NextRequest) {
       address, city, province, postalCode,
       permitNumber, permitExpiry, permitImage, idImage, avatarImage,
       signatureImage, agreedToTerms, medical,
+      idType, // car single-ID type (licence/passport/health/pr/other)
       vehicleType: requestedVehicleType,
       // Truck-only contract fields (ignored when vehicleType="car")
       consentSaaqTransmission, consentFileTransfer, consentContactInfo,
@@ -33,15 +34,14 @@ export async function POST(request: NextRequest) {
       requestedVehicleType === 'truck' && isAdmin ? 'truck' : 'car'
 
     // Fee collected in person → no Clover, auto-create an unpaid invoice.
-    // Covers cash and card-on-terminal; only the recorded method differs.
+    // Cash (car or truck) and truck card-on-terminal are collected in person;
+    // only the recorded method differs. Car card = online Clover checkout.
     const inPersonMethod: 'cash' | 'card' | null =
-      vehicleType === 'truck'
-        ? truckPaymentMethod === 'cash'
-          ? 'cash'
-          : truckPaymentMethod === 'card' && cardLocation === 'in-person'
-            ? 'card'
-            : null
-        : null
+      truckPaymentMethod === 'cash'
+        ? 'cash'
+        : vehicleType === 'truck' && truckPaymentMethod === 'card' && cardLocation === 'in-person'
+          ? 'card'
+          : null
 
     if (!fullName?.trim() || !phoneNumber?.trim()) {
       return NextResponse.json({ error: 'Name and phone number are required' }, { status: 400 })
@@ -135,6 +135,7 @@ export async function POST(request: NextRequest) {
         idImage: idImage || null,
         avatarImage: avatarImage || null,
         signatureImage: signatureImage || null,
+        idType: vehicleType === 'car' ? (idType || null) : null,
         medical: medical ? JSON.stringify(medical) : null,
         source: 'online-registration',
         submittedAt: new Date(),

@@ -10,8 +10,9 @@ import {
   User, Phone, MapPin, Camera, FileText, PenTool,
   ArrowRight, ArrowLeft, Loader2, CheckCircle2, Upload,
   AlertCircle, CreditCard, Receipt, Car, Truck, Clock,
-  Shield, Lock,
+  Shield, Lock, HeartPulse,
 } from 'lucide-react'
+import { MEDICAL_CONDITIONS } from '@/lib/medical'
 import NextImage from 'next/image'
 import { useRouter } from 'next/navigation'
 import { QaziNav } from '@/components/qazi-nav'
@@ -26,10 +27,11 @@ type Step =
   | 'personal'
   | 'address'
   | 'documents'
+  | 'medical'        // car — SAAQ self-declared medical checklist
   | 'agreements'
   | 'rep-handoff'    // truck only — "hand the iPad to the school rep"
   | 'rep-sign'       // truck only — rep signs
-  | 'payment-method' // truck only — pick cash or card before Clover
+  | 'payment-method' // pick cash or card before checkout
   | 'payment'
   | 'submitting'
   | 'done'
@@ -41,9 +43,23 @@ const CAR_STEPS: { key: Step; label: string; icon: React.ElementType }[] = [
   { key: 'personal', label: 'Personal Info', icon: User },
   { key: 'address', label: 'Address', icon: MapPin },
   { key: 'documents', label: 'Documents', icon: FileText },
+  { key: 'medical', label: 'Medical', icon: HeartPulse },
   { key: 'agreements', label: 'Agreement', icon: PenTool },
+  { key: 'payment-method', label: 'Payment Method', icon: CreditCard },
   { key: 'payment', label: 'Payment', icon: CreditCard },
 ]
+// Class 5 accepts a single piece of ID; the student picks which kind. A
+// driver's/learner's licence triggers the OCR scan (licence number + expiry);
+// the others are just a photo with no extraction.
+const ID_TYPE_OPTIONS = [
+  { value: 'licence', label: "Driver's / Learner's licence" },
+  { value: 'passport', label: 'Passport' },
+  { value: 'health', label: 'Quebec health card (RAMQ)' },
+  { value: 'pr', label: 'PR / Citizenship card' },
+  { value: 'other', label: 'Other ID' },
+]
+const idTypeLabel = (v: string) => ID_TYPE_OPTIONS.find(o => o.value === v)?.label || 'ID'
+
 const TRUCK_STEPS: { key: Step; label: string; icon: React.ElementType }[] = [
   { key: 'personal', label: 'Personal Info', icon: User },
   { key: 'address', label: 'Address', icon: MapPin },
@@ -163,6 +179,14 @@ export function RegisterPageInner({ kiosk = false }: { kiosk?: boolean } = {}) {
   // mirroring the cash flow but flagged as card.
   const [cardLocation, setCardLocation] = useState<'online' | 'in-person' | ''>('')
 
+  // Class 5 single-ID type (drives whether the photo is OCR-scanned).
+  const [idType, setIdType] = useState('')
+  // SAAQ self-declared medical checklist (Class 5). conditions = indexes into
+  // MEDICAL_CONDITIONS; none = "none of the above"; attested = final declaration.
+  const [medicalConditions, setMedicalConditions] = useState<number[]>([])
+  const [medicalNone, setMedicalNone] = useState(false)
+  const [medicalAttested, setMedicalAttested] = useState(false)
+
   // ─── Kiosk auto-reset + remote control ─────────────────────────────────
   // A staff member can watch each kiosk and send commands from the dashboard
   // (/kiosks). The kiosk posts a heartbeat with its current step every few
@@ -180,6 +204,7 @@ export function RegisterPageInner({ kiosk = false }: { kiosk?: boolean } = {}) {
     setConsentSaaqTransmission(false); setConsentFileTransfer(false)
     setConsentContactInfo(false); setSignedAtPlace('Montréal'); setFirstCourseDate('')
     setTruckPaymentMethod(''); setCardLocation('')
+    setIdType(''); setMedicalConditions([]); setMedicalNone(false); setMedicalAttested(false)
   }, [])
 
   // After a completed submission the next walk-in shouldn't see the previous
@@ -432,9 +457,15 @@ export function RegisterPageInner({ kiosk = false }: { kiosk?: boolean } = {}) {
     switch (step) {
       case 'personal': return fullName.trim().length >= 2 && phoneNumber.replace(/\D/g, '').length >= 10
       case 'address': return province.trim().toUpperCase() === 'QC'
-      // Driver licence + ID + selfie photos all required for both car and
-      // truck. The selfie becomes the avatar on every student profile page.
-      case 'documents': return !!permitImage && !!idImage && !!avatarImage
+      // Car: one ID (type chosen) + selfie. Truck: licence + 2nd ID + selfie.
+      // The selfie becomes the avatar on every student profile page.
+      case 'documents':
+        return vehicleType === 'truck'
+          ? !!permitImage && !!idImage && !!avatarImage
+          : !!idType && !!permitImage && !!avatarImage
+      case 'medical':
+        // Must make a declaration (none or at least one) and attest to it.
+        return medicalAttested && (medicalNone || medicalConditions.length > 0)
       case 'agreements': {
         const base = agreedTerms && agreedPolicy && signatureImage
         if (vehicleType !== 'truck') return base
@@ -450,8 +481,13 @@ export function RegisterPageInner({ kiosk = false }: { kiosk?: boolean } = {}) {
       case 'rep-sign': return !!repSignatureDataUrl && repName.trim().length >= 2
       case 'payment-method':
         if (truckPaymentMethod === 'cash') return true
-        // Card requires picking online vs in-person before continuing.
-        if (truckPaymentMethod === 'card') return cardLocation === 'online' || cardLocation === 'in-person'
+        if (truckPaymentMethod === 'card') {
+          // Truck card requires the online vs in-person sub-choice; for car,
+          // card means the online Clover checkout (no terminal sub-choice).
+          return vehicleType === 'truck'
+            ? cardLocation === 'online' || cardLocation === 'in-person'
+            : true
+        }
         return false
       case 'payment': return true
       default: return false
@@ -493,6 +529,10 @@ export function RegisterPageInner({ kiosk = false }: { kiosk?: boolean } = {}) {
           permitNumber, permitExpiry, permitImage, idImage, avatarImage,
           signatureImage, agreedToTerms: agreedTerms && agreedPolicy,
           vehicleType, // server cross-checks against the admin cookie
+          idType,
+          medical: medicalAttested
+            ? { conditions: medicalConditions, none: medicalNone, attestedAt: new Date().toISOString() }
+            : null,
           // Truck-only — server ignores these when vehicleType === 'car'
           consentSaaqTransmission, consentFileTransfer, consentContactInfo,
           signedAtPlace, firstCourseDate,
@@ -517,9 +557,8 @@ export function RegisterPageInner({ kiosk = false }: { kiosk?: boolean } = {}) {
       // The registration is already saved with the right method so the admin
       // sees the correct "collect" flag in the review dialog. Go to done.
       const collectInPerson =
-        vehicleType === 'truck' &&
-        (truckPaymentMethod === 'cash' ||
-          (truckPaymentMethod === 'card' && cardLocation === 'in-person'))
+        truckPaymentMethod === 'cash' || // cash is collected in person for car and truck
+        (vehicleType === 'truck' && truckPaymentMethod === 'card' && cardLocation === 'in-person')
       if (collectInPerson) {
         setStep('done')
         return
@@ -1041,106 +1080,144 @@ export function RegisterPageInner({ kiosk = false }: { kiosk?: boolean } = {}) {
               <h2 className="text-lg font-semibold flex items-center gap-2"><FileText className="h-5 w-5" /> {t.documents.heading}</h2>
               <p className="text-sm text-muted-foreground">{t.documents.sub}</p>
 
-              {/* Driver's Licence (Quebec) — the permit number + expiry are
-                  extracted automatically when the photo is taken. We hide
-                  the manual permit-number field; the student doesn't need
-                  to retype something the OCR already pulled. */}
-              <div>
-                <Label>Driver Licence (Quebec) <span className="text-red-500">*</span></Label>
-                <input
-                  ref={permitInputRef}
-                  type="file"
-                  accept="image/*"
-                  capture="environment"
-                  className="hidden"
-                  onChange={handleImageUpload((v) => {
-                    setPermitImage(v)
-                    if (!v) { setPermitNumber(''); setPermitExpiry('') }
-                  }, { ocr: true })}
-                />
-                {permitImage ? (
-                  <div className="mt-2 space-y-3">
-                    <div className="relative">
-                      <img src={permitImage} alt="Driver licence" className="w-full rounded-lg border" />
-                      <Button
-                        variant="destructive"
-                        size="sm"
-                        className="absolute top-2 right-2"
-                        onClick={() => { setPermitImage(null); setPermitNumber(''); setPermitExpiry('') }}
-                      >
-                        {t.documents.remove}
-                      </Button>
-                    </div>
-                    <div className="rounded-md border bg-muted/30 p-3 text-sm">
-                      {permitOcrLoading ? (
-                        <p className="flex items-center gap-2 text-muted-foreground">
-                          <Loader2 className="h-4 w-4 animate-spin" /> Reading licence — extracting number and expiry date…
-                        </p>
-                      ) : (
-                        <div className="space-y-2">
-                          <div className="flex items-center gap-2">
-                            <CheckCircle2 className="h-4 w-4 text-green-600" />
-                            <span className="text-xs text-muted-foreground">Auto-extracted from your licence:</span>
-                          </div>
-                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                            <div>
-                              <Label htmlFor="ocr-permit-num" className="text-xs">Licence number</Label>
-                              <Input
-                                id="ocr-permit-num"
-                                value={permitNumber}
-                                onChange={e => setPermitNumber(e.target.value)}
-                                placeholder="—"
-                                className="mt-1 font-mono text-sm"
-                              />
-                            </div>
-                            <div>
-                              <Label htmlFor="ocr-permit-exp" className="text-xs">Expiration</Label>
-                              <Input
-                                id="ocr-permit-exp"
-                                type="date"
-                                value={permitExpiry}
-                                onChange={e => setPermitExpiry(e.target.value)}
-                                className="mt-1 text-sm"
-                              />
-                            </div>
-                          </div>
-                          <p className="text-[11px] text-muted-foreground">If anything looks off, correct it above.</p>
-                        </div>
-                      )}
-                    </div>
-                  </div>
-                ) : (
-                  <button
-                    onClick={() => permitInputRef.current?.click()}
-                    className="mt-2 w-full border-2 border-dashed rounded-lg p-6 text-center hover:bg-muted/50 transition-colors"
+              {/* Class 5 needs ONE piece of ID — the student picks which kind.
+                  A licence runs OCR; anything else is just a photo. */}
+              {vehicleType === 'car' && (
+                <div>
+                  <Label>Which ID are you using? <span className="text-red-500">*</span></Label>
+                  <select
+                    value={idType}
+                    onChange={e => {
+                      const v = e.target.value
+                      setIdType(v)
+                      // Switching away from a licence drops any OCR'd values.
+                      if (v !== 'licence') { setPermitNumber(''); setPermitExpiry('') }
+                    }}
+                    className="mt-2 w-full rounded-md border bg-background px-3 py-2 text-sm"
                   >
-                    <Camera className="h-8 w-8 mx-auto text-muted-foreground mb-2" />
-                    <p className="text-sm font-medium">{t.documents.takePhoto}</p>
-                    <p className="text-xs text-muted-foreground mt-1">We'll automatically read the licence number and expiration date.</p>
-                  </button>
-                )}
-              </div>
+                    <option value="">Select ID type…</option>
+                    {ID_TYPE_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+                  </select>
+                  {idType === 'licence' && (
+                    <p className="text-xs text-muted-foreground mt-1">We'll automatically read the licence number and expiration date from the photo.</p>
+                  )}
+                </div>
+              )}
 
-              {/* ID Photo */}
-              <div>
-                <Label>{t.documents.idPhoto} <span className="text-red-500">*</span></Label>
-                <input ref={idInputRef} type="file" accept="image/*" capture="environment" className="hidden" onChange={handleImageUpload(setIdImage)} />
-                {idImage ? (
-                  <div className="mt-2 relative">
-                    <img src={idImage} alt="ID" className="w-full rounded-lg border" />
-                    <Button variant="destructive" size="sm" className="absolute top-2 right-2" onClick={() => setIdImage(null)}>{t.documents.remove}</Button>
+              {/* Primary ID image. Truck = Quebec driver licence (always OCR).
+                  Car = the chosen ID, with OCR only when it's a licence. */}
+              {(() => {
+                const isLicence = vehicleType === 'truck' || idType === 'licence'
+                const showIdUpload = vehicleType === 'truck' || !!idType
+                if (!showIdUpload) return null
+                return (
+                  <div>
+                    <Label>
+                      {vehicleType === 'truck' ? 'Driver Licence (Quebec)' : `Photo of your ${idTypeLabel(idType)}`}
+                      {' '}<span className="text-red-500">*</span>
+                    </Label>
+                    <input
+                      ref={permitInputRef}
+                      type="file"
+                      accept="image/*"
+                      capture="environment"
+                      className="hidden"
+                      onChange={handleImageUpload((v) => {
+                        setPermitImage(v)
+                        if (!v) { setPermitNumber(''); setPermitExpiry('') }
+                      }, { ocr: isLicence })}
+                    />
+                    {permitImage ? (
+                      <div className="mt-2 space-y-3">
+                        <div className="relative">
+                          <img src={permitImage} alt="ID" className="w-full rounded-lg border" />
+                          <Button
+                            variant="destructive"
+                            size="sm"
+                            className="absolute top-2 right-2"
+                            onClick={() => { setPermitImage(null); setPermitNumber(''); setPermitExpiry('') }}
+                          >
+                            {t.documents.remove}
+                          </Button>
+                        </div>
+                        {isLicence && (
+                          <div className="rounded-md border bg-muted/30 p-3 text-sm">
+                            {permitOcrLoading ? (
+                              <p className="flex items-center gap-2 text-muted-foreground">
+                                <Loader2 className="h-4 w-4 animate-spin" /> Reading licence — extracting number and expiry date…
+                              </p>
+                            ) : (
+                              <div className="space-y-2">
+                                <div className="flex items-center gap-2">
+                                  <CheckCircle2 className="h-4 w-4 text-green-600" />
+                                  <span className="text-xs text-muted-foreground">Auto-extracted from your licence:</span>
+                                </div>
+                                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                                  <div>
+                                    <Label htmlFor="ocr-permit-num" className="text-xs">Licence number</Label>
+                                    <Input
+                                      id="ocr-permit-num"
+                                      value={permitNumber}
+                                      onChange={e => setPermitNumber(e.target.value)}
+                                      placeholder="—"
+                                      className="mt-1 font-mono text-sm"
+                                    />
+                                  </div>
+                                  <div>
+                                    <Label htmlFor="ocr-permit-exp" className="text-xs">Expiration</Label>
+                                    <Input
+                                      id="ocr-permit-exp"
+                                      type="date"
+                                      value={permitExpiry}
+                                      onChange={e => setPermitExpiry(e.target.value)}
+                                      className="mt-1 text-sm"
+                                    />
+                                  </div>
+                                </div>
+                                <p className="text-[11px] text-muted-foreground">If anything looks off, correct it above.</p>
+                              </div>
+                            )}
+                          </div>
+                        )}
+                      </div>
+                    ) : (
+                      <button
+                        onClick={() => permitInputRef.current?.click()}
+                        className="mt-2 w-full border-2 border-dashed rounded-lg p-6 text-center hover:bg-muted/50 transition-colors"
+                      >
+                        <Camera className="h-8 w-8 mx-auto text-muted-foreground mb-2" />
+                        <p className="text-sm font-medium">{t.documents.takePhoto}</p>
+                        <p className="text-xs text-muted-foreground mt-1">
+                          {isLicence ? "We'll automatically read the licence number and expiration date." : 'A clear photo of the whole ID.'}
+                        </p>
+                      </button>
+                    )}
                   </div>
-                ) : (
-                  <button
-                    onClick={() => idInputRef.current?.click()}
-                    className="mt-2 w-full border-2 border-dashed rounded-lg p-6 text-center hover:bg-muted/50 transition-colors"
-                  >
-                    <Upload className="h-8 w-8 mx-auto text-muted-foreground mb-2" />
-                    <p className="text-sm font-medium">{t.documents.takePhoto}</p>
-                    <p className="text-xs text-muted-foreground mt-1">{t.documents.idHint}</p>
-                  </button>
-                )}
-              </div>
+                )
+              })()}
+
+              {/* Second piece of ID — truck only (Class 5 needs just one). */}
+              {vehicleType === 'truck' && (
+                <div>
+                  <Label>{t.documents.idPhoto} <span className="text-red-500">*</span></Label>
+                  <input ref={idInputRef} type="file" accept="image/*" capture="environment" className="hidden" onChange={handleImageUpload(setIdImage)} />
+                  {idImage ? (
+                    <div className="mt-2 relative">
+                      <img src={idImage} alt="ID" className="w-full rounded-lg border" />
+                      <Button variant="destructive" size="sm" className="absolute top-2 right-2" onClick={() => setIdImage(null)}>{t.documents.remove}</Button>
+                    </div>
+                  ) : (
+                    <button
+                      onClick={() => idInputRef.current?.click()}
+                      className="mt-2 w-full border-2 border-dashed rounded-lg p-6 text-center hover:bg-muted/50 transition-colors"
+                    >
+                      <Upload className="h-8 w-8 mx-auto text-muted-foreground mb-2" />
+                      <p className="text-sm font-medium">{t.documents.takePhoto}</p>
+                      <p className="text-xs text-muted-foreground mt-1">{t.documents.idHint}</p>
+                    </button>
+                  )}
+                </div>
+              )}
 
               {/* Selfie / Avatar — front camera by default on tablets and
                   phones (capture="user"). Becomes the student's avatar on
@@ -1174,6 +1251,53 @@ export function RegisterPageInner({ kiosk = false }: { kiosk?: boolean } = {}) {
                   </button>
                 )}
               </div>
+            </motion.div>
+          )}
+
+          {step === 'medical' && (
+            <motion.div
+              key="medical"
+              initial={{ opacity: 0, x: 50 }}
+              animate={{ opacity: 1, x: 0 }}
+              exit={{ opacity: 0, x: -50 }}
+              className="space-y-4"
+            >
+              <h2 className="text-lg font-semibold flex items-center gap-2"><HeartPulse className="h-5 w-5" /> Medical declaration</h2>
+              <p className="text-sm text-muted-foreground">
+                The SAAQ requires a self-declaration of medical conditions. Check all that apply, or “none of the above”.
+              </p>
+              <div className="space-y-2">
+                {MEDICAL_CONDITIONS.map((c, i) => (
+                  <label key={i} className="flex items-start gap-3 rounded-lg border p-3 cursor-pointer hover:bg-muted/40">
+                    <Checkbox
+                      checked={medicalConditions.includes(i)}
+                      onCheckedChange={(v) => {
+                        const on = v === true
+                        setMedicalNone(false)
+                        setMedicalConditions(prev => on ? [...prev, i] : prev.filter(x => x !== i))
+                      }}
+                      className="mt-0.5"
+                    />
+                    <span className="text-sm">{c}</span>
+                  </label>
+                ))}
+              </div>
+              <label className="flex items-start gap-3 rounded-lg border p-3 cursor-pointer hover:bg-muted/40">
+                <Checkbox
+                  checked={medicalNone}
+                  onCheckedChange={(v) => {
+                    const on = v === true
+                    setMedicalNone(on)
+                    if (on) setMedicalConditions([])
+                  }}
+                  className="mt-0.5"
+                />
+                <span className="text-sm font-medium">None of the above apply to me.</span>
+              </label>
+              <label className="flex items-start gap-3 rounded-lg border-2 border-amber-200 bg-amber-50/40 p-3 cursor-pointer">
+                <Checkbox checked={medicalAttested} onCheckedChange={(v) => setMedicalAttested(v === true)} className="mt-0.5" />
+                <span className="text-sm">I declare that the medical information above is true and complete.</span>
+              </label>
             </motion.div>
           )}
 
@@ -1461,8 +1585,9 @@ export function RegisterPageInner({ kiosk = false }: { kiosk?: boolean } = {}) {
                 </button>
               </div>
 
-              {/* Card sub-choice — only after Card is picked */}
-              {truckPaymentMethod === 'card' && (
+              {/* Card sub-choice (online vs school terminal) — truck only.
+                  For car, Card means the online Clover checkout. */}
+              {truckPaymentMethod === 'card' && vehicleType === 'truck' && (
                 <div className="space-y-3 pt-1">
                   <p className="text-sm font-medium">Where will the card be paid?</p>
                   <div className="grid gap-3 sm:grid-cols-2">
