@@ -535,3 +535,21 @@ model Lead {
   @@index([status])
   @@index([createdAt])
 }
+
+// A registration kiosk iPad. The kiosk posts a heartbeat with its current
+// step; staff control it remotely from the dashboard via pendingCommand.
+model Kiosk {
+  id        String   @id @default(cuid())
+  kioskId   String   @unique // device id stored in the iPad's localStorage
+  name      String   @default("Kiosk")
+
+  currentStep String? // register flow step key (e.g. "select", "payment")
+  vehicleType String?
+  lastSeenAt  DateTime @default(now())
+
+  // JSON: { id, type, message? } — consumed (cleared) on next heartbeat.
+  pendingCommand String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}

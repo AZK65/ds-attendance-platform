@@ -10,7 +10,7 @@ import {
   User, Phone, MapPin, Camera, FileText, PenTool,
   ArrowRight, ArrowLeft, Loader2, CheckCircle2, Upload,
   AlertCircle, CreditCard, Receipt, Car, Truck, Clock,
-  Shield,
+  Shield, Lock,
 } from 'lucide-react'
 import NextImage from 'next/image'
 import { QaziNav } from '@/components/qazi-nav'
@@ -118,27 +118,8 @@ export function RegisterPageInner({ kiosk = false }: { kiosk?: boolean } = {}) {
     return () => { cancelled = true }
   }, [])
 
-  // In kiosk mode, after a successful submission the next walk-in student
-  // shouldn't see the previous student's confirmation screen. Reset back
-  // to the select screen after a short pause so they can read "thank you"
-  // first.
-  useEffect(() => {
-    if (!kiosk) return
-    if (step !== 'done') return
-    const timer = setTimeout(() => {
-      setStep('select')
-      setError('')
-      setFullName(''); setPhoneNumber(''); setEmail(''); setDob('')
-      setAddress(''); setCity('Montreal'); setProvince('QC'); setPostalCode('')
-      setPermitNumber(''); setPermitExpiry(''); setPermitImage(null); setIdImage(null); setAvatarImage(null)
-      setSignatureImage(null); setAgreedTerms(false); setAgreedPolicy(false)
-      setVehicleType('car')
-      setConsentSaaqTransmission(false); setConsentFileTransfer(false)
-      setConsentContactInfo(false); setSignedAtPlace('Montréal'); setFirstCourseDate('')
-      setTruckPaymentMethod(''); setCardLocation('')
-    }, 15_000)
-    return () => clearTimeout(timer)
-  }, [kiosk, step])
+  // Kiosk auto-reset + remote control live below, after all form state is
+  // declared (see resetKiosk + the kiosk heartbeat block).
 
   // Form data
   const [fullName, setFullName] = useState('')
@@ -177,6 +158,84 @@ export function RegisterPageInner({ kiosk = false }: { kiosk?: boolean } = {}) {
   // skips Clover (terminal at the school) and records an unpaid card invoice,
   // mirroring the cash flow but flagged as card.
   const [cardLocation, setCardLocation] = useState<'online' | 'in-person' | ''>('')
+
+  // ─── Kiosk auto-reset + remote control ─────────────────────────────────
+  // A staff member can watch each kiosk and send commands from the dashboard
+  // (/kiosks). The kiosk posts a heartbeat with its current step every few
+  // seconds and applies any command returned (reset, lock, message, reload).
+  const [kioskLock, setKioskLock] = useState<{ message: string } | null>(null)
+
+  const resetKiosk = useCallback(() => {
+    setStep('select')
+    setError('')
+    setFullName(''); setPhoneNumber(''); setEmail(''); setDob('')
+    setAddress(''); setCity('Montreal'); setProvince('QC'); setPostalCode('')
+    setPermitNumber(''); setPermitExpiry(''); setPermitImage(null); setIdImage(null); setAvatarImage(null)
+    setSignatureImage(null); setAgreedTerms(false); setAgreedPolicy(false)
+    setVehicleType('car')
+    setConsentSaaqTransmission(false); setConsentFileTransfer(false)
+    setConsentContactInfo(false); setSignedAtPlace('Montréal'); setFirstCourseDate('')
+    setTruckPaymentMethod(''); setCardLocation('')
+  }, [])
+
+  // After a completed submission the next walk-in shouldn't see the previous
+  // student's confirmation screen — reset to the start after a short pause.
+  useEffect(() => {
+    if (!kiosk || step !== 'done') return
+    const timer = setTimeout(resetKiosk, 15_000)
+    return () => clearTimeout(timer)
+  }, [kiosk, step, resetKiosk])
+
+  const handleKioskCommand = useCallback((cmd: { type: string; message?: string }) => {
+    switch (cmd.type) {
+      case 'reset': resetKiosk(); setKioskLock(null); break
+      case 'lock':
+      case 'message': setKioskLock({ message: cmd.message || '' }); break
+      case 'unlock': setKioskLock(null); break
+      case 'reload': if (typeof window !== 'undefined') window.location.reload(); break
+    }
+  }, [resetKiosk])
+
+  const kioskIdRef = useRef('')
+  const stepRef = useRef<Step>(step)
+  const vehicleRef = useRef(vehicleType)
+  useEffect(() => { stepRef.current = step }, [step])
+  useEffect(() => { vehicleRef.current = vehicleType }, [vehicleType])
+
+  const sendHeartbeat = useCallback(async () => {
+    if (!kioskIdRef.current) return
+    try {
+      const res = await fetch('/api/kiosk/heartbeat', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ kioskId: kioskIdRef.current, step: stepRef.current, vehicleType: vehicleRef.current }),
+      })
+      if (!res.ok) return
+      const data = await res.json()
+      if (data.command) handleKioskCommand(data.command)
+    } catch { /* offline — retry next tick */ }
+  }, [handleKioskCommand])
+
+  useEffect(() => {
+    if (!kiosk) return
+    try {
+      let id = localStorage.getItem('kioskId')
+      if (!id) {
+        id = 'k_' + Math.random().toString(36).slice(2, 8) + Date.now().toString(36).slice(-4)
+        localStorage.setItem('kioskId', id)
+      }
+      kioskIdRef.current = id
+    } catch { /* private mode — heartbeat just won't run */ }
+    sendHeartbeat()
+    const interval = setInterval(sendHeartbeat, 5000)
+    return () => clearInterval(interval)
+  }, [kiosk, sendHeartbeat])
+
+  // Report step changes immediately rather than waiting for the next tick.
+  useEffect(() => {
+    if (kiosk && kioskIdRef.current) sendHeartbeat()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [step])
 
   const permitInputRef = useRef<HTMLInputElement>(null)
   const idInputRef = useRef<HTMLInputElement>(null)
@@ -453,6 +512,20 @@ export function RegisterPageInner({ kiosk = false }: { kiosk?: boolean } = {}) {
             priority
             className="h-9 w-auto drop-shadow"
           />
+        </div>
+      )}
+      {/* Remote lock / message overlay — set from the dashboard kiosk control */}
+      {kiosk && kioskLock && (
+        <div className="fixed inset-0 z-[100] bg-black/85 backdrop-blur-sm flex items-center justify-center p-8">
+          <div className="bg-white rounded-2xl p-10 max-w-md text-center shadow-2xl">
+            <div className="mx-auto mb-5 h-16 w-16 rounded-full bg-amber-100 flex items-center justify-center">
+              <Lock className="h-8 w-8 text-amber-600" />
+            </div>
+            <h2 className="text-2xl font-bold mb-2">
+              {kioskLock.message || 'This kiosk is paused'}
+            </h2>
+            <p className="text-muted-foreground">Please wait for a staff member.</p>
+          </div>
         </div>
       )}
       {/* Hero */}

@@ -5,7 +5,7 @@ import Image from 'next/image'
 import { usePathname } from 'next/navigation'
 import { useTheme } from 'next-themes'
 import { motion, AnimatePresence } from 'motion/react'
-import { Home, Users, Award, CalendarDays, Receipt, UserPlus, MessageCircle, Sun, Moon, BarChart3, Target, MoreHorizontal, ChevronDown } from 'lucide-react'
+import { Home, Users, Award, CalendarDays, Receipt, UserPlus, MessageCircle, Sun, Moon, BarChart3, Target, Monitor, MoreHorizontal, ChevronDown } from 'lucide-react'
 import { useQuery } from '@tanstack/react-query'
 import {
   DropdownMenu,
@@ -31,6 +31,7 @@ const MORE_ITEMS = [
   { href: '/groups', label: 'Groups', icon: Users },
   { href: '/certificate', label: 'Certificates', icon: Award },
   { href: '/scheduling', label: 'Scheduling', icon: CalendarDays },
+  { href: '/kiosks', label: 'Kiosks', icon: Monitor },
   { href: '/analytics', label: 'Analytics', icon: BarChart3 },
 ]
 
