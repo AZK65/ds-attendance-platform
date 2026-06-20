@@ -536,6 +536,16 @@ model Lead {
   @@index([createdAt])
 }
 
+// A student hidden from the Active Students list. Soft/recoverable — the
+// underlying MySQL/registration data is untouched, so "Recently deleted" can
+// restore it. studentKey is "reg:<registrationId>" or "phone:<last10digits>".
+model DismissedStudent {
+  studentKey String   @id
+  name       String?
+  phone      String?
+  deletedAt  DateTime @default(now())
+}
+
 // A registration kiosk iPad. The kiosk posts a heartbeat with its current
 // step; staff control it remotely from the dashboard via pendingCommand.
 model Kiosk {

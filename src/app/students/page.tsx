@@ -67,6 +67,9 @@ import {
   Truck,
   Car,
   FileText,
+  RotateCcw,
+  Archive,
+  Undo2,
 } from 'lucide-react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
@@ -214,6 +217,16 @@ function formatRelativeDate(dateStr: string): string {
   if (diffDays > 1 && diffDays <= 30) return `${diffDays}d ago`
   if (diffDays < -1 && diffDays >= -30) return `in ${Math.abs(diffDays)}d`
   return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
+}
+
+// Stable key for hiding/restoring a student from the Active Students list.
+// Registration-sourced rows ("No group yet") are keyed by registration id so
+// hiding them sticks even though they come from a different source than the
+// MySQL record; everyone else is keyed by phone (last 10 digits).
+function studentKeyOf(s: { id?: string; phone: string; needsGroup?: boolean }): string {
+  if (s.needsGroup && s.id?.startsWith('reg-')) return `reg:${s.id.slice(4)}`
+  const digits = (s.phone || '').replace(/\D/g, '')
+  return `phone:${digits.length >= 10 ? digits.slice(-10) : digits}`
 }
 
 const EMPTY_FORM: StudentFormData = {
@@ -446,6 +459,29 @@ function StudentsPage() {
 
   const confirmedRegistrations = confirmedRegsData?.registrations || []
 
+  // Soft-removed (hidden) students — filtered out of the active list and shown
+  // under "Recently deleted" where they can be restored.
+  const { data: dismissedData } = useQuery<{ dismissed: Array<{ studentKey: string; name: string | null; phone: string | null; deletedAt: string }> }>({
+    queryKey: ['students', 'dismissed'],
+    queryFn: async () => {
+      const res = await fetch('/api/students/dismissed')
+      if (!res.ok) return { dismissed: [] }
+      return res.json()
+    },
+    staleTime: 30 * 1000,
+  })
+  const dismissedList = useMemo(() => dismissedData?.dismissed || [], [dismissedData])
+  const dismissedKeys = useMemo(() => new Set(dismissedList.map(d => d.studentKey)), [dismissedList])
+
+  const [lastDismissed, setLastDismissed] = useState<{ key: string; name: string } | null>(null)
+  const [showRecentlyDeleted, setShowRecentlyDeleted] = useState(false)
+  // Auto-hide the undo snackbar after a few seconds.
+  useEffect(() => {
+    if (!lastDismissed) return
+    const t = setTimeout(() => setLastDismissed(null), 6000)
+    return () => clearTimeout(t)
+  }, [lastDismissed])
+
   // Fetch active students from WhatsApp groups (only course groups with module numbers)
   const { data: participantsData, isLoading: isLoadingParticipants } = useQuery<{
     participants: ParticipantWithGroup[]
@@ -507,8 +543,8 @@ function StudentsPage() {
         needsGroup: true,
       })
     }
-    return Array.from(byPhone.values())
-  }, [participantsData, confirmedRegistrations])
+    return Array.from(byPhone.values()).filter(s => !dismissedKeys.has(studentKeyOf(s)))
+  }, [participantsData, confirmedRegistrations, dismissedKeys])
 
   // Fetch last/next class info for all active student phones
   const phoneList = useMemo(() => activeStudents.map(s => s.phone), [activeStudents])
@@ -674,22 +710,30 @@ function StudentsPage() {
   })
 
   // Delete mutation
-  const deleteMutation = useMutation({
-    mutationFn: async ({ student_id, phone }: { student_id: number; phone?: string }) => {
-      const params = new URLSearchParams({ student_id: String(student_id) })
-      if (phone) params.set('phone', phone)
-      const res = await fetch(`/api/students/manage?${params}`, { method: 'DELETE' })
-      if (!res.ok) {
-        const err = await res.json()
-        throw new Error(err.error || 'Failed to delete student')
-      }
+  // Soft remove (hide) — recoverable from "Recently deleted".
+  const dismissMutation = useMutation({
+    mutationFn: async (v: { studentKey: string; name?: string; phone?: string }) => {
+      const res = await fetch('/api/students/dismissed', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(v),
+      })
+      if (!res.ok) throw new Error('Failed to remove')
       return res.json()
     },
-    onSuccess: () => {
-      setSuccessMessage('Student deleted')
-      queryClient.invalidateQueries({ queryKey: ['groups'] })
-      queryClient.invalidateQueries({ queryKey: ['batch-match'] })
+    onSuccess: (_d, v) => {
+      queryClient.invalidateQueries({ queryKey: ['students', 'dismissed'] })
+      setLastDismissed({ key: v.studentKey, name: v.name || 'Student' })
     },
+  })
+
+  const restoreMutation = useMutation({
+    mutationFn: async (key: string) => {
+      const res = await fetch(`/api/students/dismissed?key=${encodeURIComponent(key)}`, { method: 'DELETE' })
+      if (!res.ok) throw new Error('Failed to restore')
+      return res.json()
+    },
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['students', 'dismissed'] }),
   })
 
   // Bulk create mutation
@@ -1100,10 +1144,19 @@ function StudentsPage() {
             Search, add, and edit students in the database
           </p>
         </div>
-        <Button onClick={() => setShowNewStudentChoice(true)}>
-          <UserPlus className="h-4 w-4 mr-2" />
-          New Student
-        </Button>
+        <div className="flex items-center gap-2">
+          {dismissedList.length > 0 && (
+            <Button variant="outline" onClick={() => setShowRecentlyDeleted(true)}>
+              <Archive className="h-4 w-4 mr-2" />
+              Recently deleted
+              <Badge variant="secondary" className="ml-2">{dismissedList.length}</Badge>
+            </Button>
+          )}
+          <Button onClick={() => setShowNewStudentChoice(true)}>
+            <UserPlus className="h-4 w-4 mr-2" />
+            New Student
+          </Button>
+        </div>
       </motion.div>
 
       {/* Success Message */}
@@ -1491,19 +1544,19 @@ function StudentsPage() {
                                   <CalendarDays className="h-4 w-4 mr-2" />
                                   Schedule Class
                                 </DropdownMenuItem>
-                                {dbStudent && (
-                                  <DropdownMenuItem
-                                    className="text-destructive focus:text-destructive"
-                                    onClick={() => {
-                                      if (confirm(`Delete ${dbStudent.full_name}? This removes them from the database and all groups.`)) {
-                                        deleteMutation.mutate({ student_id: dbStudent.student_id, phone: dbStudent.phone_number })
-                                      }
-                                    }}
-                                  >
-                                    <Trash2 className="h-4 w-4 mr-2" />
-                                    Delete Student
-                                  </DropdownMenuItem>
-                                )}
+                                <DropdownMenuItem
+                                  className="text-destructive focus:text-destructive"
+                                  onClick={() => {
+                                    dismissMutation.mutate({
+                                      studentKey: studentKeyOf(student),
+                                      name: displayName,
+                                      phone: student.phone,
+                                    })
+                                  }}
+                                >
+                                  <Trash2 className="h-4 w-4 mr-2" />
+                                  Remove from list
+                                </DropdownMenuItem>
                               </DropdownMenuContent>
                             </DropdownMenu>
                           </TableCell>
@@ -2722,6 +2775,66 @@ function StudentsPage() {
                 </div>
               </DialogFooter>
             </>
+          )}
+        </DialogContent>
+      </Dialog>
+
+      {/* Undo snackbar after a removal */}
+      {lastDismissed && (
+        <motion.div
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          exit={{ opacity: 0, y: 20 }}
+          className="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 flex items-center gap-3 bg-foreground text-background rounded-lg shadow-lg px-4 py-3 text-sm"
+        >
+          <span>Removed <strong>{lastDismissed.name}</strong></span>
+          <button
+            className="flex items-center gap-1 font-medium text-blue-300 hover:text-blue-200"
+            onClick={() => { restoreMutation.mutate(lastDismissed.key); setLastDismissed(null) }}
+          >
+            <Undo2 className="h-4 w-4" /> Undo
+          </button>
+          <button className="opacity-70 hover:opacity-100" onClick={() => setLastDismissed(null)}>
+            <X className="h-4 w-4" />
+          </button>
+        </motion.div>
+      )}
+
+      {/* Recently deleted — restore hidden students */}
+      <Dialog open={showRecentlyDeleted} onOpenChange={setShowRecentlyDeleted}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Archive className="h-5 w-5" /> Recently deleted
+            </DialogTitle>
+            <DialogDescription>
+              Removed students are hidden from the list but not erased — restore any of them here.
+            </DialogDescription>
+          </DialogHeader>
+          {dismissedList.length === 0 ? (
+            <p className="text-sm text-muted-foreground py-6 text-center">Nothing here.</p>
+          ) : (
+            <div className="max-h-[60vh] overflow-y-auto divide-y">
+              {dismissedList.map(d => (
+                <div key={d.studentKey} className="flex items-center justify-between py-2.5">
+                  <div className="min-w-0">
+                    <p className="font-medium truncate">{d.name || 'Unknown'}</p>
+                    <p className="text-xs text-muted-foreground">
+                      {d.phone ? `${formatPhoneNumber(d.phone)} · ` : ''}
+                      removed {formatRelativeDate(d.deletedAt)}
+                    </p>
+                  </div>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={() => restoreMutation.mutate(d.studentKey)}
+                    disabled={restoreMutation.isPending}
+                  >
+                    <RotateCcw className="h-3.5 w-3.5 mr-1.5" /> Restore
+                  </Button>
+                </div>
+              ))}
+            </div>
           )}
         </DialogContent>
       </Dialog>
