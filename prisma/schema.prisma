@@ -545,6 +545,7 @@ model Kiosk {
 
   currentStep String? // register flow step key (e.g. "select", "payment")
   vehicleType String?
+  liveData    String? // JSON snapshot of the in-progress form (no images)
   lastSeenAt  DateTime @default(now())
 
   // JSON: { id, type, message? } — consumed (cleared) on next heartbeat.

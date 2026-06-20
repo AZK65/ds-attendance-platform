@@ -56,16 +56,21 @@ export function removeDashboardSender(send: Sender) { hub.dashboardSenders.delet
 /** Build the current kiosk list with live online status from the hub. */
 export async function buildKioskList() {
   const kiosks = await prisma.kiosk.findMany({ orderBy: { name: 'asc' } })
-  return kiosks.map(k => ({
-    id: k.id,
-    kioskId: k.kioskId,
-    name: k.name,
-    currentStep: k.currentStep,
-    vehicleType: k.vehicleType,
-    lastSeenAt: k.lastSeenAt,
-    online: isKioskOnline(k.kioskId),
-    hasPendingCommand: !!k.pendingCommand,
-  }))
+  return kiosks.map(k => {
+    let liveData: Record<string, unknown> | null = null
+    if (k.liveData) { try { liveData = JSON.parse(k.liveData) } catch { liveData = null } }
+    return {
+      id: k.id,
+      kioskId: k.kioskId,
+      name: k.name,
+      currentStep: k.currentStep,
+      vehicleType: k.vehicleType,
+      liveData,
+      lastSeenAt: k.lastSeenAt,
+      online: isKioskOnline(k.kioskId),
+      hasPendingCommand: !!k.pendingCommand,
+    }
+  })
 }
 
 /** Push the latest kiosk list to all connected dashboards. */

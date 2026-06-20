@@ -2,10 +2,12 @@ import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/db'
 import { sendToKiosk, broadcastKiosks } from '@/lib/kiosk-hub'
 
-const COMMANDS = ['reset', 'lock', 'unlock', 'message', 'reload']
+const COMMANDS = ['reset', 'lock', 'unlock', 'message', 'reload', 'staff-signature']
 
 // POST /api/kiosk/[id] — send a command to the kiosk (authed)
-// Body: { type: 'reset'|'lock'|'unlock'|'message'|'reload', message? }
+// Body: { type, message?, signature?, signerName? }
+//   - staff-signature carries { signature (dataURL), signerName } so staff can
+//     sign from the dashboard instead of handing over the iPad.
 // Pushes instantly over the kiosk's SSE stream; if it isn't connected, the
 // command is stored and flushed when it reconnects.
 export async function POST(
@@ -14,9 +16,12 @@ export async function POST(
 ) {
   const { id } = await params
   try {
-    const body = await request.json() as { type?: string; message?: string }
+    const body = await request.json() as { type?: string; message?: string; signature?: string; signerName?: string }
     if (!body.type || !COMMANDS.includes(body.type)) {
       return NextResponse.json({ error: 'Unknown command' }, { status: 400 })
+    }
+    if (body.type === 'staff-signature' && !body.signature) {
+      return NextResponse.json({ error: 'Signature required' }, { status: 400 })
     }
     const kiosk = await prisma.kiosk.findUnique({ where: { id } })
     if (!kiosk) return NextResponse.json({ error: 'Kiosk not found' }, { status: 404 })
@@ -25,6 +30,8 @@ export async function POST(
       id: `cmd_${Date.now().toString(36)}`,
       type: body.type,
       ...(body.message ? { message: body.message } : {}),
+      ...(body.signature ? { signature: body.signature } : {}),
+      ...(body.signerName ? { signerName: body.signerName } : {}),
     }
 
     const delivered = sendToKiosk(kiosk.kioskId, { type: 'command', command })

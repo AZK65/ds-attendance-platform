@@ -8,7 +8,7 @@ import { broadcastKiosks } from '@/lib/kiosk-hub'
 // when its step changes (and once on connect) to report state — not on a timer.
 // We still return any pending command as a fallback for when SSE is blocked.
 export async function POST(request: NextRequest) {
-  let body: { kioskId?: string; step?: string; vehicleType?: string }
+  let body: { kioskId?: string; step?: string; vehicleType?: string; data?: unknown }
   try {
     body = await request.json()
   } catch {
@@ -17,6 +17,9 @@ export async function POST(request: NextRequest) {
 
   const kioskId = (body.kioskId || '').trim()
   if (!kioskId) return NextResponse.json({ error: 'kioskId required' }, { status: 400 })
+
+  // Live form snapshot (no images — just typed values + captured flags).
+  const liveData = body.data !== undefined ? JSON.stringify(body.data) : undefined
 
   try {
     const existing = await prisma.kiosk.findUnique({ where: { kioskId } })
@@ -31,11 +34,13 @@ export async function POST(request: NextRequest) {
         kioskId,
         currentStep: body.step ?? null,
         vehicleType: body.vehicleType ?? null,
+        ...(liveData !== undefined ? { liveData } : {}),
         lastSeenAt: new Date(),
       },
       update: {
         currentStep: body.step ?? null,
         vehicleType: body.vehicleType ?? null,
+        ...(liveData !== undefined ? { liveData } : {}),
         lastSeenAt: new Date(),
         ...(command ? { pendingCommand: null } : {}),
       },

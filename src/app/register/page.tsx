@@ -186,13 +186,22 @@ export function RegisterPageInner({ kiosk = false }: { kiosk?: boolean } = {}) {
     return () => clearTimeout(timer)
   }, [kiosk, step, resetKiosk])
 
-  const handleKioskCommand = useCallback((cmd: { type: string; message?: string }) => {
+  const handleKioskCommand = useCallback((cmd: { type: string; message?: string; signature?: string; signerName?: string }) => {
     switch (cmd.type) {
       case 'reset': resetKiosk(); setKioskLock(null); break
       case 'lock':
       case 'message': setKioskLock({ message: cmd.message || '' }); break
       case 'unlock': setKioskLock(null); break
       case 'reload': if (typeof window !== 'undefined') window.location.reload(); break
+      case 'staff-signature':
+        // Staff signed remotely from the dashboard — apply it and continue
+        // the flow without handing the iPad over.
+        if (cmd.signature) {
+          setRepSignatureDataUrl(cmd.signature)
+          if (cmd.signerName) setRepName(cmd.signerName)
+          setStep('payment-method')
+        }
+        break
     }
   }, [resetKiosk])
 
@@ -202,23 +211,40 @@ export function RegisterPageInner({ kiosk = false }: { kiosk?: boolean } = {}) {
   useEffect(() => { stepRef.current = step }, [step])
   useEffect(() => { vehicleRef.current = vehicleType }, [vehicleType])
 
-  // Report the current step to the server (state only — commands arrive over
-  // the SSE stream below). Called on connect and whenever the step changes,
-  // not on a timer.
+  // Live snapshot of the in-progress form, shown on the dashboard so staff can
+  // see what's being entered. Images are sent as captured/not flags, never the
+  // raw data. Updated every render; reported (debounced) below.
+  const liveRef = useRef<Record<string, unknown>>({})
+  liveRef.current = {
+    name: fullName, phone: phoneNumber, email, dob,
+    address, city, province, postalCode,
+    permitNumber, permitExpiry,
+    signedAtPlace, firstCourseDate, truckPaymentMethod, cardLocation, repName,
+    hasPermit: !!permitImage, hasId: !!idImage, hasPhoto: !!avatarImage,
+    hasStudentSig: !!signatureImage, hasRepSig: !!repSignatureDataUrl,
+  }
+
+  // Report the current step + form snapshot to the server (state only —
+  // commands arrive over the SSE stream below).
   const reportStep = useCallback(async () => {
     if (!kioskIdRef.current) return
     try {
       const res = await fetch('/api/kiosk/heartbeat', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ kioskId: kioskIdRef.current, step: stepRef.current, vehicleType: vehicleRef.current }),
+        body: JSON.stringify({
+          kioskId: kioskIdRef.current,
+          step: stepRef.current,
+          vehicleType: vehicleRef.current,
+          data: liveRef.current,
+        }),
       })
       // Fallback: if SSE is blocked, the heartbeat still returns a queued command.
       if (res.ok) {
         const data = await res.json()
         if (data.command) handleKioskCommand(data.command)
       }
-    } catch { /* offline — will retry on next step change */ }
+    } catch { /* offline — will retry on next change */ }
   }, [handleKioskCommand])
 
   // Open one SSE connection for instant remote commands; report step on connect.
@@ -250,6 +276,14 @@ export function RegisterPageInner({ kiosk = false }: { kiosk?: boolean } = {}) {
     if (kiosk && kioskIdRef.current) reportStep()
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [step])
+
+  // Report form-field edits (debounced) so the dashboard sees live input.
+  const liveKey = JSON.stringify(liveRef.current)
+  useEffect(() => {
+    if (!kiosk || !kioskIdRef.current) return
+    const t = setTimeout(() => { reportStep() }, 700)
+    return () => clearTimeout(t)
+  }, [liveKey, kiosk, reportStep])
 
   const permitInputRef = useRef<HTMLInputElement>(null)
   const idInputRef = useRef<HTMLInputElement>(null)
