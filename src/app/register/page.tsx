@@ -13,6 +13,7 @@ import {
   Shield, Lock,
 } from 'lucide-react'
 import NextImage from 'next/image'
+import { useRouter } from 'next/navigation'
 import { QaziNav } from '@/components/qazi-nav'
 import { SignaturePad, type SignaturePadHandle } from '@/components/SignaturePad'
 import { QaziFooter } from '@/components/qazi-footer'
@@ -95,8 +96,11 @@ export default function RegisterPage() {
  */
 export function RegisterPageInner({ kiosk = false }: { kiosk?: boolean } = {}) {
   const { t } = useT()
+  const router = useRouter()
   const [step, setStep] = useState<Step>('select')
   const [error, setError] = useState('')
+  // Set after a successful submit so the admin can jump to the new student.
+  const [submittedRegistrationId, setSubmittedRegistrationId] = useState<string | null>(null)
   // Whether the visitor is logged in as admin. Drives admin-only paths
   // like the truck registration form. Checked once on mount.
   const [isAdmin, setIsAdmin] = useState(false)
@@ -505,6 +509,7 @@ export function RegisterPageInner({ kiosk = false }: { kiosk?: boolean } = {}) {
       }
 
       const { registrationId } = await res.json()
+      setSubmittedRegistrationId(registrationId)
 
       // No Clover checkout when the fee is collected in person:
       //  • cash, or
@@ -1577,6 +1582,23 @@ export function RegisterPageInner({ kiosk = false }: { kiosk?: boolean } = {}) {
               <p className="mt-3 text-[16px] text-ink/65 max-w-[46ch] mx-auto">
                 {t.done.body}
               </p>
+              {/* Staff operating the registration can jump straight to the new
+                  student to review/confirm. Hidden from public walk-ins. */}
+              {isAdmin && submittedRegistrationId && (
+                <div className="mt-7">
+                  <p className="text-sm font-medium text-emerald-700 mb-3">
+                    ✓ Student registered
+                  </p>
+                  <button
+                    type="button"
+                    onClick={() => router.push(`/students?review=${submittedRegistrationId}`)}
+                    className="inline-flex items-center gap-2 rounded-xl bg-[#0B0B0F] text-white px-5 py-3 text-sm font-medium hover:bg-black transition-colors"
+                  >
+                    View student
+                    <ArrowRight className="h-4 w-4" />
+                  </button>
+                </div>
+              )}
             </motion.div>
           )}
         </AnimatePresence>

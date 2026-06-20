@@ -1070,6 +1070,21 @@ function StudentsPage() {
     confirmMutation.reset()
   }
 
+  // Deep link from the registration success screen (?review=<registrationId>):
+  // auto-open that student's review once the pending list has loaded.
+  const reviewOpenedRef = useRef(false)
+  useEffect(() => {
+    if (reviewOpenedRef.current) return
+    const reviewId = searchParams.get('review')
+    if (!reviewId) return
+    const reg = pendingRegistrations.find(r => r.id === reviewId)
+    if (reg) {
+      reviewOpenedRef.current = true
+      openReview(reg)
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [searchParams, pendingRegistrations])
+
   const handleCopyLink = async () => {
     if (qrData?.enrollUrl) {
       await navigator.clipboard.writeText(qrData.enrollUrl)
