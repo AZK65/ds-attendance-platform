@@ -1,10 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/db'
+import { broadcastKiosks } from '@/lib/kiosk-hub'
 
 // POST /api/kiosk/heartbeat  (public — the kiosk page has no auth cookie)
 // Body: { kioskId, step?, vehicleType? }
-// Records the kiosk's current step/last-seen and returns any pending command,
-// clearing it (at-most-once delivery — fine for reset/lock/message).
+// With SSE, commands are pushed over the stream, so the kiosk only calls this
+// when its step changes (and once on connect) to report state — not on a timer.
+// We still return any pending command as a fallback for when SSE is blocked.
 export async function POST(request: NextRequest) {
   let body: { kioskId?: string; step?: string; vehicleType?: string }
   try {
@@ -39,6 +41,7 @@ export async function POST(request: NextRequest) {
       },
     })
 
+    broadcastKiosks().catch(() => {})
     return NextResponse.json({ command })
   } catch (error) {
     console.error('[kiosk/heartbeat] error:', error)

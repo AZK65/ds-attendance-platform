@@ -1,6 +1,7 @@
 'use client'
 
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
+import { useEffect, useRef, useState } from 'react'
+import { useMutation } from '@tanstack/react-query'
 import { motion } from 'motion/react'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
@@ -48,18 +49,42 @@ function relTime(iso: string): string {
 }
 
 export default function KiosksPage() {
-  const queryClient = useQueryClient()
+  const [kiosks, setKiosks] = useState<Kiosk[]>([])
+  const [loading, setLoading] = useState(true)
+  const [, forceTick] = useState(0)
+  const seededRef = useRef(false)
 
-  const { data, isLoading } = useQuery<{ kiosks: Kiosk[] }>({
-    queryKey: ['kiosks'],
-    queryFn: async () => {
-      const res = await fetch('/api/kiosk')
-      if (!res.ok) throw new Error('Failed to load kiosks')
-      return res.json()
-    },
-    refetchInterval: 3000,
-  })
-  const kiosks = data?.kiosks || []
+  // Live state over SSE — no polling. The stream pushes the full list on
+  // connect and whenever any kiosk changes (connects, navigates, etc.).
+  useEffect(() => {
+    const es = new EventSource('/api/kiosk/events')
+    es.onmessage = (e) => {
+      try {
+        const msg = JSON.parse(e.data)
+        if (msg.type === 'kiosks') {
+          setKiosks(msg.kiosks)
+          setLoading(false)
+          seededRef.current = true
+        }
+      } catch { /* ignore */ }
+    }
+    es.onerror = () => { /* EventSource auto-reconnects */ }
+    // Safety: if the stream is slow to send the first snapshot, fetch once.
+    const t = setTimeout(async () => {
+      if (seededRef.current) return
+      try {
+        const res = await fetch('/api/kiosk')
+        if (res.ok) setKiosks((await res.json()).kiosks)
+      } catch { /* ignore */ } finally { setLoading(false) }
+    }, 1500)
+    return () => { es.close(); clearTimeout(t) }
+  }, [])
+
+  // Re-render every 15s so the "seen X ago" labels stay fresh between events.
+  useEffect(() => {
+    const id = setInterval(() => forceTick(n => n + 1), 15000)
+    return () => clearInterval(id)
+  }, [])
 
   const command = useMutation({
     mutationFn: async ({ id, type, message }: { id: string; type: string; message?: string }) => {
@@ -71,7 +96,6 @@ export default function KiosksPage() {
       if (!res.ok) throw new Error('Command failed')
       return res.json()
     },
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['kiosks'] }),
   })
 
   const rename = useMutation({
@@ -84,7 +108,6 @@ export default function KiosksPage() {
       if (!res.ok) throw new Error('Rename failed')
       return res.json()
     },
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['kiosks'] }),
   })
 
   const remove = useMutation({
@@ -93,7 +116,6 @@ export default function KiosksPage() {
       if (!res.ok) throw new Error('Delete failed')
       return res.json()
     },
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['kiosks'] }),
   })
 
   return (
@@ -111,7 +133,7 @@ export default function KiosksPage() {
         </p>
       </motion.div>
 
-      {isLoading ? (
+      {loading ? (
         <div className="flex items-center justify-center py-12">
           <Loader2 className="h-5 w-5 animate-spin mr-2" />
           <span className="text-muted-foreground">Loading kiosks…</span>

@@ -202,7 +202,10 @@ export function RegisterPageInner({ kiosk = false }: { kiosk?: boolean } = {}) {
   useEffect(() => { stepRef.current = step }, [step])
   useEffect(() => { vehicleRef.current = vehicleType }, [vehicleType])
 
-  const sendHeartbeat = useCallback(async () => {
+  // Report the current step to the server (state only — commands arrive over
+  // the SSE stream below). Called on connect and whenever the step changes,
+  // not on a timer.
+  const reportStep = useCallback(async () => {
     if (!kioskIdRef.current) return
     try {
       const res = await fetch('/api/kiosk/heartbeat', {
@@ -210,12 +213,15 @@ export function RegisterPageInner({ kiosk = false }: { kiosk?: boolean } = {}) {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ kioskId: kioskIdRef.current, step: stepRef.current, vehicleType: vehicleRef.current }),
       })
-      if (!res.ok) return
-      const data = await res.json()
-      if (data.command) handleKioskCommand(data.command)
-    } catch { /* offline — retry next tick */ }
+      // Fallback: if SSE is blocked, the heartbeat still returns a queued command.
+      if (res.ok) {
+        const data = await res.json()
+        if (data.command) handleKioskCommand(data.command)
+      }
+    } catch { /* offline — will retry on next step change */ }
   }, [handleKioskCommand])
 
+  // Open one SSE connection for instant remote commands; report step on connect.
   useEffect(() => {
     if (!kiosk) return
     try {
@@ -225,15 +231,23 @@ export function RegisterPageInner({ kiosk = false }: { kiosk?: boolean } = {}) {
         localStorage.setItem('kioskId', id)
       }
       kioskIdRef.current = id
-    } catch { /* private mode — heartbeat just won't run */ }
-    sendHeartbeat()
-    const interval = setInterval(sendHeartbeat, 5000)
-    return () => clearInterval(interval)
-  }, [kiosk, sendHeartbeat])
+    } catch { return /* private mode — skip remote control */ }
 
-  // Report step changes immediately rather than waiting for the next tick.
+    reportStep()
+    const es = new EventSource(`/api/kiosk/stream?kioskId=${encodeURIComponent(kioskIdRef.current)}`)
+    es.onmessage = (e) => {
+      try {
+        const msg = JSON.parse(e.data)
+        if (msg.type === 'command' && msg.command) handleKioskCommand(msg.command)
+      } catch { /* ignore malformed */ }
+    }
+    // EventSource auto-reconnects on error; nothing to do here.
+    return () => es.close()
+  }, [kiosk, reportStep, handleKioskCommand])
+
+  // Report step changes as they happen.
   useEffect(() => {
-    if (kiosk && kioskIdRef.current) sendHeartbeat()
+    if (kiosk && kioskIdRef.current) reportStep()
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [step])
 
