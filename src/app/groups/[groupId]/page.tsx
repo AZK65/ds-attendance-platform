@@ -394,7 +394,10 @@ export default function GroupDetailPage() {
     }
   }
 
-  const handleCheckZoomAttendance = async () => {
+  // forceRefresh=true skips the saved record and re-matches against the live
+  // roster — used to recover from a stale save (e.g. one computed while the
+  // WhatsApp roster was empty). The fresh result overwrites the saved row.
+  const handleCheckZoomAttendance = async (forceRefresh = false) => {
     if (!selectedMeetingUUID) {
       setZoomError('Please select a meeting session first')
       return
@@ -411,23 +414,25 @@ export default function GroupDetailPage() {
     setSaveSuccess(false)
 
     try {
-      // First check if we have saved data for this meeting
-      const savedRes = await fetch(`/api/zoom/attendance?groupId=${encodeURIComponent(groupId)}&meetingUUID=${encodeURIComponent(selectedMeetingUUID)}`)
-      const savedData = await savedRes.json()
+      // Use the saved record unless we're forcing a fresh re-match.
+      if (!forceRefresh) {
+        const savedRes = await fetch(`/api/zoom/attendance?groupId=${encodeURIComponent(groupId)}&meetingUUID=${encodeURIComponent(selectedMeetingUUID)}`)
+        const savedData = await savedRes.json()
 
-      if (savedData.found) {
-        // Load from saved data
-        setZoomAttendanceData({
-          matched: savedData.data.matched,
-          absent: savedData.data.absent,
-          unmatchedZoom: savedData.data.unmatchedZoom
-        })
-        setLoadedFromSave(true)
-        setZoomLoading(false)
-        return
+        if (savedData.found) {
+          // Load from saved data
+          setZoomAttendanceData({
+            matched: savedData.data.matched,
+            absent: savedData.data.absent,
+            unmatchedZoom: savedData.data.unmatchedZoom
+          })
+          setLoadedFromSave(true)
+          setZoomLoading(false)
+          return
+        }
       }
 
-      // No saved data, fetch fresh from Zoom API
+      // No saved data (or forcing a re-match), fetch fresh from Zoom API
       const res = await fetch('/api/zoom/participants', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -1175,7 +1180,7 @@ export default function GroupDetailPage() {
             {selectedMeetingUUID && (
               <div className="flex justify-end">
                 <Button
-                  onClick={handleCheckZoomAttendance}
+                  onClick={() => handleCheckZoomAttendance()}
                   disabled={zoomLoading}
                 >
                   {zoomLoading ? (
@@ -1283,9 +1288,22 @@ export default function GroupDetailPage() {
 
                 {/* Load status indicator */}
                 {loadedFromSave && (
-                  <div className="bg-blue-50 border border-blue-200 rounded-lg p-3 flex items-center gap-2">
-                    <CheckCircle className="h-4 w-4 text-blue-600" />
-                    <span className="text-sm text-blue-800">Loaded from saved data</span>
+                  <div className="bg-blue-50 border border-blue-200 rounded-lg p-3 flex items-center justify-between gap-2">
+                    <span className="flex items-center gap-2">
+                      <CheckCircle className="h-4 w-4 text-blue-600" />
+                      <span className="text-sm text-blue-800">Loaded from saved data</span>
+                    </span>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="h-8"
+                      disabled={zoomLoading}
+                      onClick={() => handleCheckZoomAttendance(true)}
+                      title="Ignore the saved result and re-match against the current group roster"
+                    >
+                      {zoomLoading ? <Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" /> : <RefreshCw className="h-3.5 w-3.5 mr-1.5" />}
+                      Re-match from Zoom
+                    </Button>
                   </div>
                 )}
 
