@@ -46,6 +46,10 @@ services:
       - CLOVER_SANDBOX=${CLOVER_SANDBOX:-false}
       - NODE_ENV=production
       - TZ=America/Montreal
+      # Override the pinned WhatsApp Web HTML version if WA auto-updates and
+      # breaks the fork (symptom: "reading 'getChat'" / no QR). Pick a build
+      # from github.com/wppconnect-team/wa-version/tree/main/html
+      - WA_WEB_VERSION=${WA_WEB_VERSION:-}
       - EXTERNAL_DB_HOST=mysqldb
       - EXTERNAL_DB_PORT=3306
       - EXTERNAL_DB_USER=root
