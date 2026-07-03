@@ -105,8 +105,18 @@ export function resetWhatsAppState(): void {
 }
 
 // Full reconnect - completely destroys and recreates the client
-// Used when frame detachment or other unrecoverable errors occur
+// Used when frame detachment or other unrecoverable errors occur.
+// Guarded so a burst of failing sends (e.g. mid-broadcast) can't fire several
+// concurrent teardowns and pile up Chromium relaunches, which on a small box
+// OOMs and keeps WhatsApp down.
 async function fullReconnect(): Promise<void> {
+  const s = state as WhatsAppState & { reconnecting?: boolean }
+  if (s.reconnecting) {
+    console.log('[fullReconnect] already in progress — skipping duplicate')
+    return
+  }
+  s.reconnecting = true
+  try {
   console.log('[fullReconnect] Starting full reconnect...')
 
   // Mark as disconnected
@@ -142,6 +152,9 @@ async function fullReconnect(): Promise<void> {
     } catch (err) {
       console.error('[fullReconnect] Reconnection failed:', err)
     }
+  }
+  } finally {
+    s.reconnecting = false
   }
 }
 

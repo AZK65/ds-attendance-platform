@@ -1,5 +1,5 @@
 import { NextRequest } from 'next/server'
-import { sendPrivateMessage, getGroupParticipants } from '@/lib/whatsapp/client'
+import { sendPrivateMessage, getGroupParticipants, getWhatsAppState } from '@/lib/whatsapp/client'
 import { prisma } from '@/lib/db'
 import { createTheoryEvent } from '@/lib/teamup'
 
@@ -50,9 +50,24 @@ export async function POST(
     async start(controller) {
       let sent = 0
       let failed = 0
+      let aborted = false
 
       for (const phone of memberPhones) {
         const name = participantMap.get(phone) || phone
+
+        // If a send tripped a Chromium frame error, sendPrivateMessage marks
+        // WhatsApp disconnected and kicks off a reconnect. Stop here instead of
+        // hammering the remaining phones with failed sends (which race the
+        // reconnect and just delay recovery); report the rest as skipped.
+        if (aborted || !getWhatsAppState().isConnected) {
+          aborted = true
+          failed++
+          controller.enqueue(encoder.encode(
+            JSON.stringify({ phone, name, status: 'failed', error: 'WhatsApp disconnected mid-send — reconnecting' }) + '\n'
+          ))
+          continue
+        }
+
         try {
           await sendPrivateMessage(phone, message)
           sent++
