@@ -50,63 +50,79 @@ export async function POST(
     async start(controller) {
       let sent = 0
       let failed = 0
-      let aborted = false
+      const skipped: string[] = []
 
-      for (const phone of memberPhones) {
-        const name = participantMap.get(phone) || phone
+      // Gentler pacing than a fixed 1.5s — 2–3.2s with jitter looks less
+      // bot-like and eases the Chromium/WhatsApp load that triggers the
+      // frame errors during a big broadcast.
+      const pace = () => new Promise(resolve => setTimeout(resolve, 2000 + Math.floor(Math.random() * 1200)))
 
-        // If a send tripped a Chromium frame error, sendPrivateMessage marks
-        // WhatsApp disconnected and kicks off a reconnect. Stop here instead of
-        // hammering the remaining phones with failed sends (which race the
-        // reconnect and just delay recovery); report the rest as skipped.
-        if (aborted || !getWhatsAppState().isConnected) {
-          aborted = true
-          failed++
-          controller.enqueue(encoder.encode(
-            JSON.stringify({ phone, name, status: 'failed', error: 'WhatsApp disconnected mid-send — reconnecting' }) + '\n'
-          ))
-          continue
-        }
-
+      // Send one message + log it. Shared by the main pass and the retry pass.
+      const sendOne = async (phone: string, name: string, isRetry: boolean) => {
         try {
           await sendPrivateMessage(phone, message)
           sent++
           controller.enqueue(encoder.encode(
-            JSON.stringify({ phone, name, status: 'sent' }) + '\n'
+            JSON.stringify({ phone, name, status: 'sent', retry: isRetry }) + '\n'
           ))
-
-          // Log to MessageLog
           await prisma.messageLog.create({
-            data: {
-              type: 'group-notify',
-              to: phone,
-              toName: name !== phone ? name : null,
-              message: message.slice(0, 500),
-              status: 'sent',
-            },
+            data: { type: 'group-notify', to: phone, toName: name !== phone ? name : null, message: message.slice(0, 500), status: 'sent' },
           }).catch(() => {})
         } catch (error) {
           failed++
           const errorMsg = error instanceof Error ? error.message : 'Unknown error'
           controller.enqueue(encoder.encode(
-            JSON.stringify({ phone, name, status: 'failed', error: errorMsg }) + '\n'
+            JSON.stringify({ phone, name, status: 'failed', error: errorMsg, retry: isRetry }) + '\n'
           ))
-
-          // Log failure
           await prisma.messageLog.create({
-            data: {
-              type: 'group-notify',
-              to: phone,
-              toName: name !== phone ? name : null,
-              message: message.slice(0, 500),
-              status: 'failed',
-              error: errorMsg,
-            },
+            data: { type: 'group-notify', to: phone, toName: name !== phone ? name : null, message: message.slice(0, 500), status: 'failed', error: errorMsg },
           }).catch(() => {})
         }
+      }
 
-        // Small delay between messages to avoid rate limiting
-        await new Promise(resolve => setTimeout(resolve, 1500))
+      let aborted = false
+      for (const phone of memberPhones) {
+        const name = participantMap.get(phone) || phone
+
+        // If a send tripped a Chromium frame error, sendPrivateMessage marks
+        // WhatsApp disconnected and kicks off a reconnect. Stop here instead of
+        // hammering the rest (which races the reconnect); collect them and
+        // retry once WhatsApp is back.
+        if (aborted || !getWhatsAppState().isConnected) {
+          aborted = true
+          skipped.push(phone)
+          controller.enqueue(encoder.encode(
+            JSON.stringify({ phone, name, status: 'skipped', error: 'WhatsApp reconnecting — will retry' }) + '\n'
+          ))
+          continue
+        }
+
+        await sendOne(phone, name, false)
+        await pace()
+      }
+
+      // Auto-retry the skipped members once the client reconnects (up to ~60s).
+      if (skipped.length > 0) {
+        controller.enqueue(encoder.encode(
+          JSON.stringify({ type: 'info', message: `Waiting for WhatsApp to reconnect to retry ${skipped.length} member(s)…` }) + '\n'
+        ))
+        let waited = 0
+        while (!getWhatsAppState().isConnected && waited < 60000) {
+          await new Promise(resolve => setTimeout(resolve, 3000))
+          waited += 3000
+        }
+        for (const phone of skipped) {
+          const name = participantMap.get(phone) || phone
+          if (!getWhatsAppState().isConnected) {
+            failed++
+            controller.enqueue(encoder.encode(
+              JSON.stringify({ phone, name, status: 'failed', error: 'WhatsApp did not reconnect in time' }) + '\n'
+            ))
+            continue
+          }
+          await sendOne(phone, name, true)
+          await pace()
+        }
       }
 
       // Schedule group reminder for 12pm on class date if requested (with dedup)
