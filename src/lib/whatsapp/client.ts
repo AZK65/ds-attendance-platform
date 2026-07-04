@@ -2,6 +2,8 @@ import path from 'path'
 import { prisma } from '@/lib/db'
 
 // Types
+interface WaEvent { ts: string; event: string; detail?: string }
+
 interface WhatsAppState {
   client: unknown | null
   qr: string | null
@@ -9,6 +11,23 @@ interface WhatsAppState {
   isConnecting: boolean
   groupsCache: GroupInfo[]
   lastGroupSync: number
+  events?: WaEvent[]
+}
+
+// Ring buffer of recent lifecycle events (disconnect reasons, crashes,
+// reconnects) so "why did WhatsApp drop" is answerable from the browser via
+// /api/whatsapp/diagnostics without SSH into the server.
+function logWaEvent(event: string, detail?: string) {
+  const s = globalForWhatsApp.whatsappState
+  if (!s) return
+  if (!s.events) s.events = []
+  s.events.unshift({ ts: new Date().toISOString(), event, detail })
+  if (s.events.length > 60) s.events.length = 60
+  console.log(`[WA-EVENT] ${event}${detail ? ': ' + detail : ''}`)
+}
+
+export function getWaEvents(): WaEvent[] {
+  return globalForWhatsApp.whatsappState?.events || []
 }
 
 export interface GroupInfo {
@@ -40,7 +59,8 @@ const state: WhatsAppState = globalForWhatsApp.whatsappState ?? {
   isConnected: false,
   isConnecting: false,
   groupsCache: [],
-  lastGroupSync: 0
+  lastGroupSync: 0,
+  events: []
 }
 
 // Persist state globally so multiple Next.js workers share the same WhatsApp client
@@ -118,6 +138,7 @@ async function fullReconnect(): Promise<void> {
   s.reconnecting = true
   try {
   console.log('[fullReconnect] Starting full reconnect...')
+  logWaEvent('full_reconnect', 'destroying + recreating Chromium client')
 
   // Mark as disconnected
   state.isConnected = false
@@ -233,6 +254,7 @@ export async function connectWhatsApp(): Promise<void> {
     client.on('qr', (qr: string) => {
       console.log('QR code received')
       state.qr = qr
+      logWaEvent('qr_shown', 'session not authenticated — needs scan')
     })
 
     client.on('ready', async () => {
@@ -240,6 +262,7 @@ export async function connectWhatsApp(): Promise<void> {
       state.isConnected = true
       state.isConnecting = false
       state.qr = null
+      logWaEvent('ready', 'connected')
 
       // Short settling pause; the Store.Chat poll below is what actually
       // waits for WhatsApp Web to be usable. Was 10s hardcoded for the
@@ -338,6 +361,7 @@ export async function connectWhatsApp(): Promise<void> {
 
     client.on('authenticated', async () => {
       console.log('WhatsApp authenticated')
+      logWaEvent('authenticated')
 
       // Workaround for WhatsApp Web update (Jan 28, 2026) that broke ready event
       // See: https://github.com/pedroslopez/whatsapp-web.js/issues/5758
@@ -377,12 +401,14 @@ export async function connectWhatsApp(): Promise<void> {
 
     client.on('auth_failure', (msg: string) => {
       console.error('WhatsApp authentication failed:', msg)
+      logWaEvent('auth_failure', msg)
       state.isConnecting = false
       state.isConnected = false
     })
 
     client.on('disconnected', (reason: string) => {
       console.log('WhatsApp disconnected:', reason)
+      logWaEvent('disconnected', reason)
       state.isConnected = false
       state.isConnecting = false
       state.client = null
@@ -407,6 +433,7 @@ export async function connectWhatsApp(): Promise<void> {
     if (typedClientForCrash.pupPage) {
       typedClientForCrash.pupPage.on('error', (error: Error) => {
         console.error('[WhatsApp] Page error:', error.message)
+        logWaEvent('page_error', error.message)
         if (error.message.includes('detached') || error.message.includes('Target closed')) {
           console.log('[WhatsApp] Page detached, marking as disconnected')
           state.isConnected = false
@@ -415,6 +442,7 @@ export async function connectWhatsApp(): Promise<void> {
 
       typedClientForCrash.pupPage.on('close', () => {
         console.log('[WhatsApp] Page closed unexpectedly')
+        logWaEvent('page_closed', 'Chromium page closed (often an OOM kill / crash)')
         state.isConnected = false
         state.isConnecting = false
         state.client = null
@@ -424,6 +452,7 @@ export async function connectWhatsApp(): Promise<void> {
     await client.initialize()
   } catch (error) {
     console.error('WhatsApp connection error:', error)
+    logWaEvent('connect_error', error instanceof Error ? error.message : String(error))
     state.isConnecting = false
     throw error
   }
@@ -1370,6 +1399,7 @@ export async function sendPrivateMessage(phone: string, message: string): Promis
     // Detect detached frame / dead Chromium session — mark as disconnected so next reconnect triggers
     if (errMsg.includes('detached') || errMsg.includes('Target closed') || errMsg.includes('Execution context was destroyed') || errMsg.includes('Protocol error')) {
       console.log('[sendPrivateMessage] Detected dead frame, marking WhatsApp as disconnected for reconnect')
+      logWaEvent('send_frame_error', errMsg)
       state.isConnected = false
       fullReconnect().catch(err => console.error('[sendPrivateMessage] Reconnect failed:', err))
     }
