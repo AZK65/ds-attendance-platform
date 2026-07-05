@@ -105,6 +105,15 @@ export interface ChatMessage {
 let chatsCache: ChatInfo[] = []
 let lastChatSync = 0
 
+// Single-flight + cooldown for the group-details sweep. The sweep runs
+// searchMessages + fetchMessages against EVERY group — dozens of heavy
+// page.evaluate calls. Every load of the groups page fires it in the
+// background, so without this, refreshes stack concurrent sweeps until the
+// WA page dies ("Execution context was destroyed").
+let detailsSweepInFlight: Promise<GroupInfo[]> | null = null
+let lastDetailsSweep = 0
+const DETAILS_SWEEP_COOLDOWN = 5 * 60_000 // 5 minutes
+
 export function getWhatsAppState() {
   return {
     qr: state.qr,
@@ -393,11 +402,21 @@ export async function connectWhatsApp(): Promise<void> {
       logWaEvent('qr_shown', 'session not authenticated — needs scan')
     })
 
+    // whatsapp-web.js can emit 'ready'/'authenticated' many times for one
+    // connection (seen 7-8x in production). The state flips are harmless to
+    // repeat, but the heavy post-ready work (60s Store.Chat poll + group
+    // sync) must run once — 7 concurrent copies inside one Chromium page is
+    // exactly the load that kills it ("Execution context was destroyed").
+    let readyWorkStarted = false
+    let authWorkaroundStarted = false
+
     client.on('ready', async () => {
       console.log('WhatsApp client is ready!')
       state.isConnected = true
       state.isConnecting = false
       state.qr = null
+      if (readyWorkStarted) return
+      readyWorkStarted = true
       logWaEvent('ready', 'connected')
 
       // Short settling pause; the Store.Chat poll below is what actually
@@ -497,6 +516,8 @@ export async function connectWhatsApp(): Promise<void> {
 
     client.on('authenticated', async () => {
       console.log('WhatsApp authenticated')
+      if (authWorkaroundStarted) return
+      authWorkaroundStarted = true
       logWaEvent('authenticated')
 
       // Workaround for WhatsApp Web update (Jan 28, 2026) that broke ready event
@@ -1256,22 +1277,42 @@ export async function getGroupLastMessage(groupId: string): Promise<GroupLastMes
   }
 }
 
+async function dbGroupsFallback(): Promise<GroupInfo[]> {
+  const dbGroups = await prisma.group.findMany({
+    orderBy: { name: 'asc' }
+  })
+  return dbGroups.map(g => ({
+    id: g.id,
+    name: g.name,
+    participantCount: g.participantCount,
+    moduleNumber: g.moduleNumber ?? null,
+    lastMessageDate: g.lastMessageDate ?? null,
+    lastMessagePreview: g.lastMessagePreview ?? null
+  }))
+}
+
 export async function getGroupsWithDetails(): Promise<GroupInfo[]> {
   if (!state.client || !state.isConnected) {
     // Return from database if not connected
-    const dbGroups = await prisma.group.findMany({
-      orderBy: { name: 'asc' }
-    })
-    return dbGroups.map(g => ({
-      id: g.id,
-      name: g.name,
-      participantCount: g.participantCount,
-      moduleNumber: g.moduleNumber ?? null,
-      lastMessageDate: g.lastMessageDate ?? null,
-      lastMessagePreview: g.lastMessagePreview ?? null
-    }))
+    return dbGroupsFallback()
   }
 
+  // Already sweeping? Join that sweep instead of starting another.
+  if (detailsSweepInFlight) return detailsSweepInFlight
+
+  // Swept recently? The DB has those results — don't hit Chromium again yet.
+  if (Date.now() - lastDetailsSweep < DETAILS_SWEEP_COOLDOWN) {
+    return dbGroupsFallback()
+  }
+
+  detailsSweepInFlight = sweepGroupDetails().finally(() => {
+    detailsSweepInFlight = null
+    lastDetailsSweep = Date.now()
+  })
+  return detailsSweepInFlight
+}
+
+async function sweepGroupDetails(): Promise<GroupInfo[]> {
   const client = state.client as {
     getChats: () => Promise<Array<{
       id: { _serialized: string }
