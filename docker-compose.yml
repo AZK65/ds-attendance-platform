@@ -56,6 +56,12 @@ services:
       # breaks the fork (symptom: "reading 'getChat'" / no QR). Pick a build
       # from github.com/wppconnect-team/wa-version/tree/main/html
       - WA_WEB_VERSION=${WA_WEB_VERSION:-}
+      # WA_HEADLESS=new switches WhatsApp's browser from chrome-headless-shell
+      # back to full Chrome's new headless mode (no rebuild needed, just
+      # `docker compose up -d`). WA_CHROME_DEBUG=1 pipes Chrome's stdout/stderr
+      # into the container logs to see WHY a launch fails.
+      - WA_HEADLESS=${WA_HEADLESS:-}
+      - WA_CHROME_DEBUG=${WA_CHROME_DEBUG:-}
       - EXTERNAL_DB_HOST=mysqldb
       - EXTERNAL_DB_PORT=3306
       - EXTERNAL_DB_USER=root

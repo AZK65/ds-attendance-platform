@@ -12,6 +12,11 @@ interface WhatsAppState {
   groupsCache: GroupInfo[]
   lastGroupSync: number
   events?: WaEvent[]
+  connectStartedAt?: number
+  lastQrAt?: number
+  lastConnectAttempt?: number
+  intentionalDisconnect?: boolean
+  reconnecting?: boolean
 }
 
 // Ring buffer of recent lifecycle events (disconnect reasons, crashes,
@@ -68,6 +73,7 @@ const state: WhatsAppState = globalForWhatsApp.whatsappState ?? {
 globalForWhatsApp.whatsappState = state
 
 const AUTH_FOLDER = path.join(process.cwd(), '.wwebjs-auth')
+const WEB_CACHE_FOLDER = path.join(process.cwd(), '.wwebjs_cache')
 const CACHE_TTL = 60000 // 1 minute cache
 const CHAT_CACHE_TTL = 30000 // 30 second cache for inbox chats
 
@@ -124,6 +130,126 @@ export function resetWhatsAppState(): void {
   state.lastGroupSync = 0
 }
 
+// Delete the cached WhatsApp Web bundle (.wwebjs_cache). Safe — it holds no
+// auth data, only the downloaded web app version, and a stale one is a common
+// cause of "Execution context was destroyed" reload loops during initialize.
+async function clearWebCache(): Promise<void> {
+  try {
+    const fs = await import('fs')
+    fs.rmSync(WEB_CACHE_FOLDER, { recursive: true, force: true })
+    logWaEvent('web_cache_cleared', 'deleted .wwebjs_cache')
+  } catch (e) {
+    console.log('[clearWebCache] Failed:', e)
+  }
+}
+
+// Destroy the client and make absolutely sure its Chromium process is dead.
+// client.destroy() can hang or fail when the page is wedged mid-navigation;
+// an orphaned Chromium then eats memory and fights the next launch for the
+// profile lock, so after destroy we SIGKILL the browser process directly.
+async function destroyClientHard(): Promise<void> {
+  const client = state.client as {
+    destroy: () => Promise<void>
+    pupBrowser?: { process: () => { kill: (sig: string) => boolean } | null } | null
+  } | null
+  state.client = null
+  if (!client) return
+  try {
+    await Promise.race([
+      client.destroy(),
+      new Promise((_, reject) => setTimeout(() => reject(new Error('destroy timed out after 15s')), 15000)),
+    ])
+    console.log('[destroyClientHard] Client destroyed')
+  } catch (e) {
+    console.log('[destroyClientHard] destroy failed/hung:', e)
+  }
+  try {
+    client.pupBrowser?.process()?.kill('SIGKILL')
+  } catch {
+    // process already gone
+  }
+}
+
+// Full factory reset: kill the client, wipe the saved session + web cache.
+// Recovers the "QR -> connecting -> disconnected" loop caused by a Chrome
+// profile written by a different Chromium build (profiles don't downgrade)
+// or by corrupted session data. Requires re-scanning the QR afterwards.
+export async function hardResetWhatsApp(): Promise<void> {
+  logWaEvent('hard_reset', 'wiping session + web cache — QR re-scan required')
+  state.intentionalDisconnect = true // hold the watchdog off while we wipe
+  await destroyClientHard()
+  state.qr = null
+  state.isConnected = false
+  state.isConnecting = false
+  state.groupsCache = []
+  state.lastGroupSync = 0
+  try {
+    const fs = await import('fs')
+    fs.rmSync(AUTH_FOLDER, { recursive: true, force: true })
+  } catch (e) {
+    console.log('[hardReset] Failed to remove auth folder:', e)
+  }
+  await clearWebCache()
+  state.intentionalDisconnect = false
+}
+
+// ── Watchdog ────────────────────────────────────────────────────
+// Recovers from every known way the connection wedges:
+//  - isConnecting stuck forever (initialize hung in a navigation loop)
+//  - browser silently dead while isConnected is still true (OOM kill)
+//  - a failed connect that nothing ever retried (e.g. crash at boot)
+const globalForWatchdog = globalThis as unknown as { waWatchdog?: ReturnType<typeof setInterval> }
+
+const STUCK_CONNECT_MS = 5 * 60_000 // connecting with no fresh QR for 5 min = wedged
+const RETRY_INTERVAL_MS = 60_000
+
+function startWatchdog() {
+  if (globalForWatchdog.waWatchdog) return
+  globalForWatchdog.waWatchdog = setInterval(async () => {
+    try {
+      if (state.intentionalDisconnect) return
+
+      if (state.isConnected && state.client) {
+        // Ping the page — a dead/detached browser means we think we're up but aren't
+        const client = state.client as { pupPage?: { evaluate: <T>(fn: string) => Promise<T> } }
+        if (!client.pupPage) return
+        try {
+          await Promise.race([
+            client.pupPage.evaluate('1'),
+            new Promise((_, reject) => setTimeout(() => reject(new Error('ping timed out')), 10000)),
+          ])
+        } catch (e) {
+          logWaEvent('watchdog_dead_page', String(e))
+          state.isConnected = false
+          await fullReconnect()
+        }
+        return
+      }
+
+      if (state.isConnecting) {
+        // Waiting for a QR scan is fine (each fresh QR refreshes lastQrAt);
+        // a connect that's produced nothing for 5 minutes is wedged.
+        const lastSign = Math.max(state.connectStartedAt || 0, state.lastQrAt || 0)
+        if (lastSign && Date.now() - lastSign > STUCK_CONNECT_MS) {
+          logWaEvent('watchdog_stuck_connect', `no progress for ${Math.round((Date.now() - lastSign) / 1000)}s — tearing down and retrying`)
+          state.isConnecting = false
+          await destroyClientHard()
+          connectWhatsApp().catch(err => console.error('[watchdog] Reconnect after stuck connect failed:', err))
+        }
+        return
+      }
+
+      // Not connected, not connecting — retry (covers failed launches at boot)
+      if (Date.now() - (state.lastConnectAttempt || 0) > RETRY_INTERVAL_MS) {
+        logWaEvent('watchdog_retry_connect')
+        connectWhatsApp().catch(err => console.error('[watchdog] Retry connect failed:', err))
+      }
+    } catch (err) {
+      console.error('[watchdog] Error:', err)
+    }
+  }, 60_000)
+}
+
 // Full reconnect - completely destroys and recreates the client
 // Used when frame detachment or other unrecoverable errors occur.
 // Guarded so a burst of failing sends (e.g. mid-broadcast) can't fire several
@@ -144,17 +270,8 @@ async function fullReconnect(): Promise<void> {
   state.isConnected = false
   state.isConnecting = false
 
-  // Destroy existing client completely
-  if (state.client) {
-    try {
-      const client = state.client as { destroy: () => Promise<void> }
-      await client.destroy()
-      console.log('[fullReconnect] Client destroyed')
-    } catch (e) {
-      console.log('[fullReconnect] Error destroying client:', e)
-    }
-    state.client = null
-  }
+  // Destroy existing client completely (and SIGKILL Chromium if destroy hangs)
+  await destroyClientHard()
 
   // Clear cache
   state.groupsCache = []
@@ -186,6 +303,10 @@ export async function connectWhatsApp(): Promise<void> {
 
   state.isConnecting = true
   state.qr = null
+  state.intentionalDisconnect = false
+  state.connectStartedAt = Date.now()
+  state.lastConnectAttempt = Date.now()
+  startWatchdog()
 
   // Clean up stale Chromium lock files that prevent restart
   try {
@@ -238,7 +359,9 @@ export async function connectWhatsApp(): Promise<void> {
         // binary is a single headless process with no child target, so it
         // starts cleanly. The Dockerfile installs it via
         // `npx puppeteer browsers install chrome-headless-shell`.
-        headless: 'shell',
+        // Set WA_HEADLESS=new to switch back to full Chrome's new headless
+        // without a code change (e.g. if WhatsApp stops accepting the shell).
+        headless: process.env.WA_HEADLESS === 'new' ? true : 'shell',
         executablePath: process.env.PUPPETEER_EXECUTABLE_PATH || undefined,
         timeout: 60000,
         // Set WA_CHROME_DEBUG=1 to pipe Chrome's stdout/stderr into the
@@ -266,6 +389,7 @@ export async function connectWhatsApp(): Promise<void> {
     client.on('qr', (qr: string) => {
       console.log('QR code received')
       state.qr = qr
+      state.lastQrAt = Date.now()
       logWaEvent('qr_shown', 'session not authenticated — needs scan')
     })
 
@@ -458,19 +582,38 @@ export async function connectWhatsApp(): Promise<void> {
         state.isConnected = false
         state.isConnecting = false
         state.client = null
+        // Previously this just went dark until someone noticed — reconnect instead
+        if (!state.intentionalDisconnect) {
+          setTimeout(() => {
+            if (!state.isConnected && !state.isConnecting) {
+              fullReconnect().catch(err => console.error('[page_closed] Reconnect failed:', err))
+            }
+          }, 5000)
+        }
       })
     }
 
     await client.initialize()
   } catch (error) {
+    const errMsg = error instanceof Error ? error.message : String(error)
     console.error('WhatsApp connection error:', error)
-    logWaEvent('connect_error', error instanceof Error ? error.message : String(error))
+    logWaEvent('connect_error', errMsg)
     state.isConnecting = false
+    // A failed initialize can leave a live Chromium behind — make sure it's dead,
+    // or it'll eat memory and hold the profile lock against the next attempt.
+    await destroyClientHard()
+    // "Execution context was destroyed" during initialize = the WA page
+    // navigated/reloaded mid-injection, usually a stale cached web bundle.
+    // Clearing it is safe (no auth data) and fixes the loop on the next try.
+    if (errMsg.includes('Execution context was destroyed')) {
+      await clearWebCache()
+    }
     throw error
   }
 }
 
 export async function disconnectWhatsApp(): Promise<void> {
+  state.intentionalDisconnect = true // user asked for this — watchdog must not undo it
   if (state.client) {
     const client = state.client as { logout: () => Promise<void>; destroy: () => Promise<void> }
     try {
