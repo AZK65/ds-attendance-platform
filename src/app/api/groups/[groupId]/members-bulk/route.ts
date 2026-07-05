@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { getWhatsAppState, phoneToJid, sendPrivateMessage, getGroupInviteLink, getGroupParticipants } from '@/lib/whatsapp/client'
+import { getWhatsAppState, phoneToJid, sendPrivateMessage, getGroupInviteLink, getGroupParticipants, checkWhatsAppNumber, recordGroupInvite } from '@/lib/whatsapp/client'
 import { prisma } from '@/lib/db'
 
 // POST /api/groups/[groupId]/members-bulk
@@ -92,10 +92,26 @@ export async function POST(
       for (const m of newMembers) {
         if (inviteLink) {
           try {
+            // #1 cause of invite failures is a number with no WhatsApp
+            // account (usually a typo in the phone). Check first so the UI
+            // can say exactly that instead of a generic "invite failed".
+            const check = await checkWhatsAppNumber(m.phone).catch(() => null)
+            if (check && !check.registered) {
+              results.push({
+                phone: m.phone,
+                name: m.name,
+                success: true,
+                error: 'Saved, but this number has no WhatsApp account — double-check the phone number',
+              })
+              await new Promise(r => setTimeout(r, 1000))
+              continue
+            }
             await sendPrivateMessage(m.phone, `You've been added to a class group!\n\nClick to join:\n${inviteLink}`)
+            await recordGroupInvite(decodedGroupId, m.phone)
             results.push({ phone: m.phone, name: m.name, success: true, inviteSent: true })
-          } catch {
-            results.push({ phone: m.phone, name: m.name, success: true, error: 'Saved but invite failed' })
+          } catch (err) {
+            const detail = err instanceof Error ? err.message : 'unknown error'
+            results.push({ phone: m.phone, name: m.name, success: true, error: `Saved but invite failed: ${detail}` })
           }
           await new Promise(r => setTimeout(r, 1500))
         } else {

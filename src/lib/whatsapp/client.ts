@@ -961,7 +961,8 @@ export async function getPendingInvites(groupId: string): Promise<PendingInvite[
 
 // Remember that someone was sent an invite link instead of being added
 // directly, so the UI can show them as "pending" until they actually join.
-async function recordGroupInvite(groupId: string, phone: string): Promise<void> {
+// Exported for routes that send invite links themselves (members-bulk).
+export async function recordGroupInvite(groupId: string, phone: string): Promise<void> {
   const cleaned = phone.replace(/[^0-9]/g, '')
   if (!cleaned) return
   try {

@@ -3,7 +3,8 @@ import {
   addParticipantToGroup,
   removeParticipantFromGroup,
   getWhatsAppState,
-  phoneToJid
+  phoneToJid,
+  checkWhatsAppNumber
 } from '@/lib/whatsapp/client'
 import { prisma } from '@/lib/db'
 
@@ -44,7 +45,12 @@ export async function POST(
         inviteSent = true
       }
       if (!result.success) {
-        whatsappWarning = result.error || 'Could not add to WhatsApp group'
+        // A number with no WhatsApp account (usually a typo) is the most
+        // common cause — name it explicitly instead of a generic error.
+        const check = await checkWhatsAppNumber(phoneToAdd).catch(() => null)
+        whatsappWarning = check && !check.registered
+          ? 'This number has no WhatsApp account — double-check the phone number'
+          : result.error || 'Could not add to WhatsApp group'
         console.log(`[Add Member] WhatsApp add failed for ${phoneToAdd}: ${whatsappWarning}`)
       }
     } else {
