@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { getGroupParticipants, getGroupInfo, getWhatsAppState, getGroupLastMessage } from '@/lib/whatsapp/client'
+import { getGroupParticipants, getGroupInfo, getWhatsAppState, getGroupLastMessage, getPendingInvites } from '@/lib/whatsapp/client'
 import { prisma } from '@/lib/db'
 import { syncGroupMembers } from '@/lib/group-sync'
 
@@ -55,6 +55,7 @@ export async function GET(
         lastSynced: group.lastSynced,
       },
       participants,
+      pendingInvites: await getPendingInvites(decodedGroupId),
       moduleNumber: group.moduleNumber ?? null,
       lastModuleMessageDate: group.lastMessageDate?.toISOString() ?? null,
       fromCache: true,
@@ -95,6 +96,7 @@ export async function GET(
               isAdmin: m.isAdmin,
               isSuperAdmin: m.isSuperAdmin,
             })),
+            pendingInvites: await getPendingInvites(decodedGroupId),
             moduleNumber: group.moduleNumber ?? null,
             lastModuleMessageDate: group.lastMessageDate?.toISOString() ?? null,
             fromCache: true,
@@ -143,6 +145,9 @@ export async function GET(
         lastSynced: new Date(),
       },
       participants,
+      // After syncGroupMembers/getGroupParticipants ran, joined invites are
+      // already resolved, so this only returns the still-pending ones.
+      pendingInvites: await getPendingInvites(decodedGroupId),
       moduleNumber,
       lastModuleMessageDate,
       fromCache: false,

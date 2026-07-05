@@ -76,6 +76,13 @@ interface Participant {
   isSuperAdmin?: boolean
 }
 
+// Student who was sent a group invite link but hasn't joined yet
+interface PendingInvite {
+  phone: string
+  name: string | null
+  invitedAt: string
+}
+
 export default function GroupDetailPage() {
   const params = useParams()
   const groupId = decodeURIComponent(params.groupId as string)
@@ -239,6 +246,37 @@ export default function GroupDetailPage() {
   const isConnected = statusData?.isConnected ?? false
   const group = groupData?.group
   const participants: Participant[] = groupData?.participants || []
+  const pendingInvites: PendingInvite[] = groupData?.pendingInvites || []
+
+  // Resend an invite (retries a direct add first, falls back to a new invite
+  // link) or dismiss one that's never going to be accepted.
+  const [inviteActionPhone, setInviteActionPhone] = useState<string | null>(null)
+  const resendInvite = async (invite: PendingInvite) => {
+    setInviteActionPhone(invite.phone)
+    try {
+      await fetch(`/api/groups/${encodeURIComponent(groupId)}/members`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ phone: invite.phone, name: invite.name || undefined }),
+      })
+      await refetch()
+    } finally {
+      setInviteActionPhone(null)
+    }
+  }
+  const dismissInvite = async (phone: string) => {
+    setInviteActionPhone(phone)
+    try {
+      await fetch(`/api/groups/${encodeURIComponent(groupId)}/invites`, {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ phone }),
+      })
+      await refetch()
+    } finally {
+      setInviteActionPhone(null)
+    }
+  }
   const currentModuleNumber = groupData?.moduleNumber || 0
   const lastModuleMessageDate = groupData?.lastModuleMessageDate ? new Date(groupData.lastModuleMessageDate) : null
 
@@ -673,6 +711,12 @@ export default function GroupDetailPage() {
               <Users className="h-3 w-3 mr-1" />
               {participants.length} members
             </Badge>
+            {pendingInvites.length > 0 && (
+              <Badge variant="outline" className="border-amber-300 bg-amber-50 text-amber-700">
+                <Clock className="h-3 w-3 mr-1" />
+                {pendingInvites.length} invited · not joined yet
+              </Badge>
+            )}
             {currentModuleNumber > 0 && (
               <Badge variant="default">
                 <BookOpen className="h-3 w-3 mr-1" />
@@ -824,7 +868,7 @@ export default function GroupDetailPage() {
           <div className="flex items-center justify-center py-12">
             <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
           </div>
-        ) : participants.length === 0 ? (
+        ) : participants.length === 0 && pendingInvites.length === 0 ? (
           <div className="text-center py-12 border rounded-lg">
             <p className="text-muted-foreground">
               No members found in this group.
@@ -951,6 +995,69 @@ export default function GroupDetailPage() {
                       >
                         <Trash2 className="h-4 w-4" />
                       </Button>
+                    </TableCell>
+                  </MotionTableRow>
+                ))}
+                {/* Invited but not joined yet — pending rows at the bottom */}
+                {pendingInvites.map((invite, index) => (
+                  <MotionTableRow
+                    key={`invite-${invite.phone}`}
+                    variants={fadeSlideUp}
+                    className="bg-amber-50/60 hover:bg-amber-50"
+                  >
+                    <TableCell className="text-muted-foreground">
+                      {participants.length + index + 1}
+                    </TableCell>
+                    <TableCell>
+                      {invite.name ? (
+                        <>
+                          <p className="font-medium">{invite.name}</p>
+                          <p className="text-sm text-muted-foreground">{formatPhone(invite.phone)}</p>
+                        </>
+                      ) : (
+                        <p className="font-medium">{formatPhone(invite.phone)}</p>
+                      )}
+                    </TableCell>
+                    <TableCell colSpan={3}>
+                      <div className="flex flex-col gap-0.5">
+                        <Badge className="bg-amber-100 text-amber-800 border-amber-200 hover:bg-amber-100 gap-1 w-fit">
+                          <Clock className="h-3 w-3" />
+                          Invite sent — not joined yet
+                        </Badge>
+                        <span className="text-[10px] text-muted-foreground">
+                          Invited {new Date(invite.invitedAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
+                        </span>
+                      </div>
+                    </TableCell>
+                    <TableCell>
+                      <span className="text-amber-700 text-sm">Pending</span>
+                    </TableCell>
+                    <TableCell>
+                      <div className="flex items-center">
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          onClick={() => resendInvite(invite)}
+                          disabled={!isConnected || inviteActionPhone === invite.phone}
+                          title={!isConnected ? 'Connect first to resend' : 'Try adding again / resend invite link'}
+                        >
+                          {inviteActionPhone === invite.phone ? (
+                            <Loader2 className="h-4 w-4 animate-spin" />
+                          ) : (
+                            <Send className="h-4 w-4" />
+                          )}
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="text-destructive hover:text-destructive"
+                          onClick={() => dismissInvite(invite.phone)}
+                          disabled={inviteActionPhone === invite.phone}
+                          title="Dismiss — stop tracking this invite"
+                        >
+                          <X className="h-4 w-4" />
+                        </Button>
+                      </div>
                     </TableCell>
                   </MotionTableRow>
                 ))}

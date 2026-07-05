@@ -891,6 +891,9 @@ export async function getGroupParticipants(groupId: string): Promise<Participant
     }
   }
 
+  // Anyone we sent an invite link to who now appears in the group has joined
+  await resolveJoinedInvites(groupId, participants.map(p => p.phone))
+
   return participants
 }
 
@@ -910,6 +913,99 @@ export async function getGroupInfo(groupId: string): Promise<{ name: string; par
   return {
     name: chat.name,
     participantCount: chat.participants?.length || 0
+  }
+}
+
+export interface PendingInvite {
+  phone: string
+  name: string | null
+  invitedAt: Date
+}
+
+// Pending invites for a group (invite link sent, not joined yet), with names
+// enriched from the Contact table when we have them.
+export async function getPendingInvites(groupId: string): Promise<PendingInvite[]> {
+  const invites = await prisma.groupInvite.findMany({
+    where: { groupId, status: 'pending' },
+    orderBy: { invitedAt: 'desc' },
+  })
+  if (invites.length === 0) return []
+
+  // Contact ids exist both with and without the +1 country code
+  const contactIds = invites.flatMap(i => {
+    const ids = [`${i.phone}@c.us`]
+    if (i.phone.length === 11 && i.phone.startsWith('1')) ids.push(`${i.phone.slice(1)}@c.us`)
+    if (i.phone.length === 10) ids.push(`1${i.phone}@c.us`)
+    return ids
+  })
+  const contacts = await prisma.contact.findMany({
+    where: { id: { in: contactIds } },
+    select: { id: true, name: true, pushName: true },
+  })
+  const nameByPhone = new Map<string, string>()
+  for (const c of contacts) {
+    const digits = c.id.replace('@c.us', '')
+    const name = c.name || c.pushName
+    if (name) {
+      nameByPhone.set(digits, name)
+      nameByPhone.set(digits.replace(/^1/, ''), name)
+    }
+  }
+
+  return invites.map(i => ({
+    phone: i.phone,
+    name: i.name || nameByPhone.get(i.phone) || nameByPhone.get(i.phone.replace(/^1/, '')) || null,
+    invitedAt: i.invitedAt,
+  }))
+}
+
+// Remember that someone was sent an invite link instead of being added
+// directly, so the UI can show them as "pending" until they actually join.
+async function recordGroupInvite(groupId: string, phone: string): Promise<void> {
+  const cleaned = phone.replace(/[^0-9]/g, '')
+  if (!cleaned) return
+  try {
+    await prisma.groupInvite.upsert({
+      where: { groupId_phone: { groupId, phone: cleaned } },
+      update: { status: 'pending', invitedAt: new Date(), joinedAt: null },
+      create: { groupId, phone: cleaned, status: 'pending' },
+    })
+  } catch (e) {
+    console.log('[recordGroupInvite] Failed:', e)
+  }
+}
+
+// Flip pending invites to "joined" once their phone shows up in the group's
+// actual participant list. Called from getGroupParticipants, which every
+// group-detail refresh goes through.
+async function resolveJoinedInvites(groupId: string, participantPhones: string[]): Promise<void> {
+  try {
+    const pending = await prisma.groupInvite.findMany({
+      where: { groupId, status: 'pending' },
+    })
+    if (pending.length === 0) return
+
+    // Match with and without the +1 country code (numbers appear both ways)
+    const phoneSet = new Set<string>()
+    for (const p of participantPhones) {
+      const c = p.replace(/[^0-9]/g, '')
+      if (!c) continue
+      phoneSet.add(c)
+      if (c.length === 11 && c.startsWith('1')) phoneSet.add(c.slice(1))
+      if (c.length === 10) phoneSet.add('1' + c)
+    }
+
+    for (const invite of pending) {
+      if (phoneSet.has(invite.phone)) {
+        await prisma.groupInvite.update({
+          where: { id: invite.id },
+          data: { status: 'joined', joinedAt: new Date() },
+        })
+        console.log(`[resolveJoinedInvites] ${invite.phone} joined ${groupId}`)
+      }
+    }
+  } catch (e) {
+    console.log('[resolveJoinedInvites] Failed:', e)
   }
 }
 
@@ -951,6 +1047,7 @@ export async function addParticipantToGroup(groupId: string, phone: string): Pro
       // If invite was already sent by WhatsApp via V4, report it
       if (participantResult.isInviteV4Sent) {
         console.log(`[addParticipant] Invite V4 sent to ${participantId}`)
+        await recordGroupInvite(groupId, phone)
         return { success: true, inviteSent: true }
       }
 
@@ -965,6 +1062,7 @@ export async function addParticipantToGroup(groupId: string, phone: string): Pro
           `You've been invited to join *${groupName}*!\n\nClick the link to join:\n${inviteLink}`
         )
         console.log(`[addParticipant] Invite link sent to ${phone}`)
+        await recordGroupInvite(groupId, phone)
         return {
           success: true,
           inviteSent: true,
@@ -1042,6 +1140,7 @@ export async function addParticipantsToGroupBulk(
         if (!r || r.code === 200) {
           results.push({ phone, success: true })
         } else if (r.isInviteV4Sent) {
+          await recordGroupInvite(groupId, phone)
           results.push({ phone, success: true, inviteSent: true })
         } else {
           // Try sending invite link as fallback
@@ -1049,6 +1148,7 @@ export async function addParticipantsToGroupBulk(
             const inviteCode = await chat.getInviteCode()
             const inviteLink = `https://chat.whatsapp.com/${inviteCode}`
             await sendPrivateMessage(phone, `You've been invited to join *${chat.name}*!\n\nClick the link to join:\n${inviteLink}`)
+            await recordGroupInvite(groupId, phone)
             results.push({ phone, success: true, inviteSent: true })
           } catch {
             results.push({ phone, success: false, error: r.message || `Code ${r.code}` })

@@ -42,6 +42,8 @@ interface Group {
   vehicleType?: string | null
   lastMessageDate?: string | null
   lastMessagePreview?: string | null
+  // Students sent a group invite link who haven't joined yet
+  pendingInvites?: number
 }
 
 interface ParticipantWithGroup {
@@ -442,6 +444,14 @@ export default function GroupsPage() {
                       {group.moduleNumber && (
                         <span className="text-xs bg-blue-100 text-blue-700 px-2 py-0.5 rounded">
                           Module {group.moduleNumber}
+                        </span>
+                      )}
+                      {(group.pendingInvites ?? 0) > 0 && (
+                        <span
+                          className="text-xs bg-amber-100 text-amber-700 px-2 py-0.5 rounded"
+                          title="Invite link sent — not joined yet"
+                        >
+                          {group.pendingInvites} pending
                         </span>
                       )}
                       <span className="text-xs text-muted-foreground">

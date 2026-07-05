@@ -2,6 +2,19 @@ import { NextResponse } from 'next/server'
 import { getGroupsWithDetails, getWhatsAppState } from '@/lib/whatsapp/client'
 import { prisma } from '@/lib/db'
 
+async function pendingInviteCounts(): Promise<Map<string, number>> {
+  try {
+    const counts = await prisma.groupInvite.groupBy({
+      by: ['groupId'],
+      where: { status: 'pending' },
+      _count: { _all: true },
+    })
+    return new Map(counts.map(c => [c.groupId, c._count._all]))
+  } catch {
+    return new Map()
+  }
+}
+
 export async function GET() {
   const state = getWhatsAppState()
 
@@ -39,6 +52,7 @@ export async function GET() {
       }).catch(() => {})
     }
 
+    const inviteCounts = await pendingInviteCounts()
     return NextResponse.json({
       groups: cachedGroups.map(g => ({
         id: g.id,
@@ -47,7 +61,8 @@ export async function GET() {
         moduleNumber: g.moduleNumber ?? null,
         vehicleType: g.vehicleType,
         lastMessageDate: g.lastMessageDate?.toISOString() ?? null,
-        lastMessagePreview: g.lastMessagePreview ?? null
+        lastMessagePreview: g.lastMessagePreview ?? null,
+        pendingInvites: inviteCounts.get(g.id) || 0
       })),
       fromCache: true,
       isConnected: state.isConnected
@@ -94,8 +109,13 @@ export async function GET() {
     })
     const typeById = new Map(annotated.map(g => [g.id, g.vehicleType]))
 
+    const inviteCounts = await pendingInviteCounts()
     return NextResponse.json({
-      groups: groups.map(g => ({ ...g, vehicleType: typeById.get(g.id) || 'car' })),
+      groups: groups.map(g => ({
+        ...g,
+        vehicleType: typeById.get(g.id) || 'car',
+        pendingInvites: inviteCounts.get(g.id) || 0,
+      })),
       fromCache: false,
       isConnected: true,
     })

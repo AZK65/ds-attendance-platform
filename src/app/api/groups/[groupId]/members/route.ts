@@ -195,6 +195,17 @@ export async function DELETE(
       where: { groupId: decodedGroupId, contactId },
     })
 
+    // Drop any invite tracking for them too (with/without +1 country code)
+    const removedPhone = contactId.replace('@c.us', '').replace(/[^0-9]/g, '')
+    if (removedPhone) {
+      const variants = [removedPhone]
+      if (removedPhone.length === 11 && removedPhone.startsWith('1')) variants.push(removedPhone.slice(1))
+      if (removedPhone.length === 10) variants.push('1' + removedPhone)
+      await prisma.groupInvite.deleteMany({
+        where: { groupId: decodedGroupId, phone: { in: variants } },
+      })
+    }
+
     return NextResponse.json({ success: true })
   } catch (error) {
     console.error('Remove member error:', error)
