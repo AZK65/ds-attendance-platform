@@ -485,6 +485,15 @@ function StudentsPage() {
   // Fetch active students from WhatsApp groups (only course groups with module numbers)
   const { data: participantsData, isLoading: isLoadingParticipants } = useQuery<{
     participants: ParticipantWithGroup[]
+    pendingInvites?: Array<{
+      phone: string
+      name: string | null
+      groupId: string
+      groupName: string
+      moduleNumber: number | null
+      vehicleType: string
+      invitedAt: string
+    }>
     isConnected: boolean
     fromCache?: boolean
   }>({
@@ -505,7 +514,7 @@ function StudentsPage() {
   // disappear from the page just because nobody added them to a group.
   const activeStudents = useMemo(() => {
     const participants = participantsData?.participants || []
-    const byPhone = new Map<string, ParticipantWithGroup & { avatarImage?: string | null; needsGroup?: boolean }>()
+    const byPhone = new Map<string, ParticipantWithGroup & { avatarImage?: string | null; needsGroup?: boolean; invitePending?: boolean }>()
     for (const p of participants) {
       if (!p.phone) continue
       const existing = byPhone.get(p.phone)
@@ -520,6 +529,27 @@ function StudentsPage() {
     for (const phone of byPhone.keys()) {
       const digits = phone.replace(/\D/g, '')
       if (digits.length >= 10) inGroupSuffixes.add(digits.slice(-10))
+    }
+    // Students who were saved/invited to a group but haven't joined the
+    // WhatsApp group yet. The member sync prunes them from GroupMember, so
+    // without these entries they'd silently disappear from this page.
+    for (const inv of participantsData?.pendingInvites || []) {
+      const digits = inv.phone.replace(/\D/g, '')
+      const suffix = digits.length >= 10 ? digits.slice(-10) : digits
+      if (inGroupSuffixes.has(suffix)) continue
+      inGroupSuffixes.add(suffix)
+      byPhone.set(digits, {
+        id: `invite-${digits}`,
+        phone: digits,
+        name: inv.name,
+        pushName: null,
+        groupId: inv.groupId,
+        groupName: inv.groupName,
+        moduleNumber: inv.moduleNumber,
+        vehicleType: inv.vehicleType || 'car',
+        lastMessageDate: null,
+        invitePending: true,
+      })
     }
     for (const reg of confirmedRegistrations) {
       const rawPhone = reg.phoneNumber || ''
@@ -1424,6 +1454,7 @@ function StudentsPage() {
                       const dbStudent = dbMatches[student.phone]
                       const displayName = dbStudent?.full_name || cleanName(student.name) || cleanName(student.pushName) || '-'
                       const needsGroup = (student as { needsGroup?: boolean }).needsGroup
+                      const invitePending = (student as { invitePending?: boolean }).invitePending
                       return (
                         <TableRow
                           key={student.phone}
@@ -1436,6 +1467,12 @@ function StudentsPage() {
                               if (externalId) {
                                 router.push(`/students/${externalId}`)
                               }
+                              return
+                            }
+                            // Pending invitees aren't group members yet — send
+                            // to the group page where their pending row lives.
+                            if (invitePending) {
+                              router.push(`/groups/${encodeURIComponent(student.groupId)}`)
                               return
                             }
                             router.push(`/groups/${encodeURIComponent(student.groupId)}/student/${encodeURIComponent(student.id)}`)
@@ -1474,6 +1511,13 @@ function StudentsPage() {
                               <Badge variant="outline" className="text-amber-700 border-amber-300 bg-amber-50">
                                 ⚠ No group yet
                               </Badge>
+                            ) : invitePending ? (
+                              <div className="flex flex-col gap-0.5">
+                                <span>{student.groupName}</span>
+                                <Badge variant="outline" className="text-amber-700 border-amber-300 bg-amber-50 w-fit">
+                                  Invited · not joined yet
+                                </Badge>
+                              </div>
                             ) : (
                               student.groupName
                             )}

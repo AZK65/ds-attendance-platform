@@ -4,7 +4,8 @@ import {
   removeParticipantFromGroup,
   getWhatsAppState,
   phoneToJid,
-  checkWhatsAppNumber
+  checkWhatsAppNumber,
+  recordGroupInvite
 } from '@/lib/whatsapp/client'
 import { prisma } from '@/lib/db'
 
@@ -52,9 +53,13 @@ export async function POST(
           ? 'This number has no WhatsApp account — double-check the phone number'
           : result.error || 'Could not add to WhatsApp group'
         console.log(`[Add Member] WhatsApp add failed for ${phoneToAdd}: ${whatsappWarning}`)
+        // Not in the WhatsApp group — track as pending so the background
+        // sync doesn't prune them out of the student list entirely.
+        await recordGroupInvite(decodedGroupId, phoneToAdd)
       }
     } else {
       whatsappWarning = 'WhatsApp not connected — student saved to database only'
+      await recordGroupInvite(decodedGroupId, phoneToAdd)
     }
 
     return NextResponse.json({

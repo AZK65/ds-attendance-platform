@@ -83,6 +83,11 @@ export async function POST(
         update: { phone: m.phone },
         create: { groupId: decodedGroupId, contactId: jid, phone: m.phone },
       })
+      // Track EVERY bulk-saved member as a pending invite until they actually
+      // join. Without this, the background WhatsApp sync prunes non-joined
+      // members from GroupMember and they silently vanish from the student
+      // list (bulk add never adds directly — it only sends invite links).
+      await recordGroupInvite(decodedGroupId, m.phone)
     }
 
     // Send invite links ONLY to new members

@@ -15,6 +15,58 @@ interface ParticipantWithGroup {
   lastMessageDate: string | null
 }
 
+// Pending invites across all groups (invited / saved, but not joined yet),
+// shaped for the students page. Applies the same group filter as members.
+async function pendingInvitesWithGroups(courseOnly: boolean) {
+  const invites = await prisma.groupInvite.findMany({ where: { status: 'pending' } })
+  if (invites.length === 0) return []
+
+  const groupIds = [...new Set(invites.map(i => i.groupId))]
+  const groups = await prisma.group.findMany({ where: { id: { in: groupIds } } })
+  const groupById = new Map(groups.map(g => [g.id, g]))
+
+  // Enrich names from the Contact table (ids exist with/without +1 prefix)
+  const contactIds = invites.flatMap(i => {
+    const ids = [`${i.phone}@c.us`]
+    if (i.phone.length === 11 && i.phone.startsWith('1')) ids.push(`${i.phone.slice(1)}@c.us`)
+    if (i.phone.length === 10) ids.push(`1${i.phone}@c.us`)
+    return ids
+  })
+  const contacts = await prisma.contact.findMany({
+    where: { id: { in: contactIds } },
+    select: { id: true, name: true, pushName: true },
+  })
+  const nameByPhone = new Map<string, string>()
+  for (const c of contacts) {
+    const digits = c.id.replace('@c.us', '')
+    const name = c.name || c.pushName
+    if (name) {
+      nameByPhone.set(digits, name)
+      nameByPhone.set(digits.replace(/^1/, ''), name)
+    }
+  }
+
+  return invites
+    .filter(i => {
+      const g = groupById.get(i.groupId)
+      if (!g || !g.name || g.name === 'Status Broadcast') return false
+      if (courseOnly && !g.moduleNumber && g.vehicleType !== 'truck') return false
+      return true
+    })
+    .map(i => {
+      const g = groupById.get(i.groupId)!
+      return {
+        phone: i.phone,
+        name: i.name || nameByPhone.get(i.phone) || nameByPhone.get(i.phone.replace(/^1/, '')) || null,
+        groupId: i.groupId,
+        groupName: g.name,
+        moduleNumber: g.moduleNumber ?? null,
+        vehicleType: g.vehicleType,
+        invitedAt: i.invitedAt.toISOString(),
+      }
+    })
+}
+
 export async function GET(request: NextRequest) {
   const courseOnly = request.nextUrl.searchParams.get('courseOnly') === 'true'
   const state = getWhatsAppState()
@@ -57,6 +109,7 @@ export async function GET(request: NextRequest) {
 
       return NextResponse.json({
         participants,
+        pendingInvites: await pendingInvitesWithGroups(courseOnly),
         isConnected: state.isConnected,
         fromCache: true,
       })
@@ -71,6 +124,7 @@ export async function GET(request: NextRequest) {
       const participants = await fetchLiveParticipants(courseOnly)
       return NextResponse.json({
         participants,
+        pendingInvites: await pendingInvitesWithGroups(courseOnly),
         isConnected: true,
         fromCache: false,
       })
