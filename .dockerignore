@@ -5,4 +5,7 @@ node_modules
 *.db-journal
 .wwebjs_auth
 .wwebjs_cache
+.wwebjs-auth
 .env
+# Don't let a local puppeteer cache clobber the Chrome downloaded in the image
+.cache

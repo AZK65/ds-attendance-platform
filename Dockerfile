@@ -20,10 +20,13 @@ RUN apt-get update && apt-get install -y \
 RUN git config --global url."https://github.com/".insteadOf "ssh://git@github.com/" && \
     git config --global url."https://github.com/".insteadOf "git@github.com:"
 
-# Find and set the actual Chromium binary path
-RUN which chromium || which chromium-browser || echo "Chromium not found!"
-ENV PUPPETEER_EXECUTABLE_PATH=/usr/bin/chromium
-ENV PUPPETEER_SKIP_CHROMIUM_DOWNLOAD=true
+# Use puppeteer's own version-matched Chrome instead of the apt "chromium"
+# package. That package is a rolling build that jumped to v150 and now crashes
+# on launch (SIGTRAP), silently breaking every rebuild. The apt chromium above
+# is kept ONLY for the shared libraries + fonts puppeteer's Chrome depends on;
+# puppeteer downloads and runs its own binary (installed below into the cache).
+# PUPPETEER_EXECUTABLE_PATH is intentionally unset so the client uses it.
+ENV PUPPETEER_CACHE_DIR=/app/.cache/puppeteer
 
 WORKDIR /app
 
@@ -42,6 +45,10 @@ COPY . .
 
 # Ensure node_modules matches current package.json (removes stale packages from cache)
 RUN npm prune
+
+# Download puppeteer's matched Chrome into the image cache. Runtime uses this
+# (executablePath is unset), so a broken/updated system Chromium can't affect us.
+RUN npx puppeteer browsers install chrome
 
 # Build args for NEXT_PUBLIC_ env vars (inlined at build time)
 ARG NEXT_PUBLIC_GOOGLE_MAPS_KEY
