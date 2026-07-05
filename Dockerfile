@@ -1,8 +1,12 @@
 FROM node:20-slim
 
-# Install Chromium, git, build tools, and dependencies
+# Install git, build tools, fonts, and the shared libraries Chrome needs.
+# We do NOT install the apt "chromium" binary anymore (it's a rolling build that
+# crashes on launch) — but Chrome-for-Testing / chrome-headless-shell still need
+# these system libraries present. Listing them explicitly instead of relying on
+# the chromium metapackage to pull them in, so a launch never fails on a missing
+# .so (symptom: "Target.setAutoAttach: Target closed" — Chrome dies immediately).
 RUN apt-get update && apt-get install -y \
-    chromium \
     git \
     openssh-client \
     ca-certificates \
@@ -13,6 +17,27 @@ RUN apt-get update && apt-get install -y \
     fonts-freefont-ttf \
     build-essential \
     python3 \
+    libnss3 \
+    libnspr4 \
+    libatk1.0-0 \
+    libatk-bridge2.0-0 \
+    libcups2 \
+    libdrm2 \
+    libdbus-1-3 \
+    libxcb1 \
+    libxkbcommon0 \
+    libx11-6 \
+    libxcomposite1 \
+    libxdamage1 \
+    libxext6 \
+    libxfixes3 \
+    libxrandr2 \
+    libgbm1 \
+    libpango-1.0-0 \
+    libcairo2 \
+    libasound2 \
+    libatspi2.0-0 \
+    libxshmfence1 \
     --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
@@ -46,9 +71,16 @@ COPY . .
 # Ensure node_modules matches current package.json (removes stale packages from cache)
 RUN npm prune
 
-# Download puppeteer's matched Chrome into the image cache. Runtime uses this
-# (executablePath is unset), so a broken/updated system Chromium can't affect us.
-RUN npx puppeteer browsers install chrome
+# Download puppeteer's matched browser binaries into the image cache. Runtime
+# uses these (executablePath is unset), so a broken/updated system Chromium
+# can't affect us. We install chrome-headless-shell because the client launches
+# in `headless: 'shell'` mode: full Chrome's new-headless spawns a separate
+# child target that fails to attach in this locked-down container
+# ("Target.setAutoAttach: Target closed"); chrome-headless-shell is a single
+# purpose-built headless binary that avoids that failure mode. Chrome is still
+# installed as a fallback.
+RUN npx puppeteer browsers install chrome-headless-shell && \
+    npx puppeteer browsers install chrome
 
 # Build args for NEXT_PUBLIC_ env vars (inlined at build time)
 ARG NEXT_PUBLIC_GOOGLE_MAPS_KEY

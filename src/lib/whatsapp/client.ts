@@ -230,9 +230,21 @@ export async function connectWhatsApp(): Promise<void> {
           `https://raw.githubusercontent.com/wppconnect-team/wa-version/main/html/${process.env.WA_WEB_VERSION || '2.3000.1042641488-alpha'}.html`,
       },
       puppeteer: {
-        headless: 'new',
+        // Use chrome-headless-shell ('shell') rather than full Chrome's new
+        // headless mode. New headless launches a separate child target that
+        // Puppeteer must auto-attach to; in this locked-down Docker container
+        // that child dies on launch and every connect fails with
+        // "Protocol error (Target.setAutoAttach): Target closed". The shell
+        // binary is a single headless process with no child target, so it
+        // starts cleanly. The Dockerfile installs it via
+        // `npx puppeteer browsers install chrome-headless-shell`.
+        headless: 'shell',
         executablePath: process.env.PUPPETEER_EXECUTABLE_PATH || undefined,
         timeout: 60000,
+        // Set WA_CHROME_DEBUG=1 to pipe Chrome's stdout/stderr into the
+        // container logs. When a launch fails this reveals the real reason
+        // (e.g. a missing shared library) instead of the opaque "Target closed".
+        dumpio: process.env.WA_CHROME_DEBUG === '1',
         // Chrome flags chosen for headless Docker + WhatsApp Web specifically.
         // --single-process and --no-zygote were removed: they make Chromium
         // silently crash before reaching the QR page on current Chromium
