@@ -227,7 +227,7 @@ export async function connectWhatsApp(): Promise<void> {
       webVersionCache: {
         type: 'remote',
         remotePath:
-          `https://raw.githubusercontent.com/wppconnect-team/wa-version/main/html/${process.env.WA_WEB_VERSION || '2.3000.1023223821'}.html`,
+          `https://raw.githubusercontent.com/wppconnect-team/wa-version/main/html/${process.env.WA_WEB_VERSION || '2.3000.1042641488-alpha'}.html`,
       },
       puppeteer: {
         headless: 'new',
