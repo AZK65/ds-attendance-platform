@@ -23,6 +23,12 @@ services:
     expose:
       - "3000"
     shm_size: '1gb'
+    # The apt Chromium can update ahead of the host's seccomp profile and then
+    # crashes on launch with SIGTRAP ("Trace/breakpoint trap") because a syscall
+    # it needs (e.g. clone3) is blocked. Unconfined seccomp lets it start. This
+    # box is single-tenant/self-hosted, so the isolation trade-off is fine.
+    security_opt:
+      - seccomp=unconfined
     volumes:
       # Persist SQLite database
       - app-data:/app/data
