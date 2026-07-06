@@ -15,8 +15,27 @@ interface WhatsAppState {
   connectStartedAt?: number
   lastQrAt?: number
   lastConnectAttempt?: number
+  lastReadyAt?: number
+  zombieStrikes?: number
   intentionalDisconnect?: boolean
   reconnecting?: boolean
+}
+
+// Errors that mean the Chromium frame is dead OR WhatsApp Web self-updated
+// and broke the whatsapp-web.js Store injection. Both require a full
+// reconnect (fresh HTML reload) — a plain retry against the same broken
+// page just fails again. "getChat"/"reading '...'" is the fork-drift
+// signature (window.Store.<X> went undefined after a WA web update).
+function isDeadFrameError(msg: string): boolean {
+  return (
+    msg.includes('detached') ||
+    msg.includes('Target closed') ||
+    msg.includes('Execution context was destroyed') ||
+    msg.includes('Protocol error') ||
+    msg.includes('context was destroyed') ||
+    msg.includes('getChat') ||
+    /Cannot read propert(y|ies) of undefined/.test(msg)
+  )
 }
 
 // Ring buffer of recent lifecycle events (disconnect reasons, crashes,
@@ -211,6 +230,37 @@ const globalForWatchdog = globalThis as unknown as { waWatchdog?: ReturnType<typ
 
 const STUCK_CONNECT_MS = 5 * 60_000 // connecting with no fresh QR for 5 min = wedged
 const RETRY_INTERVAL_MS = 60_000
+const ZOMBIE_SETTLE_MS = 2 * 60_000 // don't zombie-check until Store has had time to populate
+const ZOMBIE_STRIKES_TO_RECONNECT = 2 // two consecutive bad checks (~2 min) before tearing down
+
+// Deep health probe. A "zombie" connection is one where the Chromium page is
+// alive (so evaluate('1') succeeds) but WhatsApp Web self-updated and broke
+// the injected Store — every getChats/getGroupParticipants then throws
+// "reading 'getChat'" and the app looks connected while doing nothing.
+// Returns 'ok' | 'zombie' | 'dead' | 'unknown'.
+async function probeConnectionHealth(): Promise<'ok' | 'zombie' | 'dead' | 'unknown'> {
+  const client = state.client as { pupPage?: { evaluate: <T>(fn: string) => Promise<T> } } | null
+  if (!client?.pupPage) return 'unknown'
+  try {
+    const storeOk = await Promise.race([
+      client.pupPage.evaluate<boolean>(`
+        (() => {
+          try {
+            const S = window.Store;
+            if (!S || !S.Chat) return false;
+            // Same access paths the ready handler / getChats rely on
+            return !!(S.Chat.getModelsArray || S.Chat.models || S.Chat._models);
+          } catch { return false; }
+        })()
+      `),
+      new Promise<boolean>((_, reject) => setTimeout(() => reject(new Error('probe timed out')), 12000)),
+    ])
+    return storeOk ? 'ok' : 'zombie'
+  } catch (e) {
+    // Page itself is unreachable (detached/crashed), not just Store-broken
+    return isDeadFrameError(String(e)) ? 'dead' : 'unknown'
+  }
+}
 
 function startWatchdog() {
   if (globalForWatchdog.waWatchdog) return
@@ -219,19 +269,34 @@ function startWatchdog() {
       if (state.intentionalDisconnect) return
 
       if (state.isConnected && state.client) {
-        // Ping the page — a dead/detached browser means we think we're up but aren't
-        const client = state.client as { pupPage?: { evaluate: <T>(fn: string) => Promise<T> } }
-        if (!client.pupPage) return
-        try {
-          await Promise.race([
-            client.pupPage.evaluate('1'),
-            new Promise((_, reject) => setTimeout(() => reject(new Error('ping timed out')), 10000)),
-          ])
-        } catch (e) {
-          logWaEvent('watchdog_dead_page', String(e))
+        const health = await probeConnectionHealth()
+
+        if (health === 'dead') {
+          logWaEvent('watchdog_dead_page', 'page unreachable')
           state.isConnected = false
+          state.zombieStrikes = 0
           await fullReconnect()
+          return
         }
+
+        // Zombie = page alive but WhatsApp Store broken (WA web self-updated).
+        // Only judge after the Store has had time to settle post-ready, and
+        // require consecutive strikes so a transient blip can't cause churn.
+        if (health === 'zombie') {
+          const settled = Date.now() - (state.lastReadyAt || 0) > ZOMBIE_SETTLE_MS
+          if (!settled) return
+          state.zombieStrikes = (state.zombieStrikes || 0) + 1
+          logWaEvent('watchdog_zombie', `Store broken (getChat-class) — strike ${state.zombieStrikes}/${ZOMBIE_STRIKES_TO_RECONNECT}`)
+          if (state.zombieStrikes >= ZOMBIE_STRIKES_TO_RECONNECT) {
+            state.isConnected = false
+            state.zombieStrikes = 0
+            await fullReconnect()
+          }
+          return
+        }
+
+        // Healthy (or couldn't probe this tick) — clear any accumulated strikes
+        if (health === 'ok') state.zombieStrikes = 0
         return
       }
 
@@ -415,6 +480,8 @@ export async function connectWhatsApp(): Promise<void> {
       state.isConnected = true
       state.isConnecting = false
       state.qr = null
+      state.lastReadyAt = Date.now()
+      state.zombieStrikes = 0
       if (readyWorkStarted) return
       readyWorkStarted = true
       logWaEvent('ready', 'connected')
@@ -461,7 +528,7 @@ export async function connectWhatsApp(): Promise<void> {
           console.log('[ready] Failed to check Store.Chat:', e)
           // If we can't access pupPage here, the frame might already be detached
           const errStr = String(e)
-          if (errStr.includes('detached') || errStr.includes('Target closed')) {
+          if (isDeadFrameError(errStr)) {
             console.log('[ready] Frame already detached, triggering full reconnect...')
             await fullReconnect()
             return
@@ -484,9 +551,9 @@ export async function connectWhatsApp(): Promise<void> {
         } catch (err) {
           console.error(`[syncWithRetry] Error on attempt ${attempt}:`, err)
           const errStr = String(err)
-          // If frame detached, do full reconnect instead of retry
-          if (errStr.includes('detached') || errStr.includes('Target closed')) {
-            console.log('[syncWithRetry] Frame detached, triggering full reconnect...')
+          // Dead frame or broken Store — full reconnect instead of retry
+          if (isDeadFrameError(errStr)) {
+            console.log('[syncWithRetry] Dead frame / broken Store, triggering full reconnect...')
             await fullReconnect()
             return
           }
@@ -703,9 +770,12 @@ async function syncGroups(): Promise<void> {
       const errorMsg = String(getChatsError)
       console.log('getChats failed:', errorMsg)
 
-      // If detached frame error, trigger full reconnect
-      if (errorMsg.includes('detached') || errorMsg.includes('Target closed') || errorMsg.includes('context was destroyed')) {
-        console.log('[syncGroups] Detected frame detachment, triggering full reconnect...')
+      // Detached frame OR broken Store (getChat-class after a WA web update) —
+      // both need a fresh reconnect, not a same-page retry.
+      if (isDeadFrameError(errorMsg)) {
+        console.log('[syncGroups] Dead frame / broken Store, triggering full reconnect...')
+        logWaEvent('getchats_dead', errorMsg.slice(0, 100))
+        state.isConnected = false
         await fullReconnect()
         return
       }
@@ -1306,7 +1376,7 @@ export async function sendMessageToGroup(groupId: string, message: string): Prom
     console.error(`Send group message error for ${groupId}:`, errMsg)
 
     // Detect detached frame / dead Chromium session — mark as disconnected so next reconnect triggers
-    if (errMsg.includes('detached') || errMsg.includes('Target closed') || errMsg.includes('Execution context was destroyed') || errMsg.includes('Protocol error')) {
+    if (isDeadFrameError(errMsg)) {
       console.log('[sendMessageToGroup] Detected dead frame, marking WhatsApp as disconnected for reconnect')
       state.isConnected = false
       fullReconnect().catch(err => console.error('[sendMessageToGroup] Reconnect failed:', err))
@@ -1694,7 +1764,7 @@ export async function sendPrivateMessage(phone: string, message: string): Promis
     }
 
     // Detect detached frame / dead Chromium session — mark as disconnected so next reconnect triggers
-    if (errMsg.includes('detached') || errMsg.includes('Target closed') || errMsg.includes('Execution context was destroyed') || errMsg.includes('Protocol error')) {
+    if (isDeadFrameError(errMsg)) {
       console.log('[sendPrivateMessage] Detected dead frame, marking WhatsApp as disconnected for reconnect')
       logWaEvent('send_frame_error', errMsg)
       state.isConnected = false
@@ -1863,7 +1933,7 @@ export async function getAllChats(): Promise<ChatInfo[]> {
   } catch (error) {
     const errStr = String(error)
     console.error('[getAllChats] Error:', errStr)
-    if (errStr.includes('detached') || errStr.includes('Target closed')) {
+    if (isDeadFrameError(errStr)) {
       state.isConnected = false
     }
     return chatsCache // Return stale cache on error
@@ -1970,7 +2040,7 @@ export async function getChatMessages(chatId: string, limit = 50): Promise<ChatM
   } catch (error) {
     const errStr = String(error)
     console.error(`[getChatMessages] Error for ${chatId}:`, errStr)
-    if (errStr.includes('detached') || errStr.includes('Target closed')) {
+    if (isDeadFrameError(errStr)) {
       state.isConnected = false
     }
     throw error
