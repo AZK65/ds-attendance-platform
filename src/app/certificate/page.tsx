@@ -1687,10 +1687,18 @@ function CertificatePageInner() {
       if (phone) params.set('phone', phone)
       if (name) params.set('studentName', name)
 
+      // The profile lookup gets extra identifiers so it resolves the EXACT
+      // record (and its dates), not a duplicate: studentId from cert-history
+      // Edit is authoritative; licenceNumber is the next strongest key.
+      const profileParams = new URLSearchParams(params)
+      const editStudentId = searchParams.get('studentId') || ''
+      if (editStudentId) profileParams.set('studentId', editStudentId)
+      if (student.permit_number) profileParams.set('licenceNumber', student.permit_number)
+
       const [eventsRes, theoryRes, profileRes] = await Promise.all([
         fetch(`/api/scheduling/student-events?${params}`).catch(() => null),
         fetch(`/api/scheduling/student-theory?${params}`).catch(() => null),
-        fetch(`/api/students/profile?${params}`).catch(() => null),
+        fetch(`/api/students/profile?${profileParams}`).catch(() => null),
       ])
 
       const dates: Record<string, string> = {}

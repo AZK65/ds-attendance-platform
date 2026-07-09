@@ -9,10 +9,14 @@ export async function GET(request: NextRequest) {
   const phone = searchParams.get('phone') || ''
   const name = searchParams.get('name') || searchParams.get('studentName') || ''
   const licenceNumber = searchParams.get('licenceNumber') || ''
+  // Exact local-record id (e.g. cert-history Edit passes cert.studentId).
+  // When present it's authoritative — skips fuzzy name/phone matching that
+  // can land on a duplicate Student row with no dates/certificates.
+  const studentId = searchParams.get('studentId') || ''
 
-  if (!phone && !name && !licenceNumber) {
+  if (!phone && !name && !licenceNumber && !studentId) {
     return NextResponse.json(
-      { error: 'Phone, name or licenceNumber is required' },
+      { error: 'Phone, name, licenceNumber or studentId is required' },
       { status: 400 }
     )
   }
@@ -25,7 +29,7 @@ export async function GET(request: NextRequest) {
       // 2. Local SQLite: find invoices for this student
       findStudentInvoices(phone, name),
       // 3. Local SQLite: find student record with certificates
-      findLocalStudent(phone, name, licenceNumber),
+      findLocalStudent(phone, name, licenceNumber, studentId),
       // 4. Car vs truck — from online registration or group membership
       findVehicleType(phone, name),
     ])
@@ -231,7 +235,21 @@ async function findVehicleType(phone: string, name: string): Promise<string> {
 }
 
 // Find local student record with certificates (from certificate generation)
-async function findLocalStudent(phone: string, name: string, licenceNumber?: string | null) {
+async function findLocalStudent(phone: string, name: string, licenceNumber?: string | null, studentId?: string | null) {
+  // 0. Exact id wins — authoritative, no fuzzy matching. This is what
+  //    cert-history Edit uses so it loads the SAME record that download
+  //    (regenerate by id) reads, instead of a duplicate with no dates.
+  if (studentId) {
+    const byId = await prisma.student.findUnique({
+      where: { id: studentId },
+      include: { certificates: { orderBy: { generatedAt: 'desc' } } },
+    })
+    if (byId) {
+      console.log('[findLocalStudent] matched by id:', studentId, '→', byId.name)
+      return byId
+    }
+  }
+
   // Strip "#1234" tags wherever they appear (used as student-number tags
   // in WhatsApp display names, e.g. "Gaurav #1122 Singh").
   const cleanName = name
@@ -285,18 +303,33 @@ async function findLocalStudent(phone: string, name: string, licenceNumber?: str
     include: { certificates: { orderBy: { generatedAt: 'desc' } } },
   })
 
-  let result = candidates[0] || null
-  if (phone && candidates.length > 0) {
-    const phoneSuffix = phone.replace(/\D/g, '').slice(-10)
-    const byStrippedPhone = candidates.find(c => {
-      if (!c.phone) return false
-      const dbDigits = c.phone.replace(/\D/g, '')
-      return dbDigits.includes(phoneSuffix) || phoneSuffix.includes(dbDigits.slice(-10))
-    })
-    if (byStrippedPhone) result = byStrippedPhone
+  // Rank candidates so duplicates don't cost us the real record. A person
+  // often has several Student rows (OCR, registration, manual add); only one
+  // carries the certificate + module dates. Prefer, in order: phone match,
+  // owns certificates, most populated date fields. This is why cert Edit
+  // used to load a blank duplicate while download (by id) had every date.
+  const phoneSuffix = phone.replace(/\D/g, '').slice(-10)
+  const phoneMatches = (c: { phone: string | null }) => {
+    if (!phoneSuffix || phoneSuffix.length < 7 || !c.phone) return false
+    const dbDigits = c.phone.replace(/\D/g, '')
+    return dbDigits.includes(phoneSuffix) || phoneSuffix.includes(dbDigits.slice(-10))
   }
+  const DATE_FIELDS = [
+    'registrationDate', 'expiryDate',
+    ...Array.from({ length: 12 }, (_, i) => `module${i + 1}Date`),
+    ...Array.from({ length: 15 }, (_, i) => `sortie${i + 1}Date`),
+  ] as const
+  const filledDates = (c: Record<string, unknown>) => DATE_FIELDS.reduce((n, f) => n + (c[f] ? 1 : 0), 0)
+  const score = (c: (typeof candidates)[number]) =>
+    (phoneMatches(c) ? 1_000_000 : 0) +
+    (c.certificates.length > 0 ? 100_000 : 0) +
+    filledDates(c as unknown as Record<string, unknown>)
 
-  console.log('[findLocalStudent] result:', result ? `${result.name} (${result.certificates.length} certs)` : 'null')
+  const result = candidates.length > 0
+    ? candidates.reduce((best, c) => (score(c) > score(best) ? c : best), candidates[0])
+    : null
+
+  console.log('[findLocalStudent] result:', result ? `${result.name} (${result.certificates.length} certs, ${filledDates(result as unknown as Record<string, unknown>)} dates)` : 'null')
   return result
 }
 

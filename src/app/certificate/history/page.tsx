@@ -107,6 +107,9 @@ export default function CertificateHistoryPage() {
     const params = new URLSearchParams({ mode: 'database' })
     if (cert.student.name) params.set('search', cert.student.name)
     if (cert.student.phone) params.set('phone', cert.student.phone)
+    // Authoritative local id so the edit form loads the SAME record the
+    // download uses — not a fuzzy name/phone match on a blank duplicate.
+    if (cert.studentId) params.set('studentId', cert.studentId)
     router.push(`/certificate?${params}`)
   }
 
