@@ -1,6 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server'
 
-const PUBLIC_PATHS = ['/login', '/api/auth', '/camera', '/enroll', '/api/enroll', '/api/zoom/webhook', '/register', '/api/register', '/api/payment', '/exam', '/api/exam', '/book', '/api/book', '/api/leads/webhook', '/api/kiosk/heartbeat', '/api/kiosk/stream']
+const PUBLIC_PATHS = ['/login', '/camera', '/enroll', '/api/enroll', '/api/zoom/webhook', '/register', '/api/register', '/api/payment', '/exam', '/api/exam', '/book', '/api/book', '/api/leads/webhook', '/api/kiosk/heartbeat', '/api/kiosk/stream']
+// Exact-match public paths (NOT prefix). /api/auth must be reachable for login
+// and the authed-check, but its subpaths (/api/auth/sessions, /heartbeat) must
+// stay behind auth — a prefix match would wrongly expose the device list.
+const PUBLIC_EXACT = ['/api/auth']
 const IGNORED_PREFIXES = ['/_next', '/favicon.ico']
 const PUBLIC_FILE_EXTENSIONS = ['.png', '.jpg', '.jpeg', '.svg', '.ico', '.webp', '.gif']
 
@@ -57,6 +61,9 @@ export function middleware(request: NextRequest) {
   if (PUBLIC_PATHS.some(path => pathname.startsWith(path))) {
     return NextResponse.next()
   }
+  if (PUBLIC_EXACT.includes(pathname)) {
+    return NextResponse.next()
+  }
 
   // Allow internal server-side requests (from instrumentation.ts / scheduled processors)
   if (request.headers.get('x-internal') === '1') {
@@ -71,7 +78,16 @@ export function middleware(request: NextRequest) {
   // Check for auth cookie
   const authToken = request.cookies.get('auth-token')?.value
   if (authToken === 'valid') {
-    return NextResponse.next()
+    // Sliding session: re-stamp the cookies with a fresh 1-year expiry on
+    // every authenticated request, so any device that's actually being used
+    // never expires. (The old fixed 7-day cookie logged everyone out weekly.)
+    const res = NextResponse.next()
+    const oneYear = 60 * 60 * 24 * 365
+    const opts = { httpOnly: true, sameSite: 'lax' as const, path: '/', maxAge: oneYear }
+    res.cookies.set('auth-token', 'valid', opts)
+    const sid = request.cookies.get('sid')?.value
+    if (sid) res.cookies.set('sid', sid, opts)
+    return res
   }
 
   // Not authenticated - redirect pages to /login, return 401 for API routes

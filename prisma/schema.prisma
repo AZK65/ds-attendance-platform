@@ -586,3 +586,20 @@ model Kiosk {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 }
+
+// An authenticated admin browser session (one per device/login). The session
+// id is stored in the httpOnly `sid` cookie. Used to list logged-in devices
+// in Settings and to remotely log a device out (deleting the row kicks that
+// device to /login on its next heartbeat). Auth itself is still gated by the
+// shared password + `auth-token` cookie in middleware; this table adds
+// per-device visibility and revocation on top.
+model AdminSession {
+  id         String   @id @default(cuid())
+  userAgent  String?
+  ipAddress  String?
+  label      String?  // optional friendly name an admin can set for a device
+  createdAt  DateTime @default(now())
+  lastSeenAt DateTime @default(now())
+
+  @@index([lastSeenAt])
+}
