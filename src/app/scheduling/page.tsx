@@ -1677,9 +1677,41 @@ function SchedulingPage() {
     return null
   }
 
+  // Car in-car classes run 7:00 AM–8:00 PM. Times are entered in 24h, so an
+  // admin can easily fat-finger 03:00 (3 AM) when they meant 15:00 (3 PM).
+  // Guard against a class landing outside that window and, for an obviously-
+  // too-early time, suggest the PM equivalent.
+  const CAR_CLASS_MIN = '07:00' // 7 AM
+  const CAR_CLASS_MAX = '20:00' // 8 PM
+  const to12h = (t: string) => {
+    const [h, m] = t.split(':').map(Number)
+    const period = h < 12 ? 'AM' : 'PM'
+    const h12 = h % 12 === 0 ? 12 : h % 12
+    return `${h12}:${String(m).padStart(2, '0')} ${period}`
+  }
+  const carClassTimeError = (data: EventFormData): string | null => {
+    const window = 'Car classes run 7:00 AM–8:00 PM.'
+    if (data.startTime && data.startTime < CAR_CLASS_MIN) {
+      const [h] = data.startTime.split(':').map(Number)
+      const pm = h < 12 ? `${String(h + 12).padStart(2, '0')}${data.startTime.slice(2)}` : null
+      const hint = pm ? ` Did you mean ${to12h(pm)}?` : ''
+      return `Start time ${to12h(data.startTime)} is before 7:00 AM. ${window}${hint}`
+    }
+    if (data.startTime && data.startTime > CAR_CLASS_MAX) {
+      return `Start time ${to12h(data.startTime)} is after 8:00 PM. ${window}`
+    }
+    if (data.endTime && data.endTime > CAR_CLASS_MAX) {
+      return `End time ${to12h(data.endTime)} is after 8:00 PM. ${window}`
+    }
+    return null
+  }
+
   const handleCreate = () => {
     if ((!formData.module && !formData.title) || !formData.date || !formData.subcalendarId) return
     setDuplicateError(null)
+    // Time-window guard (car classes only — truck classes use their own form)
+    const timeErr = carClassTimeError(formData)
+    if (timeErr) { setDuplicateError(timeErr); return }
     const dup = checkDuplicate(formData)
     if (dup) { setDuplicateError(dup); return }
     createMutation.mutate(formData)
@@ -1694,6 +1726,11 @@ function SchedulingPage() {
     }
     // Check for duplicate (exclude the event being edited)
     setDuplicateError(null)
+    // Time-window guard — skip for truck classes (their hours differ)
+    if (!isTruckClass(editingEvent)) {
+      const timeErr = carClassTimeError(data)
+      if (timeErr) { setDuplicateError(timeErr); return }
+    }
     const dup = checkDuplicate(data, editingEvent.id)
     if (dup) { setDuplicateError(dup); return }
     // Extract original start time (HH:MM) from editingEvent.start_dt for cancel-reminder matching
@@ -2329,6 +2366,15 @@ function SchedulingPage() {
           <Input type="time" value={formData.endTime} onChange={(e) => setFormData(prev => ({ ...prev, endTime: e.target.value }))} />
         </div>
       </div>
+      {(() => {
+        const outOfWindow = !!carClassTimeError(formData)
+        return (
+          <p className={`text-xs flex items-center gap-1 ${outOfWindow ? 'text-red-600 font-medium' : 'text-muted-foreground'}`}>
+            <Clock className="h-3 w-3 flex-shrink-0" />
+            Car classes run 7:00 AM–8:00 PM. Double-check AM/PM (e.g. 3 PM is 15:00, not 03:00).
+          </p>
+        )
+      })()}
       <div>
         <Label>Notes (optional)</Label>
         <textarea
