@@ -138,3 +138,20 @@
   z-index: 50 !important;
   transform: translateY(-1px);
 }
+
+/* LMS lesson content — readable defaults for admin-authored HTML
+   (no @tailwindcss/typography plugin installed). */
+.lms-content { line-height: 1.7; color: inherit; }
+.lms-content h1 { font-size: 1.6rem; font-weight: 700; margin: 1.2rem 0 0.6rem; }
+.lms-content h2 { font-size: 1.3rem; font-weight: 700; margin: 1.1rem 0 0.5rem; }
+.lms-content h3 { font-size: 1.1rem; font-weight: 600; margin: 1rem 0 0.4rem; }
+.lms-content p { margin: 0.6rem 0; }
+.lms-content ul { list-style: disc; padding-left: 1.4rem; margin: 0.6rem 0; }
+.lms-content ol { list-style: decimal; padding-left: 1.4rem; margin: 0.6rem 0; }
+.lms-content li { margin: 0.25rem 0; }
+.lms-content a { color: #E11D2E; text-decoration: underline; }
+.lms-content img { border-radius: 0.5rem; max-width: 100%; height: auto; margin: 0.8rem 0; }
+.lms-content strong { font-weight: 700; }
+.lms-content table { width: 100%; border-collapse: collapse; margin: 0.8rem 0; }
+.lms-content th, .lms-content td { border: 1px solid var(--border, #e2e8f0); padding: 0.4rem 0.6rem; text-align: left; }
+.lms-content blockquote { border-left: 3px solid #E11D2E; padding-left: 0.9rem; color: #64748b; margin: 0.8rem 0; }

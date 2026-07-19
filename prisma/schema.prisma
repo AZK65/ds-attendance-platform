@@ -268,6 +268,7 @@ model Student {
   createdAt        DateTime      @default(now())
   updatedAt        DateTime      @updatedAt
   certificates     Certificate[]
+  lmsAccount       LmsAccount?
 
   @@index([name])
   @@index([phone])
@@ -620,4 +621,134 @@ model PricingSettings {
   truckNote         String   @default("")
   createdAt         DateTime @default(now())
   updatedAt         DateTime @updatedAt
+}
+
+// ── LMS (study.qazidriving.ca) ──────────────────────────────────
+// Content: sections → lessons, separate per vehicleType (car | truck).
+model LmsSection {
+  id          String      @id @default(cuid())
+  vehicleType String // car | truck
+  title       String
+  order       Int         @default(0)
+  lessons     LmsLesson[]
+  createdAt   DateTime    @default(now())
+  updatedAt   DateTime    @updatedAt
+
+  @@index([vehicleType, order])
+}
+
+model LmsLesson {
+  id          String          @id @default(cuid())
+  sectionId   String
+  title       String
+  order       Int             @default(0)
+  contentHtml String          @default("")
+  videoUrl    String? // YouTube or direct video URL
+  attachments LmsAttachment[]
+  progress    LmsProgress[]
+  createdAt   DateTime        @default(now())
+  updatedAt   DateTime        @updatedAt
+  section     LmsSection      @relation(fields: [sectionId], references: [id], onDelete: Cascade)
+
+  @@index([sectionId, order])
+}
+
+// Uploaded files (PDFs, PowerPoints) stored under /app/data/lms-uploads.
+model LmsAttachment {
+  id        String    @id @default(cuid())
+  lessonId  String
+  filename  String
+  mimetype  String
+  size      Int
+  path      String // filename on disk inside the uploads dir
+  createdAt DateTime  @default(now())
+  lesson    LmsLesson @relation(fields: [lessonId], references: [id], onDelete: Cascade)
+}
+
+// Mock exam question bank, per vehicleType.
+model LmsQuestion {
+  id           String   @id @default(cuid())
+  vehicleType  String // car | truck
+  question     String
+  options      String // JSON array of choice strings
+  correctIndex Int
+  imageUrl     String?
+  order        Int      @default(0)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  @@index([vehicleType, order])
+}
+
+// One login per student. Username is branded:
+// first.last@qazidrivingschool.ca (deduped with digits).
+model LmsAccount {
+  id            String          @id @default(cuid())
+  studentId     String          @unique
+  username      String          @unique
+  passwordHash  String
+  passwordSalt  String
+  vehicleType   String          @default("car")
+  resetCode     String? // hashed 6-digit WhatsApp reset code
+  resetExpires  DateTime?
+  createdAt     DateTime        @default(now())
+  lastLoginAt   DateTime?
+  student       Student         @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  sessions      LmsSessionToken[]
+  progress      LmsProgress[]
+  examAttempts  LmsExamAttempt[]
+  events        LmsEvent[]
+}
+
+model LmsSessionToken {
+  id         String     @id @default(cuid())
+  accountId  String
+  userAgent  String?
+  createdAt  DateTime   @default(now())
+  lastSeenAt DateTime   @default(now())
+  account    LmsAccount @relation(fields: [accountId], references: [id], onDelete: Cascade)
+
+  @@index([accountId])
+}
+
+model LmsProgress {
+  id            String     @id @default(cuid())
+  accountId     String
+  lessonId      String
+  firstViewedAt DateTime   @default(now())
+  lastViewedAt  DateTime   @default(now())
+  completed     Boolean    @default(false)
+  completedAt   DateTime?
+  account       LmsAccount @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  lesson        LmsLesson  @relation(fields: [lessonId], references: [id], onDelete: Cascade)
+
+  @@unique([accountId, lessonId])
+}
+
+model LmsExamAttempt {
+  id          String     @id @default(cuid())
+  accountId   String
+  vehicleType String
+  questions   String // JSON array of question ids in served order
+  answers     String     @default("{}") // JSON { questionId: selectedIndex }
+  score       Int?
+  total       Int?
+  startedAt   DateTime   @default(now())
+  submittedAt DateTime?
+  account     LmsAccount @relation(fields: [accountId], references: [id], onDelete: Cascade)
+
+  @@index([accountId, startedAt])
+}
+
+// Raw activity stream: login, lesson_view, lesson_complete, exam_start,
+// exam_submit, reset_request. Powers the per-student activity timeline.
+model LmsEvent {
+  id        String     @id @default(cuid())
+  accountId String
+  type      String
+  detail    String?
+  createdAt DateTime   @default(now())
+  account   LmsAccount @relation(fields: [accountId], references: [id], onDelete: Cascade)
+
+  @@index([accountId, createdAt])
 }

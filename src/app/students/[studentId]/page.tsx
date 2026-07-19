@@ -23,6 +23,7 @@ import {
 import Link from 'next/link'
 import { motion } from 'motion/react'
 import { StudentAvatar } from '@/components/StudentAvatar'
+import { LmsActivityPanel } from '@/components/LmsActivityPanel'
 
 interface TeamupEvent {
   id: string
@@ -123,6 +124,7 @@ export default function StudentProfilePage() {
   const [newBalanceInput, setNewBalanceInput] = useState('')
   const [balanceSaving, setBalanceSaving] = useState(false)
   const [balanceError, setBalanceError] = useState<string | null>(null)
+  const [showLms, setShowLms] = useState(false)
   const [editingEmail, setEditingEmail] = useState(false)
   const [emailInput, setEmailInput] = useState('')
 
@@ -384,9 +386,23 @@ export default function StudentProfilePage() {
               </Link>
             </Button>
             <AttendanceSheetButton phone={phone} />
+            <Button variant="outline" size="sm" onClick={() => setShowLms(true)}>
+              <GraduationCap className="h-4 w-4 mr-1" /> LMS Activity
+            </Button>
           </div>
         </div>
       </motion.div>
+
+      <LmsActivityPanel
+        open={showLms}
+        onOpenChange={setShowLms}
+        student={{
+          studentId: data.localStudent?.id,
+          phone: student.phone_number,
+          name: student.full_name,
+          licence: student.permit_number,
+        }}
+      />
 
       {/* Info Cards — same 6-column layout */}
       <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.1, duration: 0.25 }} className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">

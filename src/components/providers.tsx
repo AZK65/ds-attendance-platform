@@ -8,7 +8,7 @@ import { Navbar } from './Navbar'
 import { SessionHeartbeat } from './SessionHeartbeat'
 
 // Pages that should NOT show the navbar (public/student-facing)
-const HIDE_NAVBAR_PATHS = ['/enroll', '/login', '/register', '/exam', '/book']
+const HIDE_NAVBAR_PATHS = ['/enroll', '/login', '/register', '/exam', '/book', '/study']
 
 export function Providers({ children }: { children: React.ReactNode }) {
   const pathname = usePathname()

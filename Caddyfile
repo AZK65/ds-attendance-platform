@@ -5,3 +5,10 @@ qazidrivingschool.ca, www.qazidrivingschool.ca {
 	encode gzip zstd
 	reverse_proxy app:3000
 }
+
+# Student LMS. Same Next.js app — middleware rewrites this host into the
+# /study section and exposes only the /api/lms student APIs.
+study.qazidriving.ca {
+	encode gzip zstd
+	reverse_proxy app:3000
+}

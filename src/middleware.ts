@@ -1,6 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server'
 
-const PUBLIC_PATHS = ['/login', '/camera', '/enroll', '/api/enroll', '/api/zoom/webhook', '/register', '/api/register', '/api/payment', '/api/pricing', '/exam', '/api/exam', '/book', '/api/book', '/api/leads/webhook', '/api/kiosk/heartbeat', '/api/kiosk/stream']
+// Note: '/study' and '/api/lms' are public w.r.t. the ADMIN password — they
+// enforce their own student LMS session. '/api/lms/admin' is the exception and
+// is gated (handled explicitly below), so the startsWith match must not cover it.
+const PUBLIC_PATHS = ['/login', '/camera', '/enroll', '/api/enroll', '/api/zoom/webhook', '/register', '/api/register', '/api/payment', '/api/pricing', '/exam', '/api/exam', '/book', '/api/book', '/api/leads/webhook', '/api/kiosk/heartbeat', '/api/kiosk/stream', '/study', '/api/lms']
 // Exact-match public paths (NOT prefix). /api/auth must be reachable for login
 // and the authed-check, but its subpaths (/api/auth/sessions, /heartbeat) must
 // stay behind auth — a prefix match would wrongly expose the device list.
@@ -40,6 +43,29 @@ function corsHeaders(origin: string | null): Record<string, string> {
 export function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl
   const origin = request.headers.get('origin')
+  const host = (request.headers.get('host') || '').toLowerCase()
+  const isStudyHost = host.startsWith('study.')
+
+  // study.qazidriving.ca is the student LMS. It serves the app under /study
+  // and talks to /api/lms/* (its own session auth). Admin surfaces
+  // (/api/lms/admin, the /lms editor, the rest of the platform) are NOT
+  // reachable from this host.
+  if (isStudyHost) {
+    if (pathname.startsWith('/api/lms/admin')) {
+      return NextResponse.json({ error: 'Not found' }, { status: 404 })
+    }
+    // Student LMS APIs pass through untouched (gated by the LMS cookie).
+    if (pathname.startsWith('/api/lms') || pathname.startsWith('/_next') || pathname.startsWith('/study')) {
+      return NextResponse.next()
+    }
+    if (PUBLIC_FILE_EXTENSIONS.some(ext => pathname.endsWith(ext)) || pathname === '/favicon.ico') {
+      return NextResponse.next()
+    }
+    // Everything else on this host maps into the /study section.
+    const url = request.nextUrl.clone()
+    url.pathname = `/study${pathname === '/' ? '' : pathname}`
+    return NextResponse.rewrite(url)
+  }
 
   // CORS preflight + response decoration for the public registration API.
   if (CORS_PATHS.some(p => pathname.startsWith(p))) {
@@ -58,7 +84,9 @@ export function middleware(request: NextRequest) {
   if (PUBLIC_FILE_EXTENSIONS.some(ext => pathname.endsWith(ext))) {
     return NextResponse.next()
   }
-  if (PUBLIC_PATHS.some(path => pathname.startsWith(path))) {
+  // /api/lms/admin stays admin-gated even though '/api/lms' is public.
+  const isLmsAdmin = pathname.startsWith('/api/lms/admin')
+  if (!isLmsAdmin && PUBLIC_PATHS.some(path => pathname.startsWith(path))) {
     return NextResponse.next()
   }
   if (PUBLIC_EXACT.includes(pathname)) {
