@@ -5,9 +5,8 @@ import { useQuery } from '@tanstack/react-query'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Card, CardContent } from '@/components/ui/card'
-import { Input } from '@/components/ui/input'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog'
-import { CheckCircle2, Loader2, RotateCcw, Download, X, Pencil, Users, ArrowLeft, ChevronRight, Search } from 'lucide-react'
+import { CheckCircle2, Loader2, RotateCcw, Download, X, Pencil, Users, ArrowLeft, ChevronRight } from 'lucide-react'
 
 interface TeamupEvent {
   id: string
@@ -22,7 +21,6 @@ interface GroupSummary {
   name: string
   participantCount: number
   moduleNumber?: number | null
-  vehicleType?: string | null
 }
 
 interface Participant {
@@ -33,8 +31,18 @@ interface Participant {
   isSuperAdmin?: boolean
 }
 
-// A single thing a student can sign for — either an in-car Teamup event or a
-// member of a group class. The SignaturePad works off this, not the raw event.
+// A group that has a theory class TODAY, resolved to its WhatsApp group so we
+// can load the roster. `eventId` is today's Teamup theory event — signatures
+// tie to it directly (so it's unique per class per day).
+interface GroupClass {
+  group: GroupSummary
+  eventId: string
+  moduleNumber: number | null
+  startDt: string
+}
+
+// A single thing a student can sign for — an in-car Teamup event or a member
+// of a group class. The SignaturePad works off this, not the raw event.
 interface SignTarget {
   eventId: string
   studentName: string
@@ -43,6 +51,28 @@ interface SignTarget {
   subtitle: string
   moduleNumber: number | null
   sortieNumber: number | null
+}
+
+const stripHtml = (s: string) => s.replace(/<[^>]*>/g, '')
+
+// Theory / group class events (vs individual in-car sessions). Matches the
+// server's group-next-theory detection: title "Module N - ..." or a note
+// that says "theory class".
+function isTheoryEvent(ev: TeamupEvent): boolean {
+  if (/^Module\s+\d+\s+-/.test(ev.title || '')) return true
+  return ev.notes ? stripHtml(ev.notes).toLowerCase().includes('theory class') : false
+}
+
+function theoryGroupName(ev: TeamupEvent): string {
+  const m = ev.notes ? stripHtml(ev.notes).match(/Group:\s*(.+)/) : null
+  if (m?.[1]) return m[1].trim()
+  const parts = (ev.title || '').split(' - ')
+  return (parts[1] || '').trim()
+}
+
+function theoryModule(ev: TeamupEvent): number | null {
+  const m = (ev.title || '').match(/^Module\s+(\d+)\s+-/)
+  return m ? parseInt(m[1]) : null
 }
 
 // Mirror of /scheduling parseModuleFromTitle but stripped to what Sign-In needs.
@@ -80,12 +110,7 @@ function fmtTime(iso: string) {
 }
 
 const last10 = (p: string | null | undefined) => (p || '').replace(/\D/g, '').slice(-10)
-
-// Stable per-day id for a group class so each student signs once per day.
-function groupEventId(groupId: string) {
-  const today = new Date().toLocaleDateString('en-CA') // YYYY-MM-DD (local)
-  return `group-${groupId}-${today}`
-}
+const norm = (s: string) => s.trim().toLowerCase().replace(/\s+/g, ' ')
 
 interface SavedSignature {
   id: string
@@ -98,8 +123,7 @@ type View = 'classes' | 'groups' | 'roster'
 
 export default function SignInMode({ onExit }: { onExit: () => void }) {
   const [view, setView] = useState<View>('classes')
-  const [selectedGroup, setSelectedGroup] = useState<GroupSummary | null>(null)
-  const [groupSearch, setGroupSearch] = useState('')
+  const [selectedClass, setSelectedClass] = useState<GroupClass | null>(null)
   const [signing, setSigning] = useState<SignTarget | null>(null)
 
   // /api/scheduling/events returns the events array directly (not wrapped).
@@ -144,8 +168,9 @@ export default function SignInMode({ onExit }: { onExit: () => void }) {
     return set
   }, [signedData])
 
-  // Groups (course cohorts) for the Group Classes view. Loaded lazily.
-  const { data: groupsData, isLoading: groupsLoading } = useQuery<{ groups: GroupSummary[] }>({
+  // WhatsApp groups — only needed to resolve a theory event's group name to a
+  // group id (for the roster). Loaded when leaving the classes view.
+  const { data: groupsData } = useQuery<{ groups: GroupSummary[] }>({
     queryKey: ['signin-groups'],
     queryFn: async () => {
       const res = await fetch('/api/groups')
@@ -158,34 +183,48 @@ export default function SignInMode({ onExit }: { onExit: () => void }) {
 
   // Members of the selected group.
   const { data: membersData, isLoading: membersLoading } = useQuery<{ participants: Participant[]; moduleNumber?: number | null }>({
-    queryKey: ['signin-group-members', selectedGroup?.id],
+    queryKey: ['signin-group-members', selectedClass?.group.id],
     queryFn: async () => {
-      const res = await fetch(`/api/groups/${encodeURIComponent(selectedGroup!.id)}`)
+      const res = await fetch(`/api/groups/${encodeURIComponent(selectedClass!.group.id)}`)
       if (!res.ok) throw new Error('Failed to fetch members')
       return res.json()
     },
-    enabled: !!selectedGroup && view === 'roster',
+    enabled: !!selectedClass && view === 'roster',
   })
 
-  const todayEvents = useMemo(() => {
-    const all = eventsData || []
-    return all
-      .filter(e => {
-        const d = new Date(e.start_dt)
-        const today = new Date()
-        return d.toDateString() === today.toDateString()
-      })
+  const isToday = (iso: string) => new Date(iso).toDateString() === new Date().toDateString()
+
+  // In-car sessions today (theory/group events excluded — those live under
+  // Group Classes).
+  const todayInCar = useMemo(() => {
+    return (eventsData || [])
+      .filter(e => isToday(e.start_dt) && !isTheoryEvent(e))
       .sort((a, b) => new Date(a.start_dt).getTime() - new Date(b.start_dt).getTime())
   }, [eventsData])
 
-  const groups = useMemo(() => {
-    const all = groupsData?.groups || []
-    const q = groupSearch.trim().toLowerCase()
-    return all
-      .filter(g => g.name && g.name !== 'Status Broadcast')
-      .filter(g => !q || g.name.toLowerCase().includes(q))
-      .sort((a, b) => a.name.localeCompare(b.name))
-  }, [groupsData, groupSearch])
+  // Groups that have a theory class today, resolved to their WhatsApp group.
+  const groupClasses = useMemo<GroupClass[]>(() => {
+    const theoryToday = (eventsData || []).filter(e => isToday(e.start_dt) && isTheoryEvent(e))
+    const waGroups = groupsData?.groups || []
+    const byName = new Map(waGroups.map(g => [norm(g.name), g]))
+
+    const out = new Map<string, GroupClass>()
+    for (const ev of theoryToday) {
+      const gname = theoryGroupName(ev)
+      if (!gname) continue
+      // Exact name match, else a loose contains match either direction.
+      let wa = byName.get(norm(gname))
+      if (!wa) {
+        const n = norm(gname)
+        wa = waGroups.find(g => norm(g.name).includes(n) || n.includes(norm(g.name)))
+      }
+      if (!wa) continue // can't resolve to a group we can load a roster for
+      if (!out.has(wa.id)) {
+        out.set(wa.id, { group: wa, eventId: ev.id, moduleNumber: theoryModule(ev), startDt: ev.start_dt })
+      }
+    }
+    return [...out.values()].sort((a, b) => new Date(a.startDt).getTime() - new Date(b.startDt).getTime())
+  }, [eventsData, groupsData])
 
   const eventToTarget = (event: TeamupEvent): SignTarget => {
     const p = parseTitle(event.title)
@@ -200,19 +239,26 @@ export default function SignInMode({ onExit }: { onExit: () => void }) {
     }
   }
 
-  const memberToTarget = (group: GroupSummary, member: Participant, moduleNumber: number | null): SignTarget => {
+  const memberToTarget = (gc: GroupClass, member: Participant): SignTarget => {
     const name = member.name || member.pushName || member.phone
-    const label = moduleNumber ? `${group.name} — Module ${moduleNumber}` : group.name
+    const label = gc.moduleNumber ? `${gc.group.name} — Module ${gc.moduleNumber}` : gc.group.name
     return {
-      eventId: groupEventId(group.id),
+      eventId: gc.eventId,
       studentName: name,
       phone: member.phone,
       sessionLabel: label,
-      subtitle: group.name,
-      moduleNumber: moduleNumber ?? null,
+      subtitle: `${gc.group.name} · ${fmtTime(gc.startDt)}`,
+      moduleNumber: gc.moduleNumber,
       sortieNumber: null,
     }
   }
+
+  const roster = useMemo(() => {
+    const parts = membersData?.participants || []
+    return parts
+      .filter(p => p.phone && !p.isSuperAdmin)
+      .sort((a, b) => (a.name || a.pushName || a.phone).localeCompare(b.name || b.pushName || b.phone))
+  }, [membersData])
 
   // ── Header ──────────────────────────────────────────────────────
   const header = (
@@ -222,21 +268,22 @@ export default function SignInMode({ onExit }: { onExit: () => void }) {
           <>
             <h1 className="text-2xl font-bold">Sign-In Mode</h1>
             <p className="text-sm text-muted-foreground">
-              Tap your name when you arrive. Today only — {todayEvents.length} session{todayEvents.length === 1 ? '' : 's'}.
+              Tap your name when you arrive. Today only — {todayInCar.length} in-car session{todayInCar.length === 1 ? '' : 's'}.
             </p>
           </>
         )}
         {view === 'groups' && (
           <>
-            <h1 className="text-2xl font-bold">Group Classes</h1>
+            <h1 className="text-2xl font-bold">Group Classes Today</h1>
             <p className="text-sm text-muted-foreground">Pick a class, then students sign in.</p>
           </>
         )}
-        {view === 'roster' && selectedGroup && (
+        {view === 'roster' && selectedClass && (
           <>
-            <h1 className="text-2xl font-bold truncate">{selectedGroup.name}</h1>
+            <h1 className="text-2xl font-bold truncate">{selectedClass.group.name}</h1>
             <p className="text-sm text-muted-foreground">
-              {membersData?.moduleNumber ? `Module ${membersData.moduleNumber} · ` : ''}Tap a name to sign in.
+              {selectedClass.moduleNumber ? `Module ${selectedClass.moduleNumber} · ` : ''}
+              {fmtTime(selectedClass.startDt)} · Tap a name to sign in.
             </p>
           </>
         )}
@@ -261,15 +308,22 @@ export default function SignInMode({ onExit }: { onExit: () => void }) {
         className="w-full justify-between h-14 text-base"
         onClick={() => setView('groups')}
       >
-        <span className="flex items-center gap-2 font-semibold"><Users className="h-5 w-5" /> Group Classes</span>
-        <ChevronRight className="h-5 w-5" />
+        <span className="flex items-center gap-2 font-semibold">
+          <Users className="h-5 w-5" /> Group Classes Today
+        </span>
+        <span className="flex items-center gap-2">
+          {groupClasses.length > 0 && (
+            <Badge variant="secondary">{groupClasses.length}</Badge>
+          )}
+          <ChevronRight className="h-5 w-5" />
+        </span>
       </Button>
 
       {eventsLoading ? (
         <div className="flex items-center justify-center py-20">
           <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
         </div>
-      ) : todayEvents.length === 0 ? (
+      ) : todayInCar.length === 0 ? (
         <Card>
           <CardContent className="py-16 text-center text-muted-foreground">
             <p className="text-base">No in-car classes today.</p>
@@ -277,7 +331,7 @@ export default function SignInMode({ onExit }: { onExit: () => void }) {
         </Card>
       ) : (
         <div className="grid gap-3">
-          {todayEvents.map(event => {
+          {todayInCar.map(event => {
             const p = parseTitle(event.title)
             const phone = parsePhone(event.notes)
             const signed = signedEventSet.has(event.id)
@@ -316,49 +370,37 @@ export default function SignInMode({ onExit }: { onExit: () => void }) {
     </>
   )
 
-  // ── Groups view (pick a class) ──────────────────────────────────
+  // ── Groups view (classes happening today) ───────────────────────
   const groupsView = (
     <>
-      <div className="flex items-center gap-2">
-        <Button variant="outline" onClick={() => setView('classes')}>
-          <ArrowLeft className="h-4 w-4 mr-1" /> Back to classes
-        </Button>
-        <div className="relative flex-1">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-          <Input
-            className="pl-9"
-            placeholder="Search classes…"
-            value={groupSearch}
-            onChange={e => setGroupSearch(e.target.value)}
-          />
-        </div>
-      </div>
+      <Button variant="outline" onClick={() => setView('classes')}>
+        <ArrowLeft className="h-4 w-4 mr-1" /> Back to classes
+      </Button>
 
-      {groupsLoading ? (
-        <div className="flex items-center justify-center py-20">
-          <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
-        </div>
-      ) : groups.length === 0 ? (
+      {groupClasses.length === 0 ? (
         <Card>
           <CardContent className="py-16 text-center text-muted-foreground">
-            <p className="text-base">No classes found.</p>
+            <p className="text-base">No group classes scheduled today.</p>
           </CardContent>
         </Card>
       ) : (
         <div className="grid gap-2">
-          {groups.map(g => (
+          {groupClasses.map(gc => (
             <Card
-              key={g.id}
+              key={gc.group.id}
               className="cursor-pointer hover:border-primary transition-colors"
-              onClick={() => { setSelectedGroup(g); setView('roster') }}
+              onClick={() => { setSelectedClass(gc); setView('roster') }}
             >
               <CardContent className="py-4 flex items-center justify-between gap-3">
-                <div className="min-w-0">
-                  <p className="font-semibold text-lg truncate">{g.name}</p>
-                  <p className="text-sm text-muted-foreground">
-                    {g.participantCount} student{g.participantCount === 1 ? '' : 's'}
-                    {g.moduleNumber ? ` · Module ${g.moduleNumber}` : ''}
-                  </p>
+                <div className="flex items-center gap-3 min-w-0">
+                  <p className="text-xl font-bold tabular-nums">{fmtTime(gc.startDt)}</p>
+                  <div className="min-w-0">
+                    <p className="font-semibold text-lg truncate">{gc.group.name}</p>
+                    <p className="text-sm text-muted-foreground">
+                      {gc.group.participantCount} student{gc.group.participantCount === 1 ? '' : 's'}
+                      {gc.moduleNumber ? ` · Module ${gc.moduleNumber}` : ''}
+                    </p>
+                  </div>
                 </div>
                 <ChevronRight className="h-5 w-5 text-muted-foreground flex-shrink-0" />
               </CardContent>
@@ -370,16 +412,9 @@ export default function SignInMode({ onExit }: { onExit: () => void }) {
   )
 
   // ── Roster view (students of a class sign in) ───────────────────
-  const roster = useMemo(() => {
-    const parts = membersData?.participants || []
-    return parts
-      .filter(p => p.phone && !p.isSuperAdmin)
-      .sort((a, b) => (a.name || a.pushName || a.phone).localeCompare(b.name || b.pushName || b.phone))
-  }, [membersData])
-
-  const rosterView = selectedGroup && (
+  const rosterView = selectedClass && (
     <>
-      <Button variant="outline" onClick={() => { setView('groups'); setSelectedGroup(null) }}>
+      <Button variant="outline" onClick={() => { setView('groups'); setSelectedClass(null) }}>
         <ArrowLeft className="h-4 w-4 mr-1" /> Back to class list
       </Button>
 
@@ -396,14 +431,13 @@ export default function SignInMode({ onExit }: { onExit: () => void }) {
       ) : (
         <div className="grid gap-2">
           {roster.map(member => {
-            const eid = groupEventId(selectedGroup.id)
-            const signed = signedKeySet.has(`${eid}:${last10(member.phone)}`)
+            const signed = signedKeySet.has(`${selectedClass.eventId}:${last10(member.phone)}`)
             const name = member.name || member.pushName || member.phone
             return (
               <Card
                 key={member.id}
                 className={`transition-colors ${signed ? 'border-green-300 bg-green-50/40' : 'cursor-pointer hover:border-primary'}`}
-                onClick={() => { if (!signed) setSigning(memberToTarget(selectedGroup, member, membersData?.moduleNumber ?? selectedGroup.moduleNumber ?? null)) }}
+                onClick={() => { if (!signed) setSigning(memberToTarget(selectedClass, member)) }}
               >
                 <CardContent className="py-4 flex items-center justify-between gap-3">
                   <div className="min-w-0">
