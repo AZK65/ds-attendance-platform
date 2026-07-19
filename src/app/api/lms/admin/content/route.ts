@@ -20,9 +20,13 @@ export async function GET(request: NextRequest) {
   return NextResponse.json({ vehicleType, sections })
 }
 
+const LESSON_TYPES = ['video', 'pdf', 'powerpoint', 'exam', 'text'] as const
+const normalizeLessonType = (v: unknown) =>
+  typeof v === 'string' && (LESSON_TYPES as readonly string[]).includes(v) ? v : 'text'
+
 // POST — create a section or lesson.
 // { kind: "section", vehicleType, title }
-// { kind: "lesson", sectionId, title }
+// { kind: "lesson", sectionId, title, lessonType }
 export async function POST(request: NextRequest) {
   const body = await request.json().catch(() => ({}))
   if (body?.kind === 'section') {
@@ -38,7 +42,7 @@ export async function POST(request: NextRequest) {
     if (!sectionId) return NextResponse.json({ error: 'sectionId required' }, { status: 400 })
     const max = await prisma.lmsLesson.aggregate({ where: { sectionId }, _max: { order: true } })
     const lesson = await prisma.lmsLesson.create({
-      data: { sectionId, title: String(body.title || 'Untitled lesson').slice(0, 200), order: (max._max.order ?? -1) + 1 },
+      data: { sectionId, title: String(body.title || 'Untitled lesson').slice(0, 200), lessonType: normalizeLessonType(body.lessonType), order: (max._max.order ?? -1) + 1 },
     })
     return NextResponse.json({ lesson })
   }
@@ -62,6 +66,7 @@ export async function PATCH(request: NextRequest) {
     if (typeof body.title === 'string') data.title = body.title.slice(0, 200)
     if (typeof body.contentHtml === 'string') data.contentHtml = body.contentHtml
     if (typeof body.videoUrl === 'string') data.videoUrl = body.videoUrl.trim() || null
+    if (typeof body.lessonType === 'string') data.lessonType = normalizeLessonType(body.lessonType)
     if (typeof body.order === 'number') data.order = body.order
     await prisma.lmsLesson.update({ where: { id: String(body.id) }, data })
     return NextResponse.json({ success: true })

@@ -2,7 +2,8 @@
 
 import { useState } from 'react'
 import { useRouter } from 'next/navigation'
-import { Loader2, GraduationCap } from 'lucide-react'
+import NextImage from 'next/image'
+import { Loader2 } from 'lucide-react'
 
 type Mode = 'login' | 'reset-request' | 'reset-confirm'
 
@@ -45,23 +46,24 @@ export default function StudyLoginPage() {
   }
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-gradient-to-b from-slate-50 to-slate-100 dark:from-slate-950 dark:to-slate-900 p-4">
-      <div className="w-full max-w-sm bg-white dark:bg-slate-900 rounded-2xl shadow-xl border border-slate-200 dark:border-slate-800 p-7">
+    <div className="min-h-screen flex items-center justify-center bg-[#F7F7F5] text-[#0B0B0F] p-4">
+      <div className="w-full max-w-sm bg-white rounded-2xl shadow-sm border border-black/[0.07] p-7">
         <div className="flex flex-col items-center text-center mb-6">
-          <div className="h-12 w-12 rounded-xl bg-[#E11D2E] text-white flex items-center justify-center mb-3">
-            <GraduationCap className="h-6 w-6" />
-          </div>
-          <h1 className="text-xl font-bold">Qazi Study Portal</h1>
-          <p className="text-sm text-muted-foreground">
+          <NextImage src="/qazi-logo.png" alt="Qazi Driving School" width={120} height={40} priority className="h-9 w-auto mb-4" />
+          <h1 className="text-[26px] leading-tight tracking-tight">
+            <span className="font-sans">Qazi </span>
+            <span className="font-serif italic text-[#E11D2E]">Study Portal</span>
+          </h1>
+          <p className="text-sm text-ink/60 mt-1">
             {mode === 'login' ? 'Sign in to your course' : 'Reset your password'}
           </p>
         </div>
 
         <form onSubmit={submit} className="space-y-3">
           <div>
-            <label className="text-xs font-medium text-muted-foreground">Username</label>
+            <label className="text-xs font-medium text-ink/60">Username</label>
             <input
-              className="mt-1 w-full rounded-lg border px-3 py-2.5 text-sm bg-background"
+              className="mt-1 w-full rounded-xl border border-black/[0.12] px-3 py-2.5 text-sm bg-white focus:outline-none focus:border-[#E11D2E]"
               placeholder="first.last@qazidrivingschool.ca"
               autoCapitalize="none" autoCorrect="off"
               value={username}
@@ -72,10 +74,10 @@ export default function StudyLoginPage() {
 
           {mode === 'login' && (
             <div>
-              <label className="text-xs font-medium text-muted-foreground">Password</label>
+              <label className="text-xs font-medium text-ink/60">Password</label>
               <input
                 type="password"
-                className="mt-1 w-full rounded-lg border px-3 py-2.5 text-sm bg-background"
+                className="mt-1 w-full rounded-xl border border-black/[0.12] px-3 py-2.5 text-sm bg-white focus:outline-none focus:border-[#E11D2E]"
                 value={password}
                 onChange={e => setPassword(e.target.value)}
                 required
@@ -86,20 +88,20 @@ export default function StudyLoginPage() {
           {mode === 'reset-confirm' && (
             <>
               <div>
-                <label className="text-xs font-medium text-muted-foreground">6-digit code (from WhatsApp)</label>
+                <label className="text-xs font-medium text-ink/60">6-digit code (from WhatsApp)</label>
                 <input
                   inputMode="numeric"
-                  className="mt-1 w-full rounded-lg border px-3 py-2.5 text-sm bg-background tracking-widest"
+                  className="mt-1 w-full rounded-xl border border-black/[0.12] px-3 py-2.5 text-sm bg-white tracking-widest focus:outline-none focus:border-[#E11D2E]"
                   value={code}
                   onChange={e => setCode(e.target.value.replace(/\D/g, '').slice(0, 6))}
                   required
                 />
               </div>
               <div>
-                <label className="text-xs font-medium text-muted-foreground">New password</label>
+                <label className="text-xs font-medium text-ink/60">New password</label>
                 <input
                   type="password"
-                  className="mt-1 w-full rounded-lg border px-3 py-2.5 text-sm bg-background"
+                  className="mt-1 w-full rounded-xl border border-black/[0.12] px-3 py-2.5 text-sm bg-white focus:outline-none focus:border-[#E11D2E]"
                   value={newPassword}
                   onChange={e => setNewPassword(e.target.value)}
                   required
@@ -108,13 +110,13 @@ export default function StudyLoginPage() {
             </>
           )}
 
-          {error && <p className="text-sm text-red-600">{error}</p>}
+          {error && <p className="text-sm text-[#C5121F]">{error}</p>}
           {info && <p className="text-sm text-green-600">{info}</p>}
 
           <button
             type="submit"
             disabled={busy}
-            className="w-full rounded-lg bg-[#0B0B0F] text-white py-2.5 text-sm font-medium hover:bg-black disabled:opacity-60 flex items-center justify-center gap-2"
+            className="w-full rounded-xl bg-[#0B0B0F] text-white py-2.5 text-sm font-medium hover:bg-black disabled:opacity-60 flex items-center justify-center gap-2"
           >
             {busy && <Loader2 className="h-4 w-4 animate-spin" />}
             {mode === 'login' ? 'Sign in' : mode === 'reset-request' ? 'Send reset code' : 'Set new password'}
@@ -123,11 +125,11 @@ export default function StudyLoginPage() {
 
         <div className="mt-4 text-center text-sm">
           {mode === 'login' ? (
-            <button className="text-muted-foreground hover:underline" onClick={() => { setMode('reset-request'); setError(''); setInfo('') }}>
+            <button className="text-ink/60 hover:underline" onClick={() => { setMode('reset-request'); setError(''); setInfo('') }}>
               Forgot password?
             </button>
           ) : (
-            <button className="text-muted-foreground hover:underline" onClick={() => { setMode('login'); setError(''); setInfo('') }}>
+            <button className="text-ink/60 hover:underline" onClick={() => { setMode('login'); setError(''); setInfo('') }}>
               Back to sign in
             </button>
           )}

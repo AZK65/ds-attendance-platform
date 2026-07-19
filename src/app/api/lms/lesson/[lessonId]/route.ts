@@ -33,6 +33,7 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
   return NextResponse.json({
     id: lesson.id,
     title: lesson.title,
+    type: lesson.lessonType,
     sectionTitle: lesson.section.title,
     contentHtml: lesson.contentHtml,
     videoUrl: lesson.videoUrl,

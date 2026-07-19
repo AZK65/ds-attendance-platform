@@ -3,7 +3,8 @@
 import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
-import { GraduationCap, LogOut, Loader2 } from 'lucide-react'
+import NextImage from 'next/image'
+import { LogOut, Loader2 } from 'lucide-react'
 
 interface Me { authed: boolean; name?: string; vehicleType?: string }
 
@@ -33,25 +34,24 @@ export function StudyShell({ children }: { children: (me: Me) => React.ReactNode
 
   if (!me) {
     return (
-      <div className="min-h-screen flex items-center justify-center">
-        <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+      <div className="min-h-screen flex items-center justify-center bg-[#F7F7F5]">
+        <Loader2 className="h-6 w-6 animate-spin text-ink/40" />
       </div>
     )
   }
 
+  const firstName = me.name ? me.name.split(/[ ,]/)[0] : ''
+
   return (
-    <div className="min-h-screen bg-slate-50 dark:bg-slate-950">
-      <header className="sticky top-0 z-10 bg-white dark:bg-slate-900 border-b border-slate-200 dark:border-slate-800">
+    <div className="min-h-screen bg-[#F7F7F5] text-[#0B0B0F]">
+      <header className="sticky top-0 z-10 bg-white border-b border-black/[0.07]">
         <div className="max-w-3xl mx-auto px-4 py-3 flex items-center justify-between">
-          <Link href="/study" className="flex items-center gap-2 font-bold">
-            <span className="h-8 w-8 rounded-lg bg-[#E11D2E] text-white flex items-center justify-center">
-              <GraduationCap className="h-4 w-4" />
-            </span>
-            Qazi Study
+          <Link href="/study" className="flex items-center">
+            <NextImage src="/qazi-logo.png" alt="Qazi Driving School" width={96} height={32} priority className="h-8 w-auto" />
           </Link>
           <div className="flex items-center gap-3">
-            <span className="text-sm text-muted-foreground hidden sm:inline">{me.name}</span>
-            <button onClick={logout} className="text-sm text-muted-foreground hover:text-foreground flex items-center gap-1">
+            {firstName && <span className="text-sm text-ink/60 hidden sm:inline">{firstName}</span>}
+            <button onClick={logout} className="text-sm text-ink/60 hover:text-ink flex items-center gap-1">
               <LogOut className="h-4 w-4" /> Log out
             </button>
           </div>

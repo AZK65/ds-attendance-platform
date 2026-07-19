@@ -642,6 +642,7 @@ model LmsLesson {
   sectionId   String
   title       String
   order       Int             @default(0)
+  lessonType  String          @default("text") // video | pdf | powerpoint | exam | text
   contentHtml String          @default("")
   videoUrl    String? // YouTube or direct video URL
   attachments LmsAttachment[]

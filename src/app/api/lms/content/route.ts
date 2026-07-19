@@ -16,7 +16,7 @@ export async function GET(request: NextRequest) {
       include: {
         lessons: {
           orderBy: { order: 'asc' },
-          select: { id: true, title: true, videoUrl: true, _count: { select: { attachments: true } } },
+          select: { id: true, title: true, videoUrl: true, lessonType: true, _count: { select: { attachments: true } } },
         },
       },
     }),
@@ -41,6 +41,7 @@ export async function GET(request: NextRequest) {
       lessons: s.lessons.map(l => ({
         id: l.id,
         title: l.title,
+        type: l.lessonType,
         hasVideo: !!l.videoUrl,
         attachmentCount: l._count.attachments,
         completed: progressByLesson.get(l.id)?.completed || false,

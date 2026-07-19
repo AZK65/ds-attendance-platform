@@ -8,13 +8,27 @@ import { Card, CardContent } from '@/components/ui/card'
 import {
   ArrowLeft, Plus, Trash2, Loader2, Save, Upload, FileText, Car, Truck,
   GraduationCap, Sparkles, Users, ChevronDown, ChevronRight,
+  PlayCircle, Presentation, ClipboardList, BookOpen, Send, Search,
 } from 'lucide-react'
 
 type Vehicle = 'car' | 'truck'
 type Tab = 'content' | 'questions' | 'accounts'
+type LessonType = 'video' | 'pdf' | 'powerpoint' | 'exam' | 'text'
+
+// Per-type metadata: icon, short label, and (for the add-lesson picker) the
+// button text. Keeps the row header, picker, and editor in sync.
+const LESSON_TYPE_META: Record<LessonType, { label: string; addLabel: string; icon: React.ElementType; accept?: string }> = {
+  video: { label: 'Video', addLabel: 'Video', icon: PlayCircle },
+  pdf: { label: 'PDF', addLabel: 'PDF', icon: FileText, accept: '.pdf' },
+  powerpoint: { label: 'PowerPoint', addLabel: 'PowerPoint', icon: Presentation, accept: '.ppt,.pptx' },
+  exam: { label: 'Exam', addLabel: 'Exam', icon: ClipboardList },
+  text: { label: 'Notes', addLabel: 'Notes', icon: BookOpen },
+}
+const lessonTypeOf = (t: string): LessonType =>
+  (['video', 'pdf', 'powerpoint', 'exam', 'text'] as string[]).includes(t) ? (t as LessonType) : 'text'
 
 interface Attachment { id: string; filename: string; mimetype: string; size: number }
-interface Lesson { id: string; title: string; contentHtml: string; videoUrl: string | null; order: number; attachments: Attachment[] }
+interface Lesson { id: string; title: string; lessonType: string; contentHtml: string; videoUrl: string | null; order: number; attachments: Attachment[] }
 interface Section { id: string; title: string; order: number; lessons: Lesson[] }
 interface Question { id: string; question: string; options: string[]; correctIndex: number; imageUrl: string | null }
 
@@ -73,7 +87,7 @@ function ContentTab({ vehicle }: { vehicle: Vehicle }) {
     fetch('/api/lms/admin/content', { method, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
 
   const addSection = async () => { await api('POST', { kind: 'section', vehicleType: vehicle, title: 'New section' }); load() }
-  const addLesson = async (sectionId: string) => { await api('POST', { kind: 'lesson', sectionId, title: 'New lesson' }); load() }
+  const addLesson = async (sectionId: string, lessonType: LessonType) => { await api('POST', { kind: 'lesson', sectionId, title: 'New lesson', lessonType }); load() }
   const delSection = async (id: string) => { if (confirm('Delete this section and all its lessons?')) { await api('DELETE', { kind: 'section', id }); load() } }
   const delLesson = async (id: string) => { if (confirm('Delete this lesson?')) { await api('DELETE', { kind: 'lesson', id }); load() } }
   const renameSection = async (id: string, title: string) => { await api('PATCH', { kind: 'section', id, title }) }
@@ -90,18 +104,34 @@ function ContentTab({ vehicle }: { vehicle: Vehicle }) {
               <Button variant="ghost" size="icon" className="text-destructive" onClick={() => delSection(section.id)}><Trash2 className="h-4 w-4" /></Button>
             </div>
             <div className="space-y-2 pl-2 border-l-2">
-              {section.lessons.map(lesson => (
-                <div key={lesson.id} className="rounded-lg border">
-                  <button onClick={() => setOpenLesson(openLesson === lesson.id ? null : lesson.id)} className="w-full flex items-center gap-2 p-3 text-left">
-                    {openLesson === lesson.id ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
-                    <span className="flex-1 font-medium truncate">{lesson.title}</span>
-                    {lesson.videoUrl && <span className="text-xs text-muted-foreground">video</span>}
-                    {lesson.attachments.length > 0 && <span className="text-xs text-muted-foreground">{lesson.attachments.length} file(s)</span>}
-                  </button>
-                  {openLesson === lesson.id && <LessonEditor lesson={lesson} onChanged={load} onDelete={() => delLesson(lesson.id)} />}
-                </div>
-              ))}
-              <Button variant="outline" size="sm" onClick={() => addLesson(section.id)}><Plus className="h-4 w-4 mr-1" /> Add lesson</Button>
+              {section.lessons.map(lesson => {
+                const meta = LESSON_TYPE_META[lessonTypeOf(lesson.lessonType)]
+                const TypeIcon = meta.icon
+                return (
+                  <div key={lesson.id} className="rounded-lg border">
+                    <button onClick={() => setOpenLesson(openLesson === lesson.id ? null : lesson.id)} className="w-full flex items-center gap-2 p-3 text-left">
+                      {openLesson === lesson.id ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
+                      <span className="flex-1 font-medium truncate">{lesson.title}</span>
+                      <span className="flex items-center gap-1 text-xs text-muted-foreground">
+                        <TypeIcon className="h-3.5 w-3.5" /> {meta.label}
+                      </span>
+                    </button>
+                    {openLesson === lesson.id && <LessonEditor lesson={lesson} vehicle={vehicle} onChanged={load} onDelete={() => delLesson(lesson.id)} />}
+                  </div>
+                )
+              })}
+              <div className="flex flex-wrap items-center gap-1.5 pt-1">
+                <span className="text-xs text-muted-foreground mr-1">+ Add lesson:</span>
+                {(Object.keys(LESSON_TYPE_META) as LessonType[]).map(t => {
+                  const meta = LESSON_TYPE_META[t]
+                  const Icon = meta.icon
+                  return (
+                    <Button key={t} variant="outline" size="sm" className="h-7 px-2" onClick={() => addLesson(section.id, t)}>
+                      <Icon className="h-3.5 w-3.5 mr-1" /> {meta.addLabel}
+                    </Button>
+                  )
+                })}
+              </div>
             </div>
           </CardContent>
         </Card>
@@ -111,7 +141,8 @@ function ContentTab({ vehicle }: { vehicle: Vehicle }) {
   )
 }
 
-function LessonEditor({ lesson, onChanged, onDelete }: { lesson: Lesson; onChanged: () => void; onDelete: () => void }) {
+function LessonEditor({ lesson, vehicle, onChanged, onDelete }: { lesson: Lesson; vehicle: Vehicle; onChanged: () => void; onDelete: () => void }) {
+  const type = lessonTypeOf(lesson.lessonType)
   const [title, setTitle] = useState(lesson.title)
   const [videoUrl, setVideoUrl] = useState(lesson.videoUrl || '')
   const [contentHtml, setContentHtml] = useState(lesson.contentHtml)
@@ -125,7 +156,7 @@ function LessonEditor({ lesson, onChanged, onDelete }: { lesson: Lesson; onChang
     setSaving(true)
     await fetch('/api/lms/admin/content', {
       method: 'PATCH', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ kind: 'lesson', id: lesson.id, title, videoUrl, contentHtml }),
+      body: JSON.stringify({ kind: 'lesson', id: lesson.id, title, videoUrl, contentHtml, lessonType: type }),
     })
     setSaving(false); setSaved(true); setTimeout(() => setSaved(false), 2000); onChanged()
   }
@@ -144,42 +175,62 @@ function LessonEditor({ lesson, onChanged, onDelete }: { lesson: Lesson; onChang
     setAttachments(a => a.filter(x => x.id !== id))
   }
 
+  const showVideo = type === 'video'
+  const showUpload = type === 'pdf' || type === 'powerpoint'
+  const isText = type === 'text'
+  const notesLabel = type === 'exam' ? 'Instructions (optional)' : isText ? 'Content' : 'Notes (optional)'
+  const notesPlaceholder = isText
+    ? '<h2>Topic</h2><p>Explanation…</p><ul><li>Point</li></ul>'
+    : 'Notes shown to students (HTML allowed)…'
+
   return (
     <div className="p-3 pt-0 space-y-3 border-t">
       <div>
         <label className="text-xs text-muted-foreground">Title</label>
         <Input value={title} onChange={e => setTitle(e.target.value)} />
       </div>
+
+      {showVideo && (
+        <div>
+          <label className="text-xs text-muted-foreground">Video URL (YouTube, Vimeo, or direct link)</label>
+          <Input value={videoUrl} onChange={e => setVideoUrl(e.target.value)} placeholder="https://youtube.com/watch?v=…" />
+        </div>
+      )}
+
+      {showUpload && (
+        <div>
+          <label className="text-xs text-muted-foreground">{type === 'pdf' ? 'PDF file' : 'PowerPoint file'}</label>
+          <div className="space-y-1 mt-1">
+            {attachments.map(att => (
+              <div key={att.id} className="flex items-center gap-2 text-sm rounded border px-2 py-1.5">
+                <FileText className="h-4 w-4 text-muted-foreground" />
+                <span className="flex-1 truncate">{att.filename}</span>
+                <span className="text-xs text-muted-foreground">{Math.round(att.size / 1024)} KB</span>
+                <Button variant="ghost" size="icon" className="h-6 w-6 text-destructive" onClick={() => removeAttachment(att.id)}><Trash2 className="h-3.5 w-3.5" /></Button>
+              </div>
+            ))}
+          </div>
+          <input ref={fileRef} type="file" hidden accept={LESSON_TYPE_META[type].accept} onChange={e => { const f = e.target.files?.[0]; if (f) upload(f); e.target.value = '' }} />
+          <Button variant="outline" size="sm" className="mt-2" disabled={uploading} onClick={() => fileRef.current?.click()}>
+            {uploading ? <Loader2 className="h-4 w-4 mr-1 animate-spin" /> : <Upload className="h-4 w-4 mr-1" />} Upload {type === 'pdf' ? 'PDF' : 'slides'}
+          </Button>
+        </div>
+      )}
+
+      {type === 'exam' && (
+        <div className="rounded-lg border bg-muted/40 p-3 text-sm text-muted-foreground">
+          Students take a practice test from the {vehicle === 'truck' ? 'Truck' : 'Car'} question bank (managed in the Questions tab).
+        </div>
+      )}
+
       <div>
-        <label className="text-xs text-muted-foreground">Video URL (YouTube, Vimeo, or direct link) — optional</label>
-        <Input value={videoUrl} onChange={e => setVideoUrl(e.target.value)} placeholder="https://youtube.com/watch?v=…" />
-      </div>
-      <div>
-        <label className="text-xs text-muted-foreground">Lesson content (HTML — headings, lists, &lt;img&gt;, etc.)</label>
+        <label className="text-xs text-muted-foreground">{notesLabel}</label>
         <textarea
           className="w-full rounded-md border bg-background px-3 py-2 text-sm font-mono min-h-[140px]"
           value={contentHtml}
           onChange={e => setContentHtml(e.target.value)}
-          placeholder="<h2>Topic</h2><p>Explanation…</p><ul><li>Point</li></ul>"
+          placeholder={notesPlaceholder}
         />
-      </div>
-
-      <div>
-        <label className="text-xs text-muted-foreground">Attachments (PDF, PowerPoint, images)</label>
-        <div className="space-y-1 mt-1">
-          {attachments.map(att => (
-            <div key={att.id} className="flex items-center gap-2 text-sm rounded border px-2 py-1.5">
-              <FileText className="h-4 w-4 text-muted-foreground" />
-              <span className="flex-1 truncate">{att.filename}</span>
-              <span className="text-xs text-muted-foreground">{Math.round(att.size / 1024)} KB</span>
-              <Button variant="ghost" size="icon" className="h-6 w-6 text-destructive" onClick={() => removeAttachment(att.id)}><Trash2 className="h-3.5 w-3.5" /></Button>
-            </div>
-          ))}
-        </div>
-        <input ref={fileRef} type="file" hidden accept=".pdf,.ppt,.pptx,image/*" onChange={e => { const f = e.target.files?.[0]; if (f) upload(f); e.target.value = '' }} />
-        <Button variant="outline" size="sm" className="mt-2" disabled={uploading} onClick={() => fileRef.current?.click()}>
-          {uploading ? <Loader2 className="h-4 w-4 mr-1 animate-spin" /> : <Upload className="h-4 w-4 mr-1" />} Upload file
-        </Button>
       </div>
 
       <div className="flex items-center gap-2">
@@ -273,38 +324,127 @@ function QuestionEditor({ q, index, onChanged, onDelete }: { q: Question; index:
 }
 
 // ── Accounts ────────────────────────────────────────────────────
+interface AccountRow {
+  id: string
+  studentId: string
+  studentName: string
+  phone: string | null
+  username: string
+  vehicleType: string
+  createdAt: string
+  lastLoginAt: string | null
+}
+
 function AccountsTab() {
+  const [accounts, setAccounts] = useState<AccountRow[]>([])
+  const [without, setWithout] = useState(0)
+  const [loading, setLoading] = useState(true)
+  const [search, setSearch] = useState('')
   const [busy, setBusy] = useState(false)
-  const [result, setResult] = useState<string | null>(null)
+  const [sendingId, setSendingId] = useState<string | null>(null)
+  const [note, setNote] = useState<string | null>(null)
+
+  const load = useCallback(() => {
+    setLoading(true)
+    fetch('/api/lms/admin/accounts?list=1')
+      .then(r => r.json())
+      .then(d => { setAccounts(d.accounts || []); setWithout(d.studentsWithoutAccount || 0); setLoading(false) })
+      .catch(() => setLoading(false))
+  }, [])
+  useEffect(() => { load() }, [load])
 
   const generateAll = async () => {
     if (!confirm('Create LMS logins for every student who doesn’t have one yet?')) return
-    setBusy(true); setResult(null)
+    setBusy(true); setNote(null)
     const res = await fetch('/api/lms/admin/accounts', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'generate-all' }) })
     const d = await res.json()
     setBusy(false)
-    setResult(res.ok ? `Created ${d.created} new account${d.created === 1 ? '' : 's'}.` : (d.error || 'Failed'))
+    setNote(res.ok ? `Created ${d.created} new login${d.created === 1 ? '' : 's'}.` : (d.error || 'Failed'))
+    load()
   }
+
+  const sendCreds = async (a: AccountRow) => {
+    setSendingId(a.id); setNote(null)
+    const res = await fetch('/api/lms/admin/accounts', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'send', studentId: a.studentId }),
+    })
+    const d = await res.json()
+    setSendingId(null)
+    setNote(res.ok ? `Sent login to ${a.studentName} on WhatsApp.` : (d.error || 'Send failed'))
+    load()
+  }
+
+  const q = search.trim().toLowerCase()
+  const filtered = q
+    ? accounts.filter(a =>
+        a.studentName.toLowerCase().includes(q) ||
+        a.username.toLowerCase().includes(q) ||
+        (a.phone || '').includes(q.replace(/\D/g, '')))
+    : accounts
+
+  const fmt = (iso: string | null) => iso
+    ? new Date(iso).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
+    : null
 
   return (
     <div className="space-y-4">
-      <Card>
-        <CardContent className="p-5 space-y-3">
-          <div className="flex items-center gap-2">
-            <Users className="h-5 w-5" />
-            <h2 className="font-semibold">Student logins</h2>
-          </div>
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div>
+          <h2 className="font-semibold flex items-center gap-2"><Users className="h-5 w-5" /> Student logins</h2>
           <p className="text-sm text-muted-foreground">
-            Each student gets a <span className="font-mono">first.last@qazidrivingschool.ca</span> username and a random password.
-            Manage an individual student&apos;s login (view username, reset, send via WhatsApp) from their profile page under <span className="font-medium">LMS Activity</span>.
+            {accounts.length} login{accounts.length === 1 ? '' : 's'}
+            {without > 0 && <> · {without} student{without === 1 ? '' : 's'} without one yet</>}
           </p>
-          <Button onClick={generateAll} disabled={busy}>
-            {busy ? <Loader2 className="h-4 w-4 mr-1 animate-spin" /> : <Sparkles className="h-4 w-4 mr-1" />}
-            Generate logins for all students
-          </Button>
-          {result && <p className="text-sm text-green-700">{result}</p>}
-        </CardContent>
-      </Card>
+        </div>
+        <Button onClick={generateAll} disabled={busy} variant={without > 0 ? 'default' : 'outline'}>
+          {busy ? <Loader2 className="h-4 w-4 mr-1 animate-spin" /> : <Sparkles className="h-4 w-4 mr-1" />}
+          Generate all missing
+        </Button>
+      </div>
+
+      {note && <p className="text-sm text-green-700">{note}</p>}
+
+      <div className="relative">
+        <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+        <Input className="pl-9" placeholder="Search by name, username, or phone…" value={search} onChange={e => setSearch(e.target.value)} />
+      </div>
+
+      {loading ? (
+        <div className="flex justify-center py-16"><Loader2 className="h-6 w-6 animate-spin text-muted-foreground" /></div>
+      ) : filtered.length === 0 ? (
+        <Card><CardContent className="py-12 text-center text-muted-foreground text-sm">
+          {accounts.length === 0 ? 'No logins yet — “Generate all missing” creates them for every student.' : 'No matches.'}
+        </CardContent></Card>
+      ) : (
+        <div className="space-y-2">
+          {filtered.map(a => (
+            <Card key={a.id}>
+              <CardContent className="p-3 flex items-center gap-3">
+                <span className="h-9 w-9 rounded-lg bg-muted flex items-center justify-center flex-shrink-0">
+                  {a.vehicleType === 'truck' ? <Truck className="h-4 w-4" /> : <Car className="h-4 w-4" />}
+                </span>
+                <div className="min-w-0 flex-1">
+                  <p className="font-medium truncate">{a.studentName}</p>
+                  <p className="text-xs text-muted-foreground font-mono truncate">{a.username}</p>
+                </div>
+                <div className="hidden sm:block text-xs text-muted-foreground text-right flex-shrink-0">
+                  {a.lastLoginAt
+                    ? <>Last login<br />{fmt(a.lastLoginAt)}</>
+                    : <span className="text-amber-600">Never logged in</span>}
+                </div>
+                <Button size="sm" variant="outline" disabled={sendingId === a.id || !a.phone} onClick={() => sendCreds(a)} title={a.phone ? 'Reset password + send login on WhatsApp' : 'No phone number'}>
+                  {sendingId === a.id ? <Loader2 className="h-4 w-4 animate-spin" /> : <><Send className="h-4 w-4 sm:mr-1" /><span className="hidden sm:inline">Send</span></>}
+                </Button>
+              </CardContent>
+            </Card>
+          ))}
+        </div>
+      )}
+
+      <p className="text-xs text-muted-foreground">
+        Tip: manage one student in depth (progress, reset, mock-exam results) from their profile → <span className="font-medium">LMS Activity</span>.
+      </p>
     </div>
   )
 }

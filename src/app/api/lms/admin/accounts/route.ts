@@ -4,10 +4,45 @@ import { ensureAccount, resolveLocalStudentId, resolveOrCreateLocalStudentId } f
 
 const STUDY_URL = 'https://study.qazidriving.ca'
 
-// GET /api/lms/admin/accounts?studentId=|phone=|name=|licence= — account status
-// for a student (profile panel). Resolves to the local Student. No hash.
+// GET /api/lms/admin/accounts
+//   ?list=1                          → all accounts (for the LMS Accounts tab)
+//   ?studentId=|phone=|name=|licence= → one student's account (profile panel)
 export async function GET(request: NextRequest) {
   const sp = request.nextUrl.searchParams
+
+  if (sp.get('list') === '1') {
+    const vehicleType = sp.get('vehicleType')
+    const q = (sp.get('q') || '').trim()
+    const accounts = await prisma.lmsAccount.findMany({
+      where: {
+        ...(vehicleType === 'car' || vehicleType === 'truck' ? { vehicleType } : {}),
+        ...(q
+          ? { OR: [
+              { username: { contains: q } },
+              { student: { is: { name: { contains: q } } } },
+              { student: { is: { phone: { contains: q.replace(/\D/g, '') } } } },
+            ] }
+          : {}),
+      },
+      orderBy: [{ lastLoginAt: 'desc' }, { createdAt: 'desc' }],
+      include: { student: { select: { id: true, name: true, phone: true } } },
+    })
+    const studentsWithoutAccount = await prisma.student.count({ where: { lmsAccount: null } })
+    return NextResponse.json({
+      accounts: accounts.map(a => ({
+        id: a.id,
+        studentId: a.student.id,
+        studentName: a.student.name,
+        phone: a.student.phone,
+        username: a.username,
+        vehicleType: a.vehicleType,
+        createdAt: a.createdAt,
+        lastLoginAt: a.lastLoginAt,
+      })),
+      studentsWithoutAccount,
+    })
+  }
+
   const localId = await resolveLocalStudentId({
     studentId: sp.get('studentId') || undefined,
     phone: sp.get('phone') || undefined,
