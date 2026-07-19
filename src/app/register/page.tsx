@@ -95,6 +95,12 @@ const TRUCK_PAYMENT_SCHEDULE = [
 const money = (n: number) =>
   n.toLocaleString('en-US', { minimumFractionDigits: Number.isInteger(n) ? 0 : 2, maximumFractionDigits: 2 })
 
+// Pricing served by /api/pricing (editable in Settings → Pricing). Kept as a
+// local type so this client component doesn't import the server pricing lib.
+interface PInstallment { label: string; sub: string | null; amount: number }
+interface PClassPricing { depositCents: number; schedule: PInstallment[]; note: string; total: number }
+interface PricingData { car: PClassPricing; truck: PClassPricing }
+
 export default function RegisterPage() {
   return (
     <LangProvider>
@@ -124,6 +130,10 @@ export function RegisterPageInner({ kiosk = false }: { kiosk?: boolean } = {}) {
   // "truck" can only be selected by an admin.
   const [vehicleType, setVehicleType] = useState<'car' | 'truck'>('car')
 
+  // Editable pricing (Settings → Pricing). Null until loaded — the payment
+  // step falls back to the built-in defaults below so it never renders blank.
+  const [pricing, setPricing] = useState<PricingData | null>(null)
+
   useEffect(() => {
     let cancelled = false
     ;(async () => {
@@ -134,6 +144,12 @@ export function RegisterPageInner({ kiosk = false }: { kiosk?: boolean } = {}) {
           setIsAdmin(!!data.authed)
         }
       } catch { /* not authed — public mode */ }
+    })()
+    ;(async () => {
+      try {
+        const res = await fetch('/api/pricing')
+        if (!cancelled && res.ok) setPricing(await res.json())
+      } catch { /* fall back to built-in default schedule */ }
     })()
     return () => { cancelled = true }
   }, [])
@@ -444,14 +460,32 @@ export function RegisterPageInner({ kiosk = false }: { kiosk?: boolean } = {}) {
   // schedule; truck shows the Class 1 service-contract plan (4 equal
   // installments totalling $9,050 before taxes).
   const isTruckPayment = vehicleType === 'truck'
-  const paymentRows: { num: number; amount: number; first: boolean; label: string; sub: string | null }[] =
-    isTruckPayment
-      ? TRUCK_PAYMENT_SCHEDULE.map(p => ({ num: p.num, amount: p.amount, first: !!p.first, label: p.phase, sub: p.roadClass }))
-      : PAYMENT_SCHEDULE.map((p, i) => ({ num: p.num, amount: p.amount, first: !!p.first, label: t.payment.rows[i].phase, sub: t.payment.rows[i].roadClass }))
+  const activePricing = isTruckPayment ? pricing?.truck : pricing?.car
+  // Configured schedule if loaded, else the built-in default.
+  const scheduleRows: PInstallment[] =
+    activePricing?.schedule ??
+    (isTruckPayment
+      ? TRUCK_PAYMENT_SCHEDULE.map(p => ({ label: p.phase, sub: p.roadClass, amount: p.amount }))
+      : PAYMENT_SCHEDULE.map((p, i) => ({ label: t.payment.rows[i].phase, sub: t.payment.rows[i].roadClass, amount: p.amount })))
+  // Keep the localized car labels when the schedule still has its default rows;
+  // if an admin restructured it (different row count), use the saved labels.
+  const useI18nCarLabels = !isTruckPayment && scheduleRows.length === t.payment.rows.length
+  const paymentRows = scheduleRows.map((p, i) => ({
+    num: i + 1,
+    amount: p.amount,
+    first: i === 0,
+    label: useI18nCarLabels ? t.payment.rows[i].phase : p.label,
+    sub: useI18nCarLabels ? t.payment.rows[i].roadClass : p.sub,
+  }))
+  const paymentTotal = activePricing?.total ?? (isTruckPayment ? TRUCK_PACKAGE_TOTAL : 1000)
+  const paymentTotalAmount = `$${money(paymentTotal)}`
+  // Deposit actually charged today (real card authorization).
+  const depositToday = (activePricing?.depositCents ?? 25000) / 100
   const paymentIntro = isTruckPayment
-    ? 'The total course cost is $9,050 before taxes, payable in four equal installments.'
-    : t.payment.intro
-  const paymentTotalAmount = isTruckPayment ? `$${money(TRUCK_PACKAGE_TOTAL)}` : '$1,000'
+    ? `The total course cost is $${money(paymentTotal)} before taxes, payable in ${paymentRows.length} installment${paymentRows.length === 1 ? '' : 's'}.`
+    // Localized car intro — swap in the current total so it stays consistent
+    // with the schedule if the price was edited.
+    : t.payment.intro.replace(/\$\s?[\d.,  ]+/, `$${money(paymentTotal)}`)
 
   const canProceed = () => {
     switch (step) {
@@ -1379,7 +1413,7 @@ export function RegisterPageInner({ kiosk = false }: { kiosk?: boolean } = {}) {
                         { strong: 'Missed theory class', body: '$30 per hour for any theory hour you miss. You must make it up before progressing.' },
                         { strong: 'Cancelling a road class', body: 'Cancel at least 48 hours in advance. Less than 48h notice = $65 fee.' },
                         { strong: 'Exam in Laval', body: 'SAAQ road exam in Laval — $300, included in the total package.' },
-                        { strong: 'Total cost', body: '$9,050 before taxes — $2,250 theory + $6,500 practical + $300 SAAQ exam in Laval. Paid in 4 installments.' },
+                        { strong: 'Total cost', body: pricing?.truck.note || `$${money(pricing?.truck.total ?? TRUCK_PACKAGE_TOTAL)} before taxes, paid in ${(pricing?.truck.schedule.length ?? TRUCK_PAYMENT_SCHEDULE.length)} installments.` },
                         { strong: 'If you stop the course', body: 'You only pay for what you used + the lesser of $50 or 10% of unused services. Refunds within 10 days.' },
                         { strong: 'Receipts', body: 'You receive a receipt for every payment — keep them until you get your licence.' },
                         { strong: 'Course attestation', body: 'Provided free at the end of training (or within 10 days if you cancel).' },
@@ -1664,7 +1698,7 @@ export function RegisterPageInner({ kiosk = false }: { kiosk?: boolean } = {}) {
               <div className="rounded-lg border bg-muted/30 p-4 flex items-start gap-3">
                 <CreditCard className="h-5 w-5 mt-0.5 shrink-0 text-muted-foreground" />
                 <div className="text-sm">
-                  <p className="font-medium">{t.payment.firstDue} <span className="text-primary">$250</span></p>
+                  <p className="font-medium">{t.payment.firstDue} <span className="text-primary">${money(depositToday)}</span></p>
                   <p className="text-xs text-muted-foreground mt-1">{t.payment.firstDueNote}</p>
                 </div>
               </div>

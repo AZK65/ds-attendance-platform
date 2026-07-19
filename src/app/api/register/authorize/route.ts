@@ -1,17 +1,17 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/db'
 import { createAuthorization } from '@/lib/clover'
-
-const AMOUNT_CENTS = 25000 // $250 CAD first installment
+import { getDepositCents } from '@/lib/pricing'
 
 /**
  * POST /api/register/authorize
  *
  * Called by the marketing-site payment step. Body: { registrationId, sourceToken }.
  *
- * Creates an UNCAPTURED Clover charge for $250. Funds are reserved on the
- * student's card; the admin reviews the registration and decides to capture
- * (charge) or void (release).
+ * Creates an UNCAPTURED Clover charge for the class's configured deposit
+ * (Settings → Pricing; defaults to $250). Funds are reserved on the student's
+ * card; the admin reviews the registration and decides to capture (charge) or
+ * void (release).
  */
 export async function POST(request: NextRequest) {
   try {
@@ -32,10 +32,14 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ success: true, alreadyAuthorized: true, status: registration.paymentStatus })
     }
 
+    // Configured deposit for this class (Class 1 truck vs Class 5 car).
+    const amountCents = await getDepositCents(registration.vehicleType)
+    const classLabel = registration.vehicleType === 'truck' ? 'Class 1' : 'Class 5'
+
     const auth = await createAuthorization({
       sourceToken,
-      amountCents: AMOUNT_CENTS,
-      description: `Class 5 first payment — ${registration.fullName || registration.id}`,
+      amountCents,
+      description: `${classLabel} first payment — ${registration.fullName || registration.id}`,
       email: registration.email || undefined,
       metadata: { registrationId },
     })
@@ -55,7 +59,7 @@ export async function POST(request: NextRequest) {
         paymentStatus: 'authorized',
         paymentLast4: auth.last4,
         paymentBrand: auth.brand,
-        paymentAmount: AMOUNT_CENTS,
+        paymentAmount: amountCents,
         paymentAuthorizedAt: new Date(),
         paymentError: null,
       },

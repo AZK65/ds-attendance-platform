@@ -603,3 +603,21 @@ model AdminSession {
 
   @@index([lastSeenAt])
 }
+
+// Editable registration pricing for Class 5 (car) and Class 1 (truck),
+// managed from Settings → Pricing. Served publicly via /api/pricing so both
+// this app's /register page AND the external marketing site read the same
+// numbers. `*DepositCents` is the amount actually authorized on the card at
+// registration; `*Schedule` is the displayed installment plan (JSON array of
+// {label, sub, amount}); `*Note` is an optional summary line.
+model PricingSettings {
+  id                String   @id @default("default")
+  carDepositCents   Int      @default(25000)
+  carSchedule       String   @default("[]")
+  carNote           String   @default("")
+  truckDepositCents Int      @default(25000)
+  truckSchedule     String   @default("[]")
+  truckNote         String   @default("")
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+}
