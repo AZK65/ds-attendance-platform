@@ -4,8 +4,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
-import { ArrowLeft, Loader2, LogOut, Monitor, Smartphone, ShieldCheck } from 'lucide-react'
-import Link from 'next/link'
+import { Loader2, LogOut, Monitor, Smartphone, ShieldCheck } from 'lucide-react'
 
 interface DeviceSession {
   id: string
@@ -73,17 +72,12 @@ export default function DevicesPage() {
   const otherCount = sessions.filter(s => !s.current).length
 
   return (
-    <main className="max-w-3xl mx-auto p-4 sm:p-6 space-y-6">
-      <div className="flex items-center gap-3">
-        <Link href="/scheduling">
-          <Button variant="ghost" size="icon"><ArrowLeft className="h-4 w-4" /></Button>
-        </Link>
-        <div>
-          <h1 className="text-xl font-semibold">Logged-in Devices</h1>
-          <p className="text-sm text-muted-foreground">
-            Every browser currently signed in with the admin password. Log out any you don&apos;t recognize.
-          </p>
-        </div>
+    <div className="space-y-6">
+      <div>
+        <h2 className="text-lg font-semibold">Logged-in Devices</h2>
+        <p className="text-sm text-muted-foreground">
+          Every browser currently signed in with the admin password. Log out any you don&apos;t recognize.
+        </p>
       </div>
 
       <Card>
@@ -169,6 +163,6 @@ export default function DevicesPage() {
         A removed device is signed out within about a minute. Devices stay signed in as long as they&apos;re
         used at least once a year, so you won&apos;t get logged out during normal use.
       </p>
-    </main>
+    </div>
   )
 }

@@ -6,8 +6,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
-import { ArrowLeft, Loader2, Plus, Trash2, Save, CheckCircle2, Car, Truck } from 'lucide-react'
-import Link from 'next/link'
+import { Loader2, Plus, Trash2, Save, CheckCircle2, Car, Truck } from 'lucide-react'
 
 interface Installment { label: string; sub: string | null; amount: number }
 interface ClassPricing { depositCents: number; schedule: Installment[]; note: string; total: number }
@@ -146,17 +145,12 @@ export default function PricingSettingsPage() {
   })
 
   return (
-    <main className="max-w-4xl mx-auto p-4 sm:p-6 space-y-6">
-      <div className="flex items-center gap-3">
-        <Link href="/scheduling">
-          <Button variant="ghost" size="icon"><ArrowLeft className="h-4 w-4" /></Button>
-        </Link>
-        <div>
-          <h1 className="text-xl font-semibold">Registration Pricing</h1>
-          <p className="text-sm text-muted-foreground">
-            Edit Class 5 (car) and Class 1 (truck) prices shown during registration, and the deposit charged today.
-          </p>
-        </div>
+    <div className="space-y-6">
+      <div>
+        <h2 className="text-lg font-semibold">Registration Pricing</h2>
+        <p className="text-sm text-muted-foreground">
+          Edit Class 5 (car) and Class 1 (truck) prices shown during registration, and the deposit charged today.
+        </p>
       </div>
 
       {isLoading || !draft ? (
@@ -187,6 +181,6 @@ export default function PricingSettingsPage() {
           </p>
         </>
       )}
-    </main>
+    </div>
   )
 }

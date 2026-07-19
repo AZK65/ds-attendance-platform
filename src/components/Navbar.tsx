@@ -5,7 +5,7 @@ import Image from 'next/image'
 import { usePathname } from 'next/navigation'
 import { useTheme } from 'next-themes'
 import { motion, AnimatePresence } from 'motion/react'
-import { Home, Users, Award, Receipt, UserPlus, MessageCircle, Sun, Moon, BarChart3, Target, Monitor, Laptop, DollarSign, MoreHorizontal, ChevronDown } from 'lucide-react'
+import { Home, Users, Award, Receipt, UserPlus, MessageCircle, Sun, Moon, BarChart3, Target, Monitor, Settings, MoreHorizontal, ChevronDown } from 'lucide-react'
 import { useQuery } from '@tanstack/react-query'
 import {
   DropdownMenu,
@@ -33,8 +33,7 @@ const MORE_ITEMS = [
   { href: '/leads', label: 'Leads', icon: Target },
   { href: '/kiosks', label: 'Kiosks', icon: Monitor },
   { href: '/analytics', label: 'Analytics', icon: BarChart3 },
-  { href: '/settings/pricing', label: 'Pricing', icon: DollarSign },
-  { href: '/settings/devices', label: 'Devices', icon: Laptop },
+  { href: '/settings', label: 'Settings', icon: Settings },
 ]
 
 function ThemeToggle() {
