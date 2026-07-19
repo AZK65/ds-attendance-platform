@@ -10,11 +10,11 @@ interface DeviceSession {
   id: string
   label: string | null
   device: string
-  userAgent: string | null
   ipAddress: string | null
   createdAt: string
   lastSeenAt: string
   current: boolean
+  sessionCount?: number
 }
 
 function relativeTime(iso: string): string {
@@ -135,6 +135,9 @@ export default function DevicesPage() {
                     <p className="text-xs text-muted-foreground">
                       {s.ipAddress ? `${s.ipAddress} · ` : ''}{relativeTime(s.lastSeenAt)}
                       <span className="hidden sm:inline"> · signed in {fullDate(s.createdAt)}</span>
+                      {(s.sessionCount ?? 1) > 1 && (
+                        <span className="hidden sm:inline"> · {s.sessionCount} sessions</span>
+                      )}
                     </p>
                   </div>
                   <Button

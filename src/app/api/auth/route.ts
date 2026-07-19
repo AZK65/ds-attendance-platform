@@ -1,12 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/db'
 import { AUTH_COOKIE_OPTS } from '@/lib/auth-cookie'
-
-function clientIp(request: NextRequest): string | null {
-  const fwd = request.headers.get('x-forwarded-for')
-  if (fwd) return fwd.split(',')[0].trim()
-  return request.headers.get('x-real-ip')
-}
+import { clientIp, getOrCreateSession } from '@/lib/admin-session'
 
 // GET /api/auth — lightweight check for whether the current request has
 // a valid admin session cookie. The cookie is httpOnly so the client JS
@@ -31,16 +26,12 @@ export async function POST(request: NextRequest) {
     response.cookies.set('auth-token', 'valid', AUTH_COOKIE_OPTS)
 
     // Record this login as a device session so it shows up in Settings →
-    // Devices and can be logged out remotely. Best-effort — never block
-    // login if the session row can't be written.
+    // Devices and can be logged out remotely. Reuses an existing row for the
+    // same browser+IP (no duplicate entries). Best-effort — never block login
+    // if the session row can't be written.
     try {
-      const session = await prisma.adminSession.create({
-        data: {
-          userAgent: request.headers.get('user-agent') || null,
-          ipAddress: clientIp(request),
-        },
-      })
-      response.cookies.set('sid', session.id, AUTH_COOKIE_OPTS)
+      const sid = await getOrCreateSession(request.headers.get('user-agent') || null, clientIp(request))
+      response.cookies.set('sid', sid, AUTH_COOKIE_OPTS)
     } catch (e) {
       console.error('[auth] Failed to create session row:', e)
     }

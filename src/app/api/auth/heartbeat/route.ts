@@ -1,12 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/db'
 import { AUTH_COOKIE_OPTS } from '@/lib/auth-cookie'
-
-function clientIp(request: NextRequest): string | null {
-  const fwd = request.headers.get('x-forwarded-for')
-  if (fwd) return fwd.split(',')[0].trim()
-  return request.headers.get('x-real-ip')
-}
+import { clientIp, getOrCreateSession } from '@/lib/admin-session'
 
 // POST /api/auth/heartbeat
 // Called periodically by the client while an admin page is open. It keeps the
@@ -44,16 +39,12 @@ export async function POST(request: NextRequest) {
     }
 
     // Authenticated (auth-token=valid) but no sid — a device that logged in
-    // before device-tracking existed. Adopt it: create a session row and set
-    // the sid cookie so it appears in the list going forward.
-    const session = await prisma.adminSession.create({
-      data: {
-        userAgent: request.headers.get('user-agent') || null,
-        ipAddress: clientIp(request),
-      },
-    })
+    // before device-tracking existed. Adopt it: reuse/create the session row
+    // for this browser+IP (dedup) and set the sid cookie so it appears in the
+    // list going forward without spawning duplicates.
+    const newSid = await getOrCreateSession(request.headers.get('user-agent') || null, clientIp(request))
     const res = NextResponse.json({ valid: true, adopted: true })
-    res.cookies.set('sid', session.id, AUTH_COOKIE_OPTS)
+    res.cookies.set('sid', newSid, AUTH_COOKIE_OPTS)
     return res
   } catch (e) {
     // DB error — never log the user out over an infrastructure blip.
