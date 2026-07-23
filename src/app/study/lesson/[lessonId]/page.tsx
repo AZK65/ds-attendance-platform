@@ -93,14 +93,16 @@ function LessonView({ lessonId }: { lessonId: string }) {
         <h1 className="text-[28px] leading-tight tracking-tight font-semibold">{lesson.title}</h1>
       </div>
 
-      {adminContent && <div className="rounded-2xl border border-black/[0.07] bg-white shadow-sm p-5">{adminContent}</div>}
+      {adminContent && (
+        <div className="rounded-xl border border-black/[0.07] bg-white/70 px-4 py-3 text-[14px] text-ink/70">{adminContent}</div>
+      )}
 
       {/* Documents (PDF / PowerPoint): viewer on the left, notes on the right. */}
       {isDoc ? (
         docAtt ? (
-          <div className="grid gap-4 lg:grid-cols-[1.5fr_1fr] items-start">
+          <div className="grid gap-4 lg:grid-cols-[1.7fr_1fr] lg:items-stretch">
             <DocumentViewer type={type} att={docAtt} />
-            <NotesPanel lessonId={lessonId} initial={lesson.notes} className="lg:sticky lg:top-20" />
+            <NotesPanel lessonId={lessonId} initial={lesson.notes} className="h-full" />
           </div>
         ) : (
           <>
@@ -161,18 +163,22 @@ function DocumentViewer({ type, att }: { type: string; att: Attachment }) {
   useEffect(() => { setOrigin(window.location.origin) }, [])
 
   if (type === 'pdf' || isPdf(att)) {
-    return <iframe src={`/api/lms/attachment/${att.id}`} className="w-full h-[78vh] rounded-2xl border border-black/[0.07] bg-white shadow-sm" title={att.filename} />
+    return <iframe src={`/api/lms/attachment/${att.id}`} className="w-full h-full min-h-[70vh] rounded-2xl border border-black/[0.07] bg-white shadow-sm" title={att.filename} />
   }
 
-  // PowerPoint
+  // PowerPoint — render at 16:9 (slide shape) so it fills cleanly instead of
+  // letterboxing with black bars in a too-tall frame. The +40px gives the
+  // Office viewer's bottom toolbar room without eating into the slide.
   const isLocal = /localhost|127\.0\.0\.1/.test(origin)
   const publicUrl = `${origin}/api/lms/file/${att.id}?f=${encodeURIComponent(att.filename)}`
   const officeSrc = `https://view.officeapps.live.com/op/embed.aspx?src=${encodeURIComponent(publicUrl)}`
 
   return (
-    <div className="space-y-3">
+    <div className="flex flex-col gap-3">
       {origin && !isLocal ? (
-        <iframe src={officeSrc} className="w-full h-[78vh] rounded-2xl border border-black/[0.07] bg-white shadow-sm" title={att.filename} allowFullScreen />
+        <div className="relative w-full rounded-2xl overflow-hidden border border-black/[0.07] shadow-sm bg-[#1b1b1b]" style={{ paddingBottom: 'calc(56.25% + 40px)' }}>
+          <iframe src={officeSrc} className="absolute inset-0 w-full h-full" title={att.filename} allowFullScreen />
+        </div>
       ) : (
         <div className="rounded-2xl border border-[#E11D2E]/30 bg-[#E11D2E]/5 p-5 text-sm text-ink/60">
           The slide viewer needs the live site — open this lesson on <span className="font-medium">study.qazidriving.ca</span> to view the slides here. You can still download them below.
@@ -228,7 +234,7 @@ function NotesPanel({ lessonId, initial, className = '' }: { lessonId: string; i
         value={text}
         onChange={e => setText(e.target.value)}
         placeholder="Write your notes here while you go through the lesson… they save automatically."
-        className="w-full flex-1 min-h-[60vh] resize-y rounded-xl border border-black/[0.1] p-3 text-sm leading-6 focus:outline-none focus:border-[#E11D2E] bg-[#FCFCFB]"
+        className="w-full flex-1 min-h-[240px] resize-y rounded-xl border border-black/[0.1] p-3 text-sm leading-6 focus:outline-none focus:border-[#E11D2E] bg-[#FCFCFB]"
       />
     </div>
   )
