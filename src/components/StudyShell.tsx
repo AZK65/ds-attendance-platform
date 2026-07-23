@@ -67,7 +67,7 @@ export function StudyShell({ children, wide = false }: { children: (me: Me) => R
   return (
     <div className="min-h-screen bg-[#F7F7F5] text-[#0B0B0F]" onContextMenu={blockContextMenu}>
       <header className="sticky top-0 z-10 bg-white border-b border-black/[0.07]">
-        <div className={`${wide ? 'max-w-6xl' : 'max-w-3xl'} mx-auto px-4 py-3 flex items-center justify-between`}>
+        <div className={`${wide ? 'max-w-[1500px]' : 'max-w-3xl'} mx-auto px-4 py-3 flex items-center justify-between`}>
           <Link href="/study" className="flex items-center">
             <NextImage src="/qazi-logo.png" alt="Qazi Driving School" width={96} height={32} priority className="h-8 w-auto" />
           </Link>
@@ -79,7 +79,7 @@ export function StudyShell({ children, wide = false }: { children: (me: Me) => R
           </div>
         </div>
       </header>
-      <main className={`${wide ? 'max-w-6xl' : 'max-w-3xl'} mx-auto px-4 py-6`}>{children(me)}</main>
+      <main className={`${wide ? 'max-w-[1500px]' : 'max-w-3xl'} mx-auto px-4 py-6`}>{children(me)}</main>
     </div>
   )
 }

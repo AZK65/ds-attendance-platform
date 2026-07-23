@@ -204,7 +204,7 @@ function SlideDeck({ slides, lessonId, notes }: { slides: string[]; lessonId: st
       {/* Main column: slide, controls, then notes right underneath */}
       <div className="space-y-3 min-w-0">
         <div
-          className="relative rounded-2xl overflow-hidden border border-black/[0.07] shadow-sm bg-[#0f0f10] aspect-video select-none"
+          className="relative rounded-2xl overflow-hidden border border-black/[0.07] shadow-sm bg-[#0f0f10] aspect-video max-h-[78vh] select-none"
           onContextMenu={e => e.preventDefault()}
         >
           {/* eslint-disable-next-line @next/next/no-img-element */}
