@@ -37,7 +37,7 @@ const isPpt = (a: Attachment) => /presentation|powerpoint|ms-powerpoint/.test(a.
 
 export default function LessonPage({ params }: { params: Promise<{ lessonId: string }> }) {
   const { lessonId } = use(params)
-  return <StudyShell>{() => <LessonView lessonId={lessonId} />}</StudyShell>
+  return <StudyShell wide>{() => <LessonView lessonId={lessonId} />}</StudyShell>
 }
 
 function LessonView({ lessonId }: { lessonId: string }) {
@@ -183,16 +183,24 @@ function SlideDeck({ slides, lessonId, notes }: { slides: string[]; lessonId: st
     return () => window.removeEventListener('keydown', onKey)
   }, [n])
 
-  // Keep the active thumbnail visible in the rail.
+  // Keep the active thumbnail visible — scroll ONLY the rail, never the page.
+  // (scrollIntoView bubbles up and scrolls the window, which made the whole
+  // page jump on every slide change.)
   useEffect(() => {
-    railRef.current?.querySelector(`[data-idx="${i}"]`)?.scrollIntoView({ block: 'nearest', behavior: 'smooth' })
+    const rail = railRef.current
+    const active = rail?.querySelector<HTMLElement>(`[data-idx="${i}"]`)
+    if (!rail || !active) return
+    const railRect = rail.getBoundingClientRect()
+    const aRect = active.getBoundingClientRect()
+    const delta = (aRect.top - railRect.top) - (railRect.height / 2 - aRect.height / 2)
+    if (Math.abs(delta) > 4) rail.scrollBy({ top: delta, behavior: 'smooth' })
   }, [i])
 
   const src = (id: string) => `/api/lms/slide/${id}`
   const pct = Math.round(((i + 1) / n) * 100)
 
   return (
-    <div className="grid gap-4 lg:grid-cols-[1fr_180px] lg:items-start">
+    <div className="grid gap-4 lg:grid-cols-[1fr_210px] lg:items-start">
       {/* Main column: slide, controls, then notes right underneath */}
       <div className="space-y-3 min-w-0">
         <div
