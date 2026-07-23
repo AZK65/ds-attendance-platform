@@ -4,8 +4,8 @@ import { useCallback, useEffect, useRef, useState, use } from 'react'
 import { useRouter } from 'next/navigation'
 import { StudyShell } from '@/components/StudyShell'
 import {
-  ArrowLeft, FileText, Loader2, CheckCircle2, Download, Presentation, ClipboardList,
-  NotebookPen, ChevronLeft, ChevronRight, Maximize2,
+  ArrowLeft, FileText, Loader2, CheckCircle2, Download, ClipboardList,
+  NotebookPen, ChevronLeft, ChevronRight,
 } from 'lucide-react'
 
 interface Attachment { id: string; filename: string; mimetype: string; size: number }
@@ -103,8 +103,8 @@ function LessonView({ lessonId }: { lessonId: string }) {
       )}
 
       {isDoc && hasSlides ? (
-        // Real slide-deck viewer: big slide + slide rail + progress.
-        <SlideDeck slides={lesson.slides} downloadAtt={docAtt} />
+        // Real slide-deck viewer: big slide + notes underneath + slide rail.
+        <SlideDeck slides={lesson.slides} lessonId={lessonId} notes={lesson.notes} />
       ) : isDoc ? (
         // Fallback (no rendered slides yet): Office embed / inline PDF beside notes.
         docAtt ? (
@@ -141,9 +141,10 @@ function LessonView({ lessonId }: { lessonId: string }) {
         </div>
       )}
 
-      {/* Notes — full width below for slide decks and non-document lessons.
-          (The no-slides fallback already shows notes beside the viewer.) */}
-      {(hasSlides || (!isDoc && type !== 'exam')) && (
+      {/* Notes — full width for non-document lessons (video/text). Slide decks
+          render notes inside the deck (under the slide); the no-slides fallback
+          shows notes beside the viewer. */}
+      {!isDoc && type !== 'exam' && (
         <NotesPanel lessonId={lessonId} initial={lesson.notes} />
       )}
 
@@ -167,7 +168,7 @@ function LessonView({ lessonId }: { lessonId: string }) {
 }
 
 // ── Slide-deck viewer ───────────────────────────────────────────
-function SlideDeck({ slides, downloadAtt }: { slides: string[]; downloadAtt?: Attachment }) {
+function SlideDeck({ slides, lessonId, notes }: { slides: string[]; lessonId: string; notes: string }) {
   const [i, setI] = useState(0)
   const railRef = useRef<HTMLDivElement>(null)
   const n = slides.length
@@ -191,12 +192,21 @@ function SlideDeck({ slides, downloadAtt }: { slides: string[]; downloadAtt?: At
   const pct = Math.round(((i + 1) / n) * 100)
 
   return (
-    <div className="grid gap-4 lg:grid-cols-[1fr_180px]">
-      {/* Main slide */}
+    <div className="grid gap-4 lg:grid-cols-[1fr_180px] lg:items-start">
+      {/* Main column: slide, controls, then notes right underneath */}
       <div className="space-y-3 min-w-0">
-        <div className="relative rounded-2xl overflow-hidden border border-black/[0.07] shadow-sm bg-[#0f0f10] aspect-video">
+        <div
+          className="relative rounded-2xl overflow-hidden border border-black/[0.07] shadow-sm bg-[#0f0f10] aspect-video select-none"
+          onContextMenu={e => e.preventDefault()}
+        >
           {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img src={src(slides[i])} alt={`Slide ${i + 1}`} className="absolute inset-0 w-full h-full object-contain" />
+          <img
+            src={src(slides[i])}
+            alt={`Slide ${i + 1}`}
+            draggable={false}
+            onDragStart={e => e.preventDefault()}
+            className="absolute inset-0 w-full h-full object-contain pointer-events-none select-none [-webkit-user-drag:none]"
+          />
           {/* Prev / next zones */}
           {i > 0 && (
             <button onClick={() => go(i - 1)} aria-label="Previous slide"
@@ -210,10 +220,6 @@ function SlideDeck({ slides, downloadAtt }: { slides: string[]; downloadAtt?: At
               <ChevronRight className="h-5 w-5" />
             </button>
           )}
-          <a href={src(slides[i])} target="_blank" rel="noopener" aria-label="Open slide full size"
-            className="absolute top-2 right-2 h-8 w-8 rounded-lg bg-black/45 hover:bg-black/70 text-white flex items-center justify-center transition-colors">
-            <Maximize2 className="h-4 w-4" />
-          </a>
         </div>
 
         {/* Progress + controls */}
@@ -234,29 +240,27 @@ function SlideDeck({ slides, downloadAtt }: { slides: string[]; downloadAtt?: At
           </div>
         </div>
 
-        {downloadAtt && (
-          <a href={`/api/lms/attachment/${downloadAtt.id}`} target="_blank" rel="noopener"
-            className="inline-flex items-center gap-2 text-sm text-ink/50 hover:text-[#E11D2E]">
-            <Presentation className="h-4 w-4" /> Download the original file
-          </a>
-        )}
+        {/* Notes sit directly under the slide */}
+        <NotesPanel lessonId={lessonId} initial={notes} />
       </div>
 
-      {/* Slide rail (chapters) */}
-      <div className="rounded-2xl border border-black/[0.07] bg-white shadow-sm flex flex-col overflow-hidden">
+      {/* Slide rail — sticky sidebar with its own scroll, so it never leaves a
+          gap next to the (shorter) slide + notes column. */}
+      <div className="rounded-2xl border border-black/[0.07] bg-white shadow-sm flex flex-col overflow-hidden lg:sticky lg:top-20 lg:max-h-[calc(100vh-6rem)]">
         <div className="px-3 py-2 border-b border-black/[0.06] text-xs font-semibold text-ink/60">Slides ({n})</div>
-        <div ref={railRef} className="flex lg:flex-col gap-2 p-2 overflow-x-auto lg:overflow-y-auto lg:max-h-[70vh]">
+        <div ref={railRef} className="flex lg:flex-col gap-2 p-2 overflow-x-auto lg:overflow-y-auto">
           {slides.map((id, idx) => (
             <button
               key={id}
               data-idx={idx}
               onClick={() => setI(idx)}
-              className={`relative flex-shrink-0 rounded-lg overflow-hidden border-2 transition-colors ${
+              onContextMenu={e => e.preventDefault()}
+              className={`relative flex-shrink-0 rounded-lg overflow-hidden border-2 transition-colors select-none ${
                 idx === i ? 'border-[#E11D2E]' : 'border-transparent hover:border-black/20'
               }`}
             >
               {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img src={src(id)} alt="" loading="lazy" className="w-28 lg:w-full aspect-video object-cover bg-[#0f0f10]" />
+              <img src={src(id)} alt="" loading="lazy" draggable={false} className="w-28 lg:w-full aspect-video object-cover bg-[#0f0f10] pointer-events-none select-none [-webkit-user-drag:none]" />
               <span className="absolute bottom-0.5 left-0.5 text-[10px] font-semibold text-white bg-black/55 rounded px-1 leading-tight">{idx + 1}</span>
             </button>
           ))}
@@ -287,15 +291,9 @@ function DocumentViewer({ type, att }: { type: string; att: Attachment }) {
         </div>
       ) : (
         <div className="rounded-2xl border border-[#E11D2E]/30 bg-[#E11D2E]/5 p-5 text-sm text-ink/60">
-          The slide viewer needs the live site — open this lesson on <span className="font-medium">study.qazidriving.ca</span> to view the slides here. You can still download them below.
+          The slide viewer needs the live site — open this lesson on <span className="font-medium">study.qazidriving.ca</span> to view the slides here.
         </div>
       )}
-      <a href={`/api/lms/attachment/${att.id}`} target="_blank" rel="noopener"
-        className="flex items-center gap-3 rounded-xl border border-black/[0.07] bg-white shadow-sm p-3 hover:border-[#E11D2E]/40 transition-colors">
-        <Presentation className="h-5 w-5 text-[#E11D2E] flex-shrink-0" />
-        <span className="flex-1 min-w-0 truncate text-sm font-medium">Download slides — {att.filename}</span>
-        <Download className="h-4 w-4 text-ink/40 flex-shrink-0" />
-      </a>
     </div>
   )
 }

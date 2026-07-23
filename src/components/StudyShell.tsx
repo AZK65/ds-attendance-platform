@@ -32,6 +32,27 @@ export function StudyShell({ children }: { children: (me: Me) => React.ReactNode
     router.replace('/study/login')
   }
 
+  // Deter copying of course material. NOTE: true screenshot prevention is not
+  // possible on the web — the OS/phone screenshot tools can't be blocked. This
+  // only wipes Windows "Print Screen" (which copies to the clipboard) as a best
+  // effort; treat it as a deterrent, not real protection.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'PrintScreen') {
+        navigator.clipboard?.writeText('').catch(() => {})
+      }
+    }
+    window.addEventListener('keyup', onKey)
+    return () => window.removeEventListener('keyup', onKey)
+  }, [])
+
+  // Block the right-click menu across the portal, but keep it in the notes
+  // field so students can still cut/paste/spell-check their own notes.
+  const blockContextMenu = (e: React.MouseEvent) => {
+    const el = e.target as HTMLElement
+    if (!el.closest('input, textarea')) e.preventDefault()
+  }
+
   if (!me) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-[#F7F7F5]">
@@ -43,7 +64,7 @@ export function StudyShell({ children }: { children: (me: Me) => React.ReactNode
   const firstName = me.name ? me.name.split(/[ ,]/)[0] : ''
 
   return (
-    <div className="min-h-screen bg-[#F7F7F5] text-[#0B0B0F]">
+    <div className="min-h-screen bg-[#F7F7F5] text-[#0B0B0F]" onContextMenu={blockContextMenu}>
       <header className="sticky top-0 z-10 bg-white border-b border-black/[0.07]">
         <div className="max-w-3xl mx-auto px-4 py-3 flex items-center justify-between">
           <Link href="/study" className="flex items-center">
