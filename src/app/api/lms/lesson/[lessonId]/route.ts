@@ -13,6 +13,7 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
     include: {
       section: { select: { title: true, vehicleType: true } },
       attachments: { select: { id: true, filename: true, mimetype: true, size: true } },
+      slides: { select: { id: true }, orderBy: { order: 'asc' } },
     },
   })
   if (!lesson || lesson.section.vehicleType !== account.vehicleType) {
@@ -38,6 +39,7 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
     contentHtml: lesson.contentHtml,
     videoUrl: lesson.videoUrl,
     attachments: lesson.attachments,
+    slides: lesson.slides.map(s => s.id),
     completed: existing?.completed || false,
     notes: existing?.notes || '',
   })

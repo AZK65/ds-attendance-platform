@@ -646,6 +646,7 @@ model LmsLesson {
   contentHtml String          @default("")
   videoUrl    String? // YouTube or direct video URL
   attachments LmsAttachment[]
+  slides      LmsSlide[]
   progress    LmsProgress[]
   createdAt   DateTime        @default(now())
   updatedAt   DateTime        @updatedAt
@@ -664,6 +665,21 @@ model LmsAttachment {
   path      String // filename on disk inside the uploads dir
   createdAt DateTime  @default(now())
   lesson    LmsLesson @relation(fields: [lessonId], references: [id], onDelete: Cascade)
+}
+
+// One rendered slide image (PNG) of a PowerPoint/PDF lesson, produced by
+// server-side conversion on upload. Drives the in-app slide-deck viewer
+// (big slide + slide rail + progress). If a lesson has no slides, the viewer
+// falls back to the Office Online embed.
+model LmsSlide {
+  id        String    @id @default(cuid())
+  lessonId  String
+  order     Int
+  path      String // PNG filename on disk inside the uploads dir
+  createdAt DateTime  @default(now())
+  lesson    LmsLesson @relation(fields: [lessonId], references: [id], onDelete: Cascade)
+
+  @@index([lessonId, order])
 }
 
 // Mock exam question bank, per vehicleType.

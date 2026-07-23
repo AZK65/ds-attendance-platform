@@ -3,7 +3,10 @@
 import { useCallback, useEffect, useRef, useState, use } from 'react'
 import { useRouter } from 'next/navigation'
 import { StudyShell } from '@/components/StudyShell'
-import { ArrowLeft, FileText, Loader2, CheckCircle2, Download, Presentation, ClipboardList, NotebookPen } from 'lucide-react'
+import {
+  ArrowLeft, FileText, Loader2, CheckCircle2, Download, Presentation, ClipboardList,
+  NotebookPen, ChevronLeft, ChevronRight, Maximize2,
+} from 'lucide-react'
 
 interface Attachment { id: string; filename: string; mimetype: string; size: number }
 interface Lesson {
@@ -14,6 +17,7 @@ interface Lesson {
   contentHtml: string
   videoUrl: string | null
   attachments: Attachment[]
+  slides: string[]
   completed: boolean
   notes: string
 }
@@ -81,6 +85,7 @@ function LessonView({ lessonId }: { lessonId: string }) {
   const docAtt = type === 'pdf'
     ? lesson.attachments.find(isPdf)
     : lesson.attachments.find(isPpt) || lesson.attachments.find(isPdf)
+  const hasSlides = lesson.slides && lesson.slides.length > 0
 
   return (
     <div className="space-y-5">
@@ -97,8 +102,11 @@ function LessonView({ lessonId }: { lessonId: string }) {
         <div className="rounded-xl border border-black/[0.07] bg-white/70 px-4 py-3 text-[14px] text-ink/70">{adminContent}</div>
       )}
 
-      {/* Documents (PDF / PowerPoint): viewer on the left, notes on the right. */}
-      {isDoc ? (
+      {isDoc && hasSlides ? (
+        // Real slide-deck viewer: big slide + slide rail + progress.
+        <SlideDeck slides={lesson.slides} downloadAtt={docAtt} />
+      ) : isDoc ? (
+        // Fallback (no rendered slides yet): Office embed / inline PDF beside notes.
         docAtt ? (
           <div className="grid gap-4 lg:grid-cols-[1.7fr_1fr] lg:items-stretch">
             <DocumentViewer type={type} att={docAtt} />
@@ -133,10 +141,13 @@ function LessonView({ lessonId }: { lessonId: string }) {
         </div>
       )}
 
-      {/* Notes panel for non-document lessons too (take notes on a video, etc.) */}
-      {!isDoc && type !== 'exam' && <NotesPanel lessonId={lessonId} initial={lesson.notes} />}
+      {/* Notes — full width below for slide decks and non-document lessons.
+          (The no-slides fallback already shows notes beside the viewer.) */}
+      {(hasSlides || (!isDoc && type !== 'exam')) && (
+        <NotesPanel lessonId={lessonId} initial={lesson.notes} />
+      )}
 
-      {/* Extra attachments */}
+      {/* Extra attachments (not the deck source). */}
       {lesson.attachments.filter(a => a.id !== docAtt?.id).length > 0 && (
         <div className="space-y-2">
           <p className="text-sm font-medium text-ink/70">Materials</p>
@@ -155,9 +166,107 @@ function LessonView({ lessonId }: { lessonId: string }) {
   )
 }
 
-// PDF renders inline; PowerPoint renders via Microsoft's Office Online viewer
-// (needs a public URL — /api/lms/file/[id]). Falls back to a download card if
-// there's no public origin (e.g. localhost, which Office servers can't reach).
+// ── Slide-deck viewer ───────────────────────────────────────────
+function SlideDeck({ slides, downloadAtt }: { slides: string[]; downloadAtt?: Attachment }) {
+  const [i, setI] = useState(0)
+  const railRef = useRef<HTMLDivElement>(null)
+  const n = slides.length
+  const go = useCallback((next: number) => setI(prev => Math.min(n - 1, Math.max(0, next))), [n])
+
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'ArrowRight' || e.key === 'PageDown') { e.preventDefault(); setI(p => Math.min(n - 1, p + 1)) }
+      if (e.key === 'ArrowLeft' || e.key === 'PageUp') { e.preventDefault(); setI(p => Math.max(0, p - 1)) }
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [n])
+
+  // Keep the active thumbnail visible in the rail.
+  useEffect(() => {
+    railRef.current?.querySelector(`[data-idx="${i}"]`)?.scrollIntoView({ block: 'nearest', behavior: 'smooth' })
+  }, [i])
+
+  const src = (id: string) => `/api/lms/slide/${id}`
+  const pct = Math.round(((i + 1) / n) * 100)
+
+  return (
+    <div className="grid gap-4 lg:grid-cols-[1fr_180px]">
+      {/* Main slide */}
+      <div className="space-y-3 min-w-0">
+        <div className="relative rounded-2xl overflow-hidden border border-black/[0.07] shadow-sm bg-[#0f0f10] aspect-video">
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img src={src(slides[i])} alt={`Slide ${i + 1}`} className="absolute inset-0 w-full h-full object-contain" />
+          {/* Prev / next zones */}
+          {i > 0 && (
+            <button onClick={() => go(i - 1)} aria-label="Previous slide"
+              className="absolute left-2 top-1/2 -translate-y-1/2 h-10 w-10 rounded-full bg-black/45 hover:bg-black/70 text-white flex items-center justify-center transition-colors">
+              <ChevronLeft className="h-5 w-5" />
+            </button>
+          )}
+          {i < n - 1 && (
+            <button onClick={() => go(i + 1)} aria-label="Next slide"
+              className="absolute right-2 top-1/2 -translate-y-1/2 h-10 w-10 rounded-full bg-black/45 hover:bg-black/70 text-white flex items-center justify-center transition-colors">
+              <ChevronRight className="h-5 w-5" />
+            </button>
+          )}
+          <a href={src(slides[i])} target="_blank" rel="noopener" aria-label="Open slide full size"
+            className="absolute top-2 right-2 h-8 w-8 rounded-lg bg-black/45 hover:bg-black/70 text-white flex items-center justify-center transition-colors">
+            <Maximize2 className="h-4 w-4" />
+          </a>
+        </div>
+
+        {/* Progress + controls */}
+        <div className="space-y-2">
+          <div className="h-1.5 rounded-full bg-black/[0.08] overflow-hidden">
+            <div className="h-full bg-[#E11D2E] transition-all" style={{ width: `${pct}%` }} />
+          </div>
+          <div className="flex items-center justify-between">
+            <button onClick={() => go(i - 1)} disabled={i === 0}
+              className="inline-flex items-center gap-1 rounded-lg border border-black/[0.1] bg-white px-3 py-1.5 text-sm font-medium disabled:opacity-40 hover:bg-[#F7F7F5]">
+              <ChevronLeft className="h-4 w-4" /> Prev
+            </button>
+            <span className="text-sm text-ink/60">Slide <span className="font-semibold text-ink">{i + 1}</span> of {n}</span>
+            <button onClick={() => go(i + 1)} disabled={i === n - 1}
+              className="inline-flex items-center gap-1 rounded-lg border border-black/[0.1] bg-white px-3 py-1.5 text-sm font-medium disabled:opacity-40 hover:bg-[#F7F7F5]">
+              Next <ChevronRight className="h-4 w-4" />
+            </button>
+          </div>
+        </div>
+
+        {downloadAtt && (
+          <a href={`/api/lms/attachment/${downloadAtt.id}`} target="_blank" rel="noopener"
+            className="inline-flex items-center gap-2 text-sm text-ink/50 hover:text-[#E11D2E]">
+            <Presentation className="h-4 w-4" /> Download the original file
+          </a>
+        )}
+      </div>
+
+      {/* Slide rail (chapters) */}
+      <div className="rounded-2xl border border-black/[0.07] bg-white shadow-sm flex flex-col overflow-hidden">
+        <div className="px-3 py-2 border-b border-black/[0.06] text-xs font-semibold text-ink/60">Slides ({n})</div>
+        <div ref={railRef} className="flex lg:flex-col gap-2 p-2 overflow-x-auto lg:overflow-y-auto lg:max-h-[70vh]">
+          {slides.map((id, idx) => (
+            <button
+              key={id}
+              data-idx={idx}
+              onClick={() => setI(idx)}
+              className={`relative flex-shrink-0 rounded-lg overflow-hidden border-2 transition-colors ${
+                idx === i ? 'border-[#E11D2E]' : 'border-transparent hover:border-black/20'
+              }`}
+            >
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img src={src(id)} alt="" loading="lazy" className="w-28 lg:w-full aspect-video object-cover bg-[#0f0f10]" />
+              <span className="absolute bottom-0.5 left-0.5 text-[10px] font-semibold text-white bg-black/55 rounded px-1 leading-tight">{idx + 1}</span>
+            </button>
+          ))}
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// Fallback viewer (no rendered slides): PDF inline / PowerPoint via Office embed.
 function DocumentViewer({ type, att }: { type: string; att: Attachment }) {
   const [origin, setOrigin] = useState('')
   useEffect(() => { setOrigin(window.location.origin) }, [])
@@ -166,9 +275,6 @@ function DocumentViewer({ type, att }: { type: string; att: Attachment }) {
     return <iframe src={`/api/lms/attachment/${att.id}`} className="w-full h-full min-h-[70vh] rounded-2xl border border-black/[0.07] bg-white shadow-sm" title={att.filename} />
   }
 
-  // PowerPoint — render at 16:9 (slide shape) so it fills cleanly instead of
-  // letterboxing with black bars in a too-tall frame. The +40px gives the
-  // Office viewer's bottom toolbar room without eating into the slide.
   const isLocal = /localhost|127\.0\.0\.1/.test(origin)
   const publicUrl = `${origin}/api/lms/file/${att.id}?f=${encodeURIComponent(att.filename)}`
   const officeSrc = `https://view.officeapps.live.com/op/embed.aspx?src=${encodeURIComponent(publicUrl)}`
@@ -208,9 +314,7 @@ function NotesPanel({ lessonId, initial, className = '' }: { lessonId: string; i
         method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ notes: value }),
       })
       setStatus('saved')
-    } catch {
-      setStatus('idle')
-    }
+    } catch { setStatus('idle') }
   }, [lessonId])
 
   useEffect(() => {
@@ -226,15 +330,13 @@ function NotesPanel({ lessonId, initial, className = '' }: { lessonId: string; i
         <div className="flex items-center gap-2 font-semibold text-sm">
           <NotebookPen className="h-4 w-4 text-[#E11D2E]" /> My notes
         </div>
-        <span className="text-xs text-ink/40">
-          {status === 'saving' ? 'Saving…' : status === 'saved' ? 'Saved' : ''}
-        </span>
+        <span className="text-xs text-ink/40">{status === 'saving' ? 'Saving…' : status === 'saved' ? 'Saved' : ''}</span>
       </div>
       <textarea
         value={text}
         onChange={e => setText(e.target.value)}
         placeholder="Write your notes here while you go through the lesson… they save automatically."
-        className="w-full flex-1 min-h-[240px] resize-y rounded-xl border border-black/[0.1] p-3 text-sm leading-6 focus:outline-none focus:border-[#E11D2E] bg-[#FCFCFB]"
+        className="w-full flex-1 min-h-[200px] resize-y rounded-xl border border-black/[0.1] p-3 text-sm leading-6 focus:outline-none focus:border-[#E11D2E] bg-[#FCFCFB]"
       />
     </div>
   )

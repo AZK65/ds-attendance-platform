@@ -60,7 +60,28 @@ export async function POST(request: NextRequest) {
       },
       select: { id: true, filename: true, mimetype: true, size: true },
     })
-    return NextResponse.json({ attachment })
+
+    // Render PowerPoint/PDF into per-slide images for the in-app deck viewer.
+    // Best-effort: no-op if LibreOffice/poppler aren't installed.
+    let slides = 0
+    if (file.type === 'application/pdf' || /presentation|powerpoint/.test(file.type) || /\.(pptx?|pdf)$/i.test(file.name)) {
+      try {
+        const { convertToSlides } = await import('@/lib/lms-convert')
+        const pngs = await convertToSlides(stored, file.type)
+        if (pngs.length > 0) {
+          // Replace any previous render for this lesson.
+          await prisma.lmsSlide.deleteMany({ where: { lessonId } })
+          await prisma.$transaction(pngs.map((p, i) =>
+            prisma.lmsSlide.create({ data: { lessonId, order: i, path: p } })
+          ))
+          slides = pngs.length
+        }
+      } catch (e) {
+        console.error('[lms upload] slide conversion failed:', e)
+      }
+    }
+
+    return NextResponse.json({ attachment, slides })
   } catch (e) {
     console.error('[lms upload] error:', e)
     return NextResponse.json({ error: 'Upload failed' }, { status: 500 })
@@ -76,6 +97,12 @@ export async function DELETE(request: NextRequest) {
   const att = await prisma.lmsAttachment.findUnique({ where: { id } })
   if (att) {
     await fs.unlink(path.join(LMS_UPLOADS_DIR, path.basename(att.path))).catch(() => {})
+    // If this was a slide source (pptx/pdf), remove its rendered slides too.
+    if (/presentation|powerpoint|pdf/.test(att.mimetype) || /\.(pptx?|pdf)$/i.test(att.filename)) {
+      const slides = await prisma.lmsSlide.findMany({ where: { lessonId: att.lessonId } })
+      for (const s of slides) await fs.unlink(path.join(LMS_UPLOADS_DIR, path.basename(s.path))).catch(() => {})
+      await prisma.lmsSlide.deleteMany({ where: { lessonId: att.lessonId } })
+    }
     await prisma.lmsAttachment.delete({ where: { id } }).catch(() => {})
   }
   return NextResponse.json({ success: true })

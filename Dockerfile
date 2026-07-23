@@ -38,6 +38,8 @@ RUN apt-get update && apt-get install -y \
     libasound2 \
     libatspi2.0-0 \
     libxshmfence1 \
+    libreoffice-impress \
+    poppler-utils \
     --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
