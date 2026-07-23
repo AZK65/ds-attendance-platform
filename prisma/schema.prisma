@@ -720,6 +720,10 @@ model LmsProgress {
   lastViewedAt  DateTime   @default(now())
   completed     Boolean    @default(false)
   completedAt   DateTime?
+  // The student's own notes for this lesson (e.g. written while viewing a
+  // PowerPoint/PDF). Personal to the student, separate from the admin's
+  // lesson content.
+  notes         String     @default("")
   account       LmsAccount @relation(fields: [accountId], references: [id], onDelete: Cascade)
   lesson        LmsLesson  @relation(fields: [lessonId], references: [id], onDelete: Cascade)
 

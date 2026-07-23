@@ -15,9 +15,19 @@ const ALLOWED = new Set([
 ])
 const MAX_BYTES = 40 * 1024 * 1024 // 40 MB
 
+// This route is excluded from middleware (to allow large bodies), so it must
+// gate itself: admin session cookie, or a localhost/no-referer internal call
+// (same rule middleware applies elsewhere).
+function isAdmin(request: NextRequest): boolean {
+  if (request.cookies.get('auth-token')?.value === 'valid') return true
+  if (request.headers.get('x-internal') === '1' && !request.headers.get('referer')) return true
+  return false
+}
+
 // POST /api/lms/admin/upload — multipart form: lessonId, file. Stores the file
 // under /app/data/lms-uploads and records an LmsAttachment row.
 export async function POST(request: NextRequest) {
+  if (!isAdmin(request)) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   try {
     const form = await request.formData()
     const lessonId = String(form.get('lessonId') || '')
@@ -59,6 +69,7 @@ export async function POST(request: NextRequest) {
 
 // DELETE /api/lms/admin/upload { attachmentId } — remove file + row.
 export async function DELETE(request: NextRequest) {
+  if (!isAdmin(request)) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   const body = await request.json().catch(() => ({}))
   const id = String(body?.attachmentId || '')
   if (!id) return NextResponse.json({ error: 'attachmentId required' }, { status: 400 })

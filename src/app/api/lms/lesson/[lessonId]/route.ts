@@ -39,22 +39,40 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
     videoUrl: lesson.videoUrl,
     attachments: lesson.attachments,
     completed: existing?.completed || false,
+    notes: existing?.notes || '',
   })
 }
 
-// POST /api/lms/lesson/[lessonId] { completed: true } — mark complete/incomplete
+// POST /api/lms/lesson/[lessonId]
+//   { completed: boolean } — mark complete/incomplete
+//   { notes: string }      — save the student's personal notes (autosave)
+// Either field may be sent independently.
 export async function POST(request: NextRequest, { params }: { params: Promise<{ lessonId: string }> }) {
   const account = await getLmsAccount(request)
   if (!account) return NextResponse.json({ error: 'Not logged in' }, { status: 401 })
   const { lessonId } = await params
   const body = await request.json().catch(() => ({}))
-  const completed = !!body?.completed
+
+  const data: { completed?: boolean; completedAt?: Date | null; notes?: string; lastViewedAt: Date } = { lastViewedAt: new Date() }
+  const create: { accountId: string; lessonId: string; completed?: boolean; completedAt?: Date | null; notes?: string } = { accountId: account.id, lessonId }
+
+  if (typeof body?.completed === 'boolean') {
+    data.completed = body.completed
+    data.completedAt = body.completed ? new Date() : null
+    create.completed = body.completed
+    create.completedAt = body.completed ? new Date() : null
+  }
+  if (typeof body?.notes === 'string') {
+    const notes = body.notes.slice(0, 20000)
+    data.notes = notes
+    create.notes = notes
+  }
 
   await prisma.lmsProgress.upsert({
     where: { accountId_lessonId: { accountId: account.id, lessonId } },
-    create: { accountId: account.id, lessonId, completed, completedAt: completed ? new Date() : null },
-    update: { completed, completedAt: completed ? new Date() : null, lastViewedAt: new Date() },
+    create,
+    update: data,
   })
-  if (completed) logLmsEvent(account.id, 'lesson_complete', lessonId)
+  if (body?.completed === true) logLmsEvent(account.id, 'lesson_complete', lessonId)
   return NextResponse.json({ success: true })
 }
