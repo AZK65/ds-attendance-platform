@@ -619,6 +619,12 @@ model PricingSettings {
   truckDepositCents Int      @default(25000)
   truckSchedule     String   @default("[]")
   truckNote         String   @default("")
+  // Class 1 (truck) service-contract breakdown shown on the contract PDF
+  // (whole dollars, before taxes).
+  truckTheoryHours     Int   @default(75)
+  truckTheoryPrice     Int   @default(2250)
+  truckPracticalHours  Int   @default(50)
+  truckPracticalPrice  Int   @default(6500)
   createdAt         DateTime @default(now())
   updatedAt         DateTime @updatedAt
 }

@@ -13,9 +13,27 @@ export interface ClassPricing {
   total: number // derived: sum of schedule amounts
 }
 
+// Class 1 (truck) service-contract breakdown shown on the contract PDF.
+export interface TruckContract {
+  theoryHours: number
+  theoryPrice: number
+  practicalHours: number
+  practicalPrice: number
+  subtotal: number // derived: theoryPrice + practicalPrice
+}
+
 export interface Pricing {
   car: ClassPricing
   truck: ClassPricing
+  truckContract: TruckContract
+}
+
+export const DEFAULT_TRUCK_CONTRACT: TruckContract = {
+  theoryHours: 75,
+  theoryPrice: 2250,
+  practicalHours: 50,
+  practicalPrice: 6500,
+  subtotal: 8750,
 }
 
 // Defaults mirror what used to be hardcoded in register/page.tsx and
@@ -70,6 +88,8 @@ export async function getPricing(): Promise<Pricing> {
   let row: {
     carDepositCents: number; carSchedule: string; carNote: string
     truckDepositCents: number; truckSchedule: string; truckNote: string
+    truckTheoryHours: number; truckTheoryPrice: number
+    truckPracticalHours: number; truckPracticalPrice: number
   } | null = null
   try {
     row = await prisma.pricingSettings.findUnique({ where: { id: 'default' } })
@@ -79,6 +99,9 @@ export async function getPricing(): Promise<Pricing> {
 
   const carSchedule = row ? parseSchedule(row.carSchedule, DEFAULT_CAR_SCHEDULE) : DEFAULT_CAR_SCHEDULE
   const truckSchedule = row ? parseSchedule(row.truckSchedule, DEFAULT_TRUCK_SCHEDULE) : DEFAULT_TRUCK_SCHEDULE
+
+  const theoryPrice = row?.truckTheoryPrice ?? DEFAULT_TRUCK_CONTRACT.theoryPrice
+  const practicalPrice = row?.truckPracticalPrice ?? DEFAULT_TRUCK_CONTRACT.practicalPrice
 
   return {
     car: {
@@ -92,6 +115,13 @@ export async function getPricing(): Promise<Pricing> {
       schedule: truckSchedule,
       note: row?.truckNote ?? DEFAULT_TRUCK_NOTE,
       total: sum(truckSchedule),
+    },
+    truckContract: {
+      theoryHours: row?.truckTheoryHours ?? DEFAULT_TRUCK_CONTRACT.theoryHours,
+      theoryPrice,
+      practicalHours: row?.truckPracticalHours ?? DEFAULT_TRUCK_CONTRACT.practicalHours,
+      practicalPrice,
+      subtotal: theoryPrice + practicalPrice,
     },
   }
 }

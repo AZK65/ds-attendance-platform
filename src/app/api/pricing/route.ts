@@ -3,7 +3,7 @@ import { prisma } from '@/lib/db'
 import {
   getPricing,
   DEFAULT_CAR_SCHEDULE, DEFAULT_TRUCK_SCHEDULE, DEFAULT_TRUCK_NOTE,
-  DEFAULT_CAR_DEPOSIT_CENTS, DEFAULT_TRUCK_DEPOSIT_CENTS,
+  DEFAULT_CAR_DEPOSIT_CENTS, DEFAULT_TRUCK_DEPOSIT_CENTS, DEFAULT_TRUCK_CONTRACT,
   type Installment,
 } from '@/lib/pricing'
 
@@ -47,6 +47,11 @@ export async function PUT(request: NextRequest) {
     const body = await request.json()
     const car = body?.car ?? {}
     const truck = body?.truck ?? {}
+    const contract = body?.truckContract ?? {}
+    const posInt = (v: unknown, fallback: number) => {
+      const n = Math.round(Number(v))
+      return isFinite(n) && n >= 0 && n <= 1_000_000 ? n : fallback
+    }
 
     const data = {
       carDepositCents: cleanDeposit(car.depositCents, DEFAULT_CAR_DEPOSIT_CENTS),
@@ -55,6 +60,10 @@ export async function PUT(request: NextRequest) {
       truckDepositCents: cleanDeposit(truck.depositCents, DEFAULT_TRUCK_DEPOSIT_CENTS),
       truckSchedule: JSON.stringify(cleanSchedule(truck.schedule, DEFAULT_TRUCK_SCHEDULE)),
       truckNote: typeof truck.note === 'string' ? truck.note.slice(0, 300) : DEFAULT_TRUCK_NOTE,
+      truckTheoryHours: posInt(contract.theoryHours, DEFAULT_TRUCK_CONTRACT.theoryHours),
+      truckTheoryPrice: posInt(contract.theoryPrice, DEFAULT_TRUCK_CONTRACT.theoryPrice),
+      truckPracticalHours: posInt(contract.practicalHours, DEFAULT_TRUCK_CONTRACT.practicalHours),
+      truckPracticalPrice: posInt(contract.practicalPrice, DEFAULT_TRUCK_CONTRACT.practicalPrice),
     }
 
     await prisma.pricingSettings.upsert({

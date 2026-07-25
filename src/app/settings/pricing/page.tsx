@@ -10,7 +10,8 @@ import { Loader2, Plus, Trash2, Save, CheckCircle2, Car, Truck } from 'lucide-re
 
 interface Installment { label: string; sub: string | null; amount: number }
 interface ClassPricing { depositCents: number; schedule: Installment[]; note: string; total: number }
-interface Pricing { car: ClassPricing; truck: ClassPricing }
+interface TruckContract { theoryHours: number; theoryPrice: number; practicalHours: number; practicalPrice: number; subtotal: number }
+interface Pricing { car: ClassPricing; truck: ClassPricing; truckContract: TruckContract }
 
 const money = (n: number) =>
   n.toLocaleString('en-US', { minimumFractionDigits: Number.isInteger(n) ? 0 : 2, maximumFractionDigits: 2 })
@@ -109,6 +110,40 @@ function ClassEditor({
   )
 }
 
+// Class 1 service-contract breakdown shown on the truck contract PDF.
+function TruckContractEditor({ value, onChange }: { value: TruckContract; onChange: (v: TruckContract) => void }) {
+  const subtotal = (Number(value.theoryPrice) || 0) + (Number(value.practicalPrice) || 0)
+  const numField = (label: string, key: keyof TruckContract, prefix?: string) => (
+    <div>
+      <Label>{label}</Label>
+      <div className="flex items-center gap-1 mt-1">
+        {prefix && <span className="text-muted-foreground text-sm">{prefix}</span>}
+        <Input
+          type="number" min={0}
+          value={String(value[key])}
+          onChange={e => onChange({ ...value, [key]: Math.max(0, Math.round(parseFloat(e.target.value) || 0)) })}
+        />
+      </div>
+    </div>
+  )
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="text-base flex items-center gap-2"><Truck className="h-5 w-5" /> Class 1 — Contract breakdown (PDF)</CardTitle>
+        <CardDescription>
+          Shown on the Class 1 service-contract PDF. Subtotal before taxes: <span className="font-semibold text-foreground">${money(subtotal)}</span>
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="grid grid-cols-2 gap-4">
+        {numField('Theory — hours', 'theoryHours')}
+        {numField('Theory — price', 'theoryPrice', '$')}
+        {numField('Practical — hours', 'practicalHours')}
+        {numField('Practical — price', 'practicalPrice', '$')}
+      </CardContent>
+    </Card>
+  )
+}
+
 export default function PricingSettingsPage() {
   const queryClient = useQueryClient()
   const [draft, setDraft] = useState<Pricing | null>(null)
@@ -161,6 +196,7 @@ export default function PricingSettingsPage() {
         <>
           <ClassEditor title="Class 5 — Car" icon={Car} value={draft.car} onChange={car => setDraft({ ...draft, car })} />
           <ClassEditor title="Class 1 — Truck" icon={Truck} value={draft.truck} onChange={truck => setDraft({ ...draft, truck })} />
+          <TruckContractEditor value={draft.truckContract} onChange={truckContract => setDraft({ ...draft, truckContract })} />
 
           <div className="flex items-center gap-3 sticky bottom-4">
             <Button onClick={() => save.mutate(draft)} disabled={save.isPending}>

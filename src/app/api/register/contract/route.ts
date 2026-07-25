@@ -3,16 +3,10 @@ import React from 'react'
 import { renderToBuffer } from '@react-pdf/renderer'
 import { Document, Page, View, Text, Image, StyleSheet } from '@react-pdf/renderer'
 import { prisma } from '@/lib/db'
+import { getPricing, type TruckContract } from '@/lib/pricing'
 
-// Contract pricing — for Scope C (sans payments) these are display-only
-// in the contract. Stored in code (not yet a setting) so we can ship today.
-const PRICING = {
-  theoryHours: 75,
-  theoryPrice: 2250,
-  practicalHours: 50,
-  practicalPrice: 6500,
-} as const
-const SUBTOTAL = PRICING.theoryPrice + PRICING.practicalPrice
+// Contract pricing (theory/practical hours + prices) now comes from
+// Settings → Pricing (PricingSettings.truck*), threaded in as `pricing`.
 
 interface ContractParams {
   registrationId: string
@@ -255,8 +249,10 @@ function ContractPage({
   lang,
   data,
   school,
+  pricing,
 }: {
   lang: 'en' | 'fr'
+  pricing: TruckContract
   data: {
     contractNumber: string
     contractDate: string
@@ -301,10 +297,10 @@ function ContractPage({
     sec1Body: 'This contract covers a driving course with a theoretical component and a practical component, in accordance with the Road Safety Education Program (RSEP).',
     sec1Body2: 'Training is provided in accordance with SAAQ requirements.',
     sec1IncludesPre: 'The RSEP Class 1 program includes:',
-    theoryHours: `${PRICING.theoryHours} hours of theoretical training`,
-    practicalHours: `${PRICING.practicalHours} hours of practical training`,
+    theoryHours: `${pricing.theoryHours} hours of theoretical training`,
+    practicalHours: `${pricing.practicalHours} hours of practical training`,
     sec2Body: 'A financing option through a partner banking institution is available, subject to approval.',
-    sec3Body: 'Theory sessions are typically 4 to 6 hours in length. The student must complete all 75 hours of theory before sitting the SAAQ theory exam.',
+    sec3Body: `Theory sessions are typically 4 to 6 hours in length. The student must complete all ${pricing.theoryHours} hours of theory before sitting the SAAQ theory exam.`,
     sec3Missed: 'Missed theory hours: $30 per hour. Cancellation of practical lessons within 48 hours: $65.',
     sec4Body: 'The student has a maximum of 18 months from the scheduled date of the first course to complete the training.',
     firstCourse: 'First course date',
@@ -347,10 +343,10 @@ function ContractPage({
     sec1Body: 'Le présent contrat porte sur un cours de conduite comportant un volet théorique et un volet pratique, conformément au PESR.',
     sec1Body2: 'La formation est dispensée conformément aux exigences de la SAAQ.',
     sec1IncludesPre: 'Le programme PESR Classe 1 comprend :',
-    theoryHours: `${PRICING.theoryHours} heures de formation théorique`,
-    practicalHours: `${PRICING.practicalHours} heures de formation pratique`,
+    theoryHours: `${pricing.theoryHours} heures de formation théorique`,
+    practicalHours: `${pricing.practicalHours} heures de formation pratique`,
     sec2Body: 'Une option de financement avec une institution bancaire partenaire est disponible, sous réserve d’approbation.',
-    sec3Body: 'Les séances théoriques sont généralement d’une durée de 4 à 6 heures. L’élève doit compléter les 75 heures de théorie avant l’examen SAAQ.',
+    sec3Body: `Les séances théoriques sont généralement d’une durée de 4 à 6 heures. L’élève doit compléter les ${pricing.theoryHours} heures de théorie avant l’examen SAAQ.`,
     sec3Missed: 'Heures théoriques manquées : 30 $/h. Annulation pratique sans préavis de 48 h : 65 $.',
     sec4Body: 'L’élève dispose d’un délai maximal de 18 mois à compter de la date prévue du premier cours.',
     firstCourse: 'Date du premier cours',
@@ -458,18 +454,18 @@ function ContractPage({
         ),
         React.createElement(View, { style: styles.pricingRow },
           React.createElement(Text, { style: styles.pricingName }, t.theoretical),
-          React.createElement(Text, { style: styles.pricingMeta }, `${PRICING.theoryHours} h`),
-          React.createElement(Text, { style: styles.pricingAmount }, `$${PRICING.theoryPrice.toLocaleString()}`),
+          React.createElement(Text, { style: styles.pricingMeta }, `${pricing.theoryHours} h`),
+          React.createElement(Text, { style: styles.pricingAmount }, `$${pricing.theoryPrice.toLocaleString()}`),
         ),
         React.createElement(View, { style: styles.pricingRow },
           React.createElement(Text, { style: styles.pricingName }, t.practical),
-          React.createElement(Text, { style: styles.pricingMeta }, `${PRICING.practicalHours} h`),
-          React.createElement(Text, { style: styles.pricingAmount }, `$${PRICING.practicalPrice.toLocaleString()}`),
+          React.createElement(Text, { style: styles.pricingMeta }, `${pricing.practicalHours} h`),
+          React.createElement(Text, { style: styles.pricingAmount }, `$${pricing.practicalPrice.toLocaleString()}`),
         ),
         React.createElement(View, { style: [styles.pricingRow, styles.pricingSubtotal] as any },
           React.createElement(Text, { style: [styles.pricingName, styles.bold] as any }, t.subBefore),
-          React.createElement(Text, { style: styles.pricingMeta }, `${PRICING.theoryHours + PRICING.practicalHours} h`),
-          React.createElement(Text, { style: styles.pricingAmount }, `$${SUBTOTAL.toLocaleString()}`),
+          React.createElement(Text, { style: styles.pricingMeta }, `${pricing.theoryHours + pricing.practicalHours} h`),
+          React.createElement(Text, { style: styles.pricingAmount }, `$${pricing.subtotal.toLocaleString()}`),
         ),
       ),
       React.createElement(Text, { style: styles.text }, t.sec2Body),
@@ -617,6 +613,7 @@ async function handleGenerate({ registrationId, lang }: { registrationId: string
 
     const certSettings = await prisma.certificateSettings.findUnique({ where: { id: 'default' } })
     const invoiceSettings = await prisma.invoiceSettings.findUnique({ where: { id: 'default' } })
+    const contractPricing = (await getPricing()).truckContract
 
     const school = {
       name: certSettings?.schoolName || 'Qazi Driving School',
@@ -661,10 +658,10 @@ async function handleGenerate({ registrationId, lang }: { registrationId: string
 
     const pages: React.ReactElement[] = []
     if (lang === 'en' || lang === 'both') {
-      pages.push(React.createElement(ContractPage, { lang: 'en', data: data('en'), school, key: 'en' }))
+      pages.push(React.createElement(ContractPage, { lang: 'en', data: data('en'), school, pricing: contractPricing, key: 'en' }))
     }
     if (lang === 'fr' || lang === 'both') {
-      pages.push(React.createElement(ContractPage, { lang: 'fr', data: data('fr'), school, key: 'fr' }))
+      pages.push(React.createElement(ContractPage, { lang: 'fr', data: data('fr'), school, pricing: contractPricing, key: 'fr' }))
     }
 
     const buffer = await renderToBuffer(React.createElement(Document, null, ...pages))
