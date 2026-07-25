@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/db'
 import { createRegistrationInvoice } from '@/lib/registration-invoice'
+import { getDepositCents } from '@/lib/pricing'
 
 // POST /api/register — Public student registration
 export async function POST(request: NextRequest) {
@@ -90,6 +91,11 @@ export async function POST(request: NextRequest) {
       } catch { /* leave null */ }
     }
 
+    // Deposit charged/invoiced today for this class (Settings → Pricing).
+    // Was hardcoded to $250, so pricing changes never reached the in-person
+    // (cash / card-on-terminal) invoice — the truck path in particular.
+    const depositCents = await getDepositCents(vehicleType)
+
     const registration = await prisma.studentRegistration.create({
       data: {
         status: 'submitted',
@@ -117,9 +123,9 @@ export async function POST(request: NextRequest) {
         // surfaces it without new wiring. "cash-pending" / "card-pending" =
         // fee picked but not yet collected at the school.
         ...(inPersonMethod === 'cash'
-          ? { paymentStatus: 'cash-pending', paymentAmount: 25000 }
+          ? { paymentStatus: 'cash-pending', paymentAmount: depositCents }
           : inPersonMethod === 'card'
-            ? { paymentStatus: 'card-pending', paymentAmount: 25000 }
+            ? { paymentStatus: 'card-pending', paymentAmount: depositCents }
             : {}),
         fullName: fullName.trim(),
         phoneNumber: phoneDigits.length === 10 ? '1' + phoneDigits : phoneDigits,

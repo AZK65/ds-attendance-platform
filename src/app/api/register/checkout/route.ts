@@ -1,11 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/db'
+import { getDepositCents } from '@/lib/pricing'
 
 const CLOVER_BASE = process.env.CLOVER_SANDBOX === 'true'
   ? 'https://sandbox.dev.clover.com'
   : 'https://api.clover.com'
-
-const FIRST_PAYMENT_AMOUNT = 250
 
 export async function POST(request: NextRequest) {
   try {
@@ -31,6 +30,10 @@ export async function POST(request: NextRequest) {
     const firstName = nameParts[0]
     const lastName = nameParts.slice(1).join(' ') || firstName
 
+    // Deposit for this class from Settings → Pricing (cents).
+    const amountCents = await getDepositCents(registration.vehicleType)
+    const classLabel = registration.vehicleType === 'truck' ? 'Class 1' : 'Class 5'
+
     const checkoutPayload = {
       customer: {
         firstName,
@@ -40,8 +43,8 @@ export async function POST(request: NextRequest) {
       shoppingCart: {
         lineItems: [
           {
-            name: 'Class 5 Driving Course — First Payment (Registration)',
-            price: FIRST_PAYMENT_AMOUNT * 100,
+            name: `${classLabel} Driving Course — First Payment (Registration)`,
+            price: amountCents,
             unitQty: 1,
           },
         ],
