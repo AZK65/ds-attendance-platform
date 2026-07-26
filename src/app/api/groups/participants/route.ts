@@ -15,6 +15,39 @@ interface ParticipantWithGroup {
   lastMessageDate: string | null
 }
 
+const last10 = (p: string | null | undefined) => (p || '').replace(/\D/g, '').slice(-10)
+
+// Phones that belong to Class 1 (truck) students. WhatsApp groups are rarely
+// tagged "truck", so relying on the group's vehicleType misses them — a truck
+// student in a normal group shows up as "car". The authoritative signal is the
+// truck REGISTRATION (and any truck-tagged group). Used to both keep truck
+// members in the course list and label their vehicleType correctly.
+async function getTruckPhones(): Promise<Set<string>> {
+  const set = new Set<string>()
+  try {
+    const regs = await prisma.studentRegistration.findMany({
+      where: { vehicleType: 'truck' },
+      select: { phoneNumber: true },
+    })
+    for (const r of regs) { const p = last10(r.phoneNumber); if (p.length >= 10) set.add(p) }
+    const members = await prisma.groupMember.findMany({
+      where: { group: { vehicleType: 'truck' } },
+      select: { phone: true },
+    })
+    for (const m of members) { const p = last10(m.phone); if (p.length >= 10) set.add(p) }
+  } catch (e) {
+    console.error('[participants] getTruckPhones failed:', e)
+  }
+  return set
+}
+
+// Override a participant's vehicleType to "truck" when their phone is a known
+// truck student, regardless of the group's tag.
+function withTruck<T extends { phone: string; vehicleType: string }>(list: T[], truck: Set<string>): T[] {
+  if (truck.size === 0) return list
+  return list.map(p => (truck.has(last10(p.phone)) ? { ...p, vehicleType: 'truck' } : p))
+}
+
 // Pending invites across all groups (invited / saved, but not joined yet),
 // shaped for the students page. Applies the same group filter as members.
 async function pendingInvitesWithGroups(courseOnly: boolean) {
@@ -70,6 +103,7 @@ async function pendingInvitesWithGroups(courseOnly: boolean) {
 export async function GET(request: NextRequest) {
   const courseOnly = request.nextUrl.searchParams.get('courseOnly') === 'true'
   const state = getWhatsAppState()
+  const truckPhones = await getTruckPhones()
 
   // Always try cached data first (instant response)
   try {
@@ -85,9 +119,9 @@ export async function GET(request: NextRequest) {
         .filter(m => {
           if (!m.group.name || m.group.name === 'Status Broadcast') return false
           // Course groups = car cohorts (have a module number) OR truck
-          // groups (intake-style, no modules). Keep both; drop only the
-          // non-course groups when courseOnly is set.
-          if (courseOnly && !m.group.moduleNumber && m.group.vehicleType !== 'truck') return false
+          // students (truck-tagged group OR a truck registration). Keep both;
+          // drop only the non-course groups when courseOnly is set.
+          if (courseOnly && !m.group.moduleNumber && m.group.vehicleType !== 'truck' && !truckPhones.has(last10(m.phone))) return false
           return true
         })
         .map(m => ({
@@ -98,7 +132,7 @@ export async function GET(request: NextRequest) {
           groupId: m.groupId,
           groupName: m.group.name,
           moduleNumber: m.group.moduleNumber ?? null,
-          vehicleType: m.group.vehicleType,
+          vehicleType: truckPhones.has(last10(m.phone)) ? 'truck' : m.group.vehicleType,
           lastMessageDate: m.group.lastMessageDate?.toISOString() ?? null,
         }))
 
@@ -109,7 +143,7 @@ export async function GET(request: NextRequest) {
 
       return NextResponse.json({
         participants,
-        pendingInvites: await pendingInvitesWithGroups(courseOnly),
+        pendingInvites: withTruck(await pendingInvitesWithGroups(courseOnly), truckPhones),
         isConnected: state.isConnected,
         fromCache: true,
       })
@@ -121,10 +155,10 @@ export async function GET(request: NextRequest) {
   // No cached data — must fetch live from WhatsApp
   if (state.isConnected) {
     try {
-      const participants = await fetchLiveParticipants(courseOnly)
+      const participants = withTruck(await fetchLiveParticipants(courseOnly), truckPhones)
       return NextResponse.json({
         participants,
-        pendingInvites: await pendingInvitesWithGroups(courseOnly),
+        pendingInvites: withTruck(await pendingInvitesWithGroups(courseOnly), truckPhones),
         isConnected: true,
         fromCache: false,
       })
@@ -147,7 +181,7 @@ export async function GET(request: NextRequest) {
       orderBy: { date: 'desc' },
     })
 
-    const participants: ParticipantWithGroup[] = records.map(r => ({
+    const participants: ParticipantWithGroup[] = withTruck(records.map(r => ({
       id: r.contact.id,
       phone: r.contact.phone,
       name: r.contact.name,
@@ -157,7 +191,7 @@ export async function GET(request: NextRequest) {
       moduleNumber: r.attendanceSheet.group.moduleNumber ?? null,
       vehicleType: r.attendanceSheet.group.vehicleType,
       lastMessageDate: r.attendanceSheet.group.lastMessageDate?.toISOString() ?? null,
-    }))
+    })), truckPhones)
 
     return NextResponse.json({ participants, isConnected: false })
   } catch (error) {
