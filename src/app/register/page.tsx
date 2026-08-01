@@ -1593,7 +1593,7 @@ export function RegisterPageInner({ kiosk = false }: { kiosk?: boolean } = {}) {
                 <CreditCard className="h-5 w-5" /> How will the student pay the initial fees?
               </h2>
               <p className="text-sm text-muted-foreground">
-                The first installment ($250) at the start of training. You can record cash now or
+                The first installment (${money(depositToday)}) at the start of training. You can record cash now or
                 run a card through Clover Hosted Checkout on the next step.
               </p>
               <div className="grid gap-3 sm:grid-cols-2">
@@ -1784,7 +1784,7 @@ export function RegisterPageInner({ kiosk = false }: { kiosk?: boolean } = {}) {
               className="group inline-flex items-center gap-2 h-12 px-7 rounded-full bg-[#0B0B0F] text-white text-[15px] font-medium hover:bg-[#E11D2E] transition-colors disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-[#0B0B0F]"
             >
               {step === 'payment' ? (
-                <>{t.actions.checkout} <CreditCard className="h-4 w-4" /></>
+                <>{t.actions.checkout.replace(/[\d.,]+/, money(depositToday))} <CreditCard className="h-4 w-4" /></>
               ) : (
                 <>{t.actions.next} <ArrowRight className="h-4 w-4 transition-transform group-hover:translate-x-0.5" /></>
               )}
