@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server'
 import { prisma } from '@/lib/db'
 import { searchStudentsByPhones } from '@/lib/external-db'
+import { getTruckPhones, last10 } from '@/lib/truck-students'
 
 // GET /api/students/pending — Fetch students created via the app that aren't in any group yet
 export async function GET() {
@@ -43,12 +44,19 @@ export async function GET() {
       })
     }
 
+    // Tag each pending student car/truck so the groups page can show only the
+    // ones that belong to the cohort being created. Derived from their truck
+    // REGISTRATION, not from group membership — these students are by
+    // definition not in a group yet.
+    const truckPhones = await getTruckPhones()
+
     return NextResponse.json({
       students: pending.map(c => ({
         id: c.id,
         phone: c.phone,
         name: c.name || c.pushName || null,
         createdAt: c.createdAt.toISOString(),
+        vehicleType: truckPhones.has(last10(c.phone)) ? 'truck' : 'car',
       })),
     })
   } catch (error) {

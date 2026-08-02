@@ -97,8 +97,57 @@ export default function GroupsPage() {
   const [classSetupResults, setClassSetupResults] = useState<Array<{ action: string; status: string }> | null>(null)
   const [classSetupLoading, setClassSetupLoading] = useState(false)
 
+  // Which program the just-created group is for. Captured when the group is
+  // created rather than read from `activeTab`, so switching tabs while the
+  // setup dialog is open can't retarget the schedule.
+  const [classSetupVehicle, setClassSetupVehicle] = useState<'car' | 'truck'>('car')
+  // Class 1 timetable: 19 x 4 h on Tue + Thu evenings ≈ the 75 h the PESR
+  // program requires. Saturdays stay free for per-student in-cab hours.
+  const [classSetupSessions, setClassSetupSessions] = useState(19)
+  const [classSetupWeekdays, setClassSetupWeekdays] = useState<number[]>([2, 4])
+  const [classSetupTeacher, setClassSetupTeacher] = useState('')
+  const [teacherOptions, setTeacherOptions] = useState<Array<{ id: number; name: string }>>([])
+  const isTruckSetup = classSetupVehicle === 'truck'
+
+  // Teacher list for the schedule. Defaults to the calendar each program has
+  // always used (car → Fayyaz, truck → Nasar) so behaviour is unchanged
+  // unless someone picks another teacher.
+  useEffect(() => {
+    if (!showClassSetup) return
+    let cancelled = false
+    fetch('/api/scheduling/subcalendars')
+      .then(r => (r.ok ? r.json() : []))
+      .then((data: Array<{ id: number; name: string; active: boolean }>) => {
+        if (cancelled || !Array.isArray(data)) return
+        const active = data.filter(s => s.active).map(s => ({ id: s.id, name: s.name }))
+        setTeacherOptions(active)
+        const want = isTruckSetup ? 'nasar' : 'fayyaz'
+        const match = active.find(t => t.name.toLowerCase().includes(want))
+        if (match) setClassSetupTeacher(String(match.id))
+        else if (active.length > 0) setClassSetupTeacher(String(active[0].id))
+      })
+      .catch(() => {})
+    return () => { cancelled = true }
+  }, [showClassSetup, isTruckSetup])
+
+  // Preview the truck timetable before creating it (mirrors generateSessionDates).
+  const truckPreviewDates = useMemo(() => {
+    if (!isTruckSetup || !classSetupDate || classSetupWeekdays.length === 0) return []
+    const [y, m, d] = classSetupDate.split('-').map(Number)
+    const cursor = new Date(y, m - 1, d)
+    const wanted = new Set(classSetupWeekdays)
+    const out: string[] = []
+    for (let guard = 0; guard < classSetupSessions * 14 + 60 && out.length < classSetupSessions; guard++) {
+      if (wanted.has(cursor.getDay())) {
+        out.push(`${cursor.getFullYear()}-${String(cursor.getMonth() + 1).padStart(2, '0')}-${String(cursor.getDate()).padStart(2, '0')}`)
+      }
+      cursor.setDate(cursor.getDate() + 1)
+    }
+    return out
+  }, [isTruckSetup, classSetupDate, classSetupWeekdays, classSetupSessions])
+
   // Fetch pending students (not in any group)
-  const { data: pendingData } = useQuery<{ students: Array<{ id: string; phone: string; name: string | null; createdAt: string }> }>({
+  const { data: pendingData } = useQuery<{ students: Array<{ id: string; phone: string; name: string | null; createdAt: string; vehicleType?: string }> }>({
     queryKey: ['pending-students'],
     queryFn: async () => {
       const res = await fetch('/api/students/pending')
@@ -107,6 +156,14 @@ export default function GroupsPage() {
     },
     enabled: showNewGroup,
   })
+
+  // Only offer students who belong to the cohort being created: a Class 1
+  // group should never list Class 5 students. Truck-ness comes from the
+  // student's truck registration (see @/lib/truck-students).
+  const pendingForTab = useMemo(() => {
+    const all = pendingData?.students ?? []
+    return all.filter(s => (s.vehicleType === 'truck' ? 'truck' : 'car') === activeTab)
+  }, [pendingData, activeTab])
 
   // Debounce search for contact API calls
   useEffect(() => {
@@ -809,13 +866,15 @@ export default function GroupsPage() {
 
                 <div>
                   <div className="flex items-center justify-between mb-2">
-                    <Label className="text-sm font-medium">Pending Students</Label>
-                    {(pendingData?.students?.length ?? 0) > 0 && (
+                    <Label className="text-sm font-medium">
+                      Pending {activeTab === 'truck' ? 'Class 1 (Truck)' : 'Class 5 (Car)'} Students
+                    </Label>
+                    {pendingForTab.length > 0 && (
                       <div className="flex gap-2">
                         <button
                           type="button"
                           className="text-xs text-primary hover:underline"
-                          onClick={() => setSelectedPending(new Set(pendingData!.students.map(s => s.phone)))}
+                          onClick={() => setSelectedPending(new Set(pendingForTab.map(s => s.phone)))}
                         >
                           Select All
                         </button>
@@ -834,13 +893,15 @@ export default function GroupsPage() {
                     <div className="flex items-center justify-center py-6 text-muted-foreground">
                       <Loader2 className="h-4 w-4 animate-spin mr-2" /> Loading...
                     </div>
-                  ) : pendingData.students.length === 0 ? (
+                  ) : pendingForTab.length === 0 ? (
                     <p className="text-sm text-muted-foreground text-center py-4">
-                      No pending students. Create students first from the Students page.
+                      {activeTab === 'truck'
+                        ? 'No pending Class 1 students. Truck students appear here once they have a Class 1 registration and are not yet in a group.'
+                        : 'No pending students. Create students first from the Students page.'}
                     </p>
                   ) : (
                     <div className="max-h-[250px] overflow-y-auto border rounded-md divide-y">
-                      {pendingData.students.map(s => (
+                      {pendingForTab.map(s => (
                         <label
                           key={s.id}
                           className={`flex items-center gap-3 px-3 py-2.5 cursor-pointer hover:bg-accent transition-colors ${
@@ -906,6 +967,10 @@ export default function GroupsPage() {
                         setClassSetupGroupId(data.groupId)
                         setClassSetupPhones(phones)
                         setClassSetupResults(null)
+                        // Remember which program this group is, so the schedule
+                        // step builds the right kind of timetable.
+                        setClassSetupVehicle(activeTab)
+                        if (activeTab === 'truck') setClassSetupTime('5:30 PM to 9:30 PM')
 
                         queryClient.invalidateQueries({ queryKey: ['groups'] })
                         queryClient.invalidateQueries({ queryKey: ['pending-students'] })
@@ -976,10 +1041,14 @@ export default function GroupsPage() {
                 <div className="space-y-2">
                   <div className="flex items-center gap-2">
                     <input type="checkbox" id="gSetupDesc" checked={classSetupSetDesc} onChange={e => setClassSetupSetDesc(e.target.checked)} className="rounded" />
-                    <Label htmlFor="gSetupDesc" className="text-sm font-medium cursor-pointer">Set group description with Zoom links</Label>
+                    <Label htmlFor="gSetupDesc" className="text-sm font-medium cursor-pointer">
+                      {isTruckSetup ? 'Set group description with the class schedule' : 'Set group description with Zoom links'}
+                    </Label>
                   </div>
                   {classSetupSetDesc && (
-                    <p className="text-xs text-muted-foreground ml-6">iOS + Android + Desktop Zoom links and password</p>
+                    <p className="text-xs text-muted-foreground ml-6">
+                      {isTruckSetup ? 'Class days, time, and where classes are held' : 'iOS + Android + Desktop Zoom links and password'}
+                    </p>
                   )}
                 </div>
 
@@ -1004,26 +1073,100 @@ export default function GroupsPage() {
                 </div>
 
                 <div className="space-y-3 border-t pt-4">
-                  <Label className="text-sm font-medium">Schedule Classes</Label>
+                  <Label className="text-sm font-medium">
+                    {isTruckSetup ? 'Schedule Class 1 Theory' : 'Schedule Classes'}
+                  </Label>
+
+                  <div>
+                    <Label className="text-xs text-muted-foreground mb-1 block">Teacher</Label>
+                    <select
+                      className="w-full h-9 rounded-md border border-input bg-transparent px-3 text-sm"
+                      value={classSetupTeacher}
+                      onChange={e => setClassSetupTeacher(e.target.value)}
+                    >
+                      {teacherOptions.length === 0 && <option value="">Loading teachers…</option>}
+                      {teacherOptions.map(t => (
+                        <option key={t.id} value={String(t.id)}>{t.name}</option>
+                      ))}
+                    </select>
+                  </div>
+
                   <div className="grid grid-cols-2 gap-3">
-                    <div>
-                      <Label className="text-xs text-muted-foreground mb-1 block">First Module</Label>
-                      <Input type="number" min={1} max={12} value={classSetupModule} onChange={e => setClassSetupModule(parseInt(e.target.value) || 1)} />
-                    </div>
-                    <div>
-                      <Label className="text-xs text-muted-foreground mb-1 block">Weeks to schedule</Label>
-                      <Input type="number" min={1} max={12} value={classSetupWeeks} onChange={e => setClassSetupWeeks(Math.max(1, Math.min(12, parseInt(e.target.value) || 1)))} />
-                    </div>
+                    {isTruckSetup ? (
+                      <div>
+                        <Label className="text-xs text-muted-foreground mb-1 block">Theory sessions</Label>
+                        <Input
+                          type="number" min={1} max={60}
+                          value={classSetupSessions}
+                          onChange={e => setClassSetupSessions(Math.max(1, Math.min(60, parseInt(e.target.value) || 1)))}
+                        />
+                      </div>
+                    ) : (
+                      <>
+                        <div>
+                          <Label className="text-xs text-muted-foreground mb-1 block">First Module</Label>
+                          <Input type="number" min={1} max={12} value={classSetupModule} onChange={e => setClassSetupModule(parseInt(e.target.value) || 1)} />
+                        </div>
+                        <div>
+                          <Label className="text-xs text-muted-foreground mb-1 block">Weeks to schedule</Label>
+                          <Input type="number" min={1} max={12} value={classSetupWeeks} onChange={e => setClassSetupWeeks(Math.max(1, Math.min(12, parseInt(e.target.value) || 1)))} />
+                        </div>
+                      </>
+                    )}
                     <div>
                       <Label className="text-xs text-muted-foreground mb-1 block">First Class Date</Label>
                       <Input type="date" value={classSetupDate} onChange={e => setClassSetupDate(e.target.value)} />
                     </div>
                     <div>
                       <Label className="text-xs text-muted-foreground mb-1 block">Time</Label>
-                      <Input value={classSetupTime} onChange={e => setClassSetupTime(e.target.value)} placeholder="5 pm to 7 pm" />
+                      <Input value={classSetupTime} onChange={e => setClassSetupTime(e.target.value)} placeholder={isTruckSetup ? '5:30 PM to 9:30 PM' : '5 pm to 7 pm'} />
                     </div>
                   </div>
-                  {classSetupDate && classSetupWeeks > 1 && (
+
+                  {isTruckSetup && (
+                    <div className="rounded-md border bg-muted/30 p-3 space-y-2">
+                      <div>
+                        <Label className="text-xs text-muted-foreground mb-1.5 block">Class days</Label>
+                        <div className="flex gap-1.5">
+                          {['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map((label, day) => {
+                            const on = classSetupWeekdays.includes(day)
+                            return (
+                              <button
+                                key={day}
+                                type="button"
+                                onClick={() => setClassSetupWeekdays(prev =>
+                                  prev.includes(day) ? prev.filter(d => d !== day) : [...prev, day].sort()
+                                )}
+                                className={`h-8 w-9 rounded-md text-xs font-medium border transition-colors ${
+                                  on ? 'bg-primary text-primary-foreground border-primary' : 'bg-background hover:bg-muted'
+                                }`}
+                              >
+                                {label}
+                              </button>
+                            )
+                          })}
+                        </div>
+                      </div>
+                      {truckPreviewDates.length > 0 ? (
+                        <p className="text-xs">
+                          <span className="font-medium">{truckPreviewDates.length} sessions</span>
+                          {' · '}
+                          {(() => {
+                            const fmt = (iso: string) => {
+                              const [y, m, d] = iso.split('-').map(Number)
+                              return new Date(y, m - 1, d).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })
+                            }
+                            return `${fmt(truckPreviewDates[0])} → ${fmt(truckPreviewDates[truckPreviewDates.length - 1])}`
+                          })()}
+                          <span className="text-muted-foreground"> · a reminder is sent on each class day</span>
+                        </p>
+                      ) : (
+                        <p className="text-xs text-muted-foreground">Pick a first class date and at least one class day.</p>
+                      )}
+                    </div>
+                  )}
+
+                  {!isTruckSetup && classSetupDate && classSetupWeeks > 1 && (
                     <p className="text-xs text-muted-foreground">
                       Will schedule {classSetupWeeks} weekly classes starting {classSetupDate}: Modules {classSetupModule}–{Math.min(12, classSetupModule + classSetupWeeks - 1)}.
                     </p>
@@ -1042,9 +1185,13 @@ export default function GroupsPage() {
                           const [y, m, d] = classSetupDate.split('-').map(Number)
                           classDateFormatted = new Date(y, m - 1, d).toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' })
                         }
-                        const description = classSetupSetDesc
-                          ? `Zoom Meeting Link:\n\niOS/Android App:\nzoom.us/j/4171672829\nMeeting ID: 417 167 2829\nPassword: qazi\n\nDesktop/Browser:\nhttps://us02web.zoom.us/j/4171672829?pwd=ZTlHSEdmTGRYV1QraU5MaThqaC9Rdz09\nPassword: qazi`
-                          : undefined
+                        // Class 1 theory is taught in the classroom, so the Zoom
+                        // blurb would be wrong on a truck group's description.
+                        const description = !classSetupSetDesc
+                          ? undefined
+                          : isTruckSetup
+                            ? `Class 1 — Theory schedule\n${classSetupWeekdays.map(d => ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'][d]).join(' & ')}, ${classSetupTime}\nHeld in class at the school.\n\nYour in-cab driving hours are booked separately.`
+                            : `Zoom Meeting Link:\n\niOS/Android App:\nzoom.us/j/4171672829\nMeeting ID: 417 167 2829\nPassword: qazi\n\nDesktop/Browser:\nhttps://us02web.zoom.us/j/4171672829?pwd=ZTlHSEdmTGRYV1QraU5MaThqaC9Rdz09\nPassword: qazi`
                         const res = await fetch(`/api/groups/${encodeURIComponent(classSetupGroupId)}/setup`, {
                           method: 'POST',
                           headers: { 'Content-Type': 'application/json' },
@@ -1052,9 +1199,13 @@ export default function GroupsPage() {
                             setDescription: classSetupSetDesc, description,
                             sendPdf: classSetupSendPdf && classSetupPdfBase64, pdfBase64: classSetupPdfBase64, pdfFilename: classSetupPdfName,
                             memberPhones: classSetupPhones,
-                            scheduleClass: !!classSetupDate, moduleNumber: classSetupModule,
+                            scheduleClass: !!classSetupDate,
+                            vehicleType: classSetupVehicle,
+                            subcalendarId: classSetupTeacher ? parseInt(classSetupTeacher) : undefined,
+                            ...(isTruckSetup
+                              ? { truckSessions: classSetupSessions, truckWeekdays: classSetupWeekdays }
+                              : { moduleNumber: classSetupModule, weeksToSchedule: classSetupWeeks }),
                             classDate: classDateFormatted, classDateISO: classSetupDate, classTime: classSetupTime,
-                            weeksToSchedule: classSetupWeeks,
                           }),
                         })
                         if (res.ok) {

@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { getWhatsAppState, getGroupsWithDetails, getGroupParticipants } from '@/lib/whatsapp/client'
 import { prisma } from '@/lib/db'
 import { syncGroupMembers } from '@/lib/group-sync'
+import { getTruckPhones, last10 } from '@/lib/truck-students'
 
 interface ParticipantWithGroup {
   id: string
@@ -15,31 +16,8 @@ interface ParticipantWithGroup {
   lastMessageDate: string | null
 }
 
-const last10 = (p: string | null | undefined) => (p || '').replace(/\D/g, '').slice(-10)
-
-// Phones that belong to Class 1 (truck) students. WhatsApp groups are rarely
-// tagged "truck", so relying on the group's vehicleType misses them — a truck
-// student in a normal group shows up as "car". The authoritative signal is the
-// truck REGISTRATION (and any truck-tagged group). Used to both keep truck
-// members in the course list and label their vehicleType correctly.
-async function getTruckPhones(): Promise<Set<string>> {
-  const set = new Set<string>()
-  try {
-    const regs = await prisma.studentRegistration.findMany({
-      where: { vehicleType: 'truck' },
-      select: { phoneNumber: true },
-    })
-    for (const r of regs) { const p = last10(r.phoneNumber); if (p.length >= 10) set.add(p) }
-    const members = await prisma.groupMember.findMany({
-      where: { group: { vehicleType: 'truck' } },
-      select: { phone: true },
-    })
-    for (const m of members) { const p = last10(m.phone); if (p.length >= 10) set.add(p) }
-  } catch (e) {
-    console.error('[participants] getTruckPhones failed:', e)
-  }
-  return set
-}
+// Truck-student detection lives in @/lib/truck-students so the pending-students
+// picker on the groups page classifies people the same way this list does.
 
 // Override a participant's vehicleType to "truck" when their phone is a known
 // truck student, regardless of the group's tag.
