@@ -29,7 +29,7 @@ import Image from 'next/image'
 import { useRouter } from 'next/navigation'
 import { useState, useMemo, useEffect, useCallback } from 'react'
 import { TruckDaysEditor } from '@/components/TruckDaysEditor'
-import { DEFAULT_TRUCK_DAYS, describeTruckDay, type TruckDay } from '@/lib/truck-schedule'
+import { DEFAULT_TRUCK_DAYS, describeTruckDay, TRUCK_THEORY_TARGET_HOURS, type TruckDay } from '@/lib/truck-schedule'
 
 const staggerContainer = {
   hidden: {},
@@ -105,7 +105,7 @@ export default function GroupsPage() {
   const [classSetupVehicle, setClassSetupVehicle] = useState<'car' | 'truck'>('car')
   // Class 1 timetable: Tue/Thu evening theory + a full Saturday yard + road
   // day, 17 h/week in person. 24 classes ≈ the program's 125 h.
-  const [classSetupSessions, setClassSetupSessions] = useState(24)
+  const [classSetupTheoryHours, setClassSetupTheoryHours] = useState(TRUCK_THEORY_TARGET_HOURS)
   const [classSetupDays, setClassSetupDays] = useState<TruckDay[]>(DEFAULT_TRUCK_DAYS)
   const [classSetupTeacher, setClassSetupTeacher] = useState('')
   const [teacherOptions, setTeacherOptions] = useState<Array<{ id: number; name: string }>>([])
@@ -1080,14 +1080,9 @@ export default function GroupsPage() {
 
                   <div className="grid grid-cols-2 gap-3">
                     {isTruckSetup ? (
-                      <div>
-                        <Label className="text-xs text-muted-foreground mb-1 block">Theory sessions</Label>
-                        <Input
-                          type="number" min={1} max={60}
-                          value={classSetupSessions}
-                          onChange={e => setClassSetupSessions(Math.max(1, Math.min(60, parseInt(e.target.value) || 1)))}
-                        />
-                      </div>
+                      // Truck sets its hour target inside the timetable editor
+                      // below; the class count falls out of the hours.
+                      <div />
                     ) : (
                       <>
                         <div>
@@ -1118,7 +1113,8 @@ export default function GroupsPage() {
                     <TruckDaysEditor
                       value={classSetupDays}
                       onChange={setClassSetupDays}
-                      sessions={classSetupSessions}
+                      targetHours={classSetupTheoryHours}
+                      onTargetHoursChange={setClassSetupTheoryHours}
                       startDate={classSetupDate}
                     />
                   )}
@@ -1160,7 +1156,7 @@ export default function GroupsPage() {
                             vehicleType: classSetupVehicle,
                             subcalendarId: classSetupTeacher ? parseInt(classSetupTeacher) : undefined,
                             ...(isTruckSetup
-                              ? { truckSessions: classSetupSessions, truckDays: classSetupDays }
+                              ? { truckTheoryHours: classSetupTheoryHours, truckDays: classSetupDays }
                               : { moduleNumber: classSetupModule, weeksToSchedule: classSetupWeeks }),
                             classDate: classDateFormatted, classDateISO: classSetupDate, classTime: classSetupTime,
                           }),

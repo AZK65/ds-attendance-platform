@@ -7,7 +7,7 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Checkbox } from '@/components/ui/checkbox'
 import { TruckDaysEditor } from '@/components/TruckDaysEditor'
-import { DEFAULT_TRUCK_DAYS, describeTruckDay, type TruckDay } from '@/lib/truck-schedule'
+import { DEFAULT_TRUCK_DAYS, describeTruckDay, TRUCK_THEORY_TARGET_HOURS, type TruckDay } from '@/lib/truck-schedule'
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter,
 } from '@/components/ui/dialog'
@@ -65,7 +65,7 @@ export function NewGroupWizard({ open, onOpenChange }: NewGroupWizardProps) {
 
   // Truck cohort: Tue/Thu evening theory + a full Saturday yard + road day,
   // 17 h/week, all in person. 24 classes ≈ the program's 125 h.
-  const [truckSessions, setTruckSessions] = useState(24)
+  const [truckTheoryHours, setTruckTheoryHours] = useState(TRUCK_THEORY_TARGET_HOURS)
   const [truckDays, setTruckDays] = useState<TruckDay[]>(DEFAULT_TRUCK_DAYS)
 
   // Teacher (Teamup subcalendar) the classes get written to.
@@ -335,7 +335,7 @@ export function NewGroupWizard({ open, onOpenChange }: NewGroupWizardProps) {
             vehicleType,
             subcalendarId: subcalendarId ? parseInt(subcalendarId) : undefined,
             ...(isTruck
-              ? { truckSessions, truckDays }
+              ? { truckTheoryHours, truckDays }
               : { moduleNumber }),
             classDate: new Date(classDate + 'T12:00:00').toLocaleDateString('en-US', {
               weekday: 'long', month: 'long', day: 'numeric',
@@ -373,7 +373,7 @@ export function NewGroupWizard({ open, onOpenChange }: NewGroupWizardProps) {
     setGroupName('')
     setVehicleType('car')
     setModuleNumber(1)
-    setTruckSessions(24)
+    setTruckTheoryHours(TRUCK_THEORY_TARGET_HOURS)
     setTruckDays(DEFAULT_TRUCK_DAYS)
     setClassDate('')
     setClassTimeStart('17:00')
@@ -567,17 +567,9 @@ export function NewGroupWizard({ open, onOpenChange }: NewGroupWizardProps) {
 
               <div className="grid grid-cols-2 gap-3">
                 {isTruck ? (
-                  <div>
-                    <Label>Theory sessions</Label>
-                    <Input
-                      type="number"
-                      min={1}
-                      max={60}
-                      className="mt-1.5"
-                      value={truckSessions}
-                      onChange={e => setTruckSessions(Math.max(1, Math.min(60, parseInt(e.target.value) || 1)))}
-                    />
-                  </div>
+                  // Truck sets its hour target inside the timetable editor
+                  // below, since the number of classes falls out of the hours.
+                  <div />
                 ) : (
                   <div>
                     <Label>Module Number</Label>
@@ -609,7 +601,8 @@ export function NewGroupWizard({ open, onOpenChange }: NewGroupWizardProps) {
                 <TruckDaysEditor
                   value={truckDays}
                   onChange={setTruckDays}
-                  sessions={truckSessions}
+                  targetHours={truckTheoryHours}
+                  onTargetHoursChange={setTruckTheoryHours}
                   startDate={classDate}
                 />
               )}

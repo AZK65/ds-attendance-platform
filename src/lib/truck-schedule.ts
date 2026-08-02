@@ -1,21 +1,25 @@
 /**
- * Class 1 (PESR) cohort timetable.
+ * Class 1 (PESR) cohort timetable — the THEORY block only.
  *
- * The program runs 17 h/week in person, on three days with DIFFERENT hours:
- *   Tue 5:30–9:30 PM  theory      (4 h)
- *   Thu 5:30–9:30 PM  theory      (4 h)
- *   Sat 9:00 AM–6:00 PM yard+road (9 h)
- * → 125 h total (75 h theory + 50 h practical) in roughly 7–8 weeks.
+ * The program is 125 h: 75 h of classroom theory followed by 50 h of in-cab
+ * driving. Only the theory block is a cohort timetable — everyone sits in the
+ * same room on the same days:
+ *   Tue 5:30–9:30 PM   (4 h)
+ *   Thu 5:30–9:30 PM   (4 h)
+ *   Sat 9:00 AM–6:00 PM (9 h)
+ * → 17 h/week, so 75 h lands in about 4.5 weeks.
  *
- * Everything is taught in person at the school; the Saturday block is the
- * whole cohort on site, with students rotating through the truck inside that
- * window. So all three days are GROUP events on the calendar.
+ * The 50 h of in-cab driving is booked per student afterwards (one student per
+ * cab), through the existing Truck Class scheduler — it is deliberately NOT
+ * generated here.
+ *
+ * Sessions are generated until the hour target is met rather than from a
+ * session count, because 75 h is the number that actually matters (it's the
+ * SAAQ contract obligation) and the class days don't have equal lengths.
  *
  * Shared by the API route that creates the events and by the two admin UIs
  * that preview them, so the dates on screen are exactly the dates created.
  */
-
-export type TruckDayKind = 'theory' | 'practical'
 
 export interface TruckDay {
   /** 0 = Sunday … 6 = Saturday */
@@ -23,34 +27,37 @@ export interface TruckDay {
   /** "HH:MM" 24h */
   start: string
   end: string
-  kind: TruckDayKind
 }
 
 export const DEFAULT_TRUCK_DAYS: TruckDay[] = [
-  { day: 2, start: '17:30', end: '21:30', kind: 'theory' },    // Tuesday
-  { day: 4, start: '17:30', end: '21:30', kind: 'theory' },    // Thursday
-  { day: 6, start: '09:00', end: '18:00', kind: 'practical' }, // Saturday
+  { day: 2, start: '17:30', end: '21:30' }, // Tuesday
+  { day: 4, start: '17:30', end: '21:30' }, // Thursday
+  { day: 6, start: '09:00', end: '18:00' }, // Saturday
 ]
 
 export const DAY_NAMES = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday']
 export const DAY_SHORT = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
 
-/** Program targets, from the SAAQ Class 1 contract. */
+/** Classroom hours required by the Class 1 contract. */
 export const TRUCK_THEORY_TARGET_HOURS = 75
-export const TRUCK_PRACTICAL_TARGET_HOURS = 50
+/** In-cab hours — booked per student, not part of this timetable. */
+export const TRUCK_PRACTICAL_HOURS = 50
+
+/** Safety cap so a tiny/zero-length day config can't generate forever. */
+const MAX_SESSIONS = 100
 
 export interface TruckSession {
   /** ISO date, e.g. "2026-08-04" */
   date: string
   start: string
   end: string
-  kind: TruckDayKind
-  /** 1-based counter WITHIN this kind, so titles read "Theory 5" / "Yard + Road 3". */
   sessionNumber: number
   hours: number
+  /** Cumulative theory hours through this session. */
+  cumulativeHours: number
 }
 
-function hoursBetween(start: string, end: string): number {
+export function hoursBetween(start: string, end: string): number {
   const [sh, sm] = start.split(':').map(Number)
   const [eh, em] = end.split(':').map(Number)
   const mins = (eh * 60 + em) - (sh * 60 + sm)
@@ -60,37 +67,48 @@ function hoursBetween(start: string, end: string): number {
 const isoOf = (d: Date) =>
   `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
 
+const round1 = (n: number) => Math.round(n * 10) / 10
+
 /**
- * Walk forward from `startISO` emitting one session per configured class day
- * until `count` sessions exist. Pure date math — no I/O — so the preview and
- * the real creation can never disagree.
+ * Walk forward from `startISO`, adding a class on each configured day, and
+ * stop once `targetHours` of classroom time is covered. The final session is
+ * included whole (we don't split a class), so the total lands on or just above
+ * the target.
  */
-export function buildTruckSessions(startISO: string, days: TruckDay[], count: number): TruckSession[] {
-  if (!startISO || days.length === 0 || count <= 0) return []
+export function buildTruckSessions(
+  startISO: string,
+  days: TruckDay[],
+  targetHours: number = TRUCK_THEORY_TARGET_HOURS,
+): TruckSession[] {
+  if (!startISO || days.length === 0 || targetHours <= 0) return []
 
   const byDay = new Map<number, TruckDay>()
   for (const d of days) byDay.set(d.day, d)
+  // A config where every day is zero-length would never reach the target.
+  if ([...byDay.values()].every(d => hoursBetween(d.start, d.end) <= 0)) return []
 
   const [y, m, d] = startISO.split('-').map(Number)
   if (!y || !m || !d) return []
   const cursor = new Date(y, m - 1, d)
 
   const out: TruckSession[] = []
-  const perKind: Record<TruckDayKind, number> = { theory: 0, practical: 0 }
+  let total = 0
 
-  // Guard bounds the walk so a pathological config can't loop forever.
-  for (let guard = 0; guard < count * 14 + 90 && out.length < count; guard++) {
+  for (let guard = 0; guard < MAX_SESSIONS * 14 && total < targetHours && out.length < MAX_SESSIONS; guard++) {
     const cfg = byDay.get(cursor.getDay())
     if (cfg) {
-      perKind[cfg.kind] += 1
-      out.push({
-        date: isoOf(cursor),
-        start: cfg.start,
-        end: cfg.end,
-        kind: cfg.kind,
-        sessionNumber: perKind[cfg.kind],
-        hours: hoursBetween(cfg.start, cfg.end),
-      })
+      const hours = hoursBetween(cfg.start, cfg.end)
+      if (hours > 0) {
+        total += hours
+        out.push({
+          date: isoOf(cursor),
+          start: cfg.start,
+          end: cfg.end,
+          sessionNumber: out.length + 1,
+          hours,
+          cumulativeHours: round1(total),
+        })
+      }
     }
     cursor.setDate(cursor.getDate() + 1)
   }
@@ -98,28 +116,31 @@ export function buildTruckSessions(startISO: string, days: TruckDay[], count: nu
 }
 
 export interface TruckSummary {
-  theoryHours: number
-  practicalHours: number
+  sessions: number
   totalHours: number
   firstDate: string | null
   lastDate: string | null
+  /** Whole weeks the theory block spans, for a sanity read. */
+  weeks: number
 }
 
 export function summarizeTruckSessions(sessions: TruckSession[]): TruckSummary {
-  const round = (n: number) => Math.round(n * 10) / 10
-  let theory = 0
-  let practical = 0
-  for (const s of sessions) {
-    if (s.kind === 'theory') theory += s.hours
-    else practical += s.hours
+  const totalHours = round1(sessions.reduce((n, s) => n + s.hours, 0))
+  const firstDate = sessions[0]?.date ?? null
+  const lastDate = sessions[sessions.length - 1]?.date ?? null
+  let weeks = 0
+  if (firstDate && lastDate) {
+    const [fy, fm, fd] = firstDate.split('-').map(Number)
+    const [ly, lm, ld] = lastDate.split('-').map(Number)
+    const ms = new Date(ly, lm - 1, ld).getTime() - new Date(fy, fm - 1, fd).getTime()
+    weeks = round1(ms / (7 * 24 * 60 * 60 * 1000))
   }
-  return {
-    theoryHours: round(theory),
-    practicalHours: round(practical),
-    totalHours: round(theory + practical),
-    firstDate: sessions[0]?.date ?? null,
-    lastDate: sessions[sessions.length - 1]?.date ?? null,
-  }
+  return { sessions: sessions.length, totalHours, firstDate, lastDate, weeks }
+}
+
+/** Hours of classroom time per week for a given day config. */
+export function weeklyHours(days: TruckDay[]): number {
+  return round1(days.reduce((n, d) => n + hoursBetween(d.start, d.end), 0))
 }
 
 /** "5:30 PM" from "17:30" — for messages and calendar copy. */
@@ -133,7 +154,7 @@ export function formatTime12h(hhmm: string): string {
 export const formatTimeRange = (start: string, end: string) =>
   `${formatTime12h(start)} to ${formatTime12h(end)}`
 
-/** Human label for a day config, e.g. "Saturday 9:00 AM to 6:00 PM (yard + road)". */
+/** e.g. "Saturday 9:00 AM to 6:00 PM (9 h)" */
 export function describeTruckDay(d: TruckDay): string {
-  return `${DAY_NAMES[d.day]} ${formatTimeRange(d.start, d.end)} (${d.kind === 'theory' ? 'theory' : 'yard + road'})`
+  return `${DAY_NAMES[d.day]} ${formatTimeRange(d.start, d.end)} (${round1(hoursBetween(d.start, d.end))} h)`
 }

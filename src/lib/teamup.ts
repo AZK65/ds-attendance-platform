@@ -189,7 +189,7 @@ export async function createTruckTheoryEvent({
   startTime,
   endTime,
   sessionNumber,
-  kind,
+  totalSessions,
   groupName,
   subcalendarId: explicitSubcalendarId,
 }: {
@@ -197,7 +197,7 @@ export async function createTruckTheoryEvent({
   startTime: string      // "17:30"
   endTime: string        // "21:30"
   sessionNumber: number
-  kind: 'theory' | 'practical'
+  totalSessions: number
   groupName: string
   subcalendarId?: number | null
 }): Promise<{ success: boolean; error?: string }> {
@@ -213,14 +213,7 @@ export async function createTruckTheoryEvent({
     return { success: false, error: 'Could not find a truck subcalendar' }
   }
 
-  const isTheory = kind === 'theory'
-  const label = isTheory ? 'Theory' : 'Yard + Road'
-  const title = `Class 1 ${label} ${sessionNumber} - ${groupName}`
-
-  // First notes line doubles as the marker SignInMode keys off; the
-  // "Class 1 (Truck)" line is what makes BOTH kinds count as a group class
-  // there (see isTheoryEvent), so Saturday sign-in works the same as Tuesday.
-  const marker = isTheory ? 'Theory class' : 'Yard + road class'
+  const title = `Class 1 Theory ${sessionNumber}/${totalSessions} - ${groupName}`
 
   try {
     const res = await fetch(`${BASE_URL}/${calendarKey}/events`, {
@@ -234,7 +227,7 @@ export async function createTruckTheoryEvent({
         start_dt: `${classDate}T${startTime}:00`,
         end_dt: `${classDate}T${endTime}:00`,
         subcalendar_ids: [subcalendarId],
-        notes: `${marker}\nClass 1 (Truck)\nIn person at the school\nSession: ${sessionNumber}\nGroup: ${groupName}`,
+        notes: `Theory class\nClass 1 (Truck)\nIn person at the school\nSession: ${sessionNumber} of ${totalSessions}\nGroup: ${groupName}`,
       }),
     })
 
