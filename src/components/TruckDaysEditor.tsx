@@ -142,6 +142,16 @@ export function TruckDaysEditor({
             <span className="text-green-700 font-medium">{summary.totalHours} h</span>
             <span className="text-muted-foreground"> of {targetHours} h theory</span>
           </p>
+          {(() => {
+            const last = preview[preview.length - 1]
+            if (!last?.partial) return null
+            return (
+              <p className="text-muted-foreground">
+                Last class shortened to {last.hours} h ({formatTime12h(last.start)}–{formatTime12h(last.end)}) so the
+                block lands exactly on {targetHours} h.
+              </p>
+            )
+          })()}
           {summary.firstDate && summary.lastDate && (
             <p className="text-muted-foreground">
               {fmtDate(summary.firstDate)} → {fmtDate(summary.lastDate)} · about {summary.weeks} weeks

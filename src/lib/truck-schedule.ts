@@ -55,6 +55,20 @@ export interface TruckSession {
   hours: number
   /** Cumulative theory hours through this session. */
   cumulativeHours: number
+  /**
+   * True when this class was shortened to land the block exactly on the hour
+   * target — i.e. the final class finishes early rather than overshooting.
+   */
+  partial: boolean
+}
+
+/** "17:30" + 210 min → "21:00" */
+function addMinutes(hhmm: string, minutes: number): string {
+  const [h, m] = hhmm.split(':').map(Number)
+  const total = h * 60 + m + Math.round(minutes)
+  const hh = Math.floor(total / 60) % 24
+  const mm = total % 60
+  return `${String(hh).padStart(2, '0')}:${String(mm).padStart(2, '0')}`
 }
 
 export function hoursBetween(start: string, end: string): number {
@@ -70,10 +84,13 @@ const isoOf = (d: Date) =>
 const round1 = (n: number) => Math.round(n * 10) / 10
 
 /**
- * Walk forward from `startISO`, adding a class on each configured day, and
- * stop once `targetHours` of classroom time is covered. The final session is
- * included whole (we don't split a class), so the total lands on or just above
- * the target.
+ * Walk forward from `startISO`, adding a class on each configured day, until
+ * `targetHours` of classroom time is covered EXACTLY.
+ *
+ * The last class is shortened to finish early rather than overshooting — 75 h
+ * is a contract obligation, so a cohort should not be scheduled for 76 h. With
+ * the standard Tue/Thu/Sat week that makes the final Thursday a 3 h class
+ * (5:30–8:30 PM) instead of 4 h.
  */
 export function buildTruckSessions(
   startISO: string,
@@ -97,16 +114,21 @@ export function buildTruckSessions(
   for (let guard = 0; guard < MAX_SESSIONS * 14 && total < targetHours && out.length < MAX_SESSIONS; guard++) {
     const cfg = byDay.get(cursor.getDay())
     if (cfg) {
-      const hours = hoursBetween(cfg.start, cfg.end)
-      if (hours > 0) {
+      const fullHours = hoursBetween(cfg.start, cfg.end)
+      if (fullHours > 0) {
+        const remaining = targetHours - total
+        // Trim the final class so the block totals exactly `targetHours`.
+        const partial = fullHours > remaining
+        const hours = partial ? remaining : fullHours
         total += hours
         out.push({
           date: isoOf(cursor),
           start: cfg.start,
-          end: cfg.end,
+          end: partial ? addMinutes(cfg.start, hours * 60) : cfg.end,
           sessionNumber: out.length + 1,
-          hours,
+          hours: round1(hours),
           cumulativeHours: round1(total),
+          partial,
         })
       }
     }
