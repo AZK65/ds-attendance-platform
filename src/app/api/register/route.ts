@@ -3,11 +3,37 @@ import { prisma } from '@/lib/db'
 import { createRegistrationInvoice } from '@/lib/registration-invoice'
 import { getDepositCents } from '@/lib/pricing'
 import { sendEmailViaResend, getEmailSender } from '@/lib/email'
+import { rateLimit, clientIp, tooManyRequests } from '@/lib/rate-limit'
+import { verifyHuman, rejectBot } from '@/lib/bot-guard'
 
 // POST /api/register — Public student registration
 export async function POST(request: NextRequest) {
+  const ip = clientIp(request)
+
+  // This route sends a Resend email to a caller-supplied address and can
+  // auto-create an invoice, so it stays tightly capped per IP.
+  const limit = rateLimit(`register:${ip}`, 5, 60 * 60 * 1000)
+  if (!limit.ok) return tooManyRequests(limit.retryAfter)
+
   try {
     const body = await request.json()
+
+    // Admin-submitted registrations (the iPad/kiosk truck flow) come from a
+    // logged-in session and never carry a captcha token — skip the bot layers
+    // for them, but keep them for anything from the public form.
+    const isAdmin = request.cookies.get('auth-token')?.value === 'valid'
+    if (!isAdmin) {
+      const verdict = await verifyHuman(
+        {
+          honeypot: body.company,
+          formStartedAt: body.formStartedAt,
+          turnstileToken: body.turnstileToken,
+        },
+        ip,
+      )
+      if (!verdict.ok) return rejectBot(verdict.reason)
+    }
+
     const {
       fullName, phoneNumber, email, dob,
       address, city, province, postalCode,
@@ -30,8 +56,8 @@ export async function POST(request: NextRequest) {
 
     // Only logged-in admins can submit a truck registration. The public
     // /register Truck button is a contact card, not a form, so this only
-    // matters if someone tries to forge the request.
-    const isAdmin = request.cookies.get('auth-token')?.value === 'valid'
+    // matters if someone tries to forge the request. (`isAdmin` is resolved
+    // above, where it also decides whether the bot checks apply.)
     const vehicleType =
       requestedVehicleType === 'truck' && isAdmin ? 'truck' : 'car'
 
@@ -149,6 +175,16 @@ export async function POST(request: NextRequest) {
         expiresAt: new Date(Date.now() + 365 * 24 * 60 * 60 * 1000),
       },
     })
+
+    // They finished, so any "didn't finish" lead we captured mid-form for this
+    // number is stale — drop it so nobody calls a student who already signed up.
+    // The completed row above carries all the same data.
+    await prisma.studentRegistration.deleteMany({
+      where: {
+        status: 'draft',
+        phoneNumber: { contains: phoneDigits.slice(-10) },
+      },
+    }).catch(() => {})
 
     // In-person collection → auto-create an unpaid invoice so it shows up in
     // the admin invoice list immediately. Admin marks paid once the fee is

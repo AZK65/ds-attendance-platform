@@ -17,7 +17,7 @@ import {
 } from '@/components/ui/table'
 import {
   Target, Loader2, Search, Phone, Mail, MessageCircle, Trash2,
-  CheckCircle, Archive, Inbox, Clock, Plus, Upload,
+  CheckCircle, Archive, Inbox, Clock, Plus, Upload, UserX,
 } from 'lucide-react'
 
 interface Lead {
@@ -33,7 +33,7 @@ interface Lead {
   isTest: boolean
 }
 
-type Tab = 'active' | 'archived' | 'all'
+type Tab = 'active' | 'abandoned' | 'archived' | 'all'
 
 function relativeTime(iso: string): string {
   const d = new Date(iso)
@@ -60,16 +60,39 @@ export default function LeadsPage() {
   const [importMsg, setImportMsg] = useState('')
   const fileInputRef = useRef<HTMLInputElement>(null)
 
-  const { data, isLoading } = useQuery<{ leads: Lead[]; newCount: number }>({
+  const isAbandoned = tab === 'abandoned'
+
+  const { data, isLoading } = useQuery<{ leads: Lead[]; newCount?: number }>({
     queryKey: ['leads', tab, search],
     queryFn: async () => {
-      const params = new URLSearchParams({ status: tab })
+      const params = new URLSearchParams()
       if (search.trim()) params.set('q', search.trim())
+      // Abandoned registrations live in StudentRegistration, not Lead, so they
+      // come from their own endpoint (already shaped like a Lead).
+      if (isAbandoned) {
+        const res = await fetch(`/api/leads/abandoned?${params}`)
+        if (!res.ok) throw new Error('Failed to fetch abandoned registrations')
+        return res.json()
+      }
+      params.set('status', tab)
       const res = await fetch(`/api/leads?${params}`)
       if (!res.ok) throw new Error('Failed to fetch leads')
       return res.json()
     },
     refetchInterval: 30000,
+  })
+
+  // Count for the tab badge — kept independent of the selected tab so the
+  // number is visible while you're looking at another tab.
+  const { data: abandonedCount } = useQuery<{ count: number }>({
+    queryKey: ['leads', 'abandoned-count'],
+    queryFn: async () => {
+      const res = await fetch('/api/leads/abandoned')
+      if (!res.ok) throw new Error('failed')
+      const json = await res.json()
+      return { count: json.count ?? 0 }
+    },
+    refetchInterval: 60000,
   })
 
   const leads = data?.leads || []
@@ -82,6 +105,18 @@ export default function LeadsPage() {
         body: JSON.stringify({ status, isRead: true }),
       })
       if (!res.ok) throw new Error('Failed to update')
+      return res.json()
+    },
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['leads'] }),
+  })
+
+  // Abandoned drafts live in StudentRegistration — discarding one hits its own
+  // endpoint, which is guarded to status "draft" so it can never remove a real
+  // registration.
+  const discardMutation = useMutation({
+    mutationFn: async (id: string) => {
+      const res = await fetch(`/api/leads/abandoned?id=${encodeURIComponent(id)}`, { method: 'DELETE' })
+      if (!res.ok) throw new Error('Failed to discard')
       return res.json()
     },
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ['leads'] }),
@@ -144,8 +179,9 @@ export default function LeadsPage() {
     e.target.value = '' // allow re-importing the same file
   }
 
-  const TABS: { key: Tab; label: string; icon: typeof Inbox }[] = [
+  const TABS: { key: Tab; label: string; icon: typeof Inbox; count?: number }[] = [
     { key: 'active', label: 'Active', icon: Inbox },
+    { key: 'abandoned', label: "Didn't finish", icon: UserX, count: abandonedCount?.count },
     { key: 'archived', label: 'Archived', icon: Archive },
     { key: 'all', label: 'All', icon: Target },
   ]
@@ -219,7 +255,7 @@ export default function LeadsPage() {
             </div>
           </div>
           <div className="flex items-center gap-1 mt-3 border-b">
-            {TABS.map(({ key, label, icon: Icon }) => (
+            {TABS.map(({ key, label, icon: Icon, count }) => (
               <button
                 key={key}
                 onClick={() => setTab(key)}
@@ -231,6 +267,9 @@ export default function LeadsPage() {
               >
                 <Icon className="h-4 w-4" />
                 {label}
+                {count !== undefined && count > 0 && (
+                  <Badge variant="secondary" className="ml-0.5">{count}</Badge>
+                )}
               </button>
             ))}
           </div>
@@ -313,13 +352,22 @@ export default function LeadsPage() {
                         </span>
                       </TableCell>
                       <TableCell>
-                        {lead.status === 'new' && <Badge className="bg-blue-100 text-blue-700">New</Badge>}
-                        {lead.status === 'contacted' && <Badge className="bg-green-100 text-green-700">Contacted</Badge>}
-                        {lead.status === 'archived' && <Badge variant="secondary">Archived</Badge>}
+                        {isAbandoned ? (
+                          <Badge className="bg-amber-100 text-amber-800">Didn&apos;t finish</Badge>
+                        ) : (
+                          <>
+                            {lead.status === 'new' && <Badge className="bg-blue-100 text-blue-700">New</Badge>}
+                            {lead.status === 'contacted' && <Badge className="bg-green-100 text-green-700">Contacted</Badge>}
+                            {lead.status === 'archived' && <Badge variant="secondary">Archived</Badge>}
+                          </>
+                        )}
                       </TableCell>
                       <TableCell>
                         <div className="flex items-center justify-end gap-1">
-                          {lead.status !== 'contacted' && (
+                          {/* Abandoned drafts aren't Lead rows, so the
+                              contacted/archive mutations don't apply to them —
+                              you either call them or discard the draft. */}
+                          {!isAbandoned && lead.status !== 'contacted' && (
                             <Button
                               variant="ghost" size="sm" className="h-8 px-2"
                               title="Mark contacted"
@@ -328,7 +376,7 @@ export default function LeadsPage() {
                               <CheckCircle className="h-4 w-4 text-green-600" />
                             </Button>
                           )}
-                          {lead.status !== 'archived' && (
+                          {!isAbandoned && lead.status !== 'archived' && (
                             <Button
                               variant="ghost" size="sm" className="h-8 px-2"
                               title="Archive"
@@ -339,9 +387,13 @@ export default function LeadsPage() {
                           )}
                           <Button
                             variant="ghost" size="sm" className="h-8 px-2"
-                            title="Delete"
+                            title={isAbandoned ? 'Discard this unfinished registration' : 'Delete'}
                             onClick={() => {
-                              if (confirm('Delete this lead permanently?')) deleteMutation.mutate(lead.id)
+                              if (isAbandoned) {
+                                if (confirm('Discard this unfinished registration?')) discardMutation.mutate(lead.id)
+                              } else if (confirm('Delete this lead permanently?')) {
+                                deleteMutation.mutate(lead.id)
+                              }
                             }}
                           >
                             <Trash2 className="h-4 w-4 text-destructive" />

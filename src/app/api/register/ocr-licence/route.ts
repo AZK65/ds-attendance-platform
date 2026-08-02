@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { OCR_MODEL } from '@/lib/openrouter'
+import { rateLimit, clientIp, tooManyRequests } from '@/lib/rate-limit'
 
 // POST /api/register/ocr-licence
 // Public endpoint — runs OCR on a single Quebec driver's-licence photo and
@@ -34,6 +35,15 @@ export async function POST(request: NextRequest) {
   if (!OPENROUTER_API_KEY) {
     return NextResponse.json({ error: 'OCR not configured' }, { status: 503 })
   }
+
+  // Every call here costs real money (paid vision model, 4k max_tokens), and
+  // the route is public, so it gets the tightest limit in the app. A genuine
+  // registration scans a licence once or twice; 10/hour/IP is generous for a
+  // student retrying a blurry photo and useless to a bot burning credits.
+  const ip = clientIp(request)
+  const limit = rateLimit(`ocr:${ip}`, 10, 60 * 60 * 1000)
+  if (!limit.ok) return tooManyRequests(limit.retryAfter)
+
   try {
     const { licenceImage } = await request.json() as { licenceImage?: string }
     if (!licenceImage || !licenceImage.startsWith('data:image/')) {

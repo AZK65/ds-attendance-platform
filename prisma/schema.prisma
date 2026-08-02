@@ -417,7 +417,13 @@ model AnalyticsChatMessage {
 
 model StudentRegistration {
   id             String    @id @default(cuid())
+  // pending_scan | draft | submitted | confirmed | expired
+  // "draft" = the visitor started the public form and gave us a name + phone
+  // but never reached the end. Surfaced in the Leads page so we can call them.
+  // Flipped to "submitted" if they come back and finish.
   status         String    @default("pending_scan")
+  // Last step a draft reached, e.g. "address" — shows how far they got.
+  draftStep      String?
   // "car" (Class 5, default — anyone can self-register) or "truck"
   // (Classes 1 & 3 — admin-only). Public registrations always come in
   // as "car" because the public Truck flow is just a contact card.

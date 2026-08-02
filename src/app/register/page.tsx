@@ -6,6 +6,7 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Checkbox } from '@/components/ui/checkbox'
+import { TurnstileWidget } from '@/components/TurnstileWidget'
 import {
   User, Phone, MapPin, Camera, FileText, PenTool,
   ArrowRight, ArrowLeft, Loader2, CheckCircle2, Upload,
@@ -539,7 +540,12 @@ export function RegisterPageInner({ kiosk = false }: { kiosk?: boolean } = {}) {
       return
     }
     if (idx < STEPS.length - 1) {
-      setStep(STEPS[idx + 1].key)
+      const next = STEPS[idx + 1].key
+      // Capture the lead as soon as we have a validated name + phone, then keep
+      // the draft current as they advance. If they abandon the form we still
+      // have someone to call back. Fire-and-forget — never block the UI on it.
+      saveDraft(next)
+      setStep(next)
     }
   }
 
@@ -551,6 +557,46 @@ export function RegisterPageInner({ kiosk = false }: { kiosk?: boolean } = {}) {
     const idx = STEPS.findIndex(s => s.key === step)
     if (idx > 0) setStep(STEPS[idx - 1].key)
   }
+
+  // --- Abandoned-lead capture + bot signals ------------------------------
+  // Row id of the in-progress draft this browser created, so repeated saves
+  // update one lead instead of piling up new ones.
+  const [draftId, setDraftId] = useState<string | null>(null)
+  // When this visitor opened the form. Posted with the submission so the server
+  // can reject anything completed impossibly fast.
+  const formStartedAtRef = useRef<number>(Date.now())
+  // Honeypot. Hidden from humans; bots that fill every field trip it.
+  const [company, setCompany] = useState('')
+  const [turnstileToken, setTurnstileToken] = useState('')
+
+  const saveDraft = useCallback(async (reachedStep: string) => {
+    // Only the public Class 5 self-serve flow produces abandoned leads. The
+    // kiosk is staff-operated (and already streams a live snapshot), and truck
+    // is admin-only, so neither should create lead rows.
+    if (kiosk || vehicleType === 'truck') return
+    if (fullName.trim().length < 2) return
+    if (phoneNumber.replace(/\D/g, '').length < 10) return
+
+    try {
+      const res = await fetch('/api/register/draft', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          draftId,
+          fullName, phoneNumber, email, dob,
+          address, city, province, postalCode,
+          step: reachedStep,
+          company,
+          formStartedAt: formStartedAtRef.current,
+        }),
+      })
+      if (!res.ok) return
+      const data = await res.json()
+      if (data.draftId) setDraftId(data.draftId)
+    } catch {
+      // Losing a draft must never interrupt a real registration.
+    }
+  }, [kiosk, vehicleType, fullName, phoneNumber, email, dob, address, city, province, postalCode, draftId, company])
 
   const handleSubmit = async () => {
     setStep('submitting')
@@ -575,6 +621,10 @@ export function RegisterPageInner({ kiosk = false }: { kiosk?: boolean } = {}) {
           signedAtPlace, firstCourseDate,
           repSignatureDataUrl, repName,
           truckPaymentMethod, cardLocation,
+          // Bot signals — see src/lib/bot-guard.ts
+          company,
+          formStartedAt: formStartedAtRef.current,
+          turnstileToken,
         }),
       })
 
@@ -1764,6 +1814,28 @@ export function RegisterPageInner({ kiosk = false }: { kiosk?: boolean } = {}) {
             </motion.div>
           )}
         </AnimatePresence>
+
+        {/* Honeypot. Visually hidden and taken out of the tab order + a11y tree,
+            so no real user can reach it — anything that fills it is a bot.
+            Not `display:none`, which some bots skip. */}
+        <div aria-hidden="true" className="absolute w-px h-px -left-[9999px] overflow-hidden">
+          <label htmlFor="company-website">Company website</label>
+          <input
+            id="company-website"
+            name="company"
+            type="text"
+            tabIndex={-1}
+            autoComplete="off"
+            value={company}
+            onChange={e => setCompany(e.target.value)}
+          />
+        </div>
+
+        {/* Captcha, on the last step only — renders nothing until the
+            Turnstile site key is configured. Skipped on the staff kiosk. */}
+        {step === 'payment' && !kiosk && (
+          <TurnstileWidget onToken={setTurnstileToken} />
+        )}
 
         {/* Navigation Buttons */}
         {step !== 'submitting' && step !== 'done' && step !== 'select' && step !== 'truck-contact' && (

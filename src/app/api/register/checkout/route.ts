@@ -1,12 +1,18 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/db'
 import { getDepositCents } from '@/lib/pricing'
+import { rateLimit, clientIp, tooManyRequests } from '@/lib/rate-limit'
 
 const CLOVER_BASE = process.env.CLOVER_SANDBOX === 'true'
   ? 'https://sandbox.dev.clover.com'
   : 'https://api.clover.com'
 
 export async function POST(request: NextRequest) {
+  // Creates a real Clover hosted-checkout session per call — keep it capped.
+  const ip = clientIp(request)
+  const limit = rateLimit(`checkout:${ip}`, 10, 60 * 60 * 1000)
+  if (!limit.ok) return tooManyRequests(limit.retryAfter)
+
   try {
     const { registrationId } = await request.json()
     if (!registrationId) {

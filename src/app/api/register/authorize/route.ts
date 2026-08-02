@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/db'
 import { createAuthorization } from '@/lib/clover'
 import { getDepositCents } from '@/lib/pricing'
+import { rateLimit, clientIp, tooManyRequests } from '@/lib/rate-limit'
 
 /**
  * POST /api/register/authorize
@@ -14,6 +15,12 @@ import { getDepositCents } from '@/lib/pricing'
  * void (release).
  */
 export async function POST(request: NextRequest) {
+  // Public route that puts real authorization holds on real cards — cap it so
+  // it can't be used to test stolen card numbers in a loop.
+  const ip = clientIp(request)
+  const limit = rateLimit(`authorize:${ip}`, 8, 60 * 60 * 1000)
+  if (!limit.ok) return tooManyRequests(limit.retryAfter)
+
   try {
     const body = await request.json().catch(() => ({}))
     const { registrationId, sourceToken } = body as { registrationId?: string; sourceToken?: string }
