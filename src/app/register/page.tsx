@@ -480,7 +480,10 @@ export function RegisterPageInner({ kiosk = false }: { kiosk?: boolean } = {}) {
   const paymentTotal = activePricing?.total ?? (isTruckPayment ? TRUCK_PACKAGE_TOTAL : 1000)
   const paymentTotalAmount = `$${money(paymentTotal)}`
   // Deposit actually charged today (real card authorization).
-  const depositToday = (activePricing?.depositCents ?? 25000) / 100
+  // Vehicle-aware fallback so the checkout button label doesn't flash the
+  // car deposit while pricing is still loading over the wire. Once the fetch
+  // completes, activePricing.depositCents takes over.
+  const depositToday = (activePricing?.depositCents ?? (isTruckPayment ? 50000 : 25000)) / 100
   const paymentIntro = isTruckPayment
     ? `The total course cost is $${money(paymentTotal)} before taxes, payable in ${paymentRows.length} installment${paymentRows.length === 1 ? '' : 's'}.`
     // Localized car intro — swap in the current total so it stays consistent

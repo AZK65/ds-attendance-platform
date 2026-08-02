@@ -60,7 +60,7 @@ export const DEFAULT_TRUCK_NOTE =
   '$9,050 before taxes — $2,250 theory + $6,500 practical + $300 SAAQ exam in Laval. Paid in 4 installments.'
 
 export const DEFAULT_CAR_DEPOSIT_CENTS = 25000
-export const DEFAULT_TRUCK_DEPOSIT_CENTS = 25000
+export const DEFAULT_TRUCK_DEPOSIT_CENTS = 50000
 
 function parseSchedule(raw: string, fallback: Installment[]): Installment[] {
   try {
