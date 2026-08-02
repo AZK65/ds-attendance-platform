@@ -94,18 +94,24 @@ export async function getNasarSubcalendarId(): Promise<number | null> {
 }
 
 /**
- * Create a 2-hour theory class event on Fayyaz's Teamup calendar
+ * Create a 2-hour theory class event on a teacher's Teamup calendar.
+ *
+ * `subcalendarId` lets the caller pick the teacher explicitly (the wizard's
+ * teacher dropdown). When omitted we fall back to Fayyaz, which is what every
+ * caller did before the picker existed.
  */
 export async function createTheoryEvent({
   classDate,
   classTime,
   moduleNumber,
   groupName,
+  subcalendarId: explicitSubcalendarId,
 }: {
   classDate: string      // ISO date like "2026-02-20"
   classTime: string      // Time range like "5 pm to 7 pm"
   moduleNumber: number
   groupName: string
+  subcalendarId?: number | null
 }): Promise<{ success: boolean; error?: string }> {
   const apiKey = process.env.TEAMUP_API_KEY || ''
   const calendarKey = process.env.TEAMUP_CALENDAR_KEY || ''
@@ -113,7 +119,7 @@ export async function createTheoryEvent({
     return { success: false, error: 'Teamup not configured' }
   }
 
-  const subcalendarId = await getFayyazSubcalendarId()
+  const subcalendarId = explicitSubcalendarId || (await getFayyazSubcalendarId())
   if (!subcalendarId) {
     return { success: false, error: 'Could not find Fayyaz subcalendar' }
   }
@@ -161,6 +167,105 @@ export async function createTheoryEvent({
     console.error('Failed to create theory event:', error)
     return { success: false, error: error instanceof Error ? error.message : 'Unknown error' }
   }
+}
+
+/**
+ * Create one Class 1 (truck) cohort theory session on a teacher's calendar.
+ *
+ * Truck theory is classroom-taught to the whole intake at once (Tue + Thu
+ * evenings per the program), so it's a GROUP event like car theory — not a
+ * per-student booking like the in-cab hours.
+ *
+ * The notes shape is load-bearing, not cosmetic:
+ *   - "Theory class" is what SignInMode.isTheoryEvent() matches on, so these
+ *     sessions surface under "Group Classes Today" for sign-in.
+ *   - "Group: <name>" is what SignInMode.theoryGroupName() and
+ *     group-next-theory parse to tie the event back to the WhatsApp group.
+ * Deliberately NOT "TruckClass: yes" — that sentinel marks per-student in-cab
+ * classes and would route these into the individual sign-in list instead.
+ */
+export async function createTruckTheoryEvent({
+  classDate,
+  classTime,
+  sessionNumber,
+  groupName,
+  subcalendarId: explicitSubcalendarId,
+}: {
+  classDate: string      // ISO date like "2026-09-08"
+  classTime: string      // Time range like "5:30 PM to 9:30 PM"
+  sessionNumber: number
+  groupName: string
+  subcalendarId?: number | null
+}): Promise<{ success: boolean; error?: string }> {
+  const apiKey = process.env.TEAMUP_API_KEY || ''
+  const calendarKey = process.env.TEAMUP_CALENDAR_KEY || ''
+  if (!apiKey || !calendarKey) {
+    return { success: false, error: 'Teamup not configured' }
+  }
+
+  // Truck cohorts default to Nasar, matching the existing per-student truck flow.
+  const subcalendarId = explicitSubcalendarId || (await getNasarSubcalendarId())
+  if (!subcalendarId) {
+    return { success: false, error: 'Could not find a truck subcalendar' }
+  }
+
+  const times = parseTimeRange(classTime)
+  const startTime = times?.start ?? '17:30'
+  const endTime = times?.end ?? '21:30'
+
+  const title = `Class 1 Theory ${sessionNumber} - ${groupName}`
+
+  try {
+    const res = await fetch(`${BASE_URL}/${calendarKey}/events`, {
+      method: 'POST',
+      headers: {
+        'Teamup-Token': apiKey,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        title,
+        start_dt: `${classDate}T${startTime}:00`,
+        end_dt: `${classDate}T${endTime}:00`,
+        subcalendar_ids: [subcalendarId],
+        notes: `Theory class\nClass 1 (Truck)\nSession: ${sessionNumber}\nGroup: ${groupName}`,
+      }),
+    })
+
+    if (!res.ok) {
+      const text = await res.text()
+      console.error('Teamup truck theory event creation failed:', text)
+      return { success: false, error: `Teamup API error: ${res.status}` }
+    }
+
+    return { success: true }
+  } catch (error) {
+    console.error('Failed to create truck theory event:', error)
+    return { success: false, error: error instanceof Error ? error.message : 'Unknown error' }
+  }
+}
+
+/**
+ * Walk forward from `startISO` and return `count` ISO dates that fall on the
+ * given weekdays (0=Sun … 6=Sat). Used to lay out a truck cohort's Tue/Thu
+ * theory timetable. Pure date math — no Teamup calls — so the wizard can
+ * preview the exact dates before anything is created.
+ */
+export function generateSessionDates(startISO: string, weekdays: number[], count: number): string[] {
+  if (!startISO || weekdays.length === 0 || count <= 0) return []
+  const [y, m, d] = startISO.split('-').map(Number)
+  const cursor = new Date(y, m - 1, d)
+  const wanted = new Set(weekdays)
+  const out: string[] = []
+  // Cap the walk so a bad weekday set can never spin forever.
+  for (let guard = 0; guard < count * 14 + 60 && out.length < count; guard++) {
+    if (wanted.has(cursor.getDay())) {
+      out.push(
+        `${cursor.getFullYear()}-${String(cursor.getMonth() + 1).padStart(2, '0')}-${String(cursor.getDate()).padStart(2, '0')}`
+      )
+    }
+    cursor.setDate(cursor.getDate() + 1)
+  }
+  return out
 }
 
 /**

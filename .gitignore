@@ -54,3 +54,4 @@ next-env.d.ts
 
 # Data directory (templates, etc.)
 /data/
+.claude/

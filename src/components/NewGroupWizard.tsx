@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useRef, useCallback } from 'react'
+import { useState, useRef, useCallback, useEffect } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -27,6 +27,27 @@ interface ProgressEntry {
 
 type WizardStep = 'students' | 'group' | 'setup' | 'executing' | 'done'
 
+const DAY_LABELS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
+
+// Client-side twin of generateSessionDates() in @/lib/teamup, so the wizard can
+// preview the exact dates (and the hour total) before anything is created.
+function previewSessionDates(startISO: string, weekdays: number[], count: number): string[] {
+  if (!startISO || weekdays.length === 0 || count <= 0) return []
+  const [y, m, d] = startISO.split('-').map(Number)
+  const cursor = new Date(y, m - 1, d)
+  const wanted = new Set(weekdays)
+  const out: string[] = []
+  for (let guard = 0; guard < count * 14 + 60 && out.length < count; guard++) {
+    if (wanted.has(cursor.getDay())) {
+      out.push(
+        `${cursor.getFullYear()}-${String(cursor.getMonth() + 1).padStart(2, '0')}-${String(cursor.getDate()).padStart(2, '0')}`
+      )
+    }
+    cursor.setDate(cursor.getDate() + 1)
+  }
+  return out
+}
+
 interface NewGroupWizardProps {
   open: boolean
   onOpenChange: (open: boolean) => void
@@ -44,6 +65,12 @@ export function NewGroupWizard({ open, onOpenChange }: NewGroupWizardProps) {
   // Step 2: Group
   const [groupName, setGroupName] = useState('')
 
+  // Which program this cohort is for. Car = 12 theory modules over ~12 months
+  // (Zoom). Truck = Class 1 PESR: 75 h of classroom theory on fixed weekday
+  // evenings, with the 50 h of in-cab booked per student elsewhere.
+  const [vehicleType, setVehicleType] = useState<'car' | 'truck'>('car')
+  const isTruck = vehicleType === 'truck'
+
   // Step 3: Setup
   const [moduleNumber, setModuleNumber] = useState(1)
   const [classDate, setClassDate] = useState('')
@@ -53,6 +80,45 @@ export function NewGroupWizard({ open, onOpenChange }: NewGroupWizardProps) {
   const [shouldSendPdf, setShouldSendPdf] = useState(false)
   const [pdfFile, setPdfFile] = useState<{ base64: string; filename: string } | null>(null)
   const pdfInputRef = useRef<HTMLInputElement>(null)
+
+  // Truck cohort: Tue + Thu evenings, 19 x 4 h = 76 h (program calls for 75 h).
+  const [truckSessions, setTruckSessions] = useState(19)
+  const [truckWeekdays, setTruckWeekdays] = useState<number[]>([2, 4])
+
+  // Teacher (Teamup subcalendar) the classes get written to.
+  const [subcalendarId, setSubcalendarId] = useState<string>('')
+  const [teachers, setTeachers] = useState<Array<{ id: number; name: string }>>([])
+
+  // Load the teacher list once the dialog opens, and default to the teacher
+  // each program has always used (car → Fayyaz, truck → Nasar) so behaviour is
+  // unchanged unless an admin picks someone else.
+  useEffect(() => {
+    if (!open) return
+    let cancelled = false
+    fetch('/api/scheduling/subcalendars')
+      .then(r => (r.ok ? r.json() : []))
+      .then((data: Array<{ id: number; name: string; active: boolean }>) => {
+        if (cancelled || !Array.isArray(data)) return
+        const active = data.filter(s => s.active).map(s => ({ id: s.id, name: s.name }))
+        setTeachers(active)
+      })
+      .catch(() => {})
+    return () => { cancelled = true }
+  }, [open])
+
+  useEffect(() => {
+    if (teachers.length === 0) return
+    const want = isTruck ? 'nasar' : 'fayyaz'
+    const match = teachers.find(t => t.name.toLowerCase().includes(want))
+    setSubcalendarId(String(match?.id ?? teachers[0].id))
+  }, [teachers, isTruck])
+
+  // Switching program swaps in that program's standard class hours.
+  const switchVehicleType = (next: 'car' | 'truck') => {
+    setVehicleType(next)
+    setClassTimeStart(next === 'truck' ? '17:30' : '17:00')
+    setClassTimeEnd(next === 'truck' ? '21:30' : '19:00')
+  }
 
   // Execution
   const [progress, setProgress] = useState<ProgressEntry[]>([])
@@ -191,7 +257,7 @@ export function NewGroupWizard({ open, onOpenChange }: NewGroupWizardProps) {
       const res = await fetch('/api/groups/create', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name: groupName, participants: phones, participantNames: students.map(s => s.name) }),
+        body: JSON.stringify({ name: groupName, participants: phones, participantNames: students.map(s => s.name), vehicleType }),
       })
       if (res.ok) {
         const data = await res.json()
@@ -216,7 +282,12 @@ export function NewGroupWizard({ open, onOpenChange }: NewGroupWizardProps) {
     // Phase D: Send welcome message to group
     setExecutionPhase('Sending welcome message...')
     try {
-      const welcomeMessage = `Welcome to Qazi Driving School!\n\nThank you for choosing us for your driving education. We're excited to have you on board!\n\nA few things to know:\n- You will receive a PDF booklet — please keep it handy as it is required during your classes.\n- Classes are held on Zoom. Please download it before your first class.\n- When joining Zoom, please use your *full name* so we can mark your attendance.\n\nIf you have any questions, feel free to message here. See you in class!`
+      // Car theory runs on Zoom; Class 1 theory is taught in the classroom and
+      // pairs with in-cab hours booked per student — so the two programs get
+      // different joining instructions.
+      const welcomeMessage = isTruck
+        ? `Welcome to Qazi Driving School!\n\nThank you for choosing us for your Class 1 training. We're excited to have you on board!\n\nA few things to know:\n- You will receive a PDF booklet — please keep it handy as it is required during your classes.\n- Theory classes are held *in class at the school*. Your schedule will be posted here.\n- Your in-cab driving hours are booked separately — we'll message you with your times.\n- If you miss a theory hour you'll need to make it up before moving on.\n\nIf you have any questions, feel free to message here. See you in class!`
+        : `Welcome to Qazi Driving School!\n\nThank you for choosing us for your driving education. We're excited to have you on board!\n\nA few things to know:\n- You will receive a PDF booklet — please keep it handy as it is required during your classes.\n- Classes are held on Zoom. Please download it before your first class.\n- When joining Zoom, please use your *full name* so we can mark your attendance.\n\nIf you have any questions, feel free to message here. See you in class!`
 
       const res = await fetch(`/api/groups/${encodeURIComponent(groupId!)}/message`, {
         method: 'POST',
@@ -259,11 +330,15 @@ export function NewGroupWizard({ open, onOpenChange }: NewGroupWizardProps) {
 
     // Phase F: Class setup (description, notifications, reminders, calendar — no PDF)
     if (classDate) {
-      setExecutionPhase('Setting up class...')
+      setExecutionPhase(isTruck ? 'Building the theory timetable...' : 'Setting up class...')
       const zoomLink = 'https://us02web.zoom.us/j/4171672829?pwd=ZTlHSEdmTGRYV1QraU5MaThqaC9Rdz09'
-      const description = shouldSetDescription
-        ? `Zoom Meeting:\n${zoomLink}\nPassword: qazi\n\nDownload Zoom:\niPhone: https://apps.apple.com/app/zoom/id546505307\nAndroid: https://play.google.com/store/apps/details?id=us.zoom.videomeetings\n\nPlease use your full name when joining Zoom.`
-        : undefined
+      // Truck theory is in-class, so the Zoom blurb would be wrong on the
+      // group description — give it the classroom schedule instead.
+      const description = !shouldSetDescription
+        ? undefined
+        : isTruck
+          ? `Class 1 — Theory schedule\n${truckWeekdays.map(d => DAY_LABELS[d]).join(' & ')}, ${classTimeDisplay}\nHeld in class at the school.\n\nYour in-cab driving hours are booked separately.`
+          : `Zoom Meeting:\n${zoomLink}\nPassword: qazi\n\nDownload Zoom:\niPhone: https://apps.apple.com/app/zoom/id546505307\nAndroid: https://play.google.com/store/apps/details?id=us.zoom.videomeetings\n\nPlease use your full name when joining Zoom.`
 
       try {
         const res = await fetch(`/api/groups/${encodeURIComponent(groupId!)}/setup`, {
@@ -274,7 +349,11 @@ export function NewGroupWizard({ open, onOpenChange }: NewGroupWizardProps) {
             description,
             memberPhones: phones,
             scheduleClass: true,
-            moduleNumber,
+            vehicleType,
+            subcalendarId: subcalendarId ? parseInt(subcalendarId) : undefined,
+            ...(isTruck
+              ? { truckSessions, truckWeekdays }
+              : { moduleNumber }),
             classDate: new Date(classDate + 'T12:00:00').toLocaleDateString('en-US', {
               weekday: 'long', month: 'long', day: 'numeric',
             }),
@@ -309,7 +388,10 @@ export function NewGroupWizard({ open, onOpenChange }: NewGroupWizardProps) {
     setStep('students')
     setBulkText('')
     setGroupName('')
+    setVehicleType('car')
     setModuleNumber(1)
+    setTruckSessions(19)
+    setTruckWeekdays([2, 4])
     setClassDate('')
     setClassTimeStart('17:00')
     setClassTimeEnd('19:00')
@@ -433,10 +515,34 @@ export function NewGroupWizard({ open, onOpenChange }: NewGroupWizardProps) {
           {step === 'group' && (
             <>
               <div>
+                <Label>Program</Label>
+                <div className="grid grid-cols-2 gap-3 mt-1.5">
+                  <button
+                    type="button"
+                    onClick={() => switchVehicleType('car')}
+                    className={`text-left rounded-lg border-2 p-3 transition-all ${!isTruck ? 'border-primary bg-primary/5' : 'border-muted hover:border-primary/40'}`}
+                  >
+                    <p className="text-sm font-medium">Class 5 — Car</p>
+                    <p className="text-xs text-muted-foreground mt-0.5">12 theory modules on Zoom</p>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => switchVehicleType('truck')}
+                    className={`text-left rounded-lg border-2 p-3 transition-all ${isTruck ? 'border-primary bg-primary/5' : 'border-muted hover:border-primary/40'}`}
+                  >
+                    <p className="text-sm font-medium">Class 1 — Truck</p>
+                    <p className="text-xs text-muted-foreground mt-0.5">75 h theory in class</p>
+                  </button>
+                </div>
+              </div>
+
+              <div>
                 <Label>WhatsApp Group Name</Label>
                 <Input
                   className="mt-1.5"
-                  placeholder={`Module ${moduleNumber} - ${new Date().toLocaleDateString('en-US', { month: 'short', year: 'numeric' })}`}
+                  placeholder={isTruck
+                    ? `Qazi Class 1 — ${new Date().toLocaleDateString('en-US', { month: 'long', year: 'numeric' })}`
+                    : `Module ${moduleNumber} - ${new Date().toLocaleDateString('en-US', { month: 'short', year: 'numeric' })}`}
                   value={groupName}
                   onChange={e => setGroupName(e.target.value)}
                 />
@@ -459,20 +565,51 @@ export function NewGroupWizard({ open, onOpenChange }: NewGroupWizardProps) {
           {/* Step 3: Class Setup */}
           {step === 'setup' && (
             <>
+              <div>
+                <Label>Teacher</Label>
+                <select
+                  className="mt-1.5 w-full h-9 rounded-md border border-input bg-transparent px-3 text-sm"
+                  value={subcalendarId}
+                  onChange={e => setSubcalendarId(e.target.value)}
+                >
+                  {teachers.length === 0 && <option value="">Loading teachers…</option>}
+                  {teachers.map(t => (
+                    <option key={t.id} value={String(t.id)}>{t.name}</option>
+                  ))}
+                </select>
+                <p className="text-xs text-muted-foreground mt-1">
+                  Classes are created on this teacher&apos;s calendar.
+                </p>
+              </div>
+
               <div className="grid grid-cols-2 gap-3">
+                {isTruck ? (
+                  <div>
+                    <Label>Theory sessions</Label>
+                    <Input
+                      type="number"
+                      min={1}
+                      max={60}
+                      className="mt-1.5"
+                      value={truckSessions}
+                      onChange={e => setTruckSessions(Math.max(1, Math.min(60, parseInt(e.target.value) || 1)))}
+                    />
+                  </div>
+                ) : (
+                  <div>
+                    <Label>Module Number</Label>
+                    <Input
+                      type="number"
+                      min={1}
+                      max={12}
+                      className="mt-1.5"
+                      value={moduleNumber}
+                      onChange={e => setModuleNumber(parseInt(e.target.value) || 1)}
+                    />
+                  </div>
+                )}
                 <div>
-                  <Label>Module Number</Label>
-                  <Input
-                    type="number"
-                    min={1}
-                    max={12}
-                    className="mt-1.5"
-                    value={moduleNumber}
-                    onChange={e => setModuleNumber(parseInt(e.target.value) || 1)}
-                  />
-                </div>
-                <div>
-                  <Label>Class Date</Label>
+                  <Label>{isTruck ? 'First session' : 'Class Date'}</Label>
                   <Input
                     type="date"
                     className="mt-1.5"
@@ -481,6 +618,65 @@ export function NewGroupWizard({ open, onOpenChange }: NewGroupWizardProps) {
                   />
                 </div>
               </div>
+
+              {/* Truck cohort: pick the class days, then preview the exact
+                  timetable and the hour total before creating anything. */}
+              {isTruck && (
+                <div className="rounded-lg border bg-muted/30 p-3 space-y-2.5">
+                  <div>
+                    <Label className="text-xs">Class days</Label>
+                    <div className="flex gap-1.5 mt-1.5">
+                      {DAY_LABELS.map((label, day) => {
+                        const on = truckWeekdays.includes(day)
+                        return (
+                          <button
+                            key={day}
+                            type="button"
+                            onClick={() => setTruckWeekdays(prev =>
+                              prev.includes(day) ? prev.filter(d => d !== day) : [...prev, day].sort()
+                            )}
+                            className={`h-8 w-9 rounded-md text-xs font-medium border transition-colors ${
+                              on ? 'bg-primary text-primary-foreground border-primary' : 'bg-background hover:bg-muted'
+                            }`}
+                          >
+                            {label}
+                          </button>
+                        )
+                      })}
+                    </div>
+                  </div>
+
+                  {(() => {
+                    const dates = previewSessionDates(classDate, truckWeekdays, truckSessions)
+                    const [sh, sm] = classTimeStart.split(':').map(Number)
+                    const [eh, em] = classTimeEnd.split(':').map(Number)
+                    const hoursEach = Math.max(0, (eh * 60 + em - (sh * 60 + sm)) / 60)
+                    const totalHours = Math.round(hoursEach * dates.length * 10) / 10
+                    if (dates.length === 0) {
+                      return <p className="text-xs text-muted-foreground">Pick a first session date and at least one class day.</p>
+                    }
+                    const last = dates[dates.length - 1]
+                    const fmt = (iso: string) => {
+                      const [y, m, d] = iso.split('-').map(Number)
+                      return new Date(y, m - 1, d).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })
+                    }
+                    return (
+                      <div className="text-xs space-y-1">
+                        <p>
+                          <span className="font-medium">{dates.length} sessions</span> ·{' '}
+                          <span className={totalHours >= 75 ? 'text-green-700' : 'text-amber-700'}>
+                            {totalHours} h
+                          </span>{' '}
+                          <span className="text-muted-foreground">of 75 h required</span>
+                        </p>
+                        <p className="text-muted-foreground">
+                          {fmt(dates[0])} → {fmt(last)}
+                        </p>
+                      </div>
+                    )
+                  })()}
+                </div>
+              )}
 
               <div className="grid grid-cols-2 gap-3">
                 <div>
@@ -510,7 +706,9 @@ export function NewGroupWizard({ open, onOpenChange }: NewGroupWizardProps) {
                     checked={shouldSetDescription}
                     onCheckedChange={v => setShouldSetDescription(!!v)}
                   />
-                  <label htmlFor="set-desc" className="text-sm cursor-pointer">Set group description with Zoom link</label>
+                  <label htmlFor="set-desc" className="text-sm cursor-pointer">
+                    {isTruck ? 'Set group description with the class schedule' : 'Set group description with Zoom link'}
+                  </label>
                 </div>
 
                 <div className="flex items-center gap-2">
