@@ -28,6 +28,8 @@ import Link from 'next/link'
 import Image from 'next/image'
 import { useRouter } from 'next/navigation'
 import { useState, useMemo, useEffect, useCallback } from 'react'
+import { TruckDaysEditor } from '@/components/TruckDaysEditor'
+import { DEFAULT_TRUCK_DAYS, describeTruckDay, type TruckDay } from '@/lib/truck-schedule'
 
 const staggerContainer = {
   hidden: {},
@@ -101,10 +103,10 @@ export default function GroupsPage() {
   // created rather than read from `activeTab`, so switching tabs while the
   // setup dialog is open can't retarget the schedule.
   const [classSetupVehicle, setClassSetupVehicle] = useState<'car' | 'truck'>('car')
-  // Class 1 timetable: 19 x 4 h on Tue + Thu evenings ≈ the 75 h the PESR
-  // program requires. Saturdays stay free for per-student in-cab hours.
-  const [classSetupSessions, setClassSetupSessions] = useState(19)
-  const [classSetupWeekdays, setClassSetupWeekdays] = useState<number[]>([2, 4])
+  // Class 1 timetable: Tue/Thu evening theory + a full Saturday yard + road
+  // day, 17 h/week in person. 24 classes ≈ the program's 125 h.
+  const [classSetupSessions, setClassSetupSessions] = useState(24)
+  const [classSetupDays, setClassSetupDays] = useState<TruckDay[]>(DEFAULT_TRUCK_DAYS)
   const [classSetupTeacher, setClassSetupTeacher] = useState('')
   const [teacherOptions, setTeacherOptions] = useState<Array<{ id: number; name: string }>>([])
   const isTruckSetup = classSetupVehicle === 'truck'
@@ -130,21 +132,6 @@ export default function GroupsPage() {
     return () => { cancelled = true }
   }, [showClassSetup, isTruckSetup])
 
-  // Preview the truck timetable before creating it (mirrors generateSessionDates).
-  const truckPreviewDates = useMemo(() => {
-    if (!isTruckSetup || !classSetupDate || classSetupWeekdays.length === 0) return []
-    const [y, m, d] = classSetupDate.split('-').map(Number)
-    const cursor = new Date(y, m - 1, d)
-    const wanted = new Set(classSetupWeekdays)
-    const out: string[] = []
-    for (let guard = 0; guard < classSetupSessions * 14 + 60 && out.length < classSetupSessions; guard++) {
-      if (wanted.has(cursor.getDay())) {
-        out.push(`${cursor.getFullYear()}-${String(cursor.getMonth() + 1).padStart(2, '0')}-${String(cursor.getDate()).padStart(2, '0')}`)
-      }
-      cursor.setDate(cursor.getDate() + 1)
-    }
-    return out
-  }, [isTruckSetup, classSetupDate, classSetupWeekdays, classSetupSessions])
 
   // Fetch pending students (not in any group)
   const { data: pendingData } = useQuery<{ students: Array<{ id: string; phone: string; name: string | null; createdAt: string; vehicleType?: string }> }>({
@@ -1117,53 +1104,23 @@ export default function GroupsPage() {
                       <Label className="text-xs text-muted-foreground mb-1 block">First Class Date</Label>
                       <Input type="date" value={classSetupDate} onChange={e => setClassSetupDate(e.target.value)} />
                     </div>
-                    <div>
-                      <Label className="text-xs text-muted-foreground mb-1 block">Time</Label>
-                      <Input value={classSetupTime} onChange={e => setClassSetupTime(e.target.value)} placeholder={isTruckSetup ? '5:30 PM to 9:30 PM' : '5 pm to 7 pm'} />
-                    </div>
+                    {!isTruckSetup && (
+                      <div>
+                        <Label className="text-xs text-muted-foreground mb-1 block">Time</Label>
+                        <Input value={classSetupTime} onChange={e => setClassSetupTime(e.target.value)} placeholder="5 pm to 7 pm" />
+                      </div>
+                    )}
                   </div>
 
+                  {/* Truck times are per-day (evening theory vs full Saturday),
+                      so the single Time field above doesn't apply. */}
                   {isTruckSetup && (
-                    <div className="rounded-md border bg-muted/30 p-3 space-y-2">
-                      <div>
-                        <Label className="text-xs text-muted-foreground mb-1.5 block">Class days</Label>
-                        <div className="flex gap-1.5">
-                          {['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map((label, day) => {
-                            const on = classSetupWeekdays.includes(day)
-                            return (
-                              <button
-                                key={day}
-                                type="button"
-                                onClick={() => setClassSetupWeekdays(prev =>
-                                  prev.includes(day) ? prev.filter(d => d !== day) : [...prev, day].sort()
-                                )}
-                                className={`h-8 w-9 rounded-md text-xs font-medium border transition-colors ${
-                                  on ? 'bg-primary text-primary-foreground border-primary' : 'bg-background hover:bg-muted'
-                                }`}
-                              >
-                                {label}
-                              </button>
-                            )
-                          })}
-                        </div>
-                      </div>
-                      {truckPreviewDates.length > 0 ? (
-                        <p className="text-xs">
-                          <span className="font-medium">{truckPreviewDates.length} sessions</span>
-                          {' · '}
-                          {(() => {
-                            const fmt = (iso: string) => {
-                              const [y, m, d] = iso.split('-').map(Number)
-                              return new Date(y, m - 1, d).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })
-                            }
-                            return `${fmt(truckPreviewDates[0])} → ${fmt(truckPreviewDates[truckPreviewDates.length - 1])}`
-                          })()}
-                          <span className="text-muted-foreground"> · a reminder is sent on each class day</span>
-                        </p>
-                      ) : (
-                        <p className="text-xs text-muted-foreground">Pick a first class date and at least one class day.</p>
-                      )}
-                    </div>
+                    <TruckDaysEditor
+                      value={classSetupDays}
+                      onChange={setClassSetupDays}
+                      sessions={classSetupSessions}
+                      startDate={classSetupDate}
+                    />
                   )}
 
                   {!isTruckSetup && classSetupDate && classSetupWeeks > 1 && (
@@ -1190,7 +1147,7 @@ export default function GroupsPage() {
                         const description = !classSetupSetDesc
                           ? undefined
                           : isTruckSetup
-                            ? `Class 1 — Theory schedule\n${classSetupWeekdays.map(d => ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'][d]).join(' & ')}, ${classSetupTime}\nHeld in class at the school.\n\nYour in-cab driving hours are booked separately.`
+                            ? `Class 1 — Weekly schedule\n\n${classSetupDays.map(d => describeTruckDay(d)).join('\n')}\n\nAll classes are IN PERSON at the school.`
                             : `Zoom Meeting Link:\n\niOS/Android App:\nzoom.us/j/4171672829\nMeeting ID: 417 167 2829\nPassword: qazi\n\nDesktop/Browser:\nhttps://us02web.zoom.us/j/4171672829?pwd=ZTlHSEdmTGRYV1QraU5MaThqaC9Rdz09\nPassword: qazi`
                         const res = await fetch(`/api/groups/${encodeURIComponent(classSetupGroupId)}/setup`, {
                           method: 'POST',
@@ -1203,7 +1160,7 @@ export default function GroupsPage() {
                             vehicleType: classSetupVehicle,
                             subcalendarId: classSetupTeacher ? parseInt(classSetupTeacher) : undefined,
                             ...(isTruckSetup
-                              ? { truckSessions: classSetupSessions, truckWeekdays: classSetupWeekdays }
+                              ? { truckSessions: classSetupSessions, truckDays: classSetupDays }
                               : { moduleNumber: classSetupModule, weeksToSchedule: classSetupWeeks }),
                             classDate: classDateFormatted, classDateISO: classSetupDate, classTime: classSetupTime,
                           }),

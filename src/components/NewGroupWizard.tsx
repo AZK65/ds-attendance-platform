@@ -6,6 +6,8 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Checkbox } from '@/components/ui/checkbox'
+import { TruckDaysEditor } from '@/components/TruckDaysEditor'
+import { DEFAULT_TRUCK_DAYS, describeTruckDay, type TruckDay } from '@/lib/truck-schedule'
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter,
 } from '@/components/ui/dialog'
@@ -27,26 +29,6 @@ interface ProgressEntry {
 
 type WizardStep = 'students' | 'group' | 'setup' | 'executing' | 'done'
 
-const DAY_LABELS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
-
-// Client-side twin of generateSessionDates() in @/lib/teamup, so the wizard can
-// preview the exact dates (and the hour total) before anything is created.
-function previewSessionDates(startISO: string, weekdays: number[], count: number): string[] {
-  if (!startISO || weekdays.length === 0 || count <= 0) return []
-  const [y, m, d] = startISO.split('-').map(Number)
-  const cursor = new Date(y, m - 1, d)
-  const wanted = new Set(weekdays)
-  const out: string[] = []
-  for (let guard = 0; guard < count * 14 + 60 && out.length < count; guard++) {
-    if (wanted.has(cursor.getDay())) {
-      out.push(
-        `${cursor.getFullYear()}-${String(cursor.getMonth() + 1).padStart(2, '0')}-${String(cursor.getDate()).padStart(2, '0')}`
-      )
-    }
-    cursor.setDate(cursor.getDate() + 1)
-  }
-  return out
-}
 
 interface NewGroupWizardProps {
   open: boolean
@@ -81,9 +63,10 @@ export function NewGroupWizard({ open, onOpenChange }: NewGroupWizardProps) {
   const [pdfFile, setPdfFile] = useState<{ base64: string; filename: string } | null>(null)
   const pdfInputRef = useRef<HTMLInputElement>(null)
 
-  // Truck cohort: Tue + Thu evenings, 19 x 4 h = 76 h (program calls for 75 h).
-  const [truckSessions, setTruckSessions] = useState(19)
-  const [truckWeekdays, setTruckWeekdays] = useState<number[]>([2, 4])
+  // Truck cohort: Tue/Thu evening theory + a full Saturday yard + road day,
+  // 17 h/week, all in person. 24 classes ≈ the program's 125 h.
+  const [truckSessions, setTruckSessions] = useState(24)
+  const [truckDays, setTruckDays] = useState<TruckDay[]>(DEFAULT_TRUCK_DAYS)
 
   // Teacher (Teamup subcalendar) the classes get written to.
   const [subcalendarId, setSubcalendarId] = useState<string>('')
@@ -337,7 +320,7 @@ export function NewGroupWizard({ open, onOpenChange }: NewGroupWizardProps) {
       const description = !shouldSetDescription
         ? undefined
         : isTruck
-          ? `Class 1 — Theory schedule\n${truckWeekdays.map(d => DAY_LABELS[d]).join(' & ')}, ${classTimeDisplay}\nHeld in class at the school.\n\nYour in-cab driving hours are booked separately.`
+          ? `Class 1 — Weekly schedule\n\n${truckDays.map(d => describeTruckDay(d)).join('\n')}\n\nAll classes are IN PERSON at the school.`
           : `Zoom Meeting:\n${zoomLink}\nPassword: qazi\n\nDownload Zoom:\niPhone: https://apps.apple.com/app/zoom/id546505307\nAndroid: https://play.google.com/store/apps/details?id=us.zoom.videomeetings\n\nPlease use your full name when joining Zoom.`
 
       try {
@@ -352,7 +335,7 @@ export function NewGroupWizard({ open, onOpenChange }: NewGroupWizardProps) {
             vehicleType,
             subcalendarId: subcalendarId ? parseInt(subcalendarId) : undefined,
             ...(isTruck
-              ? { truckSessions, truckWeekdays }
+              ? { truckSessions, truckDays }
               : { moduleNumber }),
             classDate: new Date(classDate + 'T12:00:00').toLocaleDateString('en-US', {
               weekday: 'long', month: 'long', day: 'numeric',
@@ -390,8 +373,8 @@ export function NewGroupWizard({ open, onOpenChange }: NewGroupWizardProps) {
     setGroupName('')
     setVehicleType('car')
     setModuleNumber(1)
-    setTruckSessions(19)
-    setTruckWeekdays([2, 4])
+    setTruckSessions(24)
+    setTruckDays(DEFAULT_TRUCK_DAYS)
     setClassDate('')
     setClassTimeStart('17:00')
     setClassTimeEnd('19:00')
@@ -619,85 +602,42 @@ export function NewGroupWizard({ open, onOpenChange }: NewGroupWizardProps) {
                 </div>
               </div>
 
-              {/* Truck cohort: pick the class days, then preview the exact
-                  timetable and the hour total before creating anything. */}
+              {/* Truck cohort: each class day carries its own hours (evening
+                  theory vs a full Saturday yard + road day), so the shared
+                  editor replaces the single start/end time. */}
               {isTruck && (
-                <div className="rounded-lg border bg-muted/30 p-3 space-y-2.5">
-                  <div>
-                    <Label className="text-xs">Class days</Label>
-                    <div className="flex gap-1.5 mt-1.5">
-                      {DAY_LABELS.map((label, day) => {
-                        const on = truckWeekdays.includes(day)
-                        return (
-                          <button
-                            key={day}
-                            type="button"
-                            onClick={() => setTruckWeekdays(prev =>
-                              prev.includes(day) ? prev.filter(d => d !== day) : [...prev, day].sort()
-                            )}
-                            className={`h-8 w-9 rounded-md text-xs font-medium border transition-colors ${
-                              on ? 'bg-primary text-primary-foreground border-primary' : 'bg-background hover:bg-muted'
-                            }`}
-                          >
-                            {label}
-                          </button>
-                        )
-                      })}
-                    </div>
-                  </div>
-
-                  {(() => {
-                    const dates = previewSessionDates(classDate, truckWeekdays, truckSessions)
-                    const [sh, sm] = classTimeStart.split(':').map(Number)
-                    const [eh, em] = classTimeEnd.split(':').map(Number)
-                    const hoursEach = Math.max(0, (eh * 60 + em - (sh * 60 + sm)) / 60)
-                    const totalHours = Math.round(hoursEach * dates.length * 10) / 10
-                    if (dates.length === 0) {
-                      return <p className="text-xs text-muted-foreground">Pick a first session date and at least one class day.</p>
-                    }
-                    const last = dates[dates.length - 1]
-                    const fmt = (iso: string) => {
-                      const [y, m, d] = iso.split('-').map(Number)
-                      return new Date(y, m - 1, d).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })
-                    }
-                    return (
-                      <div className="text-xs space-y-1">
-                        <p>
-                          <span className="font-medium">{dates.length} sessions</span> ·{' '}
-                          <span className={totalHours >= 75 ? 'text-green-700' : 'text-amber-700'}>
-                            {totalHours} h
-                          </span>{' '}
-                          <span className="text-muted-foreground">of 75 h required</span>
-                        </p>
-                        <p className="text-muted-foreground">
-                          {fmt(dates[0])} → {fmt(last)}
-                        </p>
-                      </div>
-                    )
-                  })()}
-                </div>
+                <TruckDaysEditor
+                  value={truckDays}
+                  onChange={setTruckDays}
+                  sessions={truckSessions}
+                  startDate={classDate}
+                />
               )}
 
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <Label>Start Time</Label>
-                  <Input
-                    type="time"
-                    className="mt-1.5"
-                    value={classTimeStart}
-                    onChange={e => setClassTimeStart(e.target.value)}
-                  />
+              {/* Car uses one time for every weekly class; truck sets hours
+                  per day in the editor below. */}
+              {!isTruck && (
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <Label>Start Time</Label>
+                    <Input
+                      type="time"
+                      className="mt-1.5"
+                      value={classTimeStart}
+                      onChange={e => setClassTimeStart(e.target.value)}
+                    />
+                  </div>
+                  <div>
+                    <Label>End Time</Label>
+                    <Input
+                      type="time"
+                      className="mt-1.5"
+                      value={classTimeEnd}
+                      onChange={e => setClassTimeEnd(e.target.value)}
+                    />
+                  </div>
                 </div>
-                <div>
-                  <Label>End Time</Label>
-                  <Input
-                    type="time"
-                    className="mt-1.5"
-                    value={classTimeEnd}
-                    onChange={e => setClassTimeEnd(e.target.value)}
-                  />
-                </div>
-              </div>
+              )}
 
               <div className="space-y-3 pt-2">
                 <div className="flex items-center gap-2">
