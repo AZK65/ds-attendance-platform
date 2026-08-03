@@ -785,3 +785,44 @@ model LmsEvent {
 
   @@index([accountId, createdAt])
 }
+
+// ── WhatsApp bot ────────────────────────────────────────────────
+// One conversation per WA chat (identified by the sender's phone digits).
+// Messages live on it in order — the bot uses the last ~12 for context.
+model BotConversation {
+  id        String       @id @default(cuid())
+  phone     String       @unique // digits only, incl. country code (e.g. 15145551234)
+  displayName String?             // pushname / notify from WA if we captured it
+  studentId String?              // set when the phone matches a known Student.id
+  createdAt DateTime     @default(now())
+  updatedAt DateTime     @updatedAt
+  messages  BotMessage[]
+}
+
+model BotMessage {
+  id             String          @id @default(cuid())
+  conversationId String
+  // 'user' = inbound from the contact, 'assistant' = outbound bot reply,
+  // 'admin' = outbound manual reply from the shop (surfaced so context stays
+  // coherent even after a human took over the thread).
+  role           String
+  body           String
+  waMessageId    String?         // WhatsApp message id (for correlating outbound)
+  // 'sent' | 'deferred' — deferred means the bot decided to stay silent
+  // and left the message for admin to answer. Only meaningful for 'assistant'.
+  status         String          @default("sent")
+  createdAt      DateTime        @default(now())
+  conversation   BotConversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+
+  @@index([conversationId, createdAt])
+}
+
+// Per-phone pause state. When pausedUntil > now(), bot ignores inbound
+// messages on that thread. Set automatically when admin sends a manual
+// message (24h cooldown) or explicitly via the /whatsapp admin UI.
+model BotPause {
+  phone       String   @id
+  pausedUntil DateTime
+  reason      String? // 'admin-reply' | 'admin-manual' | 'user-request'
+  updatedAt   DateTime @updatedAt
+}

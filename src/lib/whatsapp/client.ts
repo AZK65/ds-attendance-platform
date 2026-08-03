@@ -1,5 +1,30 @@
 import path from 'path'
 import { prisma } from '@/lib/db'
+import { handleInboundMessage, pauseForAdminReply, logAdminMessage } from '@/lib/bot/handle-message'
+
+// Set of (phone + '|' + text) pairs the bot just sent. Populated by
+// sendBotReply immediately before sendMessage runs, drained by the
+// message_create handler when the outbound event fires. Entries auto-expire
+// after BOT_OUTBOUND_TTL_MS so a message_create that never arrives doesn't
+// leak memory or cause the *next* admin manual with identical text to be
+// mistaken for a bot send.
+const botOutboundKeys = new Map<string, number>()
+const BOT_OUTBOUND_TTL_MS = 30_000
+function botOutboundKey(phone: string, text: string): string {
+  return `${phone.replace(/\D/g, '')}|${text.trim().slice(0, 200)}`
+}
+function markBotOutbound(phone: string, text: string): void {
+  botOutboundKeys.set(botOutboundKey(phone, text), Date.now())
+  // Opportunistic sweep of stale entries — no timers needed.
+  const cutoff = Date.now() - BOT_OUTBOUND_TTL_MS
+  for (const [k, ts] of botOutboundKeys) if (ts < cutoff) botOutboundKeys.delete(k)
+}
+function consumeBotOutbound(phone: string, text: string): boolean {
+  const key = botOutboundKey(phone, text)
+  if (!botOutboundKeys.has(key)) return false
+  botOutboundKeys.delete(key)
+  return true
+}
 
 // Types
 interface WaEvent { ts: string; event: string; detail?: string }
@@ -579,6 +604,90 @@ export async function connectWhatsApp(): Promise<void> {
 
     client.on('group_update', (notification: { chatId: string }) => {
       console.log(`[group_update] Group ${notification.chatId} was updated`)
+    })
+
+    // ── Bot: inbound message from a contact ──────────────────────
+    // whatsapp-web.js 'message' fires only for inbound (fromMe: false)
+    // and never for groups when we're not the sender. That's exactly the
+    // set we want the bot to see. Group chats are excluded so the bot
+    // never joins class-group threads.
+    type IncomingMsg = {
+      body: string
+      from: string        // e.g. '15145551234@c.us' or '...@g.us' for groups
+      isStatus?: boolean
+      hasMedia?: boolean
+      type?: string       // 'chat' | 'image' | 'sticker' | 'audio' | ...
+      _data?: { notifyName?: string }
+    }
+    client.on('message', async (msg: IncomingMsg) => {
+      try {
+        // Group and status messages: never respond.
+        if (msg.from?.endsWith('@g.us')) return
+        if (msg.isStatus) return
+        // Only plain text for now. Skipping media doesn't lose context
+        // because a follow-up text will usually explain it.
+        if (msg.type && msg.type !== 'chat') return
+
+        const phone = msg.from?.split('@')[0]?.replace(/\D/g, '')
+        if (!phone) return
+
+        const result = await handleInboundMessage({
+          fromPhone: phone,
+          fromName: msg._data?.notifyName,
+          body: msg.body || '',
+        })
+
+        if (result.reply) {
+          // Small human-feeling delay so replies don't arrive instantly —
+          // 1.5s minimum + ~40ms per reply character, capped at 6s.
+          const delay = Math.min(6000, 1500 + Math.floor((result.reply.length || 0) * 40))
+          await new Promise(r => setTimeout(r, delay))
+          try {
+            await sendBotReply(phone, result.reply)
+          } catch (err) {
+            console.error('[bot] send failed:', err)
+          }
+        }
+      } catch (err) {
+        console.error('[bot] message handler crashed:', err)
+      }
+    })
+
+    // ── Bot: detect admin's manual outbound → auto-pause 24h ─────
+    // message_create fires for BOTH inbound and outbound on this account.
+    // We only care about fromMe outbound to individual (non-group) chats
+    // that we didn't originate ourselves. Anything the bot sent is in
+    // botOutboundKeys and gets consumed; anything else is an admin manual
+    // reply and pauses the bot on that thread for 24h.
+    type CreatedMsg = {
+      fromMe: boolean
+      to?: string
+      from?: string
+      body?: string
+      type?: string
+      id?: { _serialized?: string }
+    }
+    client.on('message_create', async (msg: CreatedMsg) => {
+      try {
+        if (!msg.fromMe) return
+        const dest = msg.to || ''
+        if (!dest.endsWith('@c.us')) return // ignore groups + statuses
+        if (msg.type && msg.type !== 'chat') return
+
+        const phone = dest.split('@')[0]?.replace(/\D/g, '')
+        if (!phone) return
+        const body = msg.body || ''
+        // If this outbound was ours, remove the pending marker and stop.
+        if (consumeBotOutbound(phone, body)) return
+
+        // Otherwise, an admin typed this on their WA. Pause the bot on
+        // this thread + log the admin's message onto the transcript so
+        // context stays coherent if the pause later expires.
+        await pauseForAdminReply(phone)
+        await logAdminMessage(phone, body, msg.id?._serialized)
+      } catch (err) {
+        console.error('[bot] message_create handler crashed:', err)
+      }
     })
 
     client.on('authenticated', async () => {
@@ -2089,5 +2198,21 @@ export async function forceSyncGroups(): Promise<{ success: boolean; groupCount:
     return { success: true, groupCount: state.groupsCache.length }
   } catch (err) {
     return { success: false, groupCount: 0, error: String(err) }
+  }
+}
+
+// Bot-originated outbound. Marks the (phone, text) pair as "ours" *before*
+// calling sendPrivateMessage so the message_create listener knows not to
+// treat it as an admin manual reply. Falls back to unmark on send failure
+// so a retry doesn't get double-marked.
+export async function sendBotReply(phone: string, text: string): Promise<void> {
+  markBotOutbound(phone, text)
+  try {
+    await sendPrivateMessage(phone, text)
+  } catch (err) {
+    // Send failed — remove the marker so a subsequent admin manual message
+    // with the same content isn't silently swallowed.
+    consumeBotOutbound(phone, text)
+    throw err
   }
 }

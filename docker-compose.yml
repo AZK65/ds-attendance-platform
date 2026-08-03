@@ -44,6 +44,11 @@ services:
       - ZOOM_WEBHOOK_SECRET_TOKEN=${ZOOM_WEBHOOK_SECRET_TOKEN:-}
       - AUTH_PASSWORD=${AUTH_PASSWORD}
       - OPENROUTER_API_KEY=${OPENROUTER_API_KEY}
+      # WhatsApp AI bot. Set BOT_ENABLED=false to silence the bot without
+      # a code deploy. BOT_MODEL overrides the default (anthropic/claude-haiku-4.5)
+      # with any OpenRouter-compatible model id.
+      - BOT_ENABLED=${BOT_ENABLED:-true}
+      - BOT_MODEL=${BOT_MODEL:-}
       - TEAMUP_API_KEY=${TEAMUP_API_KEY}
       - TEAMUP_CALENDAR_KEY=${TEAMUP_CALENDAR_KEY}
       - RESEND_API_KEY=${RESEND_API_KEY}
