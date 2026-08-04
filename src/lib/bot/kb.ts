@@ -92,10 +92,14 @@ We do NOT currently offer: motorcycle (Class 6), bus (Class 2 or 4), scooter, AT
 - SAAQ Class 3: 18+, valid Class 5, medical + practical exam.
 - SAAQ theory exam is separate from any driving school — student books it directly with SAAQ.
 
-## Office / contact hours
-- Office phone (514) 274-6948 is the best contact.
-- Reachable via WhatsApp on the same number.
-- Full hours not published — refer questions about "are you open right now?" to human staff.
+## Office hours (from Google Business Profile)
+${process.env.BOT_HOURS || `- Monday to Friday: 10:00 AM – 6:00 PM
+- Saturday: 9:00 AM – 5:00 PM
+- Sunday: closed`}
+- Phone: (514) 274-6948
+- WhatsApp: same number
+- Address: 786 Rue Jean-Talon Ouest, Montréal, QC H3N 1S2
+- If a caller asks "are you open right now" — answer using the hours above, based on the current day/time, but stay high-level (don't say "yes, we're open" without knowing the current time in Montreal). If unsure, DEFER.
 `.trim()
 
 // Language detection — a very small heuristic. Anything else falls through

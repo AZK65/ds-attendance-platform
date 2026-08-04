@@ -49,6 +49,11 @@ services:
       # with any OpenRouter-compatible model id.
       - BOT_ENABLED=${BOT_ENABLED:-true}
       - BOT_MODEL=${BOT_MODEL:-}
+      # Optional override for the school hours shown in the bot's knowledge
+      # base. Format is free-form markdown — the bot quotes it verbatim.
+      # If unset, uses the defaults hardcoded in src/lib/bot/kb.ts.
+      # Multi-line: quote the whole value in .env and use \n for newlines.
+      - BOT_HOURS=${BOT_HOURS:-}
       - TEAMUP_API_KEY=${TEAMUP_API_KEY}
       - TEAMUP_CALENDAR_KEY=${TEAMUP_CALENDAR_KEY}
       - RESEND_API_KEY=${RESEND_API_KEY}

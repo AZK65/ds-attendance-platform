@@ -15,6 +15,7 @@ import {
 } from '@/components/ui/dropdown-menu'
 import { ConnectionStatus } from './ConnectionStatus'
 import { NotificationBell } from './NotificationBell'
+import { InboxAttentionBell } from './InboxAttentionBell'
 import { useEffect, useState } from 'react'
 
 // Tabs shown directly in the bar — the day-to-day ones.
@@ -188,6 +189,7 @@ export function Navbar() {
           {/* Theme Toggle + Notification Bell + Connection Status */}
           <div className="ml-4 flex-shrink-0 flex items-center gap-1">
             <ThemeToggle />
+            <InboxAttentionBell />
             <NotificationBell />
             <ConnectionStatus />
           </div>
