@@ -19,6 +19,9 @@ type LlmMsg = { role: 'system' | 'user' | 'assistant'; content: string }
 
 export interface InboundContext {
   fromPhone: string // digits only, incl. country code (e.g. 15145551234)
+  fromJid: string   // full WA JID as received on the inbound (e.g. '15145551234@c.us' or '123456789@lid')
+                    // — the outbound MUST reply to this exact JID; deriving one via phoneToJid
+                    // breaks for @lid contacts (WhatsApp errors 'No LID for user').
   fromName?: string // pushname from WA if available
   body: string
 }
@@ -27,6 +30,8 @@ export interface BotResult {
   reply: string | null // null = don't send anything
   deferred: boolean
   conversationId: string
+  fromJid: string // the WA JID to reply to (echoed back so caller doesn't
+                  // have to reconstruct it — critical for @lid contacts)
 }
 
 export async function handleInboundMessage(ctx: InboundContext): Promise<BotResult> {
@@ -37,13 +42,13 @@ export async function handleInboundMessage(ctx: InboundContext): Promise<BotResu
   if (process.env.BOT_ENABLED === 'false') {
     const conv = await upsertConversation(ctx)
     await logMessage(conv.id, 'user', body)
-    return { reply: null, deferred: true, conversationId: conv.id }
+    return { reply: null, deferred: true, conversationId: conv.id, fromJid: ctx.fromJid }
   }
 
   // Empty / non-text messages we can't do anything with (image, sticker, etc.)
   if (!body) {
     const conv = await upsertConversation(ctx)
-    return { reply: null, deferred: true, conversationId: conv.id }
+    return { reply: null, deferred: true, conversationId: conv.id, fromJid: ctx.fromJid }
   }
 
   // Per-phone pause check. Set by admin manual reply or /whatsapp toggle.
@@ -51,7 +56,7 @@ export async function handleInboundMessage(ctx: InboundContext): Promise<BotResu
   if (paused) {
     const conv = await upsertConversation(ctx)
     await logMessage(conv.id, 'user', body)
-    return { reply: null, deferred: true, conversationId: conv.id }
+    return { reply: null, deferred: true, conversationId: conv.id, fromJid: ctx.fromJid }
   }
 
   const conv = await upsertConversation(ctx)
@@ -81,13 +86,13 @@ export async function handleInboundMessage(ctx: InboundContext): Promise<BotResu
     raw = await callOpenRouter(messages)
   } catch (err) {
     console.error('[bot] LLM call failed:', err)
-    return { reply: null, deferred: true, conversationId: conv.id }
+    return { reply: null, deferred: true, conversationId: conv.id, fromJid: ctx.fromJid }
   }
 
   const reply = interpretReply(raw)
   if (reply === null) {
     await logMessage(conv.id, 'assistant', raw.slice(0, 400), 'deferred')
-    return { reply: null, deferred: true, conversationId: conv.id }
+    return { reply: null, deferred: true, conversationId: conv.id, fromJid: ctx.fromJid }
   }
 
   const truncated = reply.length > MAX_REPLY_LEN ? reply.slice(0, MAX_REPLY_LEN) : reply
@@ -96,7 +101,7 @@ export async function handleInboundMessage(ctx: InboundContext): Promise<BotResu
   // resolves — otherwise a silent send failure would leave the DB
   // claiming a message was delivered when it never left the server.
   // See logBotSendSuccess / logBotSendFailure below.
-  return { reply: truncated, deferred: false, conversationId: conv.id }
+  return { reply: truncated, deferred: false, conversationId: conv.id, fromJid: ctx.fromJid }
 }
 
 // Called from the WhatsApp client after the outbound has actually left

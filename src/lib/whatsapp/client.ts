@@ -2,25 +2,29 @@ import path from 'path'
 import { prisma } from '@/lib/db'
 import { handleInboundMessage, pauseForAdminReply, logAdminMessage, logBotSendSuccess, logBotSendFailure } from '@/lib/bot/handle-message'
 
-// Set of (phone + '|' + text) pairs the bot just sent. Populated by
+// Set of (JID + '|' + text) pairs the bot just sent. Populated by
 // sendBotReply immediately before sendMessage runs, drained by the
 // message_create handler when the outbound event fires. Entries auto-expire
 // after BOT_OUTBOUND_TTL_MS so a message_create that never arrives doesn't
 // leak memory or cause the *next* admin manual with identical text to be
 // mistaken for a bot send.
+//
+// Keyed by full JID (not phone digits) so bot outbounds to '<lid>@lid'
+// contacts don't get misclassified as admin manuals (which would auto-pause
+// the bot on itself every time it replied to a Linked-ID contact).
 const botOutboundKeys = new Map<string, number>()
 const BOT_OUTBOUND_TTL_MS = 30_000
-function botOutboundKey(phone: string, text: string): string {
-  return `${phone.replace(/\D/g, '')}|${text.trim().slice(0, 200)}`
+function botOutboundKey(jid: string, text: string): string {
+  return `${jid.trim()}|${text.trim().slice(0, 200)}`
 }
-function markBotOutbound(phone: string, text: string): void {
-  botOutboundKeys.set(botOutboundKey(phone, text), Date.now())
+function markBotOutbound(jid: string, text: string): void {
+  botOutboundKeys.set(botOutboundKey(jid, text), Date.now())
   // Opportunistic sweep of stale entries — no timers needed.
   const cutoff = Date.now() - BOT_OUTBOUND_TTL_MS
   for (const [k, ts] of botOutboundKeys) if (ts < cutoff) botOutboundKeys.delete(k)
 }
-function consumeBotOutbound(phone: string, text: string): boolean {
-  const key = botOutboundKey(phone, text)
+function consumeBotOutbound(jid: string, text: string): boolean {
+  const key = botOutboundKey(jid, text)
   if (!botOutboundKeys.has(key)) return false
   botOutboundKeys.delete(key)
   return true
@@ -628,11 +632,14 @@ export async function connectWhatsApp(): Promise<void> {
         // because a follow-up text will usually explain it.
         if (msg.type && msg.type !== 'chat') return
 
-        const phone = msg.from?.split('@')[0]?.replace(/\D/g, '')
+        const fromJid = msg.from
+        if (!fromJid) return
+        const phone = fromJid.split('@')[0]?.replace(/\D/g, '')
         if (!phone) return
 
         const result = await handleInboundMessage({
           fromPhone: phone,
+          fromJid,
           fromName: msg._data?.notifyName,
           body: msg.body || '',
         })
@@ -644,14 +651,16 @@ export async function connectWhatsApp(): Promise<void> {
           await new Promise(r => setTimeout(r, delay))
           // Log the outbound row ONLY after client.sendMessage resolves,
           // so the transcript can't lie about a message being delivered
-          // when it silently failed to leave the server.
+          // when it silently failed to leave the server. Reply is sent to
+          // the ORIGINAL inbound JID (not a phone-derived one) so @lid
+          // contacts don't blow up with "No LID for user".
           try {
-            await sendBotReply(phone, result.reply)
+            await sendBotReply(result.fromJid, result.reply)
             await logBotSendSuccess(result.conversationId, result.reply)
-            console.log(`[bot] Reply sent to ${phone} (${result.reply.length} chars)`)
+            console.log(`[bot] Reply sent to ${result.fromJid} (${result.reply.length} chars)`)
           } catch (err) {
             const errMsg = err instanceof Error ? err.message : String(err)
-            console.error(`[bot] Send to ${phone} failed:`, errMsg)
+            console.error(`[bot] Send to ${result.fromJid} failed:`, errMsg)
             await logBotSendFailure(result.conversationId, result.reply, errMsg)
           }
         }
@@ -678,18 +687,23 @@ export async function connectWhatsApp(): Promise<void> {
       try {
         if (!msg.fromMe) return
         const dest = msg.to || ''
-        if (!dest.endsWith('@c.us')) return // ignore groups + statuses
+        // Individual (non-group) chats only. Both @c.us and @lid.
+        // Groups (@g.us), statuses, and any other suffix are skipped.
+        if (!dest.endsWith('@c.us') && !dest.endsWith('@lid')) return
         if (msg.type && msg.type !== 'chat') return
 
         const phone = dest.split('@')[0]?.replace(/\D/g, '')
         if (!phone) return
         const body = msg.body || ''
         // If this outbound was ours, remove the pending marker and stop.
-        if (consumeBotOutbound(phone, body)) return
+        // Keyed by full JID so bot outbounds to @lid contacts aren't
+        // misclassified as admin manuals.
+        if (consumeBotOutbound(dest, body)) return
 
         // Otherwise, an admin typed this on their WA. Pause the bot on
-        // this thread + log the admin's message onto the transcript so
-        // context stays coherent if the pause later expires.
+        // this thread (indexed by phone digits — matches BotConversation.phone)
+        // + log the admin's message onto the transcript so context stays
+        // coherent if the pause later expires.
         await pauseForAdminReply(phone)
         await logAdminMessage(phone, body, msg.id?._serialized)
       } catch (err) {
@@ -2231,18 +2245,31 @@ export async function sendToRawChatId(chatId: string, text: string): Promise<voi
   }
 }
 
-// Bot-originated outbound. Marks the (phone, text) pair as "ours" *before*
-// calling sendPrivateMessage so the message_create listener knows not to
-// treat it as an admin manual reply. Falls back to unmark on send failure
-// so a retry doesn't get double-marked.
-export async function sendBotReply(phone: string, text: string): Promise<void> {
-  markBotOutbound(phone, text)
+// Bot-originated outbound. Takes the FULL JID (e.g. '15145551234@c.us' or
+// '123456789@lid') so we reply to the exact address the inbound came from —
+// deriving one via phoneToJid would produce '<lid>@c.us' for a Linked-ID
+// contact and blow up with "No LID for user".
+//
+// Marks the (jid, text) pair as "ours" *before* calling the underlying send
+// so the message_create listener knows not to treat it as an admin manual
+// reply. Falls back to unmark on send failure so a retry doesn't get
+// double-marked.
+export async function sendBotReply(jid: string, text: string): Promise<void> {
+  markBotOutbound(jid, text)
   try {
-    await sendPrivateMessage(phone, text)
+    if (jid.endsWith('@c.us')) {
+      // Route through sendPrivateMessage so we get its LID-resolve retry
+      // path for the transitional "No LID" errors on @c.us contacts.
+      const phone = jid.replace('@c.us', '')
+      await sendPrivateMessage(phone, text)
+    } else {
+      // @lid (or any other individual-chat suffix) — send the JID as-is.
+      await sendToRawChatId(jid, text)
+    }
   } catch (err) {
     // Send failed — remove the marker so a subsequent admin manual message
     // with the same content isn't silently swallowed.
-    consumeBotOutbound(phone, text)
+    consumeBotOutbound(jid, text)
     throw err
   }
 }
