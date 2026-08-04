@@ -5,6 +5,7 @@ import { useParams } from 'next/navigation'
 import { useState, useMemo } from 'react'
 import { ContactSearchModal } from '@/components/ContactSearchModal'
 import { ConnectionStatus } from '@/components/ConnectionStatus'
+import { TruckSignInPanel } from '@/components/TruckSignInPanel'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import {
@@ -827,25 +828,39 @@ export default function GroupDetailPage() {
                 </Button>
               )}
             </motion.div>
-            <motion.div variants={fadeSlideUp}>
-              <Link href={`/groups/${encodeURIComponent(groupId)}/attendance`}>
-                <Button variant="default">
-                  <Video className="mr-2 h-4 w-4" />
-                  Live Attendance
-                </Button>
-              </Link>
-            </motion.div>
-            <motion.div variants={fadeSlideUp}>
-              <Button
-                onClick={() => setShowZoomAttendance(true)}
-                variant="outline"
-              >
-                <Video className="mr-2 h-4 w-4" />
-                Process Attendance
-              </Button>
-            </motion.div>
+            {/* Live-attendance / Zoom flows are for online (car theory) cohorts.
+                Truck cohorts do in-person theory — their attendance surface is
+                the TruckSignInPanel below. */}
+            {group?.vehicleType !== 'truck' && (
+              <>
+                <motion.div variants={fadeSlideUp}>
+                  <Link href={`/groups/${encodeURIComponent(groupId)}/attendance`}>
+                    <Button variant="default">
+                      <Video className="mr-2 h-4 w-4" />
+                      Live Attendance
+                    </Button>
+                  </Link>
+                </motion.div>
+                <motion.div variants={fadeSlideUp}>
+                  <Button
+                    onClick={() => setShowZoomAttendance(true)}
+                    variant="outline"
+                  >
+                    <Video className="mr-2 h-4 w-4" />
+                    Process Attendance
+                  </Button>
+                </motion.div>
+              </>
+            )}
           </motion.div>
         </div>
+
+        {/* Truck cohorts: physical sign-in sheet for today's class */}
+        {group?.vehicleType === 'truck' && (
+          <div className="mt-6">
+            <TruckSignInPanel groupId={groupId} />
+          </div>
+        )}
 
         {!isConnected && (
           <div className="mb-6 bg-yellow-50 border border-yellow-200 rounded-lg p-4 flex items-center gap-3">
