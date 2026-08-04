@@ -91,8 +91,36 @@ export async function handleInboundMessage(ctx: InboundContext): Promise<BotResu
   }
 
   const truncated = reply.length > MAX_REPLY_LEN ? reply.slice(0, MAX_REPLY_LEN) : reply
-  await logMessage(conv.id, 'assistant', truncated, 'sent')
+  // NOTE: we do NOT log-as-sent here anymore. The transcript row is
+  // written by the WA client only after client.sendMessage actually
+  // resolves — otherwise a silent send failure would leave the DB
+  // claiming a message was delivered when it never left the server.
+  // See logBotSendSuccess / logBotSendFailure below.
   return { reply: truncated, deferred: false, conversationId: conv.id }
+}
+
+// Called from the WhatsApp client after the outbound has actually left
+// the client (client.sendMessage resolved successfully). Split from
+// handleInboundMessage so we only claim "sent" when it truly went out.
+export async function logBotSendSuccess(
+  conversationId: string,
+  body: string,
+  waMessageId?: string,
+): Promise<void> {
+  await logMessage(conversationId, 'assistant', body, 'sent', waMessageId)
+}
+
+// Called when client.sendMessage throws. Status 'deferred' so the
+// admin UI shows it clearly (with the error text) instead of an
+// invisible failure that surfaces later as "why didn't the customer
+// get my reply".
+export async function logBotSendFailure(
+  conversationId: string,
+  body: string,
+  error: string,
+): Promise<void> {
+  const detail = `[send failed] ${error.slice(0, 200)}\n\n${body}`
+  await logMessage(conversationId, 'assistant', detail, 'deferred')
 }
 
 // ── Reply interpretation ────────────────────────────────────────

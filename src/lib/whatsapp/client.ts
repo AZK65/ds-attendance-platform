@@ -1,6 +1,6 @@
 import path from 'path'
 import { prisma } from '@/lib/db'
-import { handleInboundMessage, pauseForAdminReply, logAdminMessage } from '@/lib/bot/handle-message'
+import { handleInboundMessage, pauseForAdminReply, logAdminMessage, logBotSendSuccess, logBotSendFailure } from '@/lib/bot/handle-message'
 
 // Set of (phone + '|' + text) pairs the bot just sent. Populated by
 // sendBotReply immediately before sendMessage runs, drained by the
@@ -642,10 +642,17 @@ export async function connectWhatsApp(): Promise<void> {
           // 1.5s minimum + ~40ms per reply character, capped at 6s.
           const delay = Math.min(6000, 1500 + Math.floor((result.reply.length || 0) * 40))
           await new Promise(r => setTimeout(r, delay))
+          // Log the outbound row ONLY after client.sendMessage resolves,
+          // so the transcript can't lie about a message being delivered
+          // when it silently failed to leave the server.
           try {
             await sendBotReply(phone, result.reply)
+            await logBotSendSuccess(result.conversationId, result.reply)
+            console.log(`[bot] Reply sent to ${phone} (${result.reply.length} chars)`)
           } catch (err) {
-            console.error('[bot] send failed:', err)
+            const errMsg = err instanceof Error ? err.message : String(err)
+            console.error(`[bot] Send to ${phone} failed:`, errMsg)
+            await logBotSendFailure(result.conversationId, result.reply, errMsg)
           }
         }
       } catch (err) {
