@@ -105,17 +105,26 @@ export default function GroupDetailPage() {
 
   const toggleAdminMutation = useMutation({
     mutationFn: async (args: { contactId: string; isAdmin: boolean }) => {
+      console.log('[toggleAdmin] PATCH', args)
       const res = await fetch(`/api/groups/${encodeURIComponent(groupId)}/members`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ contactId: args.contactId, isAdmin: args.isAdmin }),
       })
-      if (!res.ok) throw new Error('Failed to update role')
-      return res.json()
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok) {
+        console.error('[toggleAdmin] failed', res.status, data)
+        throw new Error(data?.error || `HTTP ${res.status}`)
+      }
+      console.log('[toggleAdmin] ok', data)
+      return data
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['group', groupId] })
       queryClient.invalidateQueries({ queryKey: ['group-today', groupId] })
+    },
+    onError: (err) => {
+      alert(`Could not update role: ${err instanceof Error ? err.message : 'Unknown error'}`)
     },
   })
 
@@ -1066,28 +1075,30 @@ export default function GroupDetailPage() {
                           Owner
                         </Badge>
                       ) : participant.isAdmin ? (
-                        <button
-                          type="button"
+                        <Button
+                          size="sm"
+                          variant="secondary"
                           onClick={() => toggleAdminMutation.mutate({ contactId: participant.id, isAdmin: false })}
                           disabled={toggleAdminMutation.isPending}
-                          title="Click to remove admin (they'll appear on the sign-in sheet again)"
-                          className="inline-flex"
+                          title="Currently marked as admin — click to unmark so they appear on the sign-in sheet again"
+                          className="h-7 px-2.5 gap-1.5 text-xs bg-emerald-100 hover:bg-emerald-200 text-emerald-800 dark:bg-emerald-950/60 dark:hover:bg-emerald-900/60 dark:text-emerald-100"
                         >
-                          <Badge variant="secondary" className="gap-1 hover:bg-muted cursor-pointer">
-                            <Shield className="h-3 w-3" />
-                            Admin
-                          </Badge>
-                        </button>
+                          <Shield className="h-3 w-3" />
+                          Admin
+                          <span className="text-emerald-700/70 dark:text-emerald-200/70 ml-0.5">✓</span>
+                        </Button>
                       ) : (
-                        <button
-                          type="button"
+                        <Button
+                          size="sm"
+                          variant="outline"
                           onClick={() => toggleAdminMutation.mutate({ contactId: participant.id, isAdmin: true })}
                           disabled={toggleAdminMutation.isPending}
-                          title="Mark as admin — they'll be hidden from the sign-in sheet"
-                          className="text-muted-foreground text-sm hover:text-foreground underline decoration-dotted underline-offset-4 decoration-muted-foreground/40 hover:decoration-foreground/60"
+                          title="Mark this member as admin — they'll be hidden from the sign-in sheet"
+                          className="h-7 px-2.5 gap-1.5 text-xs text-muted-foreground hover:text-foreground border-dashed"
                         >
-                          Member
-                        </button>
+                          <Shield className="h-3 w-3 opacity-40" />
+                          Make admin
+                        </Button>
                       )}
                     </TableCell>
                     <TableCell>

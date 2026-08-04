@@ -103,14 +103,33 @@ export async function syncGroupMembers(
     })
   }
 
-  // Delete old memberships for this group that are no longer in the list
+  // Delete old memberships for this group that are no longer in the list.
+  //
+  // Safety: skip the delete step entirely when the incoming list is empty
+  // or dramatically smaller than what's on disk. That happens when a WA
+  // fetch partially fails, or when WhatsApp starts returning contacts under
+  // new LID identifiers (`<lid>@lid`) that don't match our stored
+  // `<phone>@c.us` — the notIn check would then consider every existing
+  // row as "not in the current list" and wipe the whole roster. Losing
+  // members that were actually removed on WA is a smaller problem than
+  // dropping the whole group; those will fall off on the next successful
+  // sync anyway once the WA layer stabilises.
   const currentContactIds = members.map(m => m.id)
-  await prisma.groupMember.deleteMany({
-    where: {
-      groupId,
-      contactId: { notIn: currentContactIds },
-    },
-  })
+  const existingCount = await prisma.groupMember.count({ where: { groupId } })
+  const isSuspiciousShrink =
+    currentContactIds.length === 0 || currentContactIds.length < existingCount * 0.5
+  if (!isSuspiciousShrink) {
+    await prisma.groupMember.deleteMany({
+      where: {
+        groupId,
+        contactId: { notIn: currentContactIds },
+      },
+    })
+  } else if (existingCount > 0) {
+    console.warn(
+      `[syncGroupMembers] Skipping delete for ${groupId}: WA returned ${currentContactIds.length} members but DB has ${existingCount}. Likely LID drift — keeping stale rows rather than nuking the roster.`
+    )
+  }
 
   // Upsert memberships.
   // NOTE: isAdmin is intentionally NOT touched on the update path — we
