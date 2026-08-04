@@ -7,8 +7,47 @@ import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import {
   Search, Send, ArrowLeft, Users, User, Wifi, WifiOff,
-  Loader2, MessageCircle, ImageIcon, FileText, Mic, Video
+  Loader2, MessageCircle, ImageIcon, FileText, Mic, Video,
+  Bot, Pause, Play, AlertCircle
 } from 'lucide-react'
+
+// ── Bot state (per-conversation) ───────────────────────────────
+
+interface BotConversation {
+  phone: string
+  displayName: string | null
+  studentId: string | null
+  messageCount: number
+  lastMessage: { createdAt: string; role: string; body: string } | null
+  paused: boolean
+  pausedUntil: string | null
+  pauseReason: string | null
+}
+
+interface BotStatus {
+  enabled: boolean
+  model: string
+  conversations: BotConversation[]
+}
+
+// Extract the digits-only phone from a WA chat id: '15145551234@c.us'
+// → '15145551234'. Returns null for groups (@g.us) or malformed ids.
+function chatIdToPhone(chatId: string | null | undefined): string | null {
+  if (!chatId) return null
+  if (chatId.endsWith('@g.us')) return null
+  const digits = chatId.split('@')[0]?.replace(/\D/g, '')
+  return digits || null
+}
+
+function fmtPauseRemaining(iso: string | null): string {
+  if (!iso) return ''
+  const ms = new Date(iso).getTime() - Date.now()
+  if (ms <= 0) return ''
+  const mins = Math.floor(ms / 60000)
+  if (mins < 60) return `${mins}m`
+  const hrs = Math.floor(mins / 60)
+  return `${hrs}h`
+}
 
 // ── Types ──────────────────────────────────────────────────────
 
@@ -111,14 +150,26 @@ function DateSeparator({ label }: { label: string }) {
 function ChatListItem({
   chat,
   isSelected,
-  onClick
+  onClick,
+  botState,
 }: {
   chat: Chat
   isSelected: boolean
   onClick: () => void
+  botState?: BotConversation | null
 }) {
   const preview = chat.lastMessage?.body || ''
   const truncated = preview.length > 45 ? preview.slice(0, 45) + '...' : preview
+  const isPaused = !!botState?.paused
+  const isBotActive = !chat.isGroup && !isPaused
+  const needsAttention =
+    !!botState?.lastMessage &&
+    botState.lastMessage.role === 'assistant' &&
+    (botState.lastMessage.body.startsWith('[send failed]') ||
+      // deferred rows are stored as 'assistant' too; the presence of any
+      // recent 'assistant' whose most recent user message went unanswered
+      // is what the admin should notice. This heuristic keeps it simple.
+      false)
 
   return (
     <button
@@ -139,8 +190,17 @@ function ChatListItem({
       {/* Content */}
       <div className="flex-1 min-w-0">
         <div className="flex items-center justify-between gap-2">
-          <span className={`text-sm truncate ${chat.unreadCount > 0 ? 'font-bold' : 'font-medium'}`}>
+          <span className={`text-sm truncate ${chat.unreadCount > 0 ? 'font-bold' : 'font-medium'} flex items-center gap-1.5`}>
             {chat.name}
+            {isBotActive && (
+              <Bot className="h-3 w-3 text-emerald-600" aria-label="Bot active on this chat" />
+            )}
+            {isPaused && (
+              <Pause className="h-3 w-3 text-amber-600" aria-label="Bot paused on this chat" />
+            )}
+            {needsAttention && (
+              <AlertCircle className="h-3 w-3 text-red-600" aria-label="Bot couldn't respond" />
+            )}
           </span>
           <span className="text-[11px] text-muted-foreground flex-shrink-0">
             {formatTime(chat.lastMessage?.timestamp || chat.timestamp)}
@@ -264,6 +324,34 @@ export default function InboxPage() {
     },
     enabled: !!selectedChatId,
     refetchInterval: 10000, // Poll every 10s
+  })
+
+  // Bot pause state per phone — merged with the WA chat list to show
+  // "bot active", "bot paused", and "bot couldn't respond" indicators
+  // alongside each conversation, plus enable pause/resume from the
+  // chat header. Same 15s poll cadence as the chat list.
+  const { data: botStatus } = useQuery<BotStatus>({
+    queryKey: ['bot-status'],
+    queryFn: () => fetch('/api/bot').then(r => r.json()),
+    refetchInterval: 15000,
+  })
+  const botByPhone = new Map((botStatus?.conversations || []).map(c => [c.phone, c]))
+  const selectedPhone = chatIdToPhone(selectedChatId)
+  const selectedBotState = selectedPhone ? botByPhone.get(selectedPhone) || null : null
+
+  const botToggle = useMutation({
+    mutationFn: async (args: { phone: string; action: 'pause' | 'resume' }) => {
+      const res = await fetch('/api/bot', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(args),
+      })
+      if (!res.ok) throw new Error('Bot toggle failed')
+      return res.json()
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['bot-status'] })
+    },
   })
 
   // ── Send mutation ──────────────────────────────────────────
@@ -436,14 +524,18 @@ export default function InboxPage() {
               </p>
             </div>
           ) : (
-            chats.map(chat => (
-              <ChatListItem
-                key={chat.id}
-                chat={chat}
-                isSelected={chat.id === selectedChatId}
-                onClick={() => setSelectedChatId(chat.id)}
-              />
-            ))
+            chats.map(chat => {
+              const phone = chatIdToPhone(chat.id)
+              return (
+                <ChatListItem
+                  key={chat.id}
+                  chat={chat}
+                  isSelected={chat.id === selectedChatId}
+                  onClick={() => setSelectedChatId(chat.id)}
+                  botState={phone ? botByPhone.get(phone) : null}
+                />
+              )
+            })
           )}
         </div>
       </div>
@@ -478,12 +570,56 @@ export default function InboxPage() {
               }`}>
                 {selectedChat?.isGroup ? <Users className="h-4 w-4" /> : <User className="h-4 w-4" />}
               </div>
-              <div className="min-w-0">
+              <div className="min-w-0 flex-1">
                 <h2 className="text-sm font-semibold truncate">{selectedChat?.name || 'Chat'}</h2>
                 <p className="text-xs text-muted-foreground">
                   {selectedChat?.isGroup ? 'Group' : 'Direct message'}
                 </p>
               </div>
+
+              {/* Bot pause/resume — only for individual chats, only when the
+                  bot has ever seen this thread (or is enabled and this
+                  is a non-group chat). */}
+              {!selectedChat?.isGroup && selectedPhone && botStatus?.enabled && (
+                <div className="flex items-center gap-2 flex-shrink-0">
+                  {selectedBotState?.paused ? (
+                    <>
+                      <Badge variant="outline" className="bg-amber-50 text-amber-700 border-amber-200 text-[10px]">
+                        <Pause className="h-2.5 w-2.5 mr-1" />
+                        Bot paused
+                        {selectedBotState.pausedUntil && (
+                          <span className="ml-1 opacity-70">· {fmtPauseRemaining(selectedBotState.pausedUntil)} left</span>
+                        )}
+                      </Badge>
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        className="h-7 text-xs"
+                        onClick={() => botToggle.mutate({ phone: selectedPhone, action: 'resume' })}
+                        disabled={botToggle.isPending}
+                      >
+                        <Play className="h-3 w-3 mr-1" /> Resume bot
+                      </Button>
+                    </>
+                  ) : (
+                    <>
+                      <Badge variant="outline" className="bg-emerald-50 text-emerald-700 border-emerald-200 text-[10px]">
+                        <Bot className="h-2.5 w-2.5 mr-1" />
+                        Bot active
+                      </Badge>
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        className="h-7 text-xs"
+                        onClick={() => botToggle.mutate({ phone: selectedPhone, action: 'pause' })}
+                        disabled={botToggle.isPending}
+                      >
+                        <Pause className="h-3 w-3 mr-1" /> Pause bot
+                      </Button>
+                    </>
+                  )}
+                </div>
+              )}
             </div>
 
             {/* Messages */}
