@@ -467,6 +467,15 @@ export async function connectWhatsApp(): Promise<void> {
         headless: process.env.WA_HEADLESS === 'new' ? true : 'shell',
         executablePath: process.env.PUPPETEER_EXECUTABLE_PATH || undefined,
         timeout: 60000,
+        // protocolTimeout is separate from launch timeout: it's how long
+        // Puppeteer waits for any CDP call to respond. Default is 30 s,
+        // which the wwebjs sync workaround (Runtime.callFunctionOn on a
+        // just-restored session) blows past on slow first loads, dying
+        // with "Runtime.callFunctionOn timed out" and cascading
+        // 'Target closed' errors because the tab is torn down. 3 min gives
+        // WA Web enough head-room for the initial handshake without
+        // masking a real hang for long.
+        protocolTimeout: 180_000,
         // Set WA_CHROME_DEBUG=1 to pipe Chrome's stdout/stderr into the
         // container logs. When a launch fails this reveals the real reason
         // (e.g. a missing shared library) instead of the opaque "Target closed".
