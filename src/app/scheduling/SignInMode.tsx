@@ -28,6 +28,7 @@ interface Participant {
   phone: string
   name?: string | null
   pushName?: string | null
+  isAdmin?: boolean
   isSuperAdmin?: boolean
 }
 
@@ -182,12 +183,20 @@ export default function SignInMode({ onExit }: { onExit: () => void }) {
   })
 
   // Members of the selected group.
-  const { data: membersData, isLoading: membersLoading } = useQuery<{ participants: Participant[]; moduleNumber?: number | null }>({
-    queryKey: ['signin-group-members', selectedClass?.group.id],
+  //
+  // Force-refresh flag: bumped by the "Resync members" button so an empty
+  // roster (usually caused by a WA fetch that returned 0 during LID drift)
+  // can be re-hydrated on demand without leaving the page.
+  const [rosterResyncKey, setRosterResyncKey] = useState(0)
+  const { data: membersData, isLoading: membersLoading, refetch: refetchMembers } = useQuery<{ participants: Participant[]; moduleNumber?: number | null }>({
+    queryKey: ['signin-group-members', selectedClass?.group.id, rosterResyncKey],
     queryFn: async () => {
-      const res = await fetch(`/api/groups/${encodeURIComponent(selectedClass!.group.id)}`)
+      const url = `/api/groups/${encodeURIComponent(selectedClass!.group.id)}${rosterResyncKey > 0 ? '?refresh=true' : ''}`
+      const res = await fetch(url)
       if (!res.ok) throw new Error('Failed to fetch members')
-      return res.json()
+      const data = await res.json()
+      console.log('[SignInMode] roster fetched for', selectedClass?.group.id, '- participants:', data?.participants?.length ?? 0)
+      return data
     },
     enabled: !!selectedClass && view === 'roster',
   })
@@ -255,9 +264,15 @@ export default function SignInMode({ onExit }: { onExit: () => void }) {
 
   const roster = useMemo(() => {
     const parts = membersData?.participants || []
+    // Hide staff: WA-side owners (isSuperAdmin) AND anyone flagged isAdmin
+    // in our own DB (that's the platform-side toggle on the group members
+    // table used to hide teachers / staff from the sign-in sheet). Keep
+    // members that have no phone (LID-only contacts) — they can still sign
+    // by their name; dropping them was the bug that made truck groups show
+    // "0 students" after WhatsApp's LID rollout.
     return parts
-      .filter(p => p.phone && !p.isSuperAdmin)
-      .sort((a, b) => (a.name || a.pushName || a.phone).localeCompare(b.name || b.pushName || b.phone))
+      .filter(p => !p.isSuperAdmin && !p.isAdmin)
+      .sort((a, b) => (a.name || a.pushName || a.phone || '').localeCompare(b.name || b.pushName || b.phone || ''))
   }, [membersData])
 
   // ── Header ──────────────────────────────────────────────────────
@@ -424,8 +439,23 @@ export default function SignInMode({ onExit }: { onExit: () => void }) {
         </div>
       ) : roster.length === 0 ? (
         <Card>
-          <CardContent className="py-16 text-center text-muted-foreground">
+          <CardContent className="py-16 text-center text-muted-foreground space-y-4">
             <p className="text-base">No students in this class yet.</p>
+            <p className="text-xs max-w-md mx-auto opacity-70">
+              If you expected students here, WhatsApp may have returned a stale roster.
+              Force a fresh sync — this re-fetches the group members directly from WhatsApp.
+            </p>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => {
+                setRosterResyncKey(k => k + 1)
+                refetchMembers()
+              }}
+              disabled={membersLoading}
+            >
+              <RotateCcw className="h-3.5 w-3.5 mr-1.5" /> Resync members
+            </Button>
           </CardContent>
         </Card>
       ) : (
