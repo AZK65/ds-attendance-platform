@@ -40,10 +40,17 @@ export async function POST(
     // Try adding to WhatsApp group (best-effort — student is already in our DB)
     let whatsappWarning: string | undefined
     let inviteSent = false
+    let inviteLink: string | undefined
     if (state.isConnected) {
       const result = await addParticipantToGroup(decodedGroupId, phoneToAdd)
       if (result.inviteSent) {
         inviteSent = true
+      }
+      if (result.inviteLink) {
+        // Surfaced when WhatsApp wouldn't auto-add and the invite-message
+        // fallback also failed — the UI can render a copy button so admin
+        // can send the link out-of-band (SMS / email).
+        inviteLink = result.inviteLink
       }
       if (!result.success) {
         // A number with no WhatsApp account (usually a typo) is the most
@@ -66,6 +73,7 @@ export async function POST(
       success: true,
       whatsappWarning,
       inviteSent,
+      inviteLink,
     })
   } catch (error) {
     console.error('Add member error:', error)

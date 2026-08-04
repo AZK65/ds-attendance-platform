@@ -80,8 +80,20 @@ function formatCurrency(amount: number) {
   return new Intl.NumberFormat('en-CA', { style: 'currency', currency: 'CAD' }).format(amount)
 }
 
+interface SignatureRow {
+  id: string
+  eventId: string
+  studentPhone: string
+  studentName: string
+  sessionLabel: string | null
+  moduleNumber: number | null
+  sortieNumber: number | null
+  signedAt: string
+}
+
 function AttendanceSheetButton({ phone }: { phone: string }) {
-  const { data } = useQuery<{ signatures: Array<{ id: string }> }>({
+  const [showHistory, setShowHistory] = useState(false)
+  const { data } = useQuery<{ signatures: SignatureRow[] }>({
     queryKey: ['attendance-sheet-count', phone],
     queryFn: async () => {
       const res = await fetch(`/api/scheduling/signature?phone=${encodeURIComponent(phone)}`)
@@ -91,21 +103,96 @@ function AttendanceSheetButton({ phone }: { phone: string }) {
     enabled: !!phone,
     staleTime: 60 * 1000,
   })
-  const count = data?.signatures?.length ?? 0
+  const signatures = data?.signatures ?? []
+  const count = signatures.length
+
+  const fmtDate = (iso: string) => {
+    const d = new Date(iso)
+    return d.toLocaleDateString('en-CA', { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric' })
+  }
+  const fmtTime = (iso: string) => {
+    const d = new Date(iso)
+    return d.toLocaleTimeString('en-CA', { hour: 'numeric', minute: '2-digit', hour12: true })
+  }
+  const labelFor = (s: SignatureRow) => {
+    if (s.sessionLabel) return s.sessionLabel
+    if (s.moduleNumber != null) return `Module ${s.moduleNumber}`
+    if (s.sortieNumber != null) return `Sortie ${s.sortieNumber}`
+    return 'Class'
+  }
+
   return (
-    <Button variant="outline" size="sm" asChild>
-      <a
-        href={`/api/scheduling/signature/pdf?phone=${encodeURIComponent(phone)}`}
-        target="_blank"
-        rel="noopener"
-      >
-        <FileSignature className="h-4 w-4 mr-1" />
-        Attendance Sheet
-        {count > 0 && (
-          <Badge variant="secondary" className="ml-1.5 text-[10px] px-1.5">{count}</Badge>
-        )}
-      </a>
-    </Button>
+    <>
+      <div className="inline-flex rounded-md overflow-hidden border" role="group">
+        <button
+          type="button"
+          onClick={() => setShowHistory(true)}
+          className="inline-flex items-center gap-1.5 h-9 px-3 text-sm hover:bg-accent transition-colors"
+          title="View sign-in history"
+        >
+          <FileSignature className="h-4 w-4" />
+          Attendance
+          {count > 0 && (
+            <Badge variant="secondary" className="ml-0.5 text-[10px] px-1.5">{count}</Badge>
+          )}
+        </button>
+        <a
+          href={`/api/scheduling/signature/pdf?phone=${encodeURIComponent(phone)}`}
+          target="_blank"
+          rel="noopener"
+          className="inline-flex items-center gap-1 h-9 px-2.5 border-l text-xs hover:bg-accent transition-colors text-muted-foreground"
+          title="Download SAAQ attendance booklet PDF"
+        >
+          PDF
+        </a>
+      </div>
+
+      <Dialog open={showHistory} onOpenChange={setShowHistory}>
+        <DialogContent className="max-w-lg">
+          <DialogHeader>
+            <DialogTitle>Sign-in history</DialogTitle>
+            <DialogDescription>
+              {count === 0
+                ? 'No physical sign-ins captured yet.'
+                : `${count} sign-in${count === 1 ? '' : 's'} · latest first.`}
+            </DialogDescription>
+          </DialogHeader>
+          {count === 0 ? (
+            <div className="py-6 text-center text-sm text-muted-foreground">
+              This student hasn't signed the iPad yet. Sign-ins captured via /scheduling appear here.
+            </div>
+          ) : (
+            <ul className="divide-y max-h-[420px] overflow-y-auto -mx-6 px-6">
+              {signatures.map((s) => (
+                <li key={s.id} className="py-3 flex items-start justify-between gap-3">
+                  <div className="min-w-0">
+                    <div className="text-sm font-medium">{labelFor(s)}</div>
+                    <div className="text-xs text-muted-foreground mt-0.5">
+                      {fmtDate(s.signedAt)} · {fmtTime(s.signedAt)}
+                    </div>
+                  </div>
+                  <Badge variant="outline" className="text-[10px] font-mono uppercase tracking-wider flex-shrink-0">
+                    signed
+                  </Badge>
+                </li>
+              ))}
+            </ul>
+          )}
+          <div className="pt-3 border-t flex items-center justify-between text-xs text-muted-foreground">
+            <span>Full SAAQ-format booklet with signatures →</span>
+            <Button variant="outline" size="sm" asChild>
+              <a
+                href={`/api/scheduling/signature/pdf?phone=${encodeURIComponent(phone)}`}
+                target="_blank"
+                rel="noopener"
+              >
+                <FileSignature className="h-3.5 w-3.5 mr-1" /> Download PDF
+              </a>
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
+    </>
   )
 }
 

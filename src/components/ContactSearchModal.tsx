@@ -12,7 +12,7 @@ import {
 import { Input } from '@/components/ui/input'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
-import { Search, UserPlus, Loader2, Phone, CheckCircle2 } from 'lucide-react'
+import { Search, UserPlus, Loader2, Phone, CheckCircle2, AlertTriangle, Copy, Check } from 'lucide-react'
 
 interface Contact {
   id: string
@@ -37,6 +37,10 @@ export function ContactSearchModal({
   const [search, setSearch] = useState('')
   const [debouncedSearch, setDebouncedSearch] = useState('')
   const [addedIds, setAddedIds] = useState<Set<string>>(new Set())
+  // Surfaces "we added them to the roster but WhatsApp wouldn't auto-add
+  // the number — here's the invite link you can send by SMS/email" state.
+  const [addWarning, setAddWarning] = useState<{ message: string; inviteLink?: string } | null>(null)
+  const [copiedLink, setCopiedLink] = useState(false)
   const queryClient = useQueryClient()
 
   useEffect(() => {
@@ -46,12 +50,25 @@ export function ContactSearchModal({
     return () => clearTimeout(timer)
   }, [search])
 
-  // Reset added IDs when modal opens
+  // Reset per-open state when the modal opens.
   useEffect(() => {
     if (open) {
       setAddedIds(new Set())
+      setAddWarning(null)
+      setCopiedLink(false)
     }
   }, [open])
+
+  const copyInviteLink = async (link: string) => {
+    try {
+      await navigator.clipboard.writeText(link)
+      setCopiedLink(true)
+      setTimeout(() => setCopiedLink(false), 2000)
+    } catch {
+      // Clipboard blocked — fall back to prompting the admin to copy manually.
+      window.prompt('Copy the invite link:', link)
+    }
+  }
 
   const { data, isLoading } = useQuery({
     queryKey: ['contacts', debouncedSearch, groupId],
@@ -66,6 +83,14 @@ export function ContactSearchModal({
     enabled: open && isConnected
   })
 
+  // Response shape from POST /api/groups/[id]/members
+  type AddResponse = {
+    success: boolean
+    whatsappWarning?: string
+    inviteSent?: boolean
+    inviteLink?: string
+  }
+
   const addMemberMutation = useMutation({
     mutationFn: async (contactId: string) => {
       const res = await fetch(`/api/groups/${encodeURIComponent(groupId)}/members`, {
@@ -77,14 +102,21 @@ export function ContactSearchModal({
         const error = await res.json()
         throw new Error(error.error || 'Failed to add member')
       }
-      return res.json()
+      return res.json() as Promise<AddResponse>
     },
-    onSuccess: (_, contactId) => {
+    onSuccess: (data, contactId) => {
       // Force refetch with fresh data
       queryClient.invalidateQueries({ queryKey: ['group', groupId] })
       queryClient.refetchQueries({ queryKey: ['group', groupId] })
       queryClient.invalidateQueries({ queryKey: ['contacts'] })
       setAddedIds(prev => new Set(prev).add(contactId))
+      // Surface any WA-side warning + copyable invite link so admin can
+      // finish the flow manually when WhatsApp declined the auto-add.
+      if (data.whatsappWarning || data.inviteLink) {
+        setAddWarning({ message: data.whatsappWarning || 'Added to the roster but not to the WhatsApp group.', inviteLink: data.inviteLink })
+      } else {
+        setAddWarning(null)
+      }
     }
   })
 
@@ -99,16 +131,22 @@ export function ContactSearchModal({
         const error = await res.json()
         throw new Error(error.error || 'Failed to add member')
       }
-      return res.json()
+      return res.json() as Promise<AddResponse>
     },
-    onSuccess: () => {
+    onSuccess: (data) => {
       // Force refetch with fresh data
       queryClient.invalidateQueries({ queryKey: ['group', groupId] })
       queryClient.refetchQueries({ queryKey: ['group', groupId] })
       queryClient.invalidateQueries({ queryKey: ['contacts'] })
       setSearch('')
-      // Close modal after 1.5s to show success message
-      setTimeout(() => onOpenChange(false), 1500)
+      // Surface warning / invite link. If there's one, keep the modal open
+      // so admin can copy the link out. Otherwise auto-close after 1.5s.
+      if (data.whatsappWarning || data.inviteLink) {
+        setAddWarning({ message: data.whatsappWarning || 'Added to the roster but not to the WhatsApp group.', inviteLink: data.inviteLink })
+      } else {
+        setAddWarning(null)
+        setTimeout(() => onOpenChange(false), 1500)
+      }
     }
   })
 
@@ -142,6 +180,38 @@ export function ContactSearchModal({
         </DialogHeader>
 
         <div className="space-y-4">
+          {addWarning && (
+            <div className="rounded-lg border border-amber-200 bg-amber-50 dark:bg-amber-950/40 dark:border-amber-800 p-3">
+              <div className="flex items-start gap-2 text-sm">
+                <AlertTriangle className="h-4 w-4 text-amber-600 flex-shrink-0 mt-0.5" />
+                <div className="flex-1 min-w-0">
+                  <p className="text-amber-900 dark:text-amber-100">{addWarning.message}</p>
+                  <p className="text-xs text-amber-800/80 dark:text-amber-200/80 mt-1">
+                    The student is already saved to the roster and will appear on the sign-in sheet.
+                  </p>
+                  {addWarning.inviteLink && (
+                    <div className="mt-3 flex items-center gap-2 rounded-md border border-amber-200 dark:border-amber-800 bg-white dark:bg-neutral-900 p-2">
+                      <code className="text-[11px] flex-1 truncate font-mono text-neutral-700 dark:text-neutral-300">
+                        {addWarning.inviteLink}
+                      </code>
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={() => copyInviteLink(addWarning.inviteLink!)}
+                        className="h-7 text-xs shrink-0"
+                      >
+                        {copiedLink ? (
+                          <><Check className="h-3 w-3 mr-1" /> Copied</>
+                        ) : (
+                          <><Copy className="h-3 w-3 mr-1" /> Copy link</>
+                        )}
+                      </Button>
+                    </div>
+                  )}
+                </div>
+              </div>
+            </div>
+          )}
           <div className="relative">
             <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-muted-foreground" />
             <Input

@@ -1210,28 +1210,56 @@ async function resolveJoinedInvites(groupId: string, participantPhones: string[]
   }
 }
 
-export async function addParticipantToGroup(groupId: string, phone: string): Promise<{ success: boolean; error?: string; inviteSent?: boolean }> {
+export async function addParticipantToGroup(groupId: string, phone: string): Promise<{ success: boolean; error?: string; inviteSent?: boolean; inviteLink?: string }> {
   if (!state.client || !state.isConnected) {
     throw new Error('WhatsApp not connected')
   }
 
+  const client = state.client as {
+    getChatById: (id: string) => Promise<{
+      addParticipants: (participants: string[], options?: unknown) => Promise<Record<string, { code: number; message: string; isInviteV4Sent: boolean }>>
+      getInviteCode: () => Promise<string>
+      name: string
+    }>
+    getNumberId: (phone: string) => Promise<{ _serialized: string } | null>
+    getChats: () => Promise<unknown[]>
+  }
+
   try {
-    const client = state.client as {
-      getChatById: (id: string) => Promise<{
-        addParticipants: (participants: string[], options?: unknown) => Promise<Record<string, { code: number; message: string; isInviteV4Sent: boolean }>>
-        getInviteCode: () => Promise<string>
-        name: string
-      }>
-      getChats: () => Promise<unknown[]>
-      pupPage?: {
-        evaluate: <T>(fn: string) => Promise<T>
+    // Resolve the WhatsApp id BEFORE trying to add. Contacts WhatsApp has
+    // migrated to Linked IDs return '<lid>@lid' here (not '<phone>@c.us').
+    // Using phoneToJid blindly would build '<digits>@c.us' — an address
+    // that doesn't exist on WA for those contacts, which is why previous
+    // add attempts silently failed with 'No LID for user'.
+    let participantId: string
+    try {
+      const resolved = await client.getNumberId(phone)
+      if (!resolved?._serialized) {
+        // Not on WhatsApp at all — record as pending so the roster keeps
+        // them, and surface the copyable invite link so admin can send
+        // via SMS / email.
+        await recordGroupInvite(groupId, phone).catch(() => {})
+        try {
+          const chat = await client.getChatById(groupId)
+          const inviteCode = await chat.getInviteCode()
+          return {
+            success: false,
+            error: 'This number has no WhatsApp account — send them the invite link manually',
+            inviteLink: `https://chat.whatsapp.com/${inviteCode}`,
+          }
+        } catch {
+          return { success: false, error: 'This number has no WhatsApp account' }
+        }
       }
+      participantId = resolved._serialized
+    } catch (resolveErr) {
+      // getNumberId itself failed — fall back to the old phoneToJid path
+      // so we still attempt the add. Better than hard-failing.
+      console.warn('[addParticipant] getNumberId failed, using phoneToJid fallback:', resolveErr)
+      participantId = phoneToJid(phone)
     }
 
-    // Format phone number to WhatsApp ID format
-    const participantId = phoneToJid(phone)
-    console.log(`Adding participant ${participantId} to group ${groupId}`)
-
+    console.log(`[addParticipant] resolved ${phone} -> ${participantId}, adding to ${groupId}`)
     const chat = await client.getChatById(groupId)
 
     // Add timeout to prevent hanging (WhatsApp can stall on privacy-restricted numbers)
@@ -1240,7 +1268,7 @@ export async function addParticipantToGroup(groupId: string, phone: string): Pro
       new Promise<never>((_, reject) => setTimeout(() => reject(new Error('Add participant timed out after 8s')), 8000)),
     ])
     const result = await addWithTimeout
-    console.log('Add participant result:', result)
+    console.log('[addParticipant] result:', result)
 
     // Check if there was an error for this participant
     const participantResult = result[participantId]
@@ -1248,39 +1276,56 @@ export async function addParticipantToGroup(groupId: string, phone: string): Pro
       // If invite was already sent by WhatsApp via V4, report it
       if (participantResult.isInviteV4Sent) {
         console.log(`[addParticipant] Invite V4 sent to ${participantId}`)
-        await recordGroupInvite(groupId, phone)
+        await recordGroupInvite(groupId, phone).catch(() => {})
         return { success: true, inviteSent: true }
       }
 
-      // Try sending a group invite link as fallback
-      console.log(`[addParticipant] Direct add failed (${participantResult.code}), sending invite link...`)
+      // Direct add failed — try sending an invite link. If sendPrivateMessage
+      // itself throws (common with 'No LID for user' on brand-new contacts),
+      // still return the invite link so admin can copy-paste it into an SMS.
+      console.log(`[addParticipant] Direct add failed (${participantResult.code} ${participantResult.message}), preparing invite link...`)
+      let inviteLink: string | undefined
       try {
         const inviteCode = await chat.getInviteCode()
-        const inviteLink = `https://chat.whatsapp.com/${inviteCode}`
+        inviteLink = `https://chat.whatsapp.com/${inviteCode}`
+      } catch (linkErr) {
+        console.error('[addParticipant] Could not fetch invite code:', linkErr)
+      }
+      if (inviteLink) {
         const groupName = chat.name || 'the group'
-        await sendPrivateMessage(
-          phone,
-          `You've been invited to join *${groupName}*!\n\nClick the link to join:\n${inviteLink}`
-        )
-        console.log(`[addParticipant] Invite link sent to ${phone}`)
-        await recordGroupInvite(groupId, phone)
-        return {
-          success: true,
-          inviteSent: true,
+        try {
+          await sendPrivateMessage(
+            phone,
+            `You've been invited to join *${groupName}*!\n\nClick the link to join:\n${inviteLink}`
+          )
+          console.log(`[addParticipant] Invite link auto-sent to ${phone}`)
+          await recordGroupInvite(groupId, phone).catch(() => {})
+          return { success: true, inviteSent: true }
+        } catch (sendErr) {
+          const sendMsg = sendErr instanceof Error ? sendErr.message : String(sendErr)
+          console.warn(`[addParticipant] Invite auto-send failed for ${phone} (${sendMsg}); returning link for manual send.`)
+          await recordGroupInvite(groupId, phone).catch(() => {})
+          // Manual-send path — admin can copy the link out of the UI.
+          return {
+            success: false,
+            error: 'WhatsApp wouldn\'t auto-add this number. Send them the invite link manually.',
+            inviteLink,
+          }
         }
-      } catch (inviteErr) {
-        console.error('[addParticipant] Failed to send invite link:', inviteErr)
-        return {
-          success: false,
-          error: (participantResult.message || `Error code ${participantResult.code}`) + ' (invite link also failed)',
-        }
+      }
+      return {
+        success: false,
+        error: participantResult.message || `Error code ${participantResult.code}`,
       }
     }
 
     return { success: true }
   } catch (error) {
-    console.error('Add participant error:', error)
-    throw error
+    const errMsg = error instanceof Error ? error.message : String(error)
+    console.error('[addParticipant] error:', errMsg)
+    // Return the error instead of throwing so the caller (API route) can
+    // surface a specific message rather than a generic 500.
+    return { success: false, error: errMsg }
   }
 }
 
