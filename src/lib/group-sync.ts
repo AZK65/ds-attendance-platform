@@ -112,14 +112,20 @@ export async function syncGroupMembers(
     },
   })
 
-  // Upsert memberships
+  // Upsert memberships.
+  // NOTE: isAdmin is intentionally NOT touched on the update path — we
+  // overload it as a platform-side "staff / hide from sign-in" flag that
+  // admin sets from the group members table. If we re-synced it from WA
+  // every time, that manual toggle would get wiped on the next background
+  // group refresh. isSuperAdmin still tracks WA's group-owner truth both
+  // ways because owner transfers are rare and we want to reflect them.
   for (const m of members) {
     await prisma.groupMember.upsert({
       where: { groupId_contactId: { groupId, contactId: m.id } },
       update: {
         phone: m.phone,
-        isAdmin: m.isAdmin || false,
         isSuperAdmin: m.isSuperAdmin || false,
+        // isAdmin deliberately omitted — see comment above.
       },
       create: {
         groupId,

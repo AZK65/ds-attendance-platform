@@ -94,10 +94,27 @@ export async function PATCH(
 
   try {
     const body = await request.json()
-    const { contactId, newPhone, newName } = body
+    const { contactId, newPhone, newName, isAdmin } = body
 
     if (!contactId) {
       return NextResponse.json({ error: 'contactId is required' }, { status: 400 })
+    }
+
+    // Admin flag change is a platform-only concept: marking a member as
+    // admin here hides them from the sign-in sheet (they're presumed to be
+    // a teacher / staff / owner). This does NOT change their WhatsApp-side
+    // admin status. Runs first because it's independent of the phone / name
+    // edit path below.
+    if (typeof isAdmin === 'boolean') {
+      await prisma.groupMember.updateMany({
+        where: { groupId: decodedGroupId, contactId },
+        data: { isAdmin },
+      })
+      // If only isAdmin was in the body, we're done — return early so we
+      // don't fall into the phone/name path with undefined args.
+      if (newPhone === undefined && newName === undefined) {
+        return NextResponse.json({ success: true, isAdmin })
+      }
     }
 
     const oldPhone = contactId.replace('@c.us', '')

@@ -51,6 +51,11 @@ export async function GET(req: NextRequest) {
     where: { id: groupId },
     include: {
       members: {
+        // Sign-in sheet is for STUDENTS only. Anyone flagged isAdmin
+        // (marked as staff from the group members table) or isSuperAdmin
+        // (WA-side group owner) is excluded so instructors / owners
+        // don't clutter the "who signed today" roster.
+        where: { isAdmin: false, isSuperAdmin: false },
         include: { contact: { select: { name: true, pushName: true } } },
       },
     },
