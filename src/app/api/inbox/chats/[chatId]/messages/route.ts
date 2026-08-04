@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { getChatMessages, sendMessageToGroup, sendPrivateMessage, getWhatsAppState } from '@/lib/whatsapp/client'
+import { getChatMessages, sendMessageToGroup, sendPrivateMessage, sendToRawChatId, getWhatsAppState } from '@/lib/whatsapp/client'
 import { prisma } from '@/lib/db'
 
 export async function GET(
@@ -44,12 +44,25 @@ export async function POST(
       return NextResponse.json({ error: 'WhatsApp not connected' }, { status: 503 })
     }
 
-    // Send via appropriate method
+    // Send via the appropriate method for each chat type.
+    //  - @g.us  : WhatsApp group. Uses the group send path.
+    //  - @c.us  : regular direct message (legacy WhatsApp JID). Strip suffix
+    //             so sendPrivateMessage can re-JID via phoneToJid and get
+    //             its LID-resolve retry for free.
+    //  - @lid   : Linked ID — newer WhatsApp contact identifier that isn't
+    //             a phone number. Send the raw JID as-is; phoneToJid would
+    //             mangle it into `<lid>@c.us` and the send would silently
+    //             miss.
+    //  - anything else with an @ : unknown but not obviously wrong; forward
+    //             raw and let WhatsApp reject if truly invalid. Better than
+    //             hard-rejecting a JID format we haven't seen yet.
     if (decodedChatId.endsWith('@g.us')) {
       await sendMessageToGroup(decodedChatId, message)
     } else if (decodedChatId.endsWith('@c.us')) {
       const phone = decodedChatId.replace('@c.us', '')
       await sendPrivateMessage(phone, message)
+    } else if (decodedChatId.includes('@')) {
+      await sendToRawChatId(decodedChatId, message)
     } else {
       return NextResponse.json({ error: 'Invalid chat ID format' }, { status: 400 })
     }

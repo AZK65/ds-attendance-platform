@@ -2208,6 +2208,29 @@ export async function forceSyncGroups(): Promise<{ success: boolean; groupCount:
   }
 }
 
+// Send to an arbitrary WhatsApp chat id as-is (no phone→JID transform).
+// For non-phone JIDs like '<lid>@lid' where phoneToJid would produce
+// '<lid>@c.us' and silently miss. Used by the inbox POST for chats
+// WhatsApp has migrated to Linked IDs.
+export async function sendToRawChatId(chatId: string, text: string): Promise<void> {
+  if (!state.client || !state.isConnected) {
+    throw new Error('WhatsApp not connected')
+  }
+  const client = state.client as { sendMessage: (id: string, content: string) => Promise<unknown> }
+  try {
+    await client.sendMessage(chatId, text)
+    console.log(`[sendToRawChatId] sent to ${chatId}`)
+  } catch (err) {
+    const errMsg = err instanceof Error ? err.message : String(err)
+    console.error(`[sendToRawChatId] send to ${chatId} failed:`, errMsg)
+    if (isDeadFrameError(errMsg)) {
+      logWaEvent('send_frame_error', errMsg)
+      state.isConnected = false
+    }
+    throw err
+  }
+}
+
 // Bot-originated outbound. Marks the (phone, text) pair as "ours" *before*
 // calling sendPrivateMessage so the message_create listener knows not to
 // treat it as an admin manual reply. Falls back to unmark on send failure
