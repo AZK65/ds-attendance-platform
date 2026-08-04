@@ -24,7 +24,7 @@ import {
 import {
   Search, Loader2, FileText, ArrowLeft, X, Calendar,
   CreditCard, Link2, Eye, Copy, ExternalLink, CheckCircle2,
-  Banknote, Globe, User, Trash2, MoreVertical, Plus,
+  Banknote, Globe, User, Trash2, MoreVertical, Plus, RotateCcw,
 } from 'lucide-react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
@@ -128,6 +128,11 @@ export default function InvoiceHistoryPage() {
   const [copiedLinkId, setCopiedLinkId] = useState<string | null>(null)
   const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null)
   const [menuOpenId, setMenuOpenId] = useState<string | null>(null)
+  // Refund flow: click the 3-dot Refund action to open this dialog. Uses
+  // the same /api/invoice/refund endpoint the single-invoice detail page
+  // uses — creates a CR-prefixed credit note and marks the original refunded.
+  const [refundInvoice, setRefundInvoice] = useState<Invoice | null>(null)
+  const [refundReason, setRefundReason] = useState('')
 
   useEffect(() => {
     const timer = setTimeout(() => setDebouncedSearch(search.trim()), 300)
@@ -246,6 +251,26 @@ export default function InvoiceHistoryPage() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['invoices'] })
       setDeleteConfirmId(null)
+    },
+  })
+
+  const refundMutation = useMutation({
+    mutationFn: async (args: { invoiceId: string; reason: string }) => {
+      const res = await fetch('/api/invoice/refund', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(args),
+      })
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}))
+        throw new Error(err.error || 'Refund failed')
+      }
+      return res.json()
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['invoices'] })
+      setRefundInvoice(null)
+      setRefundReason('')
     },
   })
 
@@ -566,6 +591,19 @@ export default function InvoiceHistoryPage() {
                                       </button>
                                     </>
                                   )}
+                                  {/* Refund — creates a credit note (CR-<num>) and marks the original refunded. */}
+                                  {inv.paymentStatus !== 'refunded' && (
+                                    <>
+                                      <div className="my-1 border-t" />
+                                      <button
+                                        className="w-full flex items-center gap-2 px-3 py-2 text-sm text-red-600 hover:bg-red-50 dark:hover:bg-red-950/40 transition-colors"
+                                        onClick={() => { setRefundInvoice(inv); setRefundReason(''); setMenuOpenId(null) }}
+                                      >
+                                        <RotateCcw className="h-3.5 w-3.5" />
+                                        Refund invoice
+                                      </button>
+                                    </>
+                                  )}
                                 </div>
                               )}
                             </div>
@@ -581,6 +619,53 @@ export default function InvoiceHistoryPage() {
         </Card>
         </motion.div>
       </div>
+
+      {/* ========== Refund Dialog ========== */}
+      <Dialog open={!!refundInvoice} onOpenChange={(open) => !open && !refundMutation.isPending && setRefundInvoice(null)}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <RotateCcw className="h-5 w-5 text-red-600" /> Refund invoice
+            </DialogTitle>
+            <DialogDescription>
+              {refundInvoice && (
+                <>
+                  This creates a credit note <span className="font-mono">CR-{refundInvoice.invoiceNumber}</span> for {formatCurrency(refundInvoice.total)} and marks{' '}
+                  <span className="font-mono">{refundInvoice.invoiceNumber}</span> as refunded. It does <strong>not</strong> move any money — refund the customer's card separately in Clover if needed.
+                </>
+              )}
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-2">
+            <label className="text-xs font-medium text-muted-foreground">Reason (optional, saved on the credit note)</label>
+            <Input
+              value={refundReason}
+              onChange={e => setRefundReason(e.target.value)}
+              placeholder="e.g., Student withdrew from course"
+              autoFocus
+            />
+            {refundMutation.error && (
+              <p className="text-xs text-red-600">{(refundMutation.error as Error).message}</p>
+            )}
+          </div>
+          <div className="flex items-center justify-end gap-2 pt-3">
+            <Button variant="outline" onClick={() => setRefundInvoice(null)} disabled={refundMutation.isPending}>
+              Cancel
+            </Button>
+            <Button
+              variant="destructive"
+              disabled={refundMutation.isPending}
+              onClick={() => refundInvoice && refundMutation.mutate({ invoiceId: refundInvoice.id, reason: refundReason })}
+            >
+              {refundMutation.isPending ? (
+                <><Loader2 className="h-4 w-4 mr-1.5 animate-spin" /> Creating credit note…</>
+              ) : (
+                <><RotateCcw className="h-4 w-4 mr-1.5" /> Create refund</>
+              )}
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
 
       {/* ========== Match Dialog ========== */}
       <Dialog open={!!matchDialogInvoice} onOpenChange={(open) => !open && setMatchDialogInvoice(null)}>

@@ -76,6 +76,12 @@ export default function GroupsPage() {
   // (Truck) cohorts. Defaults to Car since the existing fleet of groups
   // is overwhelmingly car groups.
   const [activeTab, setActiveTab] = useState<'car' | 'truck'>('car')
+  // Toggle "Archived" view — fetches ?archivedOnly=1 so the list shows only
+  // archived groups, from which admin can unarchive or hard-delete.
+  const [showArchived, setShowArchived] = useState(false)
+  // Per-row 3-dot menu open + delete confirmation dialog.
+  const [rowMenuOpenId, setRowMenuOpenId] = useState<string | null>(null)
+  const [deleteGroupConfirm, setDeleteGroupConfirm] = useState<{ id: string; name: string } | null>(null)
 
   // New Group dialog state
   const [showNewGroup, setShowNewGroup] = useState(false)
@@ -164,14 +170,41 @@ export default function GroupsPage() {
     refetch,
     isFetching
   } = useQuery({
-    queryKey: ['groups'],
+    queryKey: ['groups', showArchived],
     queryFn: async () => {
-      const res = await fetch('/api/groups')
+      const qs = showArchived ? '?archivedOnly=1' : ''
+      const res = await fetch(`/api/groups${qs}`)
       return res.json()
     },
     staleTime: 60 * 60 * 1000,        // 1 hour — data is fresh for a long time
     gcTime: 2 * 60 * 60 * 1000,       // 2 hours — keep in cache even longer
     refetchInterval: 60 * 60 * 1000,   // Background refresh every hour
+  })
+
+  const archiveMutation = useMutation({
+    mutationFn: async (args: { groupId: string; action: 'archive' | 'unarchive' }) => {
+      const res = await fetch(`/api/groups/${encodeURIComponent(args.groupId)}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: args.action }),
+      })
+      if (!res.ok) throw new Error('Archive toggle failed')
+      return res.json()
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['groups'] })
+    },
+  })
+  const deleteGroupMutation = useMutation({
+    mutationFn: async (groupId: string) => {
+      const res = await fetch(`/api/groups/${encodeURIComponent(groupId)}`, { method: 'DELETE' })
+      if (!res.ok) throw new Error('Delete failed')
+      return res.json()
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['groups'] })
+      setDeleteGroupConfirm(null)
+    },
   })
 
   // Batch-fetch the next theory class for every group in one Teamup round trip
@@ -651,6 +684,18 @@ export default function GroupsPage() {
               </button>
             )
           })}
+          <button
+            type="button"
+            onClick={() => setShowArchived(v => !v)}
+            className={`ml-auto text-xs font-medium px-3 py-1.5 rounded-full transition-colors ${
+              showArchived
+                ? 'bg-amber-100 text-amber-800 dark:bg-amber-950/60 dark:text-amber-200'
+                : 'text-muted-foreground hover:bg-muted'
+            }`}
+            title={showArchived ? 'Viewing archived groups — click to return to active groups' : 'Show archived groups'}
+          >
+            {showArchived ? '← Back to active' : 'Archived'}
+          </button>
         </div>
 
         <AnimatePresence mode="wait">

@@ -1,4 +1,4 @@
-import { NextResponse } from 'next/server'
+import { NextRequest, NextResponse } from 'next/server'
 import { getGroupsWithDetails, getWhatsAppState } from '@/lib/whatsapp/client'
 import { prisma } from '@/lib/db'
 
@@ -15,11 +15,22 @@ async function pendingInviteCounts(): Promise<Map<string, number>> {
   }
 }
 
-export async function GET() {
+export async function GET(request: NextRequest) {
   const state = getWhatsAppState()
+
+  // Archived groups are hidden by default. Pass ?includeArchived=1 (or
+  // ?archivedOnly=1 for the "Archived" tab) to see them.
+  const includeArchived = request.nextUrl.searchParams.get('includeArchived') === '1'
+  const archivedOnly = request.nextUrl.searchParams.get('archivedOnly') === '1'
+  const archiveFilter = archivedOnly
+    ? { archivedAt: { not: null } }
+    : includeArchived
+      ? {}
+      : { archivedAt: null }
 
   // Always return cached data first (instant) — sync from WhatsApp in background
   const cachedGroups = await prisma.group.findMany({
+    where: archiveFilter,
     orderBy: { name: 'asc' }
   })
 
@@ -105,15 +116,25 @@ export async function GET() {
     // carry that field.
     const annotated = await prisma.group.findMany({
       where: { id: { in: groups.map(g => g.id) } },
-      select: { id: true, vehicleType: true },
+      select: { id: true, vehicleType: true, archivedAt: true },
     })
-    const typeById = new Map(annotated.map(g => [g.id, g.vehicleType]))
+    const metaById = new Map(annotated.map(g => [g.id, { vehicleType: g.vehicleType, archivedAt: g.archivedAt }]))
 
     const inviteCounts = await pendingInviteCounts()
+    // Apply the same archive filter here so the "connected + fresh sync"
+    // path returns the same visible set as the cached path above.
+    const filtered = groups.filter(g => {
+      const meta = metaById.get(g.id)
+      const isArchived = !!meta?.archivedAt
+      if (archivedOnly) return isArchived
+      if (!includeArchived) return !isArchived
+      return true
+    })
     return NextResponse.json({
-      groups: groups.map(g => ({
+      groups: filtered.map(g => ({
         ...g,
-        vehicleType: typeById.get(g.id) || 'car',
+        vehicleType: metaById.get(g.id)?.vehicleType || 'car',
+        archivedAt: metaById.get(g.id)?.archivedAt || null,
         pendingInvites: inviteCounts.get(g.id) || 0,
       })),
       fromCache: false,

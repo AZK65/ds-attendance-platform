@@ -22,6 +22,9 @@ model Group {
   lastSynced         DateTime         @default(now())
   createdAt          DateTime         @default(now())
   updatedAt          DateTime         @updatedAt
+  // When set, the group is hidden from the default /groups list but data
+  // (attendance, invoices, transcripts) stays intact. Clear to un-archive.
+  archivedAt         DateTime?
   moduleNumber       Int?
   // "car" (Class 5 theory cohort, default — phases 1-4 over 12 modules)
   // or "truck" (Class 1, intake-style; no module phases). Drives which

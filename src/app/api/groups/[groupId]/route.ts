@@ -161,3 +161,52 @@ export async function GET(
     )
   }
 }
+
+// PATCH /api/groups/[groupId] — soft edits.
+// Body: { action: 'archive' | 'unarchive' }
+export async function PATCH(
+  request: NextRequest,
+  { params }: { params: Promise<{ groupId: string }> },
+) {
+  const { groupId } = await params
+  const decodedGroupId = decodeURIComponent(groupId)
+  try {
+    const body = await request.json().catch(() => ({})) as { action?: string }
+    if (body.action === 'archive') {
+      await prisma.group.update({ where: { id: decodedGroupId }, data: { archivedAt: new Date() } })
+      return NextResponse.json({ ok: true, archivedAt: new Date().toISOString() })
+    }
+    if (body.action === 'unarchive') {
+      await prisma.group.update({ where: { id: decodedGroupId }, data: { archivedAt: null } })
+      return NextResponse.json({ ok: true, archivedAt: null })
+    }
+    return NextResponse.json({ error: 'action must be archive or unarchive' }, { status: 400 })
+  } catch (error) {
+    console.error('[PATCH group]', error)
+    return NextResponse.json({ error: 'Failed to update group' }, { status: 500 })
+  }
+}
+
+// DELETE /api/groups/[groupId] — hard-delete the local Group record and all
+// its cascaded data (members, attendance sheet, invites, bot pauses on any
+// member phones). Does NOT touch the actual WhatsApp group — that stays
+// intact on WA, we just stop tracking it locally. To re-track, sync groups
+// again from /groups.
+export async function DELETE(
+  request: NextRequest,
+  { params }: { params: Promise<{ groupId: string }> },
+) {
+  const { groupId } = await params
+  const decodedGroupId = decodeURIComponent(groupId)
+  try {
+    // Cascades: GroupMember, AttendanceSheet (which cascades AttendanceRecord)
+    // are all set up in schema.prisma. GroupInvite has no FK, so clean it
+    // manually so it doesn't hang around orphaned.
+    await prisma.groupInvite.deleteMany({ where: { groupId: decodedGroupId } }).catch(() => {})
+    await prisma.group.delete({ where: { id: decodedGroupId } })
+    return NextResponse.json({ ok: true })
+  } catch (error) {
+    console.error('[DELETE group]', error)
+    return NextResponse.json({ error: 'Failed to delete group' }, { status: 500 })
+  }
+}

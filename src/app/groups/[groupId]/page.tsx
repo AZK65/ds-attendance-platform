@@ -1,7 +1,7 @@
 'use client'
 
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { useParams } from 'next/navigation'
+import { useParams, useRouter } from 'next/navigation'
 import { useState, useMemo } from 'react'
 import { ContactSearchModal } from '@/components/ContactSearchModal'
 import { ConnectionStatus } from '@/components/ConnectionStatus'
@@ -33,6 +33,7 @@ import {
   Users,
   AlertTriangle,
   Trash2,
+  Archive,
   Shield,
   Send,
   BookOpen,
@@ -86,8 +87,50 @@ interface PendingInvite {
 
 export default function GroupDetailPage() {
   const params = useParams()
+  const router = useRouter()
   const groupId = decodeURIComponent(params.groupId as string)
   const queryClient = useQueryClient()
+  const [showArchiveConfirm, setShowArchiveConfirm] = useState(false)
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false)
+
+  // Class 5 cohorts do "Module N" (SAAQ PESR — 12 numbered modules).
+  // Class 1 (truck) cohorts don't share that structure — 75 h of theory
+  // over ~7-8 weeks with no fixed module boundaries. Present as "Session N"
+  // so admin copy stays accurate for what students actually see on paper.
+  const isTruck = () => (typeof group === 'object' && group?.vehicleType === 'truck')
+  const classLabel = (n: number | null | undefined) => {
+    if (n == null) return isTruck() ? 'Session' : 'Module'
+    return `${isTruck() ? 'Session' : 'Module'} ${n}`
+  }
+
+  const archiveMutation = useMutation({
+    mutationFn: async (action: 'archive' | 'unarchive') => {
+      const res = await fetch(`/api/groups/${encodeURIComponent(groupId)}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action }),
+      })
+      if (!res.ok) throw new Error('Archive toggle failed')
+      return res.json()
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['groups'] })
+      queryClient.invalidateQueries({ queryKey: ['group', groupId] })
+      setShowArchiveConfirm(false)
+    },
+  })
+  const deleteGroupMutation = useMutation({
+    mutationFn: async () => {
+      const res = await fetch(`/api/groups/${encodeURIComponent(groupId)}`, { method: 'DELETE' })
+      if (!res.ok) throw new Error('Delete failed')
+      return res.json()
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['groups'] })
+      setShowDeleteConfirm(false)
+      router.push('/groups')
+    },
+  })
 
   const [showAddModal, setShowAddModal] = useState(false)
   const [removeConfirm, setRemoveConfirm] = useState<string | null>(null)
@@ -721,7 +764,7 @@ export default function GroupDetailPage() {
             {currentModuleNumber > 0 && (
               <Badge variant="default">
                 <BookOpen className="h-3 w-3 mr-1" />
-                Module {currentModuleNumber}
+                {classLabel(currentModuleNumber)}
               </Badge>
             )}
             {groupNextTheory?.next && (
@@ -800,6 +843,28 @@ export default function GroupDetailPage() {
               >
                 <Bell className="mr-2 h-4 w-4" />
                 Send Reminder
+              </Button>
+            </motion.div>
+
+            {/* Archive / Delete — small destructive-ish actions in the same button row.
+                Both are local-only: they don't touch the WhatsApp group itself. */}
+            <motion.div variants={fadeSlideUp}>
+              <Button
+                variant="outline"
+                onClick={() => setShowArchiveConfirm(true)}
+                title="Hide this group from the default /groups list without deleting anything"
+              >
+                <Archive className="mr-2 h-4 w-4" /> Archive
+              </Button>
+            </motion.div>
+            <motion.div variants={fadeSlideUp}>
+              <Button
+                variant="ghost"
+                onClick={() => setShowDeleteConfirm(true)}
+                className="text-red-600 hover:text-red-700 hover:bg-red-50 dark:hover:bg-red-950/40"
+                title="Permanently delete this group and its local data (attendance, members, invoices stay linked but detached)"
+              >
+                <Trash2 className="mr-2 h-4 w-4" /> Delete
               </Button>
             </motion.div>
 
@@ -1118,6 +1183,52 @@ export default function GroupDetailPage() {
         </DialogContent>
       </Dialog>
 
+      {/* Archive confirmation */}
+      <Dialog open={showArchiveConfirm} onOpenChange={setShowArchiveConfirm}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2"><Archive className="h-5 w-5" /> Archive this group</DialogTitle>
+            <DialogDescription>
+              Hides <strong>{group?.name || 'this group'}</strong> from the /groups list. Attendance, invoices, and messages stay intact — nothing is deleted. Click <em>Archived</em> at the top of /groups to see it again and unarchive.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowArchiveConfirm(false)} disabled={archiveMutation.isPending}>Cancel</Button>
+            <Button onClick={() => archiveMutation.mutate('archive')} disabled={archiveMutation.isPending}>
+              {archiveMutation.isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Archive className="mr-2 h-4 w-4" />}
+              Archive
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Delete confirmation — hard delete, DB-only. Does not touch the WhatsApp group. */}
+      <Dialog open={showDeleteConfirm} onOpenChange={setShowDeleteConfirm}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-red-600"><Trash2 className="h-5 w-5" /> Delete this group</DialogTitle>
+            <DialogDescription>
+              Permanently removes <strong>{group?.name || 'this group'}</strong> and its local data (members list, attendance sheet, invites) from the platform.
+              <br /><br />
+              The actual WhatsApp group on WhatsApp is NOT touched — students stay in the WA group and messages remain. To re-track it, sync groups again from /groups.
+              <br /><br />
+              This can't be undone. Prefer <em>Archive</em> if you're not sure.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowDeleteConfirm(false)} disabled={deleteGroupMutation.isPending}>Cancel</Button>
+            <Button
+              variant="destructive"
+              onClick={() => deleteGroupMutation.mutate()}
+              disabled={deleteGroupMutation.isPending}
+            >
+              {deleteGroupMutation.isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Trash2 className="mr-2 h-4 w-4" />}
+              Delete permanently
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
       <Dialog
         open={showSendClassMessage}
         onOpenChange={(open) => {
@@ -1137,7 +1248,7 @@ export default function GroupDetailPage() {
                 <div className="text-center">
                   <h3 className="text-lg font-semibold text-green-800">Message Sent!</h3>
                   <p className="text-sm text-muted-foreground mt-1">
-                    Module {currentModuleNumber + 1} class message has been sent to the group.
+                    {classLabel((currentModuleNumber || 0) + 1)} class message has been sent to the group.
                   </p>
                 </div>
               </div>
@@ -1158,7 +1269,7 @@ export default function GroupDetailPage() {
               </div>
               <div className="flex items-center gap-2 text-sm text-muted-foreground">
                 <BookOpen className="h-4 w-4" />
-                Current: Module {currentModuleNumber || 'N/A'} → Next: Module {currentModuleNumber + 1}
+                Current: {currentModuleNumber ? classLabel(currentModuleNumber) : `${isTruck() ? 'Session' : 'Module'} N/A`} → Next: {classLabel((currentModuleNumber || 0) + 1)}
               </div>
               <DialogFooter>
                 <Button variant="outline" onClick={() => setShowSendClassMessage(false)}>
@@ -1234,7 +1345,7 @@ export default function GroupDetailPage() {
                 <label className="text-sm font-medium">Step 2: Select Class Session</label>
                 {lastModuleMessageDate && (
                   <p className="text-xs text-muted-foreground">
-                    Module {currentModuleNumber} message was sent on{' '}
+                    {classLabel(currentModuleNumber)} message was sent on{' '}
                     <span className="font-medium">
                       {lastModuleMessageDate.toLocaleDateString('en-US', {
                         weekday: 'short',
@@ -1270,7 +1381,7 @@ export default function GroupDetailPage() {
                               {isMatchingDate && (
                                 <Badge variant="secondary" className="text-xs">
                                   <CheckCircle className="h-3 w-3 mr-1" />
-                                  Matches Module {currentModuleNumber}
+                                  Matches {classLabel(currentModuleNumber)}
                                 </Badge>
                               )}
                             </p>
@@ -1842,7 +1953,7 @@ export default function GroupDetailPage() {
                 <div className="text-center">
                   <h3 className="text-lg font-semibold text-green-800">Reminder Scheduled!</h3>
                   <p className="text-sm text-muted-foreground mt-1">
-                    Module {reminderModule} reminder will be sent to {selectedMembers.size} members on{' '}
+                    {classLabel(reminderModule)} reminder will be sent to {selectedMembers.size} members on{' '}
                     {new Date(`${scheduleDate}T${scheduleTime}`).toLocaleString('en-US', {
                       weekday: 'short',
                       month: 'short',
