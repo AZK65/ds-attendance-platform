@@ -13,10 +13,18 @@ export async function GET(
       return NextResponse.json({ messages: [], connected: false })
     }
 
-    const decodedChatId = decodeURIComponent(chatId)
-    const messages = await getChatMessages(decodedChatId, 50)
+    // ?limit=<n> — client uses this to progressively load more history when
+    // the user hits "Load older". Clamped so a runaway request can't ask WA
+    // for 100k messages and lock the Chromium frame.
+    const rawLimit = Number(request.nextUrl.searchParams.get('limit'))
+    const limit = Number.isFinite(rawLimit) && rawLimit > 0
+      ? Math.min(2000, Math.floor(rawLimit))
+      : 100
 
-    return NextResponse.json({ messages, connected: true })
+    const decodedChatId = decodeURIComponent(chatId)
+    const messages = await getChatMessages(decodedChatId, limit)
+
+    return NextResponse.json({ messages, connected: true, limit })
   } catch (error) {
     console.error('[API /inbox/messages] Error:', error)
     return NextResponse.json(

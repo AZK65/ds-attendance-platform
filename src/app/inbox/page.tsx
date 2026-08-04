@@ -137,9 +137,11 @@ function mediaPlaceholder(type: string): { icon: typeof ImageIcon; label: string
 
 function DateSeparator({ label }: { label: string }) {
   return (
-    <div className="flex items-center justify-center my-3">
-      <div className="bg-muted/80 backdrop-blur-sm text-muted-foreground text-[11px] font-medium px-3 py-1 rounded-md shadow-sm">
-        {label}
+    <div className="flex items-center justify-center my-4 select-none">
+      <div className="inline-flex items-center px-3 py-1 rounded-full bg-white/85 dark:bg-neutral-800/90 border border-black/5 dark:border-white/10 backdrop-blur-sm">
+        <span className="text-[11px] font-medium text-neutral-700 dark:text-neutral-300 tracking-wide">
+          {label}
+        </span>
       </div>
     </div>
   )
@@ -226,50 +228,75 @@ function ChatListItem({
 
 function MessageBubble({
   message,
-  isGroup
+  isGroup,
+  isFirstInRun,
+  isLastInRun,
 }: {
   message: Message
   isGroup: boolean
+  isFirstInRun: boolean
+  isLastInRun: boolean
 }) {
   const isNonText = message.type !== 'chat' && message.type !== 'e2e_notification' && message.type !== 'notification_template'
   const media = isNonText ? mediaPlaceholder(message.type) : null
   const MediaIcon = media?.icon
+  const mine = message.fromMe
+
+  // WhatsApp-style bubble rounding: tail (cut corner) only on the last
+  // message of a same-sender run. Within a run, keep all corners rounded
+  // so the bubbles read as a stack rather than a chain of tails.
+  //
+  // rounded-2xl everywhere, then trim ONE corner on the tail bubble:
+  //   mine + last-in-run  → tail on bottom-right (br cut to sm)
+  //   theirs + last-in-run → tail on bottom-left  (bl cut to sm)
+  const cornerCls = !isLastInRun
+    ? 'rounded-2xl'
+    : mine
+      ? 'rounded-2xl rounded-br-md'
+      : 'rounded-2xl rounded-bl-md'
+
+  // Tight vertical spacing within a run, generous between runs.
+  const runGap = isFirstInRun ? 'mt-2' : 'mt-0.5'
 
   return (
-    <div className={`flex ${message.fromMe ? 'justify-end' : 'justify-start'} mb-1`}>
+    <div className={`flex ${mine ? 'justify-end' : 'justify-start'} ${runGap} px-1`}>
       <div
-        className={`max-w-[75%] rounded-lg px-3 py-1.5 ${
-          message.fromMe
-            ? 'bg-emerald-600 text-white'
-            : 'bg-muted'
-        }`}
+        className={`
+          max-w-[85%] md:max-w-[70%] px-3.5 py-2 shadow-sm ${cornerCls}
+          ${mine
+            ? 'bg-[#DCF8C6] text-neutral-900 dark:bg-emerald-800 dark:text-neutral-50'
+            : 'bg-white text-neutral-900 dark:bg-neutral-800 dark:text-neutral-100 border border-black/[0.03] dark:border-white/5'
+          }
+        `}
       >
-        {/* Sender name for group received messages */}
-        {isGroup && !message.fromMe && message.senderName && (
-          <p className="text-[11px] font-semibold text-primary mb-0.5 truncate">
+        {/* Sender name for group received messages — only on first-in-run so it
+            isn't repeated on every bubble of the same sender's stack. */}
+        {isGroup && !mine && message.senderName && isFirstInRun && (
+          <p className="text-[12px] font-semibold text-emerald-700 dark:text-emerald-400 mb-0.5 truncate">
             {message.senderName}
           </p>
         )}
 
         {/* Media placeholder */}
         {media && MediaIcon && (
-          <div className={`flex items-center gap-1.5 text-xs ${message.fromMe ? 'text-white/80' : 'text-muted-foreground'} mb-0.5`}>
+          <div className={`flex items-center gap-1.5 text-[13px] mb-1 ${mine ? 'text-neutral-700/80 dark:text-neutral-100/80' : 'text-neutral-500 dark:text-neutral-400'}`}>
             <MediaIcon className="h-3.5 w-3.5" />
-            <span>{media.label}</span>
+            <span className="italic">{media.label}</span>
           </div>
         )}
 
         {/* Message body */}
         {message.body && (
-          <p className="text-sm whitespace-pre-wrap break-words">{message.body}</p>
+          <p className="text-[14.5px] leading-[1.4] whitespace-pre-wrap break-words">{message.body}</p>
         )}
 
-        {/* Timestamp */}
-        <p className={`text-[10px] mt-0.5 text-right ${
-          message.fromMe ? 'text-white/60' : 'text-muted-foreground'
-        }`}>
-          {formatMessageTime(message.timestamp)}
-        </p>
+        {/* Timestamp — right-aligned, inline with last line via flex-end.
+            Only on the last message of a run to reduce visual noise. */}
+        {isLastInRun && (
+          <div className={`flex justify-end mt-1 text-[10.5px] tabular-nums ${mine ? 'text-neutral-500 dark:text-neutral-300/70' : 'text-neutral-400 dark:text-neutral-400'}`}>
+            {formatMessageTime(message.timestamp)}
+          </div>
+        )}
       </div>
     </div>
   )
@@ -311,20 +338,35 @@ export default function InboxPage() {
     refetchInterval: 15000, // Poll every 15s
   })
 
+  // Per-chat history size. Bumped by "Load older" to progressively pull
+  // more of the WA history in without loading the entire chat on selection.
+  const [historyLimit, setHistoryLimit] = useState<Record<string, number>>({})
+  const currentLimit = selectedChatId ? historyLimit[selectedChatId] ?? 100 : 100
+
   const {
     data: messageData,
     isLoading: messagesLoading
   } = useQuery({
-    queryKey: ['inbox-messages', selectedChatId],
+    queryKey: ['inbox-messages', selectedChatId, currentLimit],
     queryFn: async () => {
       if (!selectedChatId) return { messages: [], connected: true }
-      const res = await fetch(`/api/inbox/chats/${encodeURIComponent(selectedChatId)}/messages`)
+      const res = await fetch(
+        `/api/inbox/chats/${encodeURIComponent(selectedChatId)}/messages?limit=${currentLimit}`
+      )
       if (!res.ok) throw new Error('Failed to fetch messages')
       return res.json() as Promise<{ messages: Message[]; connected: boolean }>
     },
     enabled: !!selectedChatId,
     refetchInterval: 10000, // Poll every 10s
   })
+
+  const loadOlder = () => {
+    if (!selectedChatId) return
+    setHistoryLimit(prev => ({ ...prev, [selectedChatId]: (prev[selectedChatId] ?? 100) + 200 }))
+  }
+  // "Load older" is worth showing once we've pulled a full batch — heuristic
+  // that the WA history is likely deeper than what we're currently rendering.
+  const canLoadOlder = (messageData?.messages?.length ?? 0) >= currentLimit
 
   // Bot pause state per phone — merged with the WA chat list to show
   // "bot active", "bot paused", and "bot couldn't respond" indicators
@@ -625,8 +667,7 @@ export default function InboxPage() {
             {/* Messages */}
             <div
               ref={messagesContainerRef}
-              className="flex-1 overflow-y-auto px-4 py-3 space-y-0.5"
-              style={{ backgroundImage: 'radial-gradient(circle at 1px 1px, hsl(var(--muted)) 1px, transparent 0)', backgroundSize: '24px 24px' }}
+              className="flex-1 overflow-y-auto px-3 md:px-6 py-3 bg-[#EFEAE2] dark:bg-neutral-900"
             >
               {messagesLoading ? (
                 <div className="flex items-center justify-center h-full">
@@ -638,9 +679,35 @@ export default function InboxPage() {
                 </div>
               ) : (
                 <>
+                  {canLoadOlder && (
+                    <div className="flex justify-center py-2">
+                      <button
+                        onClick={loadOlder}
+                        className="text-xs text-neutral-600 dark:text-neutral-300 bg-white/85 dark:bg-neutral-800/90 border border-black/5 dark:border-white/10 rounded-full px-4 py-1.5 hover:bg-white transition-colors"
+                        disabled={messagesLoading}
+                      >
+                        {messagesLoading ? 'Loading…' : 'Load older messages'}
+                      </button>
+                    </div>
+                  )}
                   {messages.map((msg, idx) => {
                     const prevMsg = idx > 0 ? messages[idx - 1] : null
+                    const nextMsg = idx < messages.length - 1 ? messages[idx + 1] : null
                     const showDate = !prevMsg || getDateKey(msg.timestamp) !== getDateKey(prevMsg.timestamp)
+                    // A message starts a new "run" when the previous one is
+                    // from the other side, from a different group sender,
+                    // >5 min older, or across a date separator. Same rules for
+                    // the last-in-run boundary against the next message.
+                    const runBreak = (a: Message | null, b: Message | null): boolean => {
+                      if (!a || !b) return true
+                      if (a.fromMe !== b.fromMe) return true
+                      if ((a.senderName || '') !== (b.senderName || '')) return true
+                      const gap = Math.abs((b.timestamp || 0) - (a.timestamp || 0))
+                      if (gap > 5 * 60) return true
+                      return false
+                    }
+                    const isFirstInRun = showDate || runBreak(prevMsg, msg)
+                    const isLastInRun = runBreak(msg, nextMsg) || (nextMsg ? getDateKey(msg.timestamp) !== getDateKey(nextMsg.timestamp) : true)
                     return (
                       <div key={msg.id}>
                         {showDate && (
@@ -649,6 +716,8 @@ export default function InboxPage() {
                         <MessageBubble
                           message={msg}
                           isGroup={selectedChat?.isGroup || false}
+                          isFirstInRun={isFirstInRun}
+                          isLastInRun={isLastInRun}
                         />
                       </div>
                     )
