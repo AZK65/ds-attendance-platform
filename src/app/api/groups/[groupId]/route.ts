@@ -108,7 +108,7 @@ export async function GET(
 
     // Fetch fresh data from WhatsApp
     const groupInfo = await getGroupInfo(decodedGroupId)
-    const participants = await getGroupParticipants(decodedGroupId)
+    const waParticipants = await getGroupParticipants(decodedGroupId)
 
     // Get module number and last message date
     const lastMessage = await getGroupLastMessage(decodedGroupId)
@@ -120,7 +120,7 @@ export async function GET(
       where: { id: decodedGroupId },
       update: {
         name: groupInfo.name,
-        participantCount: participants.length,
+        participantCount: waParticipants.length,
         moduleNumber: moduleNumber ?? undefined,
         lastMessageDate: lastModuleMessageDate ?? undefined,
         lastSynced: new Date()
@@ -128,14 +128,41 @@ export async function GET(
       create: {
         id: decodedGroupId,
         name: groupInfo.name,
-        participantCount: participants.length,
+        participantCount: waParticipants.length,
         moduleNumber: moduleNumber ?? null,
         lastMessageDate: lastModuleMessageDate ?? null,
       }
     })
 
-    // Cache participants (names already enriched by getGroupParticipants)
-    await syncGroupMembers(decodedGroupId, participants)
+    // Cache participants (names already enriched by getGroupParticipants).
+    // The sync itself has its own don't-nuke-the-roster guard for LID drift.
+    await syncGroupMembers(decodedGroupId, waParticipants)
+
+    // DB fallback: if the WA fetch came back empty (typical LID-drift
+    // symptom — WhatsApp doesn't return participants for this group under
+    // its new identifier scheme) but we have members cached from a prior
+    // successful sync, surface the cached roster to the UI. Better a
+    // slightly stale roster than "0 students" on the sign-in sheet.
+    let participants = waParticipants
+    if (waParticipants.length === 0) {
+      const cached = await prisma.groupMember.findMany({
+        where: { groupId: decodedGroupId },
+        include: { contact: true },
+      })
+      if (cached.length > 0) {
+        console.warn(
+          `[GET /groups/${decodedGroupId}] WA returned 0 participants; falling back to ${cached.length} cached rows.`
+        )
+        participants = cached.map(m => ({
+          id: m.contactId,
+          phone: m.phone,
+          name: m.contact?.name || null,
+          pushName: m.contact?.pushName || null,
+          isAdmin: m.isAdmin,
+          isSuperAdmin: m.isSuperAdmin,
+        }))
+      }
+    }
 
     return NextResponse.json({
       group: {
