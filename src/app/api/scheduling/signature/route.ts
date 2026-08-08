@@ -122,8 +122,10 @@ export async function GET(request: NextRequest) {
   // For listings (since-only or phone-only) we don't need the giant
   // base64 image — return metadata so the iPad's "signed?" lookup is
   // small and fast. Per-class fetches with eventId still get the full
-  // payload because the PDF route needs it.
-  const includeData = !!eventId
+  // payload because the PDF route needs it. Phone queries can opt into
+  // signature data via ?includeSignatures=1 (student profile timeline).
+  const includeSignatures = request.nextUrl.searchParams.get('includeSignatures') === '1'
+  const includeData = !!eventId || includeSignatures
 
   const signatures = await prisma.classSignature.findMany({
     where,

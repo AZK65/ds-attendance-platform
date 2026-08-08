@@ -528,44 +528,52 @@ function SignaturePad({
 
   const phone = target.phone
 
-  // Calibrate canvas to its rendered CSS box × devicePixelRatio. Has to
-  // re-measure after the dialog open animation finishes (rect.width is
-  // smaller during the animation), otherwise the finger position and the
-  // ink position drift apart. ResizeObserver covers both the initial
-  // animation and any later layout changes (rotation, keyboard, etc.).
+  // Calibrate: size the canvas backing store to (CSS box × devicePixelRatio)
+  // AFTER the dialog is fully open. Doing this during the Radix Dialog open
+  // animation (which is where a bare useEffect fires) lock-in the wrong
+  // dimensions — the canvas has an intermediate width while it's animating,
+  // and every pointer event afterwards resolves to a coordinate system that
+  // no longer matches what the user sees. requestAnimationFrame×2 waits for
+  // the browser to actually paint the dialog at its final size.
+  //
+  // We deliberately do NOT run a ResizeObserver — it re-fires during the
+  // enter animation and clears/re-sizes the canvas mid-interaction, which
+  // was the source of the "offset ink" bug the user hit.
+  //
+  // Drawing uses internal-pixel coords directly (no ctx.setTransform), then
+  // pointer coords are scaled by (canvas.width / rect.width). This is the
+  // classic HiDPI-safe pattern that survives every browser + orientation.
   useEffect(() => {
     const c = canvasRef.current
     if (!c) return
-    const measure = () => {
-      const dpr = window.devicePixelRatio || 1
+    let done = false
+    const configure = () => {
+      if (done || !canvasRef.current) return
       const rect = c.getBoundingClientRect()
-      if (rect.width === 0 || rect.height === 0) return
-      // Preserve any existing strokes by copying off and back.
-      const prev = document.createElement('canvas')
-      prev.width = c.width
-      prev.height = c.height
-      if (c.width > 0 && c.height > 0) {
-        prev.getContext('2d')!.drawImage(c, 0, 0)
+      if (rect.width < 10 || rect.height < 10) {
+        // Dialog still animating — try again on the next frame.
+        requestAnimationFrame(configure)
+        return
       }
+      const dpr = window.devicePixelRatio || 1
       c.width = Math.round(rect.width * dpr)
       c.height = Math.round(rect.height * dpr)
       const ctx = c.getContext('2d')!
-      ctx.setTransform(dpr, 0, 0, dpr, 0, 0)
-      ctx.lineWidth = 2.4
+      ctx.lineWidth = 2.4 * dpr // internal-pixel space
       ctx.lineCap = 'round'
       ctx.lineJoin = 'round'
       ctx.strokeStyle = '#0f172a'
-      if (prev.width > 0) {
-        ctx.save()
-        ctx.setTransform(1, 0, 0, 1, 0, 0)
-        ctx.drawImage(prev, 0, 0, c.width, c.height)
-        ctx.restore()
-      }
+      done = true
     }
-    measure()
-    const ro = new ResizeObserver(() => measure())
-    ro.observe(c)
-    return () => ro.disconnect()
+    requestAnimationFrame(() => requestAnimationFrame(configure))
+    // Recompute if the window resizes (rotate, keyboard). Explicitly NOT
+    // ResizeObserver on the canvas — that was the animation-timing footgun.
+    const onResize = () => {
+      done = false
+      requestAnimationFrame(configure)
+    }
+    window.addEventListener('resize', onResize)
+    return () => window.removeEventListener('resize', onResize)
   }, [])
 
   const start = (x: number, y: number) => {
@@ -585,23 +593,25 @@ function SignaturePad({
   }
   const end = () => { drawingRef.current = false }
 
-  // Convert pointer event to CSS-pixel coords inside the canvas. Because
-  // the context is transformed via setTransform(dpr,…), drawing at CSS-pixel
-  // coordinates maps to the correct internal pixel under the finger.
+  // Convert a pointer event to INTERNAL-pixel coords on the canvas.
+  // Scale by (canvas.width / rect.width) to jump from CSS-pixel space
+  // (what the pointer event carries) to backing-store space (what
+  // ctx.moveTo/lineTo expect when no transform is applied). Same for Y.
+  // Rect is re-read on every event so a mid-drag layout shift (rare, but
+  // e.g. iPad keyboard) doesn't drift the ink.
   const localXY = (e: React.PointerEvent<HTMLCanvasElement>) => {
     const c = canvasRef.current!
     const rect = c.getBoundingClientRect()
-    return [e.clientX - rect.left, e.clientY - rect.top] as const
+    const scaleX = c.width / rect.width
+    const scaleY = c.height / rect.height
+    return [(e.clientX - rect.left) * scaleX, (e.clientY - rect.top) * scaleY] as const
   }
 
   const clear = () => {
     const c = canvasRef.current
     if (!c) return
     const ctx = c.getContext('2d')!
-    ctx.save()
-    ctx.setTransform(1, 0, 0, 1, 0, 0)
     ctx.clearRect(0, 0, c.width, c.height)
-    ctx.restore()
     setHasInk(false)
   }
 

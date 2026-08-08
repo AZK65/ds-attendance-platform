@@ -89,14 +89,21 @@ interface SignatureRow {
   moduleNumber: number | null
   sortieNumber: number | null
   signedAt: string
+  signatureDataUrl?: string | null
 }
 
 function AttendanceSheetButton({ phone }: { phone: string }) {
   const [showHistory, setShowHistory] = useState(false)
-  const { data } = useQuery<{ signatures: SignatureRow[] }>({
-    queryKey: ['attendance-sheet-count', phone],
+  // Fetches signatures WITH image data (?includeSignatures=1) so the dialog
+  // shows actual signatures inline, not just a count. Payload is bigger but
+  // acceptable for a per-student open — average student has <20 signatures.
+  const { data, isLoading } = useQuery<{ signatures: SignatureRow[] }>({
+    queryKey: ['attendance-sheet', phone, showHistory],
     queryFn: async () => {
-      const res = await fetch(`/api/scheduling/signature?phone=${encodeURIComponent(phone)}`)
+      const url = showHistory
+        ? `/api/scheduling/signature?phone=${encodeURIComponent(phone)}&includeSignatures=1`
+        : `/api/scheduling/signature?phone=${encodeURIComponent(phone)}`
+      const res = await fetch(url)
       if (!res.ok) return { signatures: [] }
       return res.json()
     },
@@ -148,38 +155,60 @@ function AttendanceSheetButton({ phone }: { phone: string }) {
       </div>
 
       <Dialog open={showHistory} onOpenChange={setShowHistory}>
-        <DialogContent className="max-w-lg">
+        <DialogContent className="max-w-2xl">
           <DialogHeader>
-            <DialogTitle>Sign-in history</DialogTitle>
+            <DialogTitle>Attendance history</DialogTitle>
             <DialogDescription>
-              {count === 0
-                ? 'No physical sign-ins captured yet.'
-                : `${count} sign-in${count === 1 ? '' : 's'} · latest first.`}
+              {isLoading
+                ? 'Loading signatures…'
+                : count === 0
+                  ? 'No physical sign-ins captured yet.'
+                  : `${count} sign-in${count === 1 ? '' : 's'} · latest first · signatures shown as captured on the iPad.`}
             </DialogDescription>
           </DialogHeader>
-          {count === 0 ? (
-            <div className="py-6 text-center text-sm text-muted-foreground">
+          {isLoading ? (
+            <div className="py-12 flex items-center justify-center">
+              <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+            </div>
+          ) : count === 0 ? (
+            <div className="py-8 text-center text-sm text-muted-foreground">
               This student hasn't signed the iPad yet. Sign-ins captured via /scheduling appear here.
             </div>
           ) : (
-            <ul className="divide-y max-h-[420px] overflow-y-auto -mx-6 px-6">
+            <ul className="divide-y max-h-[540px] overflow-y-auto -mx-6 px-6">
               {signatures.map((s) => (
-                <li key={s.id} className="py-3 flex items-start justify-between gap-3">
-                  <div className="min-w-0">
-                    <div className="text-sm font-medium">{labelFor(s)}</div>
-                    <div className="text-xs text-muted-foreground mt-0.5">
-                      {fmtDate(s.signedAt)} · {fmtTime(s.signedAt)}
+                <li key={s.id} className="py-4">
+                  <div className="flex items-start justify-between gap-3 mb-2">
+                    <div className="min-w-0">
+                      <div className="text-sm font-medium">{labelFor(s)}</div>
+                      <div className="text-xs text-muted-foreground mt-0.5">
+                        {fmtDate(s.signedAt)} · {fmtTime(s.signedAt)}
+                      </div>
                     </div>
+                    <Badge variant="outline" className="text-[10px] font-mono uppercase tracking-wider flex-shrink-0 border-green-200 text-green-700 bg-green-50 dark:bg-green-950/40 dark:text-green-200 dark:border-green-800">
+                      Signed
+                    </Badge>
                   </div>
-                  <Badge variant="outline" className="text-[10px] font-mono uppercase tracking-wider flex-shrink-0">
-                    signed
-                  </Badge>
+                  {s.signatureDataUrl ? (
+                    <div className="rounded-md border bg-white dark:bg-neutral-100 p-2 flex items-center justify-center">
+                      {/* eslint-disable-next-line @next/next/no-img-element */}
+                      <img
+                        src={s.signatureDataUrl}
+                        alt={`${s.studentName} signature`}
+                        className="max-h-24 w-auto"
+                      />
+                    </div>
+                  ) : (
+                    <div className="rounded-md border border-dashed py-6 text-center text-[11px] text-muted-foreground">
+                      Signature image not available
+                    </div>
+                  )}
                 </li>
               ))}
             </ul>
           )}
           <div className="pt-3 border-t flex items-center justify-between text-xs text-muted-foreground">
-            <span>Full SAAQ-format booklet with signatures →</span>
+            <span>Full SAAQ-format booklet →</span>
             <Button variant="outline" size="sm" asChild>
               <a
                 href={`/api/scheduling/signature/pdf?phone=${encodeURIComponent(phone)}`}
