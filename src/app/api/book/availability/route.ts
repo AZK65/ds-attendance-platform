@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/db'
+import { bookingTokenFromRequest } from '@/lib/booking-auth'
 
 const BASE_URL = 'https://api.teamup.com'
 
@@ -95,6 +96,9 @@ function teacherSubcalendarId(ev: TeamupEvent): number | null {
 
 export async function POST(request: NextRequest) {
   try {
+    const auth = bookingTokenFromRequest(request)
+    if (!auth) return NextResponse.json({ error: 'Verification required.' }, { status: 401 })
+
     const apiKey = process.env.TEAMUP_API_KEY || ''
     const calendarKey = process.env.TEAMUP_CALENDAR_KEY || ''
     if (!apiKey || !calendarKey) {
@@ -104,7 +108,16 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    const { studentId, studentName, phone, sortieNumber } = await request.json()
+    const body = await request.json().catch(() => ({}))
+    const studentId = auth.studentId
+    const sortieNumber = body?.sortieNumber
+    const student = await prisma.student.findUnique({
+      where: { id: studentId },
+      select: { name: true },
+    })
+    if (!student) return NextResponse.json({ error: 'Student not found.' }, { status: 404 })
+    const studentName = student.name.replace(/\s*#\s*\d+\s*$/i, '').trim()
+    const phone = auth.phone
     if (!studentName && !phone) {
       return NextResponse.json({ error: 'studentName or phone is required' }, { status: 400 })
     }

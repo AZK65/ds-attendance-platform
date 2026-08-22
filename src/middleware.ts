@@ -27,14 +27,14 @@ const ALLOWED_ORIGINS = (process.env.ALLOWED_ORIGINS || '')
   .filter(Boolean)
   .concat(DEFAULT_ALLOWED_ORIGINS)
 
-const CORS_PATHS = ['/api/register', '/api/payment', '/api/pricing']
+const CORS_PATHS = ['/api/register', '/api/payment', '/api/pricing', '/api/book']
 
 function corsHeaders(origin: string | null): Record<string, string> {
   if (!origin || !ALLOWED_ORIGINS.includes(origin)) return {}
   return {
     'Access-Control-Allow-Origin': origin,
     'Access-Control-Allow-Methods': 'POST, GET, OPTIONS',
-    'Access-Control-Allow-Headers': 'Content-Type',
+    'Access-Control-Allow-Headers': 'Content-Type, Authorization',
     'Access-Control-Max-Age': '86400',
     Vary: 'Origin',
   }
@@ -45,6 +45,12 @@ export function middleware(request: NextRequest) {
   const origin = request.headers.get('origin')
   const host = (request.headers.get('host') || '').toLowerCase()
   const isStudyHost = host.startsWith('study.')
+
+  // Student road-class booking lives as a hidden page on the public marketing
+  // site. Keep the API here, but do not leave a second portal on the admin host.
+  if (pathname === '/book' && !host.includes('localhost') && !host.includes('127.0.0.1')) {
+    return NextResponse.redirect('https://qazidriving.ca/book', 308)
+  }
 
   // study.qazidriving.ca is the student LMS. It serves the app under /study
   // and talks to /api/lms/* (its own session auth). Admin surfaces

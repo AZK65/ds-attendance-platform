@@ -272,9 +272,27 @@ model Student {
   updatedAt        DateTime      @updatedAt
   certificates     Certificate[]
   lmsAccount       LmsAccount?
+  bookingVerification BookingVerification?
 
   @@index([name])
   @@index([phone])
+}
+
+// Short-lived WhatsApp verification state for the public road-class booking
+// portal. Raw codes and access tokens are never stored.
+model BookingVerification {
+  id          String   @id @default(cuid())
+  studentId   String   @unique
+  phone       String
+  codeHash    String
+  expiresAt   DateTime
+  attempts    Int      @default(0)
+  lastSentAt  DateTime @default(now())
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  student     Student  @relation(fields: [studentId], references: [id], onDelete: Cascade)
+
+  @@index([expiresAt])
 }
 
 model Certificate {

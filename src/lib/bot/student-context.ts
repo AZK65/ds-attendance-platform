@@ -1,7 +1,7 @@
 import { prisma } from '@/lib/db'
 
 const TEAMUP_BASE = 'https://api.teamup.com'
-const BOOKING_BASE = 'https://qazidrivingschool.ca/book'
+const BOOKING_BASE = 'https://qazidriving.ca/book'
 
 type TeamupEvent = {
   id: string

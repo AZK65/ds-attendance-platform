@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/db'
+import { bookingTokenFromRequest } from '@/lib/booking-auth'
 
 // The Student model stores up to 15 road classes (sortie1Date..sortie15Date).
 // A sortie is "completed" if the field contains a non-empty string. Remaining
@@ -153,21 +154,21 @@ async function teamupPastClasses(
 
 export async function POST(request: NextRequest) {
   try {
-    const { name, phone, debug } = await request.json()
+    const auth = bookingTokenFromRequest(request)
+    if (!auth) return NextResponse.json({ error: 'Verification required.' }, { status: 401 })
 
-    const trimmedName = typeof name === 'string' ? name.trim() : ''
-    const trimmedPhone = typeof phone === 'string' ? phone.trim() : ''
+    const { debug } = await request.json().catch(() => ({}))
 
-    if (trimmedName.length < 2 || trimmedPhone.replace(/\D/g, '').length < 10) {
-      return NextResponse.json(
-        { error: 'Please enter your full name and a valid phone number.' },
-        { status: 400 }
-      )
-    }
+    const identity = await prisma.student.findUnique({
+      where: { id: auth.studentId },
+      select: { name: true, phone: true, phoneAlt: true },
+    })
+    if (!identity) return NextResponse.json({ error: 'Student not found.' }, { status: 404 })
+
+    const trimmedName = identity.name
+    const trimmedPhone = auth.phone
 
     const phoneDigits = trimmedPhone.replace(/\D/g, '')
-    const lastTen = phoneDigits.slice(-10)
-    const lastSeven = phoneDigits.slice(-7)
 
     const studentFields = {
       id: true,
@@ -185,36 +186,13 @@ export async function POST(request: NextRequest) {
       sortie13Date: true, sortie14Date: true, sortie15Date: true,
     } as const
 
-    // First pass: try the simple indexed prisma `contains` query against both
-    // phone fields. This catches rows stored with digits only (no formatting).
-    let candidates = await prisma.student.findMany({
-      where: {
-        OR: [
-          { phone: { contains: lastTen } },
-          { phoneAlt: { contains: lastTen } },
-          { phone: { contains: lastSeven } },
-          { phoneAlt: { contains: lastSeven } },
-        ],
-      },
+    // Identity has already been verified by WhatsApp. Fetch only the student
+    // named in the signed short-lived token; never scan or trust a posted ID.
+    const verifiedStudent = await prisma.student.findUnique({
+      where: { id: auth.studentId },
       select: studentFields,
-      take: 50,
     })
-
-    // Second pass: if nothing matched (likely because the DB phone contains
-    // formatting like "(514) 553-4892"), fetch a wider set and compare
-    // digit-for-digit in JS. Limit to recent records so we don't scan all.
-    if (candidates.length === 0) {
-      const recent = await prisma.student.findMany({
-        select: studentFields,
-        orderBy: { updatedAt: 'desc' },
-        take: 500,
-      })
-      candidates = recent.filter((r) => {
-        const aDigits = (r.phone || '').replace(/\D/g, '')
-        const bDigits = (r.phoneAlt || '').replace(/\D/g, '')
-        return aDigits.endsWith(lastTen) || bDigits.endsWith(lastTen)
-      })
-    }
+    const candidates = verifiedStudent ? [verifiedStudent] : []
 
     // Normalize a name for matching:
     //  - strip any "#1234" student-number suffix used in our DB

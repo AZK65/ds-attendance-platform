@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/db'
+import { bookingTokenFromRequest } from '@/lib/booking-auth'
 
 const TEAMUP_BASE = 'https://api.teamup.com'
 
@@ -7,16 +8,18 @@ const TEAMUP_BASE = 'https://api.teamup.com'
 // subcalendar, and logs the booking to MessageLog so the school sees it.
 export async function POST(request: NextRequest) {
   try {
+    const auth = bookingTokenFromRequest(request)
+    if (!auth) return NextResponse.json({ error: 'Verification required.' }, { status: 401 })
+
     const {
-      studentId,
-      studentName,
-      phone,
       sortieNumber,
       teacherId,   // subcalendar id of the previous teacher
       slotStart,   // ISO string from availability endpoint
       slotEnd,     // ISO string from availability endpoint
       notes,
     } = await request.json()
+
+    const studentId = auth.studentId
 
     if (!studentId || !sortieNumber || !teacherId || !slotStart || !slotEnd) {
       return NextResponse.json(
@@ -30,8 +33,8 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Student not found' }, { status: 404 })
     }
 
-    const displayName = (studentName || student.name).replace(/\s*#\s*\d+\s*$/i, '').trim()
-    const studentPhone = phone || student.phone || ''
+    const displayName = student.name.replace(/\s*#\s*\d+\s*$/i, '').trim()
+    const studentPhone = auth.phone || student.phone || ''
 
     let teamupEventId: string | null = null
     let teamupError: string | null = null
