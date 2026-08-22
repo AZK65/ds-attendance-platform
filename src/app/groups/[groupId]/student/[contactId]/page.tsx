@@ -762,6 +762,7 @@ export default function StudentDetailPage() {
   const [balanceError, setBalanceError] = useState<string | null>(null)
   const [editName, setEditName] = useState('')
   const [editPhone, setEditPhone] = useState('')
+  const [certificateMenuOpen, setCertificateMenuOpen] = useState(false)
 
   // Fetch group data to get participant info
   const { data: groupData, isLoading: loadingGroup } = useQuery<{
@@ -1272,17 +1273,9 @@ export default function StudentDetailPage() {
                     Book Class
                   </Link>
                 </Button>
-                <Button variant="outline" size="sm" asChild>
-                  <Link href={`/certificate?mode=database&search=${encodeURIComponent(displayName)}&phone=${encodeURIComponent(phone)}`}>
-                    <Award className="h-4 w-4 mr-1" />
-                    Certificate
-                  </Link>
-                </Button>
-                <Button variant="outline" size="sm" asChild>
-                  <Link href={`/certificate?mode=database&transfer=1&search=${encodeURIComponent(displayName)}&phone=${encodeURIComponent(phone)}`}>
-                    <FileSignature className="h-4 w-4 mr-1" />
-                    Transfer Certificate
-                  </Link>
+                <Button variant="outline" size="sm" onClick={() => setCertificateMenuOpen(true)}>
+                  <Award className="h-4 w-4 mr-1" />
+                  Certificate
                 </Button>
                 <Button variant="outline" size="sm" asChild>
                   <Link href={`/invoice?studentName=${encodeURIComponent(profileData?.dbStudent?.full_name || displayName)}&studentPhone=${encodeURIComponent(phone)}${profileData?.dbStudent ? `&studentAddress=${encodeURIComponent(profileData.dbStudent.full_address || '')}&studentCity=${encodeURIComponent(profileData.dbStudent.city || '')}&studentPostalCode=${encodeURIComponent(profileData.dbStudent.postal_code || '')}&studentEmail=${encodeURIComponent(profileData.localStudent?.email || profileData.dbStudent.email || '')}` : ''}`}>
@@ -1300,6 +1293,52 @@ export default function StudentDetailPage() {
           </div>
         )}
       </motion.div>
+
+      <Dialog open={certificateMenuOpen} onOpenChange={setCertificateMenuOpen}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Certificate</DialogTitle>
+            <DialogDescription>
+              Choose the workflow for {displayName}.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-3 pt-1">
+            <Button variant="outline" className="w-full h-auto justify-start p-4 text-left" asChild>
+              <Link
+                href={`/certificate?mode=database&search=${encodeURIComponent(displayName)}&phone=${encodeURIComponent(phone)}`}
+                onClick={() => setCertificateMenuOpen(false)}
+              >
+                <Award className="h-5 w-5 mr-3 text-blue-600 shrink-0" />
+                <span>
+                  <span className="block font-medium">
+                    {profileData?.localStudent?.certificates?.length ? 'Open Existing Certificate' : 'Regular Certificate'}
+                  </span>
+                  <span className="block text-xs font-normal text-muted-foreground mt-1 whitespace-normal">
+                    {profileData?.localStudent?.certificates?.length
+                      ? 'Review dates, update details, or download using the assigned numbers.'
+                      : 'Build the certificate from classes completed through Qazi.'}
+                  </span>
+                </span>
+              </Link>
+            </Button>
+
+            <Button variant="outline" className="w-full h-auto justify-start p-4 text-left" asChild>
+              <Link
+                href={`/certificate?mode=database&transfer=1&search=${encodeURIComponent(displayName)}&phone=${encodeURIComponent(phone)}`}
+                onClick={() => setCertificateMenuOpen(false)}
+              >
+                <FileSignature className="h-5 w-5 mr-3 text-amber-600 shrink-0" />
+                <span>
+                  <span className="block font-medium">Transfer Student</span>
+                  <span className="block text-xs font-normal text-muted-foreground mt-1 whitespace-normal">
+                    Scan the previous school&apos;s record, merge Qazi attendance, and assign Qazi numbers.
+                  </span>
+                </span>
+              </Link>
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
 
       {/* Edit Section */}
       {editing && (
