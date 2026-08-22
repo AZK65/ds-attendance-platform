@@ -102,6 +102,14 @@ function eventMatchesStudent(event: TeamupEvent, phone: string, name: string, gr
   const nameParts = normalizedName.split(/\s+/).filter(part => part.length >= 2)
   if (nameParts.length >= 2 && nameParts.every(part => lowerText.includes(part))) return true
 
+  // A group name is also appended to some individual road-class titles.
+  // Only let group membership match actual theory cohort events; otherwise
+  // one student could see classmates' individual appointments.
+  const isTheoryGroupEvent = /theory class/i.test(notes) ||
+    /^module\s+\d+\s*-/i.test(title) ||
+    /^class\s*1\s+theory/i.test(title)
+  if (!isTheoryGroupEvent) return false
+
   return groupNames.some(group => {
     const normalized = group.trim().toLowerCase()
     return normalized.length > 0 && lowerText.includes(normalized)
