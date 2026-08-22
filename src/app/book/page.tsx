@@ -175,8 +175,8 @@ const copy = {
     notesPh: 'Anything we should know…',
     submit: 'Confirm booking',
     back: 'Back',
-    doneTitle: 'Booked.',
-    doneBody: "Your road class is on the calendar. You'll get a confirmation from the school shortly.",
+    doneTitle: 'Request pending.',
+    doneBody: 'Your requested time is reserved on the calendar as pending. The school will confirm it shortly.',
     errGeneric: 'Something went wrong. Please try again.',
   },
   fr: {
@@ -207,8 +207,8 @@ const copy = {
     notesPh: 'Tout ce qu’on devrait savoir…',
     submit: 'Confirmer la réservation',
     back: 'Retour',
-    doneTitle: 'Réservé.',
-    doneBody: 'Votre cours pratique est au calendrier. L’école vous enverra une confirmation sous peu.',
+    doneTitle: 'Demande en attente.',
+    doneBody: 'L’heure demandée est réservée au calendrier comme étant en attente. L’école la confirmera sous peu.',
     errGeneric: 'Une erreur est survenue. Veuillez réessayer.',
   },
 }
@@ -737,7 +737,7 @@ function BookPageInner() {
             className="rounded-2xl border border-ink/10 bg-white p-10 md:p-14 text-center shadow-sm"
           >
             <span className="inline-flex h-14 w-14 items-center justify-center rounded-full bg-[#E11D2E]/10 text-[#E11D2E]">
-              <CheckCircle2 className="h-7 w-7" />
+              <Clock className="h-7 w-7" />
             </span>
             <h2 className="mt-6 text-[32px] md:text-[40px] tracking-tight">
               <span className="font-sans">{c.doneTitle.split('.')[0]}</span>

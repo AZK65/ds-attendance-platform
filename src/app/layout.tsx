@@ -22,7 +22,11 @@ const instrumentSerif = Instrument_Serif({
 
 export const metadata: Metadata = {
   title: 'Qazi Groups',
-  description: 'Qazi Driving School - Group Management'
+  description: 'Qazi Driving School - Group Management',
+  icons: {
+    icon: [{ url: '/favicon.svg', type: 'image/svg+xml' }],
+    shortcut: '/favicon.svg',
+  },
 }
 
 export const viewport: Viewport = {

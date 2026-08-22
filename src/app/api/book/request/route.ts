@@ -39,12 +39,15 @@ export async function POST(request: NextRequest) {
     const apiKey = process.env.TEAMUP_API_KEY || ''
     const calendarKey = process.env.TEAMUP_CALENDAR_KEY || ''
     if (apiKey && calendarKey) {
-      const title = `Sortie ${sortieNumber} — ${displayName}`
+      // Keep "Sortie N" at the beginning so the existing schedule parsers can
+      // still identify the lesson, while making the approval state unmistakable.
+      const title = `Sortie ${sortieNumber} — ${displayName} — ⏳ PENDING`
       const body = [
+        'Status: PENDING APPROVAL',
         `Student: ${displayName}`,
         studentPhone ? `Phone: ${studentPhone}` : null,
         `Road Class: #${sortieNumber}`,
-        'Booked online (student portal)',
+        'Requested online (student portal) — awaiting admin confirmation',
         notes ? `Notes: ${notes}` : null,
       ]
         .filter(Boolean)
@@ -76,7 +79,7 @@ export async function POST(request: NextRequest) {
     }
 
     const summary = [
-      `Road class booking — Sortie #${sortieNumber}`,
+      `Pending road class request — Sortie #${sortieNumber}`,
       `Student: ${displayName}${studentPhone ? ` (${studentPhone})` : ''}`,
       `Slot: ${slotStart} → ${slotEnd}`,
       `Teacher subcalendar: ${teacherId}`,
@@ -91,11 +94,11 @@ export async function POST(request: NextRequest) {
     try {
       await prisma.messageLog.create({
         data: {
-          type: teamupEventId ? 'booking-confirmed' : 'booking-request',
+          type: 'booking-request',
           to: studentPhone,
           toName: displayName,
           message: summary,
-          status: teamupEventId ? 'sent' : 'pending',
+          status: 'pending',
           error: teamupError || undefined,
         },
       })
@@ -115,6 +118,7 @@ export async function POST(request: NextRequest) {
 
     return NextResponse.json({
       success: true,
+      pending: true,
       eventId: teamupEventId,
     })
   } catch (error) {
