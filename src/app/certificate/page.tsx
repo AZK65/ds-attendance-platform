@@ -58,6 +58,7 @@ interface ExtractedData {
 }
 
 interface CertificateFormData extends ExtractedData {
+  localStudentId?: string
   attestationNumber: string
   apartment: string
   municipality: string
@@ -633,44 +634,49 @@ function CertificatePageInner() {
     }
   })
 
-  // Save student mutation (fire-and-forget after PDF generation)
-  const saveStudentMutation = useMutation({
-    mutationFn: async (data: CertificateFormData) => {
-      const res = await fetch('/api/students', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(data),
-      })
-      if (!res.ok) {
-        console.error('Failed to save student data')
-      }
-      return res.json()
-    },
-  })
-
-  // PDF generation mutation
+  // Save the canonical student profile before generating the PDF. The old
+  // fire-and-forget save ran after the browser download and could be lost on
+  // navigation, leaving dates and newly assigned numbers missing on reopen.
   const pdfMutation = useMutation({
     mutationFn: async (data: CertificateFormData & { templatePdf: string }) => {
+      const studentData = Object.fromEntries(
+        Object.entries(data).filter(([key]) => key !== 'templatePdf')
+      ) as unknown as CertificateFormData
+      const saveRes = await fetch('/api/students', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(studentData),
+      })
+      if (!saveRes.ok) {
+        const error = await saveRes.json().catch(() => ({ error: 'Student profile could not be saved' }))
+        throw new Error(error.error || 'Student profile could not be saved')
+      }
+      const saved = await saveRes.json()
+
       const res = await fetch('/api/certificate/generate', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(data)
       })
       if (!res.ok) throw new Error('PDF generation failed')
-      return res.blob()
+      return { blob: await res.blob(), saved }
     },
-    onSuccess: (blob) => {
+    onSuccess: ({ blob, saved }) => {
+      if (saved?.student?.id) {
+        finalFormDataRef.current = {
+          ...finalFormDataRef.current,
+          localStudentId: saved.student.id,
+        }
+      }
       const url = URL.createObjectURL(blob)
       const a = document.createElement('a')
       a.href = url
-      a.download = `certificate-${formData.name || 'student'}-${new Date().toISOString().split('T')[0]}.pdf`
+      a.download = `certificate-${finalFormDataRef.current.name || 'student'}-${new Date().toISOString().split('T')[0]}.pdf`
       document.body.appendChild(a)
       a.click()
       document.body.removeChild(a)
       URL.revokeObjectURL(url)
 
-      // Save student + certificate record to database (non-blocking)
-      saveStudentMutation.mutate(finalFormDataRef.current)
     }
   })
 
@@ -807,6 +813,14 @@ function CertificatePageInner() {
         const profile = await profileRes.json()
         if (profile.localStudent) {
           const s = profile.localStudent
+          certOverrides.localStudentId = s.id
+          if (s.licenceNumber) certOverrides.licenceNumber = s.licenceNumber
+          if (s.address) certOverrides.address = s.address
+          if (s.apartment) certOverrides.apartment = s.apartment
+          if (s.municipality) certOverrides.municipality = s.municipality
+          if (s.province) certOverrides.province = s.province
+          if (s.postalCode) certOverrides.postalCode = s.postalCode
+          if (s.phoneAlt) certOverrides.phoneAlt = s.phoneAlt
           const dateFields = [
             'module1Date', 'module2Date', 'module3Date', 'module4Date', 'module5Date',
             'module6Date', 'module7Date', 'module8Date', 'module9Date', 'module10Date',
@@ -819,9 +833,6 @@ function CertificatePageInner() {
           for (const field of dateFields) {
             if (s[field]) dates[field] = s[field]
           }
-
-          // Restore apartment from saved profile (single mode merges this in)
-          if (s.apartment) certOverrides.apartment = s.apartment
 
           // Override MySQL numbers with SQLite certificate numbers (the real assigned ones)
           // certificates are ordered desc by generatedAt, so index 0 is the latest
@@ -1012,6 +1023,7 @@ function CertificatePageInner() {
 
     // Capture final form data in ref for the save mutation (avoids React state timing issues)
     finalFormDataRef.current = finalFormData
+    setFormData(finalFormData)
     // Preview is consumed (or replaced by claimed values) — clear so a
     // restart of the flow doesn't think numbers are "still preview".
     previewedNumbersRef.current = { contract: '', attestation: '' }
@@ -1102,7 +1114,7 @@ function CertificatePageInner() {
       ])
 
       const dates: Record<string, string> = {}
-      let certOverrides: Record<string, string> = {}
+      const certOverrides: Record<string, string> = {}
 
       // Check for existing certificate numbers + saved address fields in SQLite.
       // Local Student is the source of truth for any address typed during a
@@ -1111,6 +1123,8 @@ function CertificatePageInner() {
         const profile = await profileRes.json()
         const ls = profile.localStudent
         if (ls) {
+          certOverrides.localStudentId = ls.id
+          if (ls.licenceNumber) certOverrides.licenceNumber = ls.licenceNumber
           if (ls.address) certOverrides.address = ls.address
           if (ls.apartment) certOverrides.apartment = ls.apartment
           if (ls.municipality) certOverrides.municipality = ls.municipality
@@ -1524,6 +1538,20 @@ function CertificatePageInner() {
       } catch { /* continue */ }
 
       try {
+        // Persist first so dates and assigned numbers survive even if PDF
+        // rendering or a subsequent download is interrupted.
+        const saveRes = await fetch('/api/students', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(finalFormData),
+        })
+        if (!saveRes.ok) {
+          const saveError = await saveRes.json().catch(() => ({ error: 'Student profile could not be saved' }))
+          throw new Error(saveError.error || 'Student profile could not be saved')
+        }
+        const saved = await saveRes.json()
+        if (saved?.student?.id) finalFormData.localStudentId = saved.student.id
+
         const res = await fetch('/api/certificate/generate', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -1531,23 +1559,6 @@ function CertificatePageInner() {
         })
         if (!res.ok) throw new Error('PDF generation failed')
         updatedStudents[i] = { ...updatedStudents[i], pdfBlob: await res.blob(), formData: finalFormData }
-
-        // Persist the student's data + a Certificate row to the local DB.
-        // Awaited (not fire-and-forget) because otherwise quick generates
-        // followed by navigation/refresh leave half the Certificate rows
-        // un-created, which made the student profile show no Cert Info.
-        try {
-          const saveRes = await fetch('/api/students', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(finalFormData),
-          })
-          if (!saveRes.ok) {
-            console.warn('Failed to save bulk student profile:', await saveRes.text())
-          }
-        } catch (err) {
-          console.warn('Failed to save bulk student profile:', err)
-        }
       } catch {
         updatedStudents[i] = { ...updatedStudents[i], ocrError: 'PDF generation failed' }
       }
@@ -1710,6 +1721,14 @@ function CertificatePageInner() {
         const profile = await profileRes.json()
         if (profile.localStudent) {
           const s = profile.localStudent
+          certOverrides.localStudentId = s.id
+          if (s.licenceNumber) certOverrides.licenceNumber = s.licenceNumber
+          if (s.address) certOverrides.address = s.address
+          if (s.apartment) certOverrides.apartment = s.apartment
+          if (s.municipality) certOverrides.municipality = s.municipality
+          if (s.province) certOverrides.province = s.province
+          if (s.postalCode) certOverrides.postalCode = s.postalCode
+          if (s.phoneAlt) certOverrides.phoneAlt = s.phoneAlt
           const dateFields = [
             'module1Date', 'module2Date', 'module3Date', 'module4Date', 'module5Date',
             'module6Date', 'module7Date', 'module8Date', 'module9Date', 'module10Date',
@@ -1884,6 +1903,7 @@ function CertificatePageInner() {
     }
 
     finalFormDataRef.current = finalFormData
+    setDbFormData(finalFormData)
     pdfMutation.mutate({ ...finalFormData, templatePdf: templateStatus.template })
     setDbStep('download')
   }
@@ -2223,7 +2243,7 @@ function CertificatePageInner() {
                     <h2 className="text-2xl font-bold mb-2">Certificate Generated!</h2>
                     <p className="text-muted-foreground mb-6">Your certificate has been downloaded automatically.</p>
                     <div className="flex justify-center gap-4">
-                      <Button variant="outline" onClick={() => templatePdf && pdfMutation.mutate({ ...formData, templatePdf })}><Download className="h-4 w-4 mr-2" /> Download Again</Button>
+                      <Button variant="outline" onClick={() => templatePdf && pdfMutation.mutate({ ...finalFormDataRef.current, templatePdf })}><Download className="h-4 w-4 mr-2" /> Download Again</Button>
                       <Button onClick={() => { navigateStep('upload-docs'); setLicenceImage(null); setAttendanceImage(null); setCombinedImage(null); setFormData(initialFormData); setSelectedStudentId(null) }}>Create Another</Button>
                     </div>
                   </div>
@@ -2489,7 +2509,7 @@ function CertificatePageInner() {
                     <h2 className="text-2xl font-bold mb-2">Certificate Generated!</h2>
                     <p className="text-muted-foreground mb-6">Certificate for <span className="font-medium text-foreground">{dbSelectedStudent?.full_name}</span> has been downloaded.</p>
                     <div className="flex justify-center gap-4">
-                      <Button variant="outline" onClick={() => templateStatus?.template && pdfMutation.mutate({ ...dbFormData, templatePdf: templateStatus.template })}><Download className="h-4 w-4 mr-2" /> Download Again</Button>
+                      <Button variant="outline" onClick={() => templateStatus?.template && pdfMutation.mutate({ ...finalFormDataRef.current, templatePdf: templateStatus.template })}><Download className="h-4 w-4 mr-2" /> Download Again</Button>
                       <Button onClick={() => { setDbStep('search'); setDbSelectedStudent(null); setDbFormData(initialFormData); setDbSearchQuery(''); setDbSearchResults([]) }}>Search Another</Button>
                     </div>
                   </div>

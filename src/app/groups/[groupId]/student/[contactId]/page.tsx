@@ -148,6 +148,7 @@ interface LocalStudentRecord {
   email?: string | null
   avatarImage?: string | null
   address: string | null
+  apartment: string | null
   municipality: string | null
   province: string | null
   postalCode: string | null
@@ -209,6 +210,22 @@ interface StudentProfileData {
     invoiceCount: number
     lastInvoiceDate: string | null
   }
+}
+
+const buildInvoiceUrl = (profile: StudentProfileData | undefined, displayName: string, phone: string) => {
+  const local = profile?.localStudent
+  const external = profile?.dbStudent
+  const params = new URLSearchParams({
+    studentName: local?.name || external?.full_name || displayName,
+    studentPhone: local?.phone || external?.phone_number || phone,
+    studentAddress: local?.address || external?.full_address || '',
+    studentAddress2: local?.apartment || '',
+    studentCity: local?.municipality || external?.city || '',
+    studentProvince: local?.province || 'QC',
+    studentPostalCode: local?.postalCode || external?.postal_code || '',
+    studentEmail: local?.email || external?.email || '',
+  })
+  return `/invoice?${params.toString()}`
 }
 
 // Parse helpers (same as scheduling page)
@@ -1278,7 +1295,7 @@ export default function StudentDetailPage() {
                   Certificate
                 </Button>
                 <Button variant="outline" size="sm" asChild>
-                  <Link href={`/invoice?studentName=${encodeURIComponent(profileData?.dbStudent?.full_name || displayName)}&studentPhone=${encodeURIComponent(phone)}${profileData?.dbStudent ? `&studentAddress=${encodeURIComponent(profileData.dbStudent.full_address || '')}&studentCity=${encodeURIComponent(profileData.dbStudent.city || '')}&studentPostalCode=${encodeURIComponent(profileData.dbStudent.postal_code || '')}&studentEmail=${encodeURIComponent(profileData.localStudent?.email || profileData.dbStudent.email || '')}` : ''}`}>
+                  <Link href={buildInvoiceUrl(profileData, displayName, phone)}>
                     <Receipt className="h-4 w-4 mr-1" />
                     Invoice
                   </Link>
@@ -2030,7 +2047,7 @@ export default function StudentDetailPage() {
                 {/* Create Invoice Button */}
                 <div className="flex justify-center">
                   <Button variant="outline" size="sm" asChild>
-                    <Link href={`/invoice?studentName=${encodeURIComponent(profileData?.dbStudent?.full_name || displayName)}&studentPhone=${encodeURIComponent(phone)}${profileData?.dbStudent ? `&studentAddress=${encodeURIComponent(profileData.dbStudent.full_address || '')}&studentCity=${encodeURIComponent(profileData.dbStudent.city || '')}&studentPostalCode=${encodeURIComponent(profileData.dbStudent.postal_code || '')}&studentEmail=${encodeURIComponent(profileData.localStudent?.email || profileData.dbStudent.email || '')}` : ''}`}>
+                    <Link href={buildInvoiceUrl(profileData, displayName, phone)}>
                       <Plus className="h-4 w-4 mr-1" />
                       Create Invoice
                     </Link>

@@ -301,6 +301,7 @@ async function findLocalStudent(phone: string, name: string, licenceNumber?: str
   const candidates = await prisma.student.findMany({
     where: { OR: conditions },
     include: { certificates: { orderBy: { generatedAt: 'desc' } } },
+    orderBy: { updatedAt: 'desc' },
   })
 
   // Rank candidates so duplicates don't cost us the real record. A person
@@ -323,6 +324,8 @@ async function findLocalStudent(phone: string, name: string, licenceNumber?: str
   const score = (c: (typeof candidates)[number]) =>
     (phoneMatches(c) ? 1_000_000 : 0) +
     (c.certificates.length > 0 ? 100_000 : 0) +
+    (c.licenceNumber ? 10_000 : 0) +
+    (c.address ? 1_000 : 0) +
     filledDates(c as unknown as Record<string, unknown>)
 
   const result = candidates.length > 0

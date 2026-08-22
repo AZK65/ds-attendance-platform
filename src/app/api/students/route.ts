@@ -15,6 +15,7 @@ export async function POST(request: NextRequest) {
       sortie6Date, sortie7Date, sortie8Date, sortie9Date, sortie10Date,
       sortie11Date, sortie12Date, sortie13Date, sortie14Date, sortie15Date,
       certificateType, contractNumber, attestationNumber,
+      localStudentId,
     } = body
 
     if (!name) {
@@ -70,61 +71,81 @@ export async function POST(request: NextRequest) {
       sortie15Date: sortie15Date || null,
     }
 
-    let student
-
     // Build the update payload — only include email if a value was passed.
     const updateData = { ...studentData, ...(email ? { email } : {}) }
     const createData = { ...studentData, ...(email ? { email } : {}) }
 
-    // Upsert strategy: use licenceNumber if present, otherwise find by name+phone
+    // Resolve one canonical local student before saving. The exact local id
+    // supplied by the certificate editor is authoritative, then licence and
+    // phone provide fallbacks for older entry points.
+    // Previously, adding a licence to a phone-matched student used an upsert
+    // by licence and created a second Student row, so dates/numbers disappeared
+    // when the original profile was reopened.
     const cleanLicence = licenceNumber?.trim() || null
-    if (cleanLicence) {
-      student = await prisma.student.upsert({
-        where: { licenceNumber: cleanLicence },
-        update: { ...updateData, licenceNumber: cleanLicence },
-        create: { ...createData, licenceNumber: cleanLicence },
-      })
-    } else {
-      // Fallback: find existing student. Match by phone first (most stable
-      // across name format changes — "SUSAN ILIYAN" vs "ILIYAN, SUSAN" used
-      // to create duplicate rows here, leaving the older row certificate-less
-      // and breaking the Cert Info card on the student profile).
-      const phoneDigits = (phone || '').replace(/\D/g, '')
-      const phoneSuffix = phoneDigits.length >= 10 ? phoneDigits.slice(-10) : phoneDigits
-      let existing = null as Awaited<ReturnType<typeof prisma.student.findFirst>>
-      if (phoneSuffix.length >= 7) {
-        existing = await prisma.student.findFirst({
-          where: { phone: { contains: phoneSuffix } },
-        })
-      }
-      if (!existing) {
-        // Last resort: exact name + phone (preserves original behaviour).
-        existing = await prisma.student.findFirst({
-          where: { name, ...(phone ? { phone } : {}) },
-        })
-      }
+    const phoneDigits = (phone || '').replace(/\D/g, '')
+    const phoneSuffix = phoneDigits.length >= 10 ? phoneDigits.slice(-10) : phoneDigits
+    let existing = null as Awaited<ReturnType<typeof prisma.student.findFirst>>
 
-      if (existing) {
-        student = await prisma.student.update({
-          where: { id: existing.id },
-          data: updateData,
-        })
-      } else {
-        student = await prisma.student.create({
-          data: createData,
-        })
-      }
+    if (typeof localStudentId === 'string' && localStudentId) {
+      existing = await prisma.student.findUnique({ where: { id: localStudentId } })
+    }
+    if (!existing && cleanLicence) {
+      existing = await prisma.student.findFirst({ where: { licenceNumber: cleanLicence } })
+    }
+    if (!existing && phoneSuffix.length >= 7) {
+      const candidates = await prisma.student.findMany({
+        where: { phone: { contains: phoneSuffix } },
+        include: { certificates: true },
+        orderBy: { updatedAt: 'desc' },
+      })
+      existing = candidates[0] || null
+    }
+    if (!existing) {
+      existing = await prisma.student.findFirst({
+        where: { name, ...(phone ? { phone } : {}) },
+        orderBy: { updatedAt: 'desc' },
+      })
     }
 
-    // Create certificate record
-    const certificate = await prisma.certificate.create({
-      data: {
-        studentId: student.id,
-        certificateType: certificateType || 'full',
-        contractNumber: contractNumber?.toString() || null,
-        attestationNumber: cleanAttestation,
-      },
-    })
+    const student = existing
+      ? await prisma.student.update({
+          where: { id: existing.id },
+          data: { ...updateData, ...(cleanLicence ? { licenceNumber: cleanLicence } : {}) },
+        })
+      : await prisma.student.create({
+          data: { ...createData, ...(cleanLicence ? { licenceNumber: cleanLicence } : {}) },
+        })
+
+    // Re-generating or reopening a certificate should update its existing
+    // record, not append another identical certificate every time.
+    const numberMatches = [
+      contractNumber ? { contractNumber: contractNumber.toString() } : null,
+      cleanAttestation ? { attestationNumber: cleanAttestation } : null,
+    ].filter((v): v is { contractNumber: string } | { attestationNumber: string } => v !== null)
+
+    const existingCertificate = numberMatches.length > 0
+      ? await prisma.certificate.findFirst({
+          where: { studentId: student.id, OR: numberMatches },
+          orderBy: { generatedAt: 'desc' },
+        })
+      : null
+
+    const certificateData = {
+      certificateType: certificateType || 'full',
+      contractNumber: contractNumber?.toString() || null,
+      attestationNumber: cleanAttestation,
+    }
+    const certificate = existingCertificate
+      ? await prisma.certificate.update({
+          where: { id: existingCertificate.id },
+          data: certificateData,
+        })
+      : await prisma.certificate.create({
+          data: {
+            studentId: student.id,
+            ...certificateData,
+          },
+        })
 
     return NextResponse.json({ student, certificate })
   } catch (error) {

@@ -263,6 +263,7 @@ function InvoicePage() {
         studentName,
         studentPhone: searchParams.get('studentPhone') || prev.studentPhone,
         studentAddress: searchParams.get('studentAddress') || prev.studentAddress,
+        studentAddress2: searchParams.get('studentAddress2') || prev.studentAddress2,
         studentCity: searchParams.get('studentCity') || prev.studentCity,
         studentProvince: searchParams.get('studentProvince') || prev.studentProvince,
         studentPostalCode: searchParams.get('studentPostalCode') || prev.studentPostalCode,
