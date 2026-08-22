@@ -9,7 +9,7 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Badge } from '@/components/ui/badge'
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs'
-import { Upload, FileText, Download, Loader2, Camera, ArrowLeft, ArrowRight, CheckCircle2, Edit3, Settings, Plus, Smartphone, X, Users, User, AlertCircle, Archive, Search, Database, CheckCircle, XCircle, MessagesSquare } from 'lucide-react'
+import { Upload, FileText, Download, Loader2, Camera, ArrowLeft, ArrowRight, CheckCircle2, Edit3, Settings, Plus, Smartphone, X, Users, User, AlertCircle, Archive, Search, Database, CheckCircle, XCircle, MessagesSquare, FileSignature } from 'lucide-react'
 import { motion, AnimatePresence } from 'motion/react'
 import Link from 'next/link'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog'
@@ -420,10 +420,12 @@ export default function CertificatePage() {
 
 function CertificatePageInner() {
   const searchParams = useSearchParams()
+  const transferMode = searchParams.get('transfer') === '1'
   // Initialise from URL params: /certificate?mode=database&search=Gaurav
   // (used by the certificate-history "Edit" button).
   const initialMode: PageMode = (() => {
     const m = searchParams.get('mode')
+    if (transferMode) return 'database'
     return m === 'database' || m === 'bulk' || m === 'single' ? m : 'single'
   })()
   const [pageMode, setPageMode] = useState<PageMode>(initialMode)
@@ -481,7 +483,7 @@ function CertificatePageInner() {
   // ─── Database Mode State ────────────────────────────────────────────────
   // Seed search query from ?search= URL param so "Edit" from cert history
   // lands the user with the right student already searched.
-  const [dbSearchQuery, setDbSearchQuery] = useState(searchParams.get('search') || '')
+  const [dbSearchQuery, setDbSearchQuery] = useState(searchParams.get('search') || searchParams.get('studentName') || '')
   const [dbSearchResults, setDbSearchResults] = useState<DBStudent[]>([])
   const [dbSearching, setDbSearching] = useState(false)
   const [dbSelectedStudent, setDbSelectedStudent] = useState<DBStudent | null>(null)
@@ -838,8 +840,9 @@ function CertificatePageInner() {
 
       // Second: Zoom theory dates (higher priority — override saved dates)
       if (theoryRes?.ok) {
-        const theoryData: { moduleNumber: number; date: string }[] = await theoryRes.json()
+        const theoryData: { moduleNumber: number; date: string; status?: string }[] = await theoryRes.json()
         for (const tc of theoryData) {
+          if (tc.status === 'absent') continue
           const d = new Date(tc.date)
           const dateStr = `${d.getFullYear()}-${(d.getMonth() + 1).toString().padStart(2, '0')}-${d.getDate().toString().padStart(2, '0')}`
           if (tc.moduleNumber >= 1 && tc.moduleNumber <= 12) dates[`module${tc.moduleNumber}Date`] = dateStr
@@ -1132,8 +1135,9 @@ function CertificatePageInner() {
       }
 
       if (theoryRes?.ok) {
-        const theoryData: { moduleNumber: number; date: string }[] = await theoryRes.json()
+        const theoryData: { moduleNumber: number; date: string; status?: string }[] = await theoryRes.json()
         for (const tc of theoryData) {
+          if (tc.status === 'absent') continue
           const d = new Date(tc.date)
           const dateStr = `${d.getFullYear()}-${(d.getMonth() + 1).toString().padStart(2, '0')}-${d.getDate().toString().padStart(2, '0')}`
           if (tc.moduleNumber >= 1 && tc.moduleNumber <= 12) dates[`module${tc.moduleNumber}Date`] = dateStr
@@ -1621,10 +1625,9 @@ function CertificatePageInner() {
     return () => clearTimeout(timer)
   }, [dbSearchQuery]) // eslint-disable-line react-hooks/exhaustive-deps
 
-  // When the page was opened from the cert-history "Edit" button (URL
-  // has ?mode=database&search=...&phone=...), auto-select the matching
-  // student once results land so the user goes straight to the form
-  // instead of having to click the search result themselves.
+  // Auto-select the matching student when a profile/history link supplies
+  // search params. History edits go straight to review; transfer students
+  // stop at Scan so the previous school's record can fill earlier dates.
   const autoSelectedRef = useRef(false)
   useEffect(() => {
     if (autoSelectedRef.current) return
@@ -1643,10 +1646,8 @@ function CertificatePageInner() {
       if (match) pick = match
     }
     autoSelectedRef.current = true
-    // From cert-history Edit: skip the scan step and go straight to review
-    // since the saved data already has all the dates and address fields.
-    handleDbSelectStudent(pick, { skipScan: true })
-  }, [pageMode, dbSearchResults, dbSearching, dbSelectedStudent, searchParams]) // eslint-disable-line react-hooks/exhaustive-deps
+    handleDbSelectStudent(pick, { skipScan: !transferMode })
+  }, [pageMode, dbSearchResults, dbSearching, dbSelectedStudent, searchParams, transferMode]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const handleDbSelectStudent = async (student: DBStudent, opts?: { skipScan?: boolean }) => {
     setDbSelectedStudent(student)
@@ -1738,8 +1739,9 @@ function CertificatePageInner() {
 
       // Second: Theory module dates from Zoom (higher priority)
       if (theoryRes?.ok) {
-        const theoryData: { moduleNumber: number; date: string }[] = await theoryRes.json()
+        const theoryData: { moduleNumber: number; date: string; status?: string }[] = await theoryRes.json()
         for (const tc of theoryData) {
+          if (tc.status === 'absent') continue
           const d = new Date(tc.date)
           const dateStr = `${d.getFullYear()}-${(d.getMonth() + 1).toString().padStart(2, '0')}-${d.getDate().toString().padStart(2, '0')}`
           if (tc.moduleNumber >= 1 && tc.moduleNumber <= 12) {
@@ -1936,39 +1938,45 @@ function CertificatePageInner() {
       }
       const ocrData: ExtractedData = await res.json()
 
+      // Qazi attendance is authoritative in a transfer. The previous
+      // school's scan fills only the missing dates. Regular scans retain the
+      // existing behaviour where the uploaded sheet is the latest source.
+      const mergeDate = (scanned: string, existing: string) =>
+        transferMode ? (existing || scanned) : (scanned || existing)
+
       // Merge OCR dates into DB form data (keep student info from database, take dates from OCR)
       setDbFormData(prev => ({
         ...prev,
         // Only override dates and fields that OCR provides — keep DB student data
-        module1Date: ocrData.module1Date || prev.module1Date,
-        module2Date: ocrData.module2Date || prev.module2Date,
-        module3Date: ocrData.module3Date || prev.module3Date,
-        module4Date: ocrData.module4Date || prev.module4Date,
-        module5Date: ocrData.module5Date || prev.module5Date,
-        module6Date: ocrData.module6Date || prev.module6Date,
-        sortie1Date: ocrData.sortie1Date || prev.sortie1Date,
-        sortie2Date: ocrData.sortie2Date || prev.sortie2Date,
-        module7Date: ocrData.module7Date || prev.module7Date,
-        sortie3Date: ocrData.sortie3Date || prev.sortie3Date,
-        sortie4Date: ocrData.sortie4Date || prev.sortie4Date,
-        module8Date: ocrData.module8Date || prev.module8Date,
-        sortie5Date: ocrData.sortie5Date || prev.sortie5Date,
-        sortie6Date: ocrData.sortie6Date || prev.sortie6Date,
-        module9Date: ocrData.module9Date || prev.module9Date,
-        sortie7Date: ocrData.sortie7Date || prev.sortie7Date,
-        sortie8Date: ocrData.sortie8Date || prev.sortie8Date,
-        module10Date: ocrData.module10Date || prev.module10Date,
-        sortie9Date: ocrData.sortie9Date || prev.sortie9Date,
-        sortie10Date: ocrData.sortie10Date || prev.sortie10Date,
-        module11Date: ocrData.module11Date || prev.module11Date,
-        sortie11Date: ocrData.sortie11Date || prev.sortie11Date,
-        sortie12Date: ocrData.sortie12Date || prev.sortie12Date,
-        sortie13Date: ocrData.sortie13Date || prev.sortie13Date,
-        module12Date: ocrData.module12Date || prev.module12Date,
-        sortie14Date: ocrData.sortie14Date || prev.sortie14Date,
-        sortie15Date: ocrData.sortie15Date || prev.sortie15Date,
-        registrationDate: ocrData.registrationDate || prev.registrationDate,
-        expiryDate: ocrData.expiryDate || prev.expiryDate,
+        module1Date: mergeDate(ocrData.module1Date, prev.module1Date),
+        module2Date: mergeDate(ocrData.module2Date, prev.module2Date),
+        module3Date: mergeDate(ocrData.module3Date, prev.module3Date),
+        module4Date: mergeDate(ocrData.module4Date, prev.module4Date),
+        module5Date: mergeDate(ocrData.module5Date, prev.module5Date),
+        module6Date: mergeDate(ocrData.module6Date, prev.module6Date),
+        sortie1Date: mergeDate(ocrData.sortie1Date, prev.sortie1Date),
+        sortie2Date: mergeDate(ocrData.sortie2Date, prev.sortie2Date),
+        module7Date: mergeDate(ocrData.module7Date, prev.module7Date),
+        sortie3Date: mergeDate(ocrData.sortie3Date, prev.sortie3Date),
+        sortie4Date: mergeDate(ocrData.sortie4Date, prev.sortie4Date),
+        module8Date: mergeDate(ocrData.module8Date, prev.module8Date),
+        sortie5Date: mergeDate(ocrData.sortie5Date, prev.sortie5Date),
+        sortie6Date: mergeDate(ocrData.sortie6Date, prev.sortie6Date),
+        module9Date: mergeDate(ocrData.module9Date, prev.module9Date),
+        sortie7Date: mergeDate(ocrData.sortie7Date, prev.sortie7Date),
+        sortie8Date: mergeDate(ocrData.sortie8Date, prev.sortie8Date),
+        module10Date: mergeDate(ocrData.module10Date, prev.module10Date),
+        sortie9Date: mergeDate(ocrData.sortie9Date, prev.sortie9Date),
+        sortie10Date: mergeDate(ocrData.sortie10Date, prev.sortie10Date),
+        module11Date: mergeDate(ocrData.module11Date, prev.module11Date),
+        sortie11Date: mergeDate(ocrData.sortie11Date, prev.sortie11Date),
+        sortie12Date: mergeDate(ocrData.sortie12Date, prev.sortie12Date),
+        sortie13Date: mergeDate(ocrData.sortie13Date, prev.sortie13Date),
+        module12Date: mergeDate(ocrData.module12Date, prev.module12Date),
+        sortie14Date: mergeDate(ocrData.sortie14Date, prev.sortie14Date),
+        sortie15Date: mergeDate(ocrData.sortie15Date, prev.sortie15Date),
+        registrationDate: mergeDate(ocrData.registrationDate, prev.registrationDate),
+        expiryDate: mergeDate(ocrData.expiryDate, prev.expiryDate),
         // DB student data wins, but fall back to OCR when the database has no
         // licence number on file (otherwise the scanned licence is discarded
         // and the field stays empty).
@@ -2324,11 +2332,27 @@ function CertificatePageInner() {
               {dbStep === 'scan' && (
                 <div className="space-y-6">
                   <div className="text-center mb-6">
-                    <h2 className="text-2xl font-bold mb-2">Scan Documents</h2>
+                    <h2 className="text-2xl font-bold mb-2">{transferMode ? 'Transfer Student Documents' : 'Scan Documents'}</h2>
                     <p className="text-muted-foreground">
-                      Upload licence & attendance for <span className="font-medium text-foreground">{dbSelectedStudent?.full_name}</span> to auto-fill dates
+                      {transferMode ? 'Upload the previous school certificate/attendance sheet and licence for ' : 'Upload licence & attendance for '}
+                      <span className="font-medium text-foreground">{dbSelectedStudent?.full_name}</span>
+                      {transferMode ? '. Qazi classes are merged automatically.' : ' to auto-fill dates'}
                     </p>
                   </div>
+
+                  {transferMode && (
+                    <Card className="border-amber-300 bg-amber-50/70 dark:bg-amber-950/20">
+                      <CardContent className="py-4 flex gap-3">
+                        <FileSignature className="h-5 w-5 text-amber-700 shrink-0 mt-0.5" />
+                        <div>
+                          <p className="font-medium text-amber-950 dark:text-amber-200">Transfer certificate workflow</p>
+                          <p className="text-sm text-amber-900/80 dark:text-amber-300/80 mt-1">
+                            The previous school&apos;s document fills earlier module and road-session dates. Completed Qazi attendance stays authoritative. Fresh Qazi contract and attestation numbers are assigned only when you generate the certificate.
+                          </p>
+                        </div>
+                      </CardContent>
+                    </Card>
+                  )}
 
                   <div className="flex justify-center gap-2 mb-4">
                     <Button variant={dbUploadMode === 'combined' ? 'default' : 'outline'} onClick={() => setDbUploadMode('combined')} size="sm">Single Photo (Both)</Button>
@@ -2402,7 +2426,9 @@ function CertificatePageInner() {
                   <div className="flex justify-between">
                     <Button variant="outline" onClick={() => setDbStep('search')}><ArrowLeft className="h-4 w-4 mr-2" /> Back to Search</Button>
                     <div className="flex gap-2">
-                      <Button variant="outline" onClick={() => setDbStep('review')}>Skip Scan <ArrowRight className="h-4 w-4 ml-2" /></Button>
+                      <Button variant="outline" onClick={() => setDbStep('review')}>
+                        {transferMode ? 'Enter Dates Manually' : 'Skip Scan'} <ArrowRight className="h-4 w-4 ml-2" />
+                      </Button>
                       <Button size="lg" onClick={handleDbProcessImages} disabled={!dbCanProcessScan || dbProcessing}>
                         {dbProcessing ? <><Loader2 className="h-4 w-4 mr-2 animate-spin" /> Processing with AI...</> : <>Process & Continue <ArrowRight className="h-4 w-4 ml-2" /></>}
                       </Button>
@@ -2438,12 +2464,18 @@ function CertificatePageInner() {
                     </p>
                   </div>
 
+                  {transferMode && (
+                    <div className="rounded-lg border border-blue-200 bg-blue-50 px-4 py-3 text-sm text-blue-900 dark:border-blue-900 dark:bg-blue-950/30 dark:text-blue-200">
+                      Verify the previous-school dates and Qazi dates below. Blank future classes can remain blank; this creates the student&apos;s Qazi certificate record now and the remaining dates can be added later.
+                    </div>
+                  )}
+
                   <ReviewForm formData={dbFormData} onChange={handleDbInputChange} />
 
                   <div className="flex justify-between">
                     <Button variant="outline" onClick={() => setDbStep('scan')}><ArrowLeft className="h-4 w-4 mr-2" /> Back to Scan</Button>
                     <Button size="lg" onClick={handleDbGeneratePDF} disabled={pdfMutation.isPending || !dbFormData.name || !templateStatus?.exists}>
-                      {pdfMutation.isPending ? <><Loader2 className="h-4 w-4 mr-2 animate-spin" /> Generating...</> : <>Generate Certificate <ArrowRight className="h-4 w-4 ml-2" /></>}
+                      {pdfMutation.isPending ? <><Loader2 className="h-4 w-4 mr-2 animate-spin" /> Generating...</> : <>{transferMode ? 'Assign Numbers & Generate' : 'Generate Certificate'} <ArrowRight className="h-4 w-4 ml-2" /></>}
                     </Button>
                   </div>
                 </div>

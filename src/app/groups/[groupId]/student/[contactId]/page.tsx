@@ -1273,9 +1273,15 @@ export default function StudentDetailPage() {
                   </Link>
                 </Button>
                 <Button variant="outline" size="sm" asChild>
-                  <Link href={`/certificate?studentName=${encodeURIComponent(displayName)}&studentPhone=${encodeURIComponent(phone)}`}>
+                  <Link href={`/certificate?mode=database&search=${encodeURIComponent(displayName)}&phone=${encodeURIComponent(phone)}`}>
                     <Award className="h-4 w-4 mr-1" />
                     Certificate
+                  </Link>
+                </Button>
+                <Button variant="outline" size="sm" asChild>
+                  <Link href={`/certificate?mode=database&transfer=1&search=${encodeURIComponent(displayName)}&phone=${encodeURIComponent(phone)}`}>
+                    <FileSignature className="h-4 w-4 mr-1" />
+                    Transfer Certificate
                   </Link>
                 </Button>
                 <Button variant="outline" size="sm" asChild>
