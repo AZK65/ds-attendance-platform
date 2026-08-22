@@ -1,12 +1,13 @@
 'use client'
 
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useMemo, useRef, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Card, CardContent } from '@/components/ui/card'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog'
 import { CheckCircle2, Loader2, RotateCcw, Download, X, Pencil, Users, ArrowLeft, ChevronRight } from 'lucide-react'
+import { SignaturePad as SignatureCanvas, type SignaturePadHandle } from '@/components/SignaturePad'
 
 interface TeamupEvent {
   id: string
@@ -520,99 +521,15 @@ function SignaturePad({
   onCancel: () => void
   onSaved: () => void
 }) {
-  const canvasRef = useRef<HTMLCanvasElement>(null)
+  const signatureRef = useRef<SignaturePadHandle>(null)
   const [hasInk, setHasInk] = useState(false)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const drawingRef = useRef(false)
 
   const phone = target.phone
 
-  // Calibrate: size the canvas backing store to (CSS box × devicePixelRatio)
-  // AFTER the dialog is fully open. Doing this during the Radix Dialog open
-  // animation (which is where a bare useEffect fires) lock-in the wrong
-  // dimensions — the canvas has an intermediate width while it's animating,
-  // and every pointer event afterwards resolves to a coordinate system that
-  // no longer matches what the user sees. requestAnimationFrame×2 waits for
-  // the browser to actually paint the dialog at its final size.
-  //
-  // We deliberately do NOT run a ResizeObserver — it re-fires during the
-  // enter animation and clears/re-sizes the canvas mid-interaction, which
-  // was the source of the "offset ink" bug the user hit.
-  //
-  // Drawing uses internal-pixel coords directly (no ctx.setTransform), then
-  // pointer coords are scaled by (canvas.width / rect.width). This is the
-  // classic HiDPI-safe pattern that survives every browser + orientation.
-  useEffect(() => {
-    const c = canvasRef.current
-    if (!c) return
-    let done = false
-    const configure = () => {
-      if (done || !canvasRef.current) return
-      const rect = c.getBoundingClientRect()
-      if (rect.width < 10 || rect.height < 10) {
-        // Dialog still animating — try again on the next frame.
-        requestAnimationFrame(configure)
-        return
-      }
-      const dpr = window.devicePixelRatio || 1
-      c.width = Math.round(rect.width * dpr)
-      c.height = Math.round(rect.height * dpr)
-      const ctx = c.getContext('2d')!
-      ctx.lineWidth = 2.4 * dpr // internal-pixel space
-      ctx.lineCap = 'round'
-      ctx.lineJoin = 'round'
-      ctx.strokeStyle = '#0f172a'
-      done = true
-    }
-    requestAnimationFrame(() => requestAnimationFrame(configure))
-    // Recompute if the window resizes (rotate, keyboard). Explicitly NOT
-    // ResizeObserver on the canvas — that was the animation-timing footgun.
-    const onResize = () => {
-      done = false
-      requestAnimationFrame(configure)
-    }
-    window.addEventListener('resize', onResize)
-    return () => window.removeEventListener('resize', onResize)
-  }, [])
-
-  const start = (x: number, y: number) => {
-    drawingRef.current = true
-    const ctx = canvasRef.current?.getContext('2d')
-    if (!ctx) return
-    ctx.beginPath()
-    ctx.moveTo(x, y)
-  }
-  const move = (x: number, y: number) => {
-    if (!drawingRef.current) return
-    const ctx = canvasRef.current?.getContext('2d')
-    if (!ctx) return
-    ctx.lineTo(x, y)
-    ctx.stroke()
-    setHasInk(true)
-  }
-  const end = () => { drawingRef.current = false }
-
-  // Convert a pointer event to INTERNAL-pixel coords on the canvas.
-  // Scale by (canvas.width / rect.width) to jump from CSS-pixel space
-  // (what the pointer event carries) to backing-store space (what
-  // ctx.moveTo/lineTo expect when no transform is applied). Same for Y.
-  // Rect is re-read on every event so a mid-drag layout shift (rare, but
-  // e.g. iPad keyboard) doesn't drift the ink.
-  const localXY = (e: React.PointerEvent<HTMLCanvasElement>) => {
-    const c = canvasRef.current!
-    const rect = c.getBoundingClientRect()
-    const scaleX = c.width / rect.width
-    const scaleY = c.height / rect.height
-    return [(e.clientX - rect.left) * scaleX, (e.clientY - rect.top) * scaleY] as const
-  }
-
   const clear = () => {
-    const c = canvasRef.current
-    if (!c) return
-    const ctx = c.getContext('2d')!
-    ctx.clearRect(0, 0, c.width, c.height)
-    setHasInk(false)
+    signatureRef.current?.clear()
   }
 
   const save = async () => {
@@ -627,7 +544,8 @@ function SignaturePad({
     setError(null)
     setSaving(true)
     try {
-      const dataUrl = canvasRef.current!.toDataURL('image/png')
+      const dataUrl = signatureRef.current?.toDataUrl()
+      if (!dataUrl) throw new Error('Please sign in the box before saving.')
       const res = await fetch('/api/scheduling/signature', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -661,16 +579,18 @@ function SignaturePad({
           <DialogDescription>{target.subtitle}</DialogDescription>
         </DialogHeader>
         <div className="space-y-3">
-          <div className="border-2 border-dashed rounded-lg overflow-hidden bg-muted/20">
-            <canvas
-              ref={canvasRef}
-              className="w-full h-64 touch-none cursor-crosshair bg-white"
-              onPointerDown={(e) => { e.currentTarget.setPointerCapture(e.pointerId); const [x, y] = localXY(e); start(x, y) }}
-              onPointerMove={(e) => { const [x, y] = localXY(e); move(x, y) }}
-              onPointerUp={end}
-              onPointerLeave={end}
-            />
-          </div>
+          <SignatureCanvas
+            ref={signatureRef}
+            height={256}
+            strokeColor="#0f172a"
+            strokeWidth={2.4}
+            placeholder="Sign inside this box"
+            className="border-dashed bg-muted/20"
+            onChange={(dataUrl) => {
+              setHasInk(!!dataUrl)
+              if (dataUrl) setError(null)
+            }}
+          />
           {error && <p className="text-sm text-destructive">{error}</p>}
           <div className="flex items-center justify-between gap-2">
             <Button variant="ghost" onClick={clear} disabled={!hasInk || saving}>

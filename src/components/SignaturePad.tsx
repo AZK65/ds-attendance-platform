@@ -40,41 +40,61 @@ export const SignaturePad = forwardRef<SignaturePadHandle, Props>(function Signa
   const fitCanvas = useCallback(() => {
     const canvas = canvasRef.current
     if (!canvas) return
-    const rect = canvas.getBoundingClientRect()
+    // clientWidth/clientHeight are the stable layout dimensions. Unlike
+    // getBoundingClientRect(), they are not distorted by a parent dialog's
+    // zoom animation, browser zoom transform, or other CSS transforms.
+    const layoutWidth = canvas.clientWidth
+    const layoutHeight = canvas.clientHeight
+    if (layoutWidth < 1 || layoutHeight < 1) return
     const dpr = Math.max(1, window.devicePixelRatio || 1)
-    // Snapshot current ink so we can repaint after resize.
+    // Snapshot current ink so orientation/layout changes do not erase it.
+    const snapshot = document.createElement('canvas')
+    snapshot.width = canvas.width
+    snapshot.height = canvas.height
     const ctx = canvas.getContext('2d')
-    let snapshot: ImageData | null = null
-    if (ctx && canvas.width > 0 && canvas.height > 0) {
-      try { snapshot = ctx.getImageData(0, 0, canvas.width, canvas.height) } catch { snapshot = null }
+    if (ctx && snapshot.width > 0 && snapshot.height > 0) {
+      snapshot.getContext('2d')?.drawImage(canvas, 0, 0)
     }
-    canvas.width = Math.round(rect.width * dpr)
-    canvas.height = Math.round(rect.height * dpr)
+    canvas.width = Math.round(layoutWidth * dpr)
+    canvas.height = Math.round(layoutHeight * dpr)
     if (!ctx) return
-    ctx.setTransform(1, 0, 0, 1, 0, 0)
-    ctx.scale(dpr, dpr)
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0)
     ctx.lineCap = 'round'
     ctx.lineJoin = 'round'
     ctx.strokeStyle = strokeColor
     ctx.lineWidth = strokeWidth
-    if (snapshot) {
-      // Best-effort restore (will look right when DPR doesn't change)
-      try { ctx.putImageData(snapshot, 0, 0) } catch { /* ignore */ }
+    if (snapshot.width > 0 && snapshot.height > 0) {
+      ctx.save()
+      ctx.setTransform(1, 0, 0, 1, 0, 0)
+      ctx.drawImage(snapshot, 0, 0, snapshot.width, snapshot.height, 0, 0, canvas.width, canvas.height)
+      ctx.restore()
     }
   }, [strokeColor, strokeWidth])
 
   useEffect(() => {
-    fitCanvas()
-    const onResize = () => fitCanvas()
-    window.addEventListener('resize', onResize)
-    return () => window.removeEventListener('resize', onResize)
+    const canvas = canvasRef.current
+    if (!canvas) return
+    const frame = requestAnimationFrame(fitCanvas)
+    const observer = new ResizeObserver(fitCanvas)
+    observer.observe(canvas)
+    return () => {
+      cancelAnimationFrame(frame)
+      observer.disconnect()
+    }
   }, [fitCanvas])
 
   const getPos = (e: PointerEvent | React.PointerEvent) => {
     const canvas = canvasRef.current
     if (!canvas) return { x: 0, y: 0 }
     const rect = canvas.getBoundingClientRect()
-    return { x: (e as PointerEvent).clientX - rect.left, y: (e as PointerEvent).clientY - rect.top }
+    // Pointer coordinates and rect are in transformed visual pixels. Convert
+    // back to the untransformed CSS layout space used by the DPR-scaled ctx.
+    const scaleX = rect.width > 0 ? canvas.clientWidth / rect.width : 1
+    const scaleY = rect.height > 0 ? canvas.clientHeight / rect.height : 1
+    return {
+      x: ((e as PointerEvent).clientX - rect.left) * scaleX,
+      y: ((e as PointerEvent).clientY - rect.top) * scaleY,
+    }
   }
 
   const onPointerDown = (e: React.PointerEvent<HTMLCanvasElement>) => {
