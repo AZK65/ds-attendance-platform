@@ -71,9 +71,17 @@ export async function handleInboundMessage(ctx: InboundContext): Promise<BotResu
   })
   history.reverse()
 
+  // Old WhatsApp duplicate events left identical adjacent transcript rows.
+  // Collapse them before sending context to the model so it doesn't imitate
+  // duplicated replies or think the customer repeated every sentence.
+  const cleanHistory = history.filter((message, index) => {
+    const previous = history[index - 1]
+    return !previous || previous.role !== message.role || previous.body !== message.body
+  })
+
   const messages: LlmMsg[] = [
     { role: 'system', content: buildSystemPrompt() },
-    ...history.map(m => ({
+    ...cleanHistory.map(m => ({
       role: (m.role === 'user' ? 'user' : 'assistant') as 'user' | 'assistant',
       content: m.body,
     })),

@@ -37,7 +37,7 @@ We do NOT currently offer: motorcycle (Class 6), bus (Class 2 or 4), scooter, AT
 ## Class 5 (Car) — details
 - SAAQ-mandated PESR program: 4 phases, 12 theory modules, 15 practical (in-car) hours.
 - Total duration: about 12 months from start to licence (SAAQ minimum wait rules).
-- Theory: online, at the student's own pace.
+- Theory: 12 live group modules taught online on Zoom. Students follow their group's scheduled module dates; it is not a self-paced course.
 - Practical: in-car with a certified instructor.
 - Total price: $1,000 CAD flat.
 - Payment plan: 6 installments — $250 on registration, then five $150 payments tied to certificate milestones (1st Certificate, Phase 2 / Road Class 1, Phase 3 / Road Class 6, Phase 3 / Road Class 9, Phase 4 / Road Class 12).
