@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, type FormEvent } from 'react'
+import { useEffect, useState, type FormEvent } from 'react'
 import { motion } from 'motion/react'
 import { Phone, User, Calendar, Car, ArrowRight, ArrowLeft, CheckCircle2, AlertCircle, Loader2, Clock } from 'lucide-react'
 import { QaziNav } from '@/components/qazi-nav'
@@ -237,6 +237,16 @@ function BookPageInner() {
   const [availabilityLoading, setAvailabilityLoading] = useState(false)
   const [selectedSlot, setSelectedSlot] = useState<Slot | null>(null)
   const [notes, setNotes] = useState('')
+
+  // Links sent by the verified WhatsApp bot prefill identity but still make
+  // the student confirm through the normal lookup and curriculum checks.
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search)
+    const linkedName = params.get('name')
+    const linkedPhone = params.get('phone')
+    if (linkedName) setName(linkedName)
+    if (linkedPhone) setPhone(linkedPhone)
+  }, [])
 
   const canLookup = name.trim().length >= 2 && phone.replace(/\D/g, '').length >= 10
   const completedCount = result ? result.completed.length : 0

@@ -1,5 +1,6 @@
 import { prisma } from '@/lib/db'
 import { buildSystemPrompt } from './persona'
+import { buildBotStudentContext } from './student-context'
 
 // One handler function called from the WhatsApp client's 'message' event.
 // Returns the reply text to send, or null if the bot decided to stay silent
@@ -52,14 +53,18 @@ export async function handleInboundMessage(ctx: InboundContext): Promise<BotResu
   }
 
   // Per-phone pause check. Set by admin manual reply or /whatsapp toggle.
-  const paused = await isPaused(ctx.fromPhone)
+  const paused = await isPaused(ctx.fromPhone, ctx.fromJid)
   if (paused) {
     const conv = await upsertConversation(ctx)
     await logMessage(conv.id, 'user', body)
     return { reply: null, deferred: true, conversationId: conv.id, fromJid: ctx.fromJid }
   }
 
-  const conv = await upsertConversation(ctx)
+  const studentContext = await buildBotStudentContext(ctx.fromPhone).catch(err => {
+    console.error('[bot] Student context lookup failed:', err)
+    return null
+  })
+  const conv = await upsertConversation(ctx, studentContext?.studentId)
   await logMessage(conv.id, 'user', body)
 
   // Pull last N messages for chat context. Reverse order — Prisma returns
@@ -80,7 +85,7 @@ export async function handleInboundMessage(ctx: InboundContext): Promise<BotResu
   })
 
   const messages: LlmMsg[] = [
-    { role: 'system', content: buildSystemPrompt() },
+    { role: 'system', content: buildSystemPrompt(studentContext?.prompt) },
     ...cleanHistory.map(m => ({
       role: (m.role === 'user' ? 'user' : 'assistant') as 'user' | 'assistant',
       content: m.body,
@@ -206,12 +211,12 @@ async function callOpenRouter(messages: LlmMsg[]): Promise<string> {
 
 // ── Persistence helpers ─────────────────────────────────────────
 
-async function upsertConversation(ctx: InboundContext) {
+async function upsertConversation(ctx: InboundContext, resolvedStudentId?: string | null) {
   // Look up matching Student so admin UI can show it. Match by suffix
   // (last 10 digits) — same rule the register flow uses on phone.
-  let studentId: string | undefined
+  let studentId: string | undefined = resolvedStudentId || undefined
   const suffix = ctx.fromPhone.replace(/\D/g, '').slice(-10)
-  if (suffix.length >= 7) {
+  if (!studentId && suffix.length >= 7) {
     const student = await prisma.student.findFirst({
       where: { phone: { contains: suffix } },
       select: { id: true },
@@ -247,10 +252,12 @@ async function logMessage(
 
 // ── Pause helpers ───────────────────────────────────────────────
 
-async function isPaused(phone: string): Promise<boolean> {
-  const row = await prisma.botPause.findUnique({ where: { phone } })
-  if (!row) return false
-  return row.pausedUntil.getTime() > Date.now()
+async function isPaused(phone: string, fromJid?: string): Promise<boolean> {
+  const legacyLid = fromJid?.endsWith('@lid') ? fromJid.split('@')[0]?.replace(/\D/g, '') : ''
+  const rows = await prisma.botPause.findMany({
+    where: { phone: { in: [phone, legacyLid].filter(Boolean) } },
+  })
+  return rows.some(row => row.pausedUntil.getTime() > Date.now())
 }
 
 // Auto-pause after admin sends a manual outbound message. 24h window means

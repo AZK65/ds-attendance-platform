@@ -675,6 +675,7 @@ export async function connectWhatsApp(): Promise<void> {
       hasMedia?: boolean
       type?: string       // 'chat' | 'image' | 'sticker' | 'audio' | ...
       _data?: { notifyName?: string }
+      getContact?: () => Promise<{ number?: string; pushname?: string; name?: string }>
     }
     client.on('message', async (msg: IncomingMsg) => {
       try {
@@ -691,13 +692,37 @@ export async function connectWhatsApp(): Promise<void> {
 
         const fromJid = msg.from
         if (!fromJid) return
-        const phone = fromJid.split('@')[0]?.replace(/\D/g, '')
+        let phone = fromJid.split('@')[0]?.replace(/\D/g, '')
         if (!phone) return
+
+        // Modern WhatsApp privacy mode sends a Linked ID (@lid), not the
+        // student's phone. Resolve it through WhatsApp before matching any
+        // private student profile or calendar data.
+        let resolvedName = msg._data?.notifyName
+        if (fromJid.endsWith('@lid')) {
+          try {
+            const mappings = await (client as unknown as {
+              getContactLidAndPhone: (ids: string[]) => Promise<Array<{ lid: string; pn: string }>>
+            }).getContactLidAndPhone([fromJid])
+            const mapped = mappings[0]?.pn?.split('@')[0]?.replace(/\D/g, '')
+            if (mapped && mapped.length >= 10) phone = mapped
+          } catch (err) {
+            console.warn('[bot] Could not resolve LID through mapping:', err)
+          }
+          if ((phone.length > 15 || phone === fromJid.split('@')[0]) && msg.getContact) {
+            try {
+              const contact = await msg.getContact()
+              const contactPhone = contact.number?.replace(/\D/g, '')
+              if (contactPhone && contactPhone.length >= 10 && contactPhone.length <= 15) phone = contactPhone
+              resolvedName = resolvedName || contact.pushname || contact.name
+            } catch { /* keep the LID; no student context will be exposed */ }
+          }
+        }
 
         const result = await handleInboundMessage({
           fromPhone: phone,
           fromJid,
-          fromName: msg._data?.notifyName,
+          fromName: resolvedName,
           body: msg.body || '',
         })
 
@@ -712,7 +737,7 @@ export async function connectWhatsApp(): Promise<void> {
           // the ORIGINAL inbound JID (not a phone-derived one) so @lid
           // contacts don't blow up with "No LID for user".
           try {
-            await sendBotReply(result.fromJid, result.reply)
+            await sendBotReply(result.fromJid, result.reply, phone)
             await logBotSendSuccess(result.conversationId, result.reply)
             console.log(`[bot] Reply sent to ${result.fromJid} (${result.reply.length} chars)`)
           } catch (err) {
@@ -753,7 +778,7 @@ export async function connectWhatsApp(): Promise<void> {
           return
         }
 
-        const phone = dest.split('@')[0]?.replace(/\D/g, '')
+        let phone = dest.split('@')[0]?.replace(/\D/g, '')
         if (!phone) return
         const body = msg.body || ''
         if (isWhatsAppBusinessAutoReply(body)) {
@@ -765,6 +790,16 @@ export async function connectWhatsApp(): Promise<void> {
         // Keyed by full JID so bot outbounds to @lid contacts aren't
         // misclassified as admin manuals.
         if (consumeBotOutbound(dest, body)) return
+
+        if (dest.endsWith('@lid')) {
+          try {
+            const mappings = await (client as unknown as {
+              getContactLidAndPhone: (ids: string[]) => Promise<Array<{ lid: string; pn: string }>>
+            }).getContactLidAndPhone([dest])
+            const mapped = mappings[0]?.pn?.split('@')[0]?.replace(/\D/g, '')
+            if (mapped && mapped.length >= 10) phone = mapped
+          } catch { /* legacy LID key remains a safe fallback */ }
+        }
 
         // Otherwise, an admin typed this on their WA. Pause the bot on
         // this thread (indexed by phone digits — matches BotConversation.phone)
@@ -2365,8 +2400,9 @@ export async function sendToRawChatId(chatId: string, text: string): Promise<voi
 // so the message_create listener knows not to treat it as an admin manual
 // reply. Falls back to unmark on send failure so a retry doesn't get
 // double-marked.
-export async function sendBotReply(jid: string, text: string): Promise<void> {
+export async function sendBotReply(jid: string, text: string, phoneAlias?: string): Promise<void> {
   markBotOutbound(jid, text)
+  if (phoneAlias) markBotOutbound(`${phoneAlias}@c.us`, text)
   try {
     if (jid.endsWith('@c.us')) {
       // Route through sendPrivateMessage so we get its LID-resolve retry
@@ -2381,6 +2417,7 @@ export async function sendBotReply(jid: string, text: string): Promise<void> {
     // Send failed — remove the marker so a subsequent admin manual message
     // with the same content isn't silently swallowed.
     unmarkBotOutbound(jid, text)
+    if (phoneAlias) unmarkBotOutbound(`${phoneAlias}@c.us`, text)
     throw err
   }
 }
