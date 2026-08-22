@@ -15,7 +15,11 @@ import { handleInboundMessage, pauseForAdminReply, logAdminMessage, logBotSendSu
 const botOutboundKeys = new Map<string, number>()
 const BOT_OUTBOUND_TTL_MS = 30_000
 function botOutboundKey(jid: string, text: string): string {
-  return `${jid.trim()}|${text.trim().slice(0, 200)}`
+  // WhatsApp may report the same contact as @lid on the inbound and @c.us
+  // on message_create. Match on the stable id portion plus body so our own
+  // reply can never be mistaken for a manual admin message because only the
+  // suffix changed.
+  return `${jid.split('@')[0]?.trim()}|${text.trim().slice(0, 200)}`
 }
 function markBotOutbound(jid: string, text: string): void {
   botOutboundKeys.set(botOutboundKey(jid, text), Date.now())
@@ -25,9 +29,42 @@ function markBotOutbound(jid: string, text: string): void {
 }
 function consumeBotOutbound(jid: string, text: string): boolean {
   const key = botOutboundKey(jid, text)
-  if (!botOutboundKeys.has(key)) return false
-  botOutboundKeys.delete(key)
-  return true
+  // Do not delete on first consumption. whatsapp-web.js can emit the same
+  // message_create event twice; keeping the marker until its short TTL makes
+  // both copies recognizable as bot-originated.
+  return botOutboundKeys.has(key)
+}
+function unmarkBotOutbound(jid: string, text: string): void {
+  botOutboundKeys.delete(botOutboundKey(jid, text))
+}
+
+// WhatsApp Web occasionally emits identical events twice (same message id).
+// Without this guard one inbound generated two LLM calls/replies, while two
+// message_create copies produced duplicate transcript rows and self-pauses.
+const seenWaEvents = new Map<string, number>()
+const WA_EVENT_DEDUPE_TTL_MS = 5 * 60_000
+function isDuplicateWaEvent(scope: 'inbound' | 'outbound', id?: string): boolean {
+  if (!id) return false
+  const key = `${scope}:${id}`
+  const now = Date.now()
+  const seenAt = seenWaEvents.get(key)
+  if (seenAt && now - seenAt < WA_EVENT_DEDUPE_TTL_MS) return true
+  seenWaEvents.set(key, now)
+  if (seenWaEvents.size > 2000) {
+    const cutoff = now - WA_EVENT_DEDUPE_TTL_MS
+    for (const [eventKey, ts] of seenWaEvents) if (ts < cutoff) seenWaEvents.delete(eventKey)
+  }
+  return false
+}
+
+// WhatsApp Business sends its configured greeting/away text as a normal
+// fromMe message. It is automated—not a staff takeover—so it must not pause
+// the AI conversation. These are the two account messages seen in production.
+function isWhatsAppBusinessAutoReply(body: string): boolean {
+  const normalized = body.replace(/\s+/g, ' ').trim().toLowerCase()
+  return normalized.startsWith('thank you for contacting qazi driving school!') ||
+    normalized.startsWith("thank you for your message. we’re unavailable right now") ||
+    normalized.startsWith("thank you for your message. we're unavailable right now")
 }
 
 // Types
@@ -627,6 +664,7 @@ export async function connectWhatsApp(): Promise<void> {
     type IncomingMsg = {
       body: string
       from: string        // e.g. '15145551234@c.us' or '...@g.us' for groups
+      id?: { _serialized?: string }
       isStatus?: boolean
       hasMedia?: boolean
       type?: string       // 'chat' | 'image' | 'sticker' | 'audio' | ...
@@ -640,6 +678,10 @@ export async function connectWhatsApp(): Promise<void> {
         // Only plain text for now. Skipping media doesn't lose context
         // because a follow-up text will usually explain it.
         if (msg.type && msg.type !== 'chat') return
+        if (isDuplicateWaEvent('inbound', msg.id?._serialized)) {
+          console.log(`[bot] Ignored duplicate inbound ${msg.id?._serialized}`)
+          return
+        }
 
         const fromJid = msg.from
         if (!fromJid) return
@@ -700,11 +742,20 @@ export async function connectWhatsApp(): Promise<void> {
         // Groups (@g.us), statuses, and any other suffix are skipped.
         if (!dest.endsWith('@c.us') && !dest.endsWith('@lid')) return
         if (msg.type && msg.type !== 'chat') return
+        if (isDuplicateWaEvent('outbound', msg.id?._serialized)) {
+          console.log(`[bot] Ignored duplicate outbound ${msg.id?._serialized}`)
+          return
+        }
 
         const phone = dest.split('@')[0]?.replace(/\D/g, '')
         if (!phone) return
         const body = msg.body || ''
-        // If this outbound was ours, remove the pending marker and stop.
+        if (isWhatsAppBusinessAutoReply(body)) {
+          console.log('[bot] Ignored WhatsApp Business automated greeting/away reply')
+          return
+        }
+        // If this outbound was ours, leave its short-lived marker in place
+        // for any duplicate event copies and stop.
         // Keyed by full JID so bot outbounds to @lid contacts aren't
         // misclassified as admin manuals.
         if (consumeBotOutbound(dest, body)) return
@@ -2323,7 +2374,7 @@ export async function sendBotReply(jid: string, text: string): Promise<void> {
   } catch (err) {
     // Send failed — remove the marker so a subsequent admin manual message
     // with the same content isn't silently swallowed.
-    consumeBotOutbound(jid, text)
+    unmarkBotOutbound(jid, text)
     throw err
   }
 }
