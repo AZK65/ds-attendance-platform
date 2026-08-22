@@ -86,6 +86,16 @@ export async function POST(request: NextRequest) {
     fieldNames.forEach(name => console.log('  "' + name + '"'))
     console.log('=== Total: ' + fieldNames.length + ' fields ===')
 
+    // The uploaded template may look blank in the viewer while still carrying
+    // values from the certificate it was created from. Always reset every
+    // editable field before applying this student's data. Otherwise an empty
+    // form value (especially a future module/session date) leaves the previous
+    // student's value in the generated PDF.
+    for (const fieldName of fieldNames) {
+      try { form.getTextField(fieldName).setText('') } catch { /* not a text field */ }
+      try { form.getCheckBox(fieldName).uncheck() } catch { /* not a checkbox */ }
+    }
+
     // Track which fields were successfully set
     const successfulFields: string[] = []
 
@@ -161,29 +171,29 @@ export async function POST(request: NextRequest) {
     // Driver's License Number - Page 2: "Numero de Permis"
     // (not detected by pdf-lib on page 1, but exists on page 2)
     // Set white background on the field to cover old static text baked into the PDF
-    if (formData.licenceNumber) {
-      try {
-        const permisField = form.getTextField('Numero de Permis')
-        const maxLen = permisField.getMaxLength()
-        if (maxLen !== undefined && formData.licenceNumber.length > maxLen) {
-          permisField.setMaxLength(undefined)
-        }
-        // Set white background via MK dictionary to cover old static text underneath
-        const widgets = permisField.acroField.getWidgets()
-        for (const widget of widgets) {
-          const mkDict = pdfDoc.context.obj({ BG: [1, 1, 1] })
-          widget.dict.set(PDFName.of('MK'), mkDict)
-        }
-        // Remove dashes and add double space between each character
-        const formattedLicence = formData.licenceNumber.replace(/-/g, '').split('').join('  ')
-        permisField.setText(formattedLicence)
-        const font = await pdfDoc.embedFont(StandardFonts.Helvetica)
-        permisField.updateAppearances(font)
-        successfulFields.push('Numero de Permis')
-        console.log('✓ Set "Numero de Permis" = "' + formData.licenceNumber + '" (with white background)')
-      } catch (e) {
-        console.log('✗ Failed to set Numero de Permis:', e)
+    try {
+      const permisField = form.getTextField('Numero de Permis')
+      const licenceNumber = formData.licenceNumber || ''
+      const maxLen = permisField.getMaxLength()
+      if (maxLen !== undefined && licenceNumber.length > maxLen) {
+        permisField.setMaxLength(undefined)
       }
+      // Set white background even when the new value is blank, so any old
+      // static licence text underneath the form field is covered.
+      const widgets = permisField.acroField.getWidgets()
+      for (const widget of widgets) {
+        const mkDict = pdfDoc.context.obj({ BG: [1, 1, 1] })
+        widget.dict.set(PDFName.of('MK'), mkDict)
+      }
+      // Remove dashes and add double space between each character
+      const formattedLicence = licenceNumber.replace(/-/g, '').split('').join('  ')
+      permisField.setText(formattedLicence)
+      const font = await pdfDoc.embedFont(StandardFonts.Helvetica)
+      permisField.updateAppearances(font)
+      successfulFields.push('Numero de Permis')
+      console.log('✓ Set "Numero de Permis" = "' + licenceNumber + '" (with white background)')
+    } catch (e) {
+      console.log('✗ Failed to set Numero de Permis:', e)
     }
 
     // Registration Date - "Date5_af_date"
