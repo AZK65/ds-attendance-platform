@@ -27,6 +27,10 @@ export async function POST(request: NextRequest) {
 
     // Strip spaces from attestation number for storage
     const cleanAttestation = attestationNumber ? attestationNumber.replace(/\s+/g, '') : null
+    const numberMatches = [
+      contractNumber ? { contractNumber: contractNumber.toString() } : null,
+      cleanAttestation ? { attestationNumber: cleanAttestation } : null,
+    ].filter((v): v is { contractNumber: string } | { attestationNumber: string } => v !== null)
 
     // Email isn't part of the cert review form — only set it on update if
     // explicitly provided. Otherwise we'd wipe out an email a user typed
@@ -107,6 +111,24 @@ export async function POST(request: NextRequest) {
       })
     }
 
+    // Regenerating one student's certificate may reuse their own numbers,
+    // but those numbers must never cross onto another student profile.
+    if (numberMatches.length > 0) {
+      const conflictingCertificate = await prisma.certificate.findFirst({
+        where: {
+          OR: numberMatches,
+          ...(existing ? { studentId: { not: existing.id } } : {}),
+        },
+        include: { student: { select: { name: true } } },
+      })
+      if (conflictingCertificate) {
+        return NextResponse.json(
+          { error: `Certificate numbers are already assigned to ${conflictingCertificate.student.name}. Please assign fresh numbers.` },
+          { status: 409 }
+        )
+      }
+    }
+
     const student = existing
       ? await prisma.student.update({
           where: { id: existing.id },
@@ -118,11 +140,6 @@ export async function POST(request: NextRequest) {
 
     // Re-generating or reopening a certificate should update its existing
     // record, not append another identical certificate every time.
-    const numberMatches = [
-      contractNumber ? { contractNumber: contractNumber.toString() } : null,
-      cleanAttestation ? { attestationNumber: cleanAttestation } : null,
-    ].filter((v): v is { contractNumber: string } | { attestationNumber: string } => v !== null)
-
     const existingCertificate = numberMatches.length > 0
       ? await prisma.certificate.findFirst({
           where: { studentId: student.id, OR: numberMatches },

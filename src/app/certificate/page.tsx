@@ -1671,7 +1671,8 @@ function CertificatePageInner() {
       formattedName = `${lastName}, ${firstName}`
     }
 
-    // Pre-fill contract/attestation from MySQL (the source of truth for assigned numbers)
+    // Regular edits retain assigned numbers. A transfer is a new Qazi
+    // certificate and must claim fresh Qazi numbers when it is generated.
     const contractFromDb = String(student.user_defined_contract_number || '')
     const attestationRaw = String(student.contract_number || '')
     const formattedAttestation = attestationRaw && attestationRaw !== '0' ? attestationRaw.split('').join('  ') : ''
@@ -1685,8 +1686,8 @@ function CertificatePageInner() {
       province: 'QC',
       postalCode: student.postal_code || '',
       phone: student.phone_number || '',
-      contractNumber: contractFromDb && contractFromDb !== '0' ? contractFromDb : '',
-      attestationNumber: formattedAttestation,
+      contractNumber: !transferMode && contractFromDb && contractFromDb !== '0' ? contractFromDb : '',
+      attestationNumber: transferMode ? '' : formattedAttestation,
     }
 
     setDbFormData(baseData)
@@ -1742,8 +1743,9 @@ function CertificatePageInner() {
             if (s[field]) dates[field] = s[field]
           }
 
-          // Only use SQLite certificate numbers if MySQL didn't have any
-          if (s.certificates && s.certificates.length > 0) {
+          // Transfer certificates always receive fresh Qazi numbers. Regular
+          // edits keep the student's previously assigned numbers.
+          if (!transferMode && s.certificates && s.certificates.length > 0) {
             const latestCert = s.certificates[0]
             if (!contractFromDb && latestCert.contractNumber) {
               certOverrides.contractNumber = String(latestCert.contractNumber)
@@ -1818,6 +1820,13 @@ function CertificatePageInner() {
     if (!templateStatus?.template) return
     let finalFormData = { ...dbFormData }
 
+    // Transfer mode represents a new Qazi-issued certificate. Never let an
+    // old-system or previously saved number leak into this generation.
+    if (transferMode) {
+      finalFormData.contractNumber = ''
+      finalFormData.attestationNumber = ''
+    }
+
     // Check SQLite for existing certificate numbers (overrides any stale form values)
     // Use original student data for reliable matching
     const originalName = dbSelectedStudent?.full_name || finalFormData.name
@@ -1831,7 +1840,7 @@ function CertificatePageInner() {
       const alreadyHasContract = finalFormData.contractNumber.replace(/\s/g, '').length > 0
       const alreadyHasAttestation = finalFormData.attestationNumber.replace(/\s/g, '').length > 0
 
-      if (!alreadyHasContract || !alreadyHasAttestation) {
+      if (!transferMode && (!alreadyHasContract || !alreadyHasAttestation)) {
         if (profileParams.toString()) {
           const profileRes = await fetch(`/api/students/profile?${profileParams}`)
           if (profileRes.ok) {

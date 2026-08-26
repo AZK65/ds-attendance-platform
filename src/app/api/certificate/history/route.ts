@@ -19,7 +19,7 @@ export async function GET() {
     })
 
     // Get MySQL students that have contract numbers (certificates from old system)
-    let mysqlCerts: Array<{
+    const mysqlCerts: Array<{
       id: string
       studentId: string
       certificateType: string
@@ -86,11 +86,41 @@ export async function PUT(request: NextRequest) {
       return NextResponse.json({ error: 'certificateId is required' }, { status: 400 })
     }
 
+    const current = await prisma.certificate.findUnique({
+      where: { id: certificateId },
+      select: { studentId: true },
+    })
+    if (!current) {
+      return NextResponse.json({ error: 'Certificate not found' }, { status: 404 })
+    }
+
+    const cleanContract = contractNumber === undefined ? undefined : String(contractNumber || '').trim() || null
+    const cleanAttestation = attestationNumber === undefined
+      ? undefined
+      : attestationNumber?.replace(/\s+/g, '') || null
+    const requestedNumbers = [
+      cleanContract ? { contractNumber: cleanContract } : null,
+      cleanAttestation ? { attestationNumber: cleanAttestation } : null,
+    ].filter((value): value is { contractNumber: string } | { attestationNumber: string } => value !== null)
+
+    if (requestedNumbers.length > 0) {
+      const conflict = await prisma.certificate.findFirst({
+        where: { studentId: { not: current.studentId }, OR: requestedNumbers },
+        include: { student: { select: { name: true } } },
+      })
+      if (conflict) {
+        return NextResponse.json(
+          { error: `Certificate numbers are already assigned to ${conflict.student.name}.` },
+          { status: 409 }
+        )
+      }
+    }
+
     const updated = await prisma.certificate.update({
       where: { id: certificateId },
       data: {
-        ...(contractNumber !== undefined ? { contractNumber } : {}),
-        ...(attestationNumber !== undefined ? { attestationNumber: attestationNumber?.replace(/\s+/g, '') || null } : {}),
+        ...(cleanContract !== undefined ? { contractNumber: cleanContract } : {}),
+        ...(cleanAttestation !== undefined ? { attestationNumber: cleanAttestation } : {}),
       },
     })
 
