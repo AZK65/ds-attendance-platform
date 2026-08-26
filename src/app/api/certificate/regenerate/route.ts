@@ -38,6 +38,15 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Certificate not found' }, { status: 404 })
     }
 
+    // Never combine one student's profile data with another student's
+    // certificate numbers, even if a stale browser link supplies mismatched IDs.
+    if (certificate.studentId !== student.id) {
+      return NextResponse.json(
+        { error: 'Certificate does not belong to this student' },
+        { status: 409 }
+      )
+    }
+
     // Get school settings
     const settings = await prisma.certificateSettings.findUnique({
       where: { id: 'default' },
