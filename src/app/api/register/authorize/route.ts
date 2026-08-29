@@ -46,17 +46,32 @@ export async function POST(request: NextRequest) {
     const auth = await createAuthorization({
       sourceToken,
       amountCents,
+      clientIp: ip,
       description: `${classLabel} first payment — ${registration.fullName || registration.id}`,
       email: registration.email || undefined,
       metadata: { registrationId },
     })
 
     if (!auth.ok) {
+      console.error('[Register Authorize] Clover rejected authorization', {
+        registrationId,
+        vehicleType: registration.vehicleType,
+        error: auth.error,
+      })
       await prisma.studentRegistration.update({
         where: { id: registrationId },
         data: { paymentStatus: 'failed', paymentError: auth.error.slice(0, 500) },
       })
-      return NextResponse.json({ error: auth.error }, { status: 402 })
+      const providerUnavailable = /401|unauthori[sz]ed/i.test(auth.error)
+      return NextResponse.json(
+        {
+          error: providerUnavailable
+            ? 'The secure payment connection was interrupted. Your registration is saved—please try the card again.'
+            : 'The card could not be authorized. Check the card details and try again. Your registration is saved.',
+          code: providerUnavailable ? 'payment_provider_auth' : 'card_authorization_failed',
+        },
+        { status: providerUnavailable ? 502 : 402 },
+      )
     }
 
     await prisma.studentRegistration.update({

@@ -2,13 +2,14 @@ import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/db'
 import { captureCharge } from '@/lib/clover'
 import { createRegistrationInvoice } from '@/lib/registration-invoice'
+import { clientIp } from '@/lib/rate-limit'
 
 /**
  * POST /api/registrations/[id]/capture — admin captures the $250 Clover auth.
  * Auth-protected by the global middleware.
  */
 export async function POST(
-  _request: NextRequest,
+  request: NextRequest,
   { params }: { params: Promise<{ id: string }> },
 ) {
   const { id } = await params
@@ -23,7 +24,7 @@ export async function POST(
     return NextResponse.json({ error: 'No authorized charge to capture' }, { status: 400 })
   }
 
-  const res = await captureCharge(reg.paymentChargeId, reg.paymentAmount ?? undefined)
+  const res = await captureCharge(reg.paymentChargeId, reg.paymentAmount ?? undefined, clientIp(request))
   if (!res.ok) {
     await prisma.studentRegistration.update({
       where: { id },

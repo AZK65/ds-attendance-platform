@@ -67,6 +67,7 @@ async function cloverFetch(path: string, init: RequestInit = {}): Promise<{ ok: 
 export async function createAuthorization(opts: {
   sourceToken: string
   amountCents: number
+  clientIp: string
   description?: string
   metadata?: Record<string, string>
   email?: string
@@ -76,11 +77,16 @@ export async function createAuthorization(opts: {
 > {
   const res = await cloverFetch('/v1/charges', {
     method: 'POST',
+    // Clover requires the original cardholder IP for Ecommerce charge
+    // requests. The card token is created in the student's browser, so
+    // omitting this header makes an otherwise valid token fail as 401.
+    headers: { 'x-forwarded-for': opts.clientIp },
     body: JSON.stringify({
       amount: opts.amountCents,
       currency: 'cad',
       source: opts.sourceToken,
       capture: false,
+      ecomind: 'ecom',
       description: opts.description,
       receipt_email: opts.email,
       metadata: opts.metadata,
@@ -97,9 +103,10 @@ export async function createAuthorization(opts: {
   return { ok: true, chargeId, last4, brand }
 }
 
-export async function captureCharge(chargeId: string, amountCents?: number): Promise<{ ok: true } | { ok: false; error: string }> {
+export async function captureCharge(chargeId: string, amountCents?: number, clientIp?: string): Promise<{ ok: true } | { ok: false; error: string }> {
   const res = await cloverFetch(`/v1/charges/${encodeURIComponent(chargeId)}/capture`, {
     method: 'POST',
+    headers: clientIp ? { 'x-forwarded-for': clientIp } : undefined,
     body: JSON.stringify(amountCents != null ? { amount: amountCents } : {}),
   })
   if (!res.ok) return { ok: false, error: res.error }
