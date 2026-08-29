@@ -1,4 +1,5 @@
-import { KB } from './kb'
+import { getPricing } from '@/lib/pricing'
+import { buildKnowledge } from './kb'
 
 // The system prompt. This is the single most important file in the bot —
 // it's what determines whether replies feel like a real Qazi staff member
@@ -18,16 +19,30 @@ import { KB } from './kb'
 // handle-message.ts checks for that and skips sending — admin sees the
 // unanswered inbound in WhatsApp and picks it up. This is the safety valve.
 
-export function buildSystemPrompt(studentContext?: string): string {
+export async function buildSystemPrompt(studentContext?: string): Promise<string> {
+  const pricing = await getPricing()
+  const knowledge = buildKnowledge(pricing)
+  const now = new Date()
   const montrealNow = new Intl.DateTimeFormat('en-CA', {
     timeZone: 'America/Toronto',
     dateStyle: 'full',
     timeStyle: 'short',
-  }).format(new Date())
+  }).format(now)
+  const montrealParts = new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'America/Toronto',
+    weekday: 'long',
+    hour: 'numeric',
+    hourCycle: 'h23',
+  }).formatToParts(now)
+  const weekday = montrealParts.find(part => part.type === 'weekday')?.value || ''
+  const hour = Number(montrealParts.find(part => part.type === 'hour')?.value || -1)
+  const isOpen = weekday !== 'Friday' && hour >= 11 && hour < 19
 
   return `You are answering WhatsApp messages sent to Qazi Driving School's phone number. You are one of the school's front-desk staff. Reply as that person would — warm, direct, brief. Nothing more.
 
 Current Montreal date and time: ${montrealNow}
+School status right now: ${isOpen ? 'OPEN' : 'CLOSED'}.
+Regular office hours: Saturday through Thursday, 11:00 AM–7:00 PM. Closed Friday.
 
 # ABSOLUTE RULES
 
@@ -72,6 +87,7 @@ Answer, using KB facts:
 - Class 5 / Class 1 / Class 3 program details (hours, structure, duration)
 - Class 1 theory schedule (Tue/Thu/Sat times)
 - Location, phone, general contact info
+- Office hours and whether the school is open right now
 - Languages spoken
 - Registration process (how to sign up, what happens after)
 - Cancellation policy (general — the fees and notice periods)
@@ -89,14 +105,13 @@ DEFER on:
 - Complaints or disputes
 - Requests to speak with a specific person by name (Qazi, an instructor, an admin)
 - Questions about SAAQ topics not in the KB (bike test, insurance, address change, licence renewal, immigration/foreign licence conversion)
-- Anything about the office being open right now / "are you there"
 - Legal / medical / immigration advice
 - Weird / hostile / spam / clearly-not-a-student messages
 - Any factual answer you're less than 90% sure about after considering whether one clarifying question would resolve it
 
 # KNOWLEDGE
 
-${KB}
+${knowledge}
 
 ${studentContext || '# VERIFIED STUDENT CONTEXT\nNo verified student profile was matched to this WhatsApp sender.'}
 

@@ -1,11 +1,11 @@
+import type { Pricing } from '@/lib/pricing'
+
 // Knowledge base for the WhatsApp bot. Bundled into the system prompt on
-// every request. Kept as plain text (no fetch, no scraping) so the bot
-// never depends on the marketing site being up and its answers stay
-// consistent even if the site is mid-redesign.
+// every request. Program and contact details mirror the marketing site;
+// editable prices are injected from Settings → Pricing at reply time.
 //
 // Source of truth mapping:
-//   - Pricing / installments / deposits: /settings/pricing (DB)
-//     — mirrored here manually. Bump when the admin edits pricing.
+//   - Pricing / installments / deposits: live /settings/pricing DB values
 //   - Class content, hours, SAAQ regs: marketing site dict.ts (Class 5 / 1 / 3)
 //   - Location, phone, hours, languages: Footer + Contact page
 //
@@ -14,7 +14,16 @@
 //   - Keep it short. Every token here is billed on every request.
 //   - Anything not covered here should read as "the bot should defer".
 
-export const KB = `
+const dollars = (amount: number) => Number.isInteger(amount)
+  ? `$${amount.toLocaleString('en-CA')} CAD`
+  : `$${amount.toLocaleString('en-CA', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} CAD`
+
+const paymentPlan = (pricing: Pricing['car'] | Pricing['truck']) => pricing.schedule
+  .map(item => `${item.label}${item.sub ? ` (${item.sub})` : ''}: ${dollars(item.amount)}`)
+  .join('; ')
+
+export function buildKnowledge(pricing: Pricing): string {
+  return `
 # Qazi Driving School — reference facts
 
 ## Identity
@@ -39,9 +48,9 @@ We do NOT currently offer: motorcycle (Class 6), bus (Class 2 or 4), scooter, AT
 - Total duration: about 12 months from start to licence (SAAQ minimum wait rules).
 - Theory: 12 live group modules taught online on Zoom. Students follow their group's scheduled module dates; it is not a self-paced course.
 - Practical: in-car with a certified instructor.
-- Total price: $1,000 CAD flat.
-- Payment plan: 6 installments — $250 on registration, then five $150 payments tied to certificate milestones (1st Certificate, Phase 2 / Road Class 1, Phase 3 / Road Class 6, Phase 3 / Road Class 9, Phase 4 / Road Class 12).
-- Deposit authorized at registration: $250 CAD (hold on card — nothing charged until the school approves the registration, usually within 72 h).
+- Total price: ${dollars(pricing.car.total)}.
+- Payment plan: ${pricing.car.schedule.length} installments — ${paymentPlan(pricing.car)}.
+- Deposit authorized at registration: ${dollars(pricing.car.depositCents / 100)} (hold on card — nothing charged until the school approves the registration, usually within 72 h).
 - Extra hourly driving (à la carte practice / refresher): $50 / hour.
 - Age requirement: 16 for Class 5 (16+ can start once they have their apprenti / learner's permit path underway).
 
@@ -50,10 +59,10 @@ We do NOT currently offer: motorcycle (Class 6), bus (Class 2 or 4), scooter, AT
 - Total: 125 hours (75 hours classroom theory + 50 hours in-cab practical with a licensed instructor).
 - Theory schedule: 17 hours per week, in-class, Tuesday evenings 17h30–21h30, Thursday evenings 17h30–21h30, Saturday 9h00–18h00. All three days are theory.
 - Practical (50 h in-cab): scheduled separately, arranged around the student's and instructor's availability. NOT on the fixed weekly grid.
-- Roughly 7 to 8 weeks to complete the 75 theory hours at 17 h/week.
-- Total price: $10,000 CAD before taxes.
-- Payment: 4 installments of $2,500 each — First Class / Theory phase / Practical phase / Final + Laval exam.
-- Deposit authorized at registration: $500 CAD (hold on card — nothing charged until the school approves).
+- Roughly 4.5 to 5 weeks to complete the 75 theory hours at 17 h/week.
+- Total price: ${dollars(pricing.truck.total)} before taxes.
+- Payment plan: ${pricing.truck.schedule.length} installments — ${paymentPlan(pricing.truck)}.
+- Deposit authorized at registration: ${dollars(pricing.truck.depositCents / 100)} (hold on card — nothing charged until the school approves).
 - Age requirement: 18+, valid Class 5 licence (probationary accepted), clean driving/criminal record, medical fitness.
 - Financing option through a partner bank available on approval.
 - Job-placement support available with our carrier partner network.
@@ -92,15 +101,15 @@ We do NOT currently offer: motorcycle (Class 6), bus (Class 2 or 4), scooter, AT
 - SAAQ Class 3: 18+, valid Class 5, medical + practical exam.
 - SAAQ theory exam is separate from any driving school — student books it directly with SAAQ.
 
-## Office hours (from Google Business Profile)
-${process.env.BOT_HOURS || `- Monday to Friday: 10:00 AM – 6:00 PM
-- Saturday: 9:00 AM – 5:00 PM
-- Sunday: closed`}
+## Office hours
+${process.env.BOT_HOURS || `- Saturday through Thursday: 11:00 AM – 7:00 PM
+- Friday: closed`}
 - Phone: (514) 274-6948
 - WhatsApp: same number
 - Address: 786 Rue Jean-Talon Ouest, Montréal, QC H3N 1S2
-- If a caller asks "are you open right now" — answer using the hours above, based on the current day/time, but stay high-level (don't say "yes, we're open" without knowing the current time in Montreal). If unsure, DEFER.
+- These hours are the same hours published on the Qazi marketing website.
 `.trim()
+}
 
 // Language detection — a very small heuristic. Anything else falls through
 // to the LLM to decide. The persona prompt instructs it to reply in the

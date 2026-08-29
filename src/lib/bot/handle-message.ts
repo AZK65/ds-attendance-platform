@@ -1,6 +1,7 @@
 import { prisma } from '@/lib/db'
 import { buildSystemPrompt } from './persona'
 import { buildBotStudentContext } from './student-context'
+import { detectLang } from './kb'
 
 // One handler function called from the WhatsApp client's 'message' event.
 // Returns the reply text to send, or null if the bot decided to stay silent
@@ -15,6 +16,46 @@ const DEFER_TOKEN = '[DEFER]'
 // OpenRouter model. Haiku 4.5 is fast, cheap (~$0.001/msg), and has the
 // instruction-following we need for the strict persona. Override via env.
 const MODEL = process.env.BOT_MODEL || 'anthropic/claude-haiku-4.5'
+
+// Opening hours are operational data, not a writing task. Answer these
+// deterministically so the model cannot improvise an old Google schedule.
+function officeHoursReply(body: string): string | null {
+  const asksHours = /\b(open|opened|opening|close|closed|closing|business hours|office hours|hours today|ouvert|ouverte|ouvrez|fermé|fermée|fermez|heures d['’]ouverture|horaire)\b/i.test(body)
+  if (!asksHours) return null
+
+  const lang = detectLang(body)
+  const now = new Date()
+  const parts = new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'America/Toronto',
+    weekday: 'long',
+    hour: 'numeric',
+    minute: 'numeric',
+    hourCycle: 'h23',
+  }).formatToParts(now)
+  const weekday = parts.find(part => part.type === 'weekday')?.value || ''
+  const hour = Number(parts.find(part => part.type === 'hour')?.value || -1)
+  const isOpen = weekday !== 'Friday' && hour >= 11 && hour < 19
+  const asksNow = /\b(now|right now|currently|today|en ce moment|maintenant|aujourd['’]hui)\b/i.test(body) || /(?:are|êtes)[^?]{0,15}(?:open|ouvert)/i.test(body)
+
+  if (asksNow && isOpen) {
+    return lang === 'fr'
+      ? 'Oui, on est ouvert en ce moment jusqu’à 19 h.'
+      : "Yes, we're open right now until 7 PM."
+  }
+  if (asksNow && weekday !== 'Friday' && hour < 11) {
+    return lang === 'fr'
+      ? 'On est fermé en ce moment, mais on ouvre aujourd’hui à 11 h.'
+      : "We're closed right now, but we open today at 11 AM."
+  }
+  if (asksNow) {
+    return lang === 'fr'
+      ? 'On est fermé en ce moment. Nos heures sont de 11 h à 19 h, du samedi au jeudi; fermé le vendredi.'
+      : "We're closed right now. Our hours are 11 AM to 7 PM, Saturday through Thursday; closed Fridays."
+  }
+  return lang === 'fr'
+    ? 'On est ouvert de 11 h à 19 h, du samedi au jeudi, et fermé le vendredi.'
+    : "We're open from 11 AM to 7 PM, Saturday through Thursday, and closed Fridays."
+}
 
 type LlmMsg = { role: 'system' | 'user' | 'assistant'; content: string }
 
@@ -67,6 +108,16 @@ export async function handleInboundMessage(ctx: InboundContext): Promise<BotResu
   const conv = await upsertConversation(ctx, studentContext?.studentId)
   await logMessage(conv.id, 'user', body)
 
+  const verifiedHoursReply = officeHoursReply(body)
+  if (verifiedHoursReply) {
+    return {
+      reply: verifiedHoursReply,
+      deferred: false,
+      conversationId: conv.id,
+      fromJid: ctx.fromJid,
+    }
+  }
+
   // Pull last N messages for chat context. Reverse order — Prisma returns
   // newest-first but the LLM wants oldest-first.
   const history = await prisma.botMessage.findMany({
@@ -85,7 +136,7 @@ export async function handleInboundMessage(ctx: InboundContext): Promise<BotResu
   })
 
   const messages: LlmMsg[] = [
-    { role: 'system', content: buildSystemPrompt(studentContext?.prompt) },
+    { role: 'system', content: await buildSystemPrompt(studentContext?.prompt) },
     ...cleanHistory.map(m => ({
       role: (m.role === 'user' ? 'user' : 'assistant') as 'user' | 'assistant',
       content: m.body,
