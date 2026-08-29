@@ -901,60 +901,81 @@ export default function GroupDetailPage() {
                   </div>
                 )}
 
-                <Button
-                  variant="outline"
-                  onClick={() => refetch()}
-                  disabled={isFetching}
-                  className="bg-background transition-all duration-700 ease-[cubic-bezier(0.32,0.72,0,1)] active:scale-[0.98]"
-                >
-                  <RefreshCw
-                    className={`mr-2 h-4 w-4 ${isFetching ? 'animate-spin' : ''}`}
-                  />
-                  Refresh
-                </Button>
+                <div className="flex items-center rounded-lg border bg-background p-1">
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    onClick={handleDownloadPDF}
+                    disabled={participants.length === 0}
+                    aria-label="Download group PDF"
+                    title="Download group PDF"
+                    className="transition-all duration-700 ease-[cubic-bezier(0.32,0.72,0,1)] active:scale-[0.98]"
+                  >
+                    <FileDown className="h-4 w-4" />
+                  </Button>
 
-                <DropdownMenu>
-                  <DropdownMenuTrigger asChild>
+                  {group?.vehicleType !== 'truck' && (
                     <Button
-                      variant="outline"
-                      className="bg-background transition-all duration-700 ease-[cubic-bezier(0.32,0.72,0,1)] active:scale-[0.98]"
+                      variant="ghost"
+                      size="icon"
+                      onClick={() => setShowZoomAttendance(true)}
+                      aria-label="Process attendance"
+                      title="Process attendance"
+                      className="transition-all duration-700 ease-[cubic-bezier(0.32,0.72,0,1)] active:scale-[0.98]"
                     >
-                      <MoreHorizontal className="mr-2 h-4 w-4" />
-                      More
+                      <UserCheck className="h-4 w-4" />
                     </Button>
-                  </DropdownMenuTrigger>
-                  <DropdownMenuContent align="end" className="w-56">
-                    <DropdownMenuLabel>Group tools</DropdownMenuLabel>
-                    <DropdownMenuItem onSelect={handleDownloadPDF} disabled={participants.length === 0}>
-                      <FileDown /> Download PDF
-                    </DropdownMenuItem>
-                    {!examCode && (
-                      <DropdownMenuItem onSelect={generateExam} disabled={examGenerating}>
-                        {examGenerating ? <Loader2 className="animate-spin" /> : <ClipboardList />}
-                        Generate exam
+                  )}
+
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    onClick={() => refetch()}
+                    disabled={isFetching}
+                    aria-label="Refresh group"
+                    title="Refresh group"
+                    className="transition-all duration-700 ease-[cubic-bezier(0.32,0.72,0,1)] active:scale-[0.98]"
+                  >
+                    <RefreshCw className={`h-4 w-4 ${isFetching ? 'animate-spin' : ''}`} />
+                  </Button>
+
+                  <DropdownMenu>
+                    <DropdownMenuTrigger asChild>
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        aria-label="More group actions"
+                        title="More group actions"
+                        className="transition-all duration-700 ease-[cubic-bezier(0.32,0.72,0,1)] active:scale-[0.98]"
+                      >
+                        <MoreHorizontal className="h-4 w-4" />
+                      </Button>
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent align="end" className="w-56">
+                      <DropdownMenuLabel>More actions</DropdownMenuLabel>
+                      {!examCode && (
+                        <DropdownMenuItem onSelect={generateExam} disabled={examGenerating}>
+                          {examGenerating ? <Loader2 className="animate-spin" /> : <ClipboardList />}
+                          Generate exam
+                        </DropdownMenuItem>
+                      )}
+                      <DropdownMenuSeparator />
+                      <DropdownMenuItem
+                        onSelect={() => setShowArchiveConfirm(true)}
+                        title="Hide this group from the default groups list without deleting anything"
+                      >
+                        <Archive /> Archive group
                       </DropdownMenuItem>
-                    )}
-                    {group?.vehicleType !== 'truck' && (
-                      <DropdownMenuItem onSelect={() => setShowZoomAttendance(true)}>
-                        <Video /> Process attendance
+                      <DropdownMenuItem
+                        variant="destructive"
+                        onSelect={() => setShowDeleteConfirm(true)}
+                        title="Permanently delete this group and its local data"
+                      >
+                        <Trash2 /> Delete group
                       </DropdownMenuItem>
-                    )}
-                    <DropdownMenuSeparator />
-                    <DropdownMenuItem
-                      onSelect={() => setShowArchiveConfirm(true)}
-                      title="Hide this group from the default groups list without deleting anything"
-                    >
-                      <Archive /> Archive group
-                    </DropdownMenuItem>
-                    <DropdownMenuItem
-                      variant="destructive"
-                      onSelect={() => setShowDeleteConfirm(true)}
-                      title="Permanently delete this group and its local data"
-                    >
-                      <Trash2 /> Delete group
-                    </DropdownMenuItem>
-                  </DropdownMenuContent>
-                </DropdownMenu>
+                    </DropdownMenuContent>
+                  </DropdownMenu>
+                </div>
               </div>
             </div>
           </motion.section>
