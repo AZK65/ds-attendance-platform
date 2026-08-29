@@ -57,6 +57,15 @@ function officeHoursReply(body: string): string | null {
     : "We're open from 11 AM to 7 PM, Saturday through Thursday, and closed Fridays."
 }
 
+// These messages require a staff member to inspect a private record or make
+// an operational decision. Do not let the language model improvise a fix or
+// send the student back to the SAAQ incorrectly.
+function mustDeferToStaff(body: string): boolean {
+  const personalDocumentProblem = /(?:\b(?:attestation|certificate|letter|document|attestation number|num[eé]ro d[’']attestation)\b.{0,100}\b(?:wrong|incorrect|invalid|verify|check|number|address|missing|lost|fix|change|corriger|invalide|v[eé]rifier|num[eé]ro|adresse|perdu|modifier)\b|\b(?:wrong|incorrect|invalid|verify|check|number|address|missing|lost|fix|change|corriger|invalide|v[eé]rifier|num[eé]ro|adresse|perdu|modifier)\b.{0,100}\b(?:attestation|certificate|letter|document|attestation number|num[eé]ro d[’']attestation)\b)/i
+  const accountAction = /\b(reschedule|postpone|cancel|refund|chargeback|payment failed|card failed|move my class|change my class|reporter|annuler|rembourser|paiement refus[eé]|carte refus[eé]|changer mon cours)\b/i
+  return personalDocumentProblem.test(body) || accountAction.test(body)
+}
+
 type LlmMsg = { role: 'system' | 'user' | 'assistant'; content: string }
 
 export interface InboundContext {
@@ -113,6 +122,16 @@ export async function handleInboundMessage(ctx: InboundContext): Promise<BotResu
     return {
       reply: verifiedHoursReply,
       deferred: false,
+      conversationId: conv.id,
+      fromJid: ctx.fromJid,
+    }
+  }
+
+  if (mustDeferToStaff(body)) {
+    await logMessage(conv.id, 'assistant', '[DEFER: staff verification required]', 'deferred')
+    return {
+      reply: null,
+      deferred: true,
       conversationId: conv.id,
       fromJid: ctx.fromJid,
     }
