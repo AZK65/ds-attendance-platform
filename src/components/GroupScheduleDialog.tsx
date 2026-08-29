@@ -1,8 +1,8 @@
 'use client'
 
-import { useState } from 'react'
+import { useMemo, useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import { CalendarDays, CheckCircle2, Clock, Loader2, RefreshCw, Save } from 'lucide-react'
+import { CalendarDays, CheckCircle2, Clock, Layers3, Loader2, RefreshCw, Save } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -52,6 +52,160 @@ function timeValue(iso: string): string {
 
 function dateValue(iso: string): string {
   return iso.slice(0, 10)
+}
+
+const WEEKDAYS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday']
+
+function weekdayValue(iso: string): number {
+  return new Date(`${dateValue(iso)}T12:00:00Z`).getUTCDay()
+}
+
+function WeekdayBulkEditor({
+  events,
+  teachers,
+  groupId,
+}: {
+  events: ScheduleEvent[]
+  teachers: Teacher[]
+  groupId: string
+}) {
+  const queryClient = useQueryClient()
+  const weekdayOptions = useMemo(() => WEEKDAYS.map((label, value) => ({
+    label,
+    value,
+    events: events.filter(event => weekdayValue(event.start_dt) === value),
+  })).filter(option => option.events.length > 0), [events])
+  const [weekday, setWeekday] = useState(weekdayOptions[0]?.value ?? 1)
+  const selectedOption = weekdayOptions.find(option => option.value === weekday) || weekdayOptions[0]
+  const firstEvent = selectedOption?.events[0]
+  const [startTime, setStartTime] = useState(firstEvent ? timeValue(firstEvent.start_dt) : '17:30')
+  const [endTime, setEndTime] = useState(firstEvent ? timeValue(firstEvent.end_dt) : '21:30')
+  const [subcalendarId, setSubcalendarId] = useState('')
+  const [saving, setSaving] = useState(false)
+  const [result, setResult] = useState('')
+  const [error, setError] = useState('')
+
+  const chooseWeekday = (value: number) => {
+    const option = weekdayOptions.find(item => item.value === value)
+    const example = option?.events[0]
+    setWeekday(value)
+    if (example) {
+      setStartTime(timeValue(example.start_dt))
+      setEndTime(timeValue(example.end_dt))
+    }
+    setSubcalendarId('')
+    setResult('')
+    setError('')
+  }
+
+  const matchingEvents = selectedOption?.events || []
+  const hasChanges = matchingEvents.some(event => (
+    timeValue(event.start_dt) !== startTime
+    || timeValue(event.end_dt) !== endTime
+    || (!!subcalendarId && String(event.subcalendar_ids?.[0] || '') !== subcalendarId)
+  ))
+
+  const applyToWeekday = async () => {
+    setSaving(true)
+    setResult('')
+    setError('')
+    try {
+      const response = await fetch(`/api/groups/${encodeURIComponent(groupId)}/schedule`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          weekday,
+          startTime,
+          endTime,
+          subcalendarId: subcalendarId ? Number(subcalendarId) : undefined,
+          notifyGroup: true,
+        }),
+      })
+      const data = await response.json().catch(() => ({}))
+      if (!response.ok) throw new Error(data.error || 'Weekday update failed')
+      if (data.failed) {
+        setError(`Updated ${data.updated} classes, but ${data.failed} could not be updated.`)
+      } else {
+        setResult(`Updated all ${data.updated} ${data.weekday} ${data.updated === 1 ? 'class' : 'classes'}.`)
+      }
+      await queryClient.invalidateQueries({ queryKey: ['group-schedule', groupId] })
+      await queryClient.invalidateQueries({ queryKey: ['group-next-theory'] })
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Weekday update failed')
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  if (!selectedOption) return null
+
+  return (
+    <div className="rounded-xl border border-primary/20 bg-primary/[0.04] p-4 space-y-4">
+      <div className="flex items-start gap-3">
+        <div className="rounded-lg bg-primary/10 p-2 text-primary">
+          <Layers3 className="h-4 w-4" />
+        </div>
+        <div>
+          <p className="font-semibold">Change a whole weekday</p>
+          <p className="text-xs text-muted-foreground mt-0.5">
+            Set the time once and apply it to every upcoming class on that day.
+          </p>
+        </div>
+      </div>
+
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+        <div className="col-span-2 md:col-span-1 space-y-1.5">
+          <Label htmlFor="bulk-weekday">Classes on</Label>
+          <select
+            id="bulk-weekday"
+            value={weekday}
+            onChange={event => chooseWeekday(Number(event.target.value))}
+            className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+          >
+            {weekdayOptions.map(option => (
+              <option key={option.value} value={option.value}>
+                {option.label} ({option.events.length})
+              </option>
+            ))}
+          </select>
+        </div>
+        <div className="space-y-1.5">
+          <Label htmlFor="bulk-start">Starts</Label>
+          <Input id="bulk-start" type="time" value={startTime} onChange={event => setStartTime(event.target.value)} />
+        </div>
+        <div className="space-y-1.5">
+          <Label htmlFor="bulk-end">Ends</Label>
+          <Input id="bulk-end" type="time" value={endTime} onChange={event => setEndTime(event.target.value)} />
+        </div>
+        <div className="col-span-2 md:col-span-1 space-y-1.5">
+          <Label htmlFor="bulk-teacher">Teacher calendar</Label>
+          <select
+            id="bulk-teacher"
+            value={subcalendarId}
+            onChange={event => setSubcalendarId(event.target.value)}
+            className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+          >
+            <option value="">Keep each current teacher</option>
+            {teachers.filter(teacher => teacher.active).map(teacher => (
+              <option key={teacher.id} value={teacher.id}>{teacher.name}</option>
+            ))}
+          </select>
+        </div>
+      </div>
+
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+        <p className="text-xs text-muted-foreground">
+          This will update {matchingEvents.length} {selectedOption.label} {matchingEvents.length === 1 ? 'class' : 'classes'} in Teamup and replace their reminders. If the time changes, the group receives one update.
+        </p>
+        <Button onClick={applyToWeekday} disabled={!hasChanges || saving} className="shrink-0">
+          {saving ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Layers3 className="h-4 w-4 mr-2" />}
+          Apply to all {selectedOption.label}s
+        </Button>
+      </div>
+      {result && <p className="text-sm text-green-600 flex items-center gap-1.5"><CheckCircle2 className="h-4 w-4" /> {result}</p>}
+      {error && <p className="text-sm text-red-600">{error}</p>}
+    </div>
+  )
 }
 
 function ScheduleRow({
@@ -253,15 +407,23 @@ export function GroupScheduleDialog({
               <p className="text-sm mt-1">No matching future events were found in Teamup.</p>
             </div>
           ) : (
-            scheduleQuery.data.events.map(event => (
-              <ScheduleRow
-                key={`${event.id}-${event.start_dt}-${event.end_dt}`}
-                event={event}
-                reminder={scheduleQuery.data?.reminders[String(event.id)] || scheduleQuery.data?.reminders[`date:${dateValue(event.start_dt)}`]}
+            <>
+              <WeekdayBulkEditor
+                key={scheduleQuery.data.events.map(event => `${event.id}:${event.start_dt}:${event.end_dt}`).join('|')}
+                events={scheduleQuery.data.events}
                 teachers={teachersQuery.data || []}
                 groupId={groupId}
               />
-            ))
+              {scheduleQuery.data.events.map(event => (
+                <ScheduleRow
+                  key={`${event.id}-${event.start_dt}-${event.end_dt}`}
+                  event={event}
+                  reminder={scheduleQuery.data?.reminders[String(event.id)] || scheduleQuery.data?.reminders[`date:${dateValue(event.start_dt)}`]}
+                  teachers={teachersQuery.data || []}
+                  groupId={groupId}
+                />
+              ))}
+            </>
           )}
         </div>
       </DialogContent>

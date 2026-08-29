@@ -212,3 +212,28 @@ export async function notifyGroupTheoryScheduleChange(event: GroupTheoryEvent): 
   }).catch(() => {})
   return true
 }
+
+export async function notifyGroupTheoryWeekdayScheduleChange(
+  event: GroupTheoryEvent,
+  weekday: string,
+  classCount: number,
+): Promise<boolean> {
+  const group = await resolveTheoryGroup(event)
+  if (!group || !getWhatsAppState().isConnected) return false
+  const sequence = extractTheorySequence(event)
+  const time = `${formatTime12h(event.start_dt)} to ${formatTime12h(event.end_dt)}`
+  const classLabel = sequence.isTruck ? 'Class 1 theory classes' : 'theory classes'
+  const location = sequence.isTruck ? ' Classes are in person at the school.' : ''
+  const message = `Schedule update: All upcoming ${weekday} ${classLabel} for this group will now run from ${time}. This updates ${classCount} ${classCount === 1 ? 'class' : 'classes'}.${location}`
+  await sendMessageToGroup(group.id, message)
+  await prisma.messageLog.create({
+    data: {
+      type: 'class-rescheduled',
+      to: group.id,
+      toName: group.name,
+      message: message.slice(0, 500),
+      status: 'sent',
+    },
+  }).catch(() => {})
+  return true
+}
