@@ -143,6 +143,11 @@ export async function GET(request: NextRequest) {
     if (key) contactByPhone.set(key, contact)
   })
   const matchedContactIds = new Set<string>()
+  const matchedStudentGroups = new Map<string, {
+    id: string
+    name: string
+    studentName: string
+  }>()
   const localPhones = new Set(students.flatMap(student => [phoneKey(student.phone), phoneKey(student.phoneAlt)]).filter(Boolean))
   const results: GlobalSearchResult[] = []
 
@@ -151,7 +156,14 @@ export async function GET(request: NextRequest) {
       .map(phone => contactByPhone.get(phoneKey(phone)))
       .find(Boolean)
     const membership = contact?.groups.find(item => !item.group.archivedAt) || contact?.groups[0]
-    if (contact && membership) matchedContactIds.add(contact.id)
+    if (contact && membership) {
+      matchedContactIds.add(contact.id)
+      matchedStudentGroups.set(membership.groupId, {
+        id: membership.groupId,
+        name: membership.group.name,
+        studentName: student.name,
+      })
+    }
     const fallbackSearch = student.phone || student.email || student.name
 
     results.push({
@@ -174,7 +186,14 @@ export async function GET(request: NextRequest) {
     .forEach(student => {
       const contact = contactByPhone.get(phoneKey(student.phone_number))
       const membership = contact?.groups.find(item => !item.group.archivedAt) || contact?.groups[0]
-      if (contact && membership) matchedContactIds.add(contact.id)
+      if (contact && membership) {
+        matchedContactIds.add(contact.id)
+        matchedStudentGroups.set(membership.groupId, {
+          id: membership.groupId,
+          name: membership.group.name,
+          studentName: student.full_name,
+        })
+      }
 
       results.push({
         id: `external-student:${student.student_id}`,
@@ -212,6 +231,21 @@ export async function GET(request: NextRequest) {
     meta: group.archivedAt ? 'Archived group' : 'Group',
     href: `/groups/${encodeURIComponent(group.id)}`,
   }))
+
+  // A person-name search should also surface their group as its own result,
+  // even when the query does not match the group's name.
+  const directGroupIds = new Set(groups.map(group => group.id))
+  matchedStudentGroups.forEach(group => {
+    if (directGroupIds.has(group.id)) return
+    results.push({
+      id: `student-group:${group.id}`,
+      type: 'group',
+      title: group.name,
+      subtitle: `${group.studentName} is a member`,
+      meta: 'Student group',
+      href: `/groups/${encodeURIComponent(group.id)}`,
+    })
+  })
 
   invoices.forEach(invoice => results.push({
     id: `invoice:${invoice.id}`,
