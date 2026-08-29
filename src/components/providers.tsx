@@ -6,6 +6,7 @@ import { useState } from 'react'
 import { usePathname } from 'next/navigation'
 import { Navbar } from './Navbar'
 import { SessionHeartbeat } from './SessionHeartbeat'
+import { GlobalSearch } from './GlobalSearch'
 
 // Pages that should NOT show the navbar (public/student-facing)
 const HIDE_NAVBAR_PATHS = ['/enroll', '/login', '/register', '/exam', '/book', '/study']
@@ -31,6 +32,7 @@ export function Providers({ children }: { children: React.ReactNode }) {
     <ThemeProvider attribute="class" defaultTheme="system" enableSystem disableTransitionOnChange>
       <QueryClientProvider client={queryClient}>
         {!hideNavbar && <Navbar />}
+        {!hideNavbar && <GlobalSearch />}
         {/* Heartbeat only on authenticated admin pages (where the navbar shows) */}
         {!hideNavbar && <SessionHeartbeat />}
         {children}

@@ -5,7 +5,7 @@ import Image from 'next/image'
 import { usePathname } from 'next/navigation'
 import { useTheme } from 'next-themes'
 import { motion, AnimatePresence } from 'motion/react'
-import { Home, Users, Award, Receipt, UserPlus, MessageCircle, Sun, Moon, BarChart3, Target, Monitor, Settings, GraduationCap, MoreHorizontal, ChevronDown } from 'lucide-react'
+import { Home, Users, Award, Receipt, UserPlus, MessageCircle, Sun, Moon, BarChart3, Target, Monitor, Settings, GraduationCap, MoreHorizontal, ChevronDown, Search } from 'lucide-react'
 import { useQuery } from '@tanstack/react-query'
 import {
   DropdownMenu,
@@ -188,6 +188,17 @@ export function Navbar() {
 
           {/* Theme Toggle + Notification Bell + Connection Status */}
           <div className="ml-4 flex-shrink-0 flex items-center gap-1">
+            <button
+              type="button"
+              onClick={() => window.dispatchEvent(new Event('qazi:open-search'))}
+              className="flex h-9 items-center gap-2 rounded-md border bg-background px-2.5 text-sm text-muted-foreground shadow-sm transition-colors hover:bg-muted hover:text-foreground"
+              aria-label="Search everything"
+              title="Search everything (Command K)"
+            >
+              <Search className="h-4 w-4" />
+              <span className="hidden xl:inline">Search</span>
+              <kbd className="hidden rounded border bg-muted px-1.5 py-0.5 font-mono text-[10px] xl:inline">⌘K</kbd>
+            </button>
             <ThemeToggle />
             <InboxAttentionBell />
             <NotificationBell />

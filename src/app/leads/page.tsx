@@ -54,7 +54,11 @@ function digits(phone: string): string {
 export default function LeadsPage() {
   const queryClient = useQueryClient()
   const [tab, setTab] = useState<Tab>('active')
-  const [search, setSearch] = useState('')
+  const [search, setSearch] = useState(() =>
+    typeof window === 'undefined'
+      ? ''
+      : new URLSearchParams(window.location.search).get('search') || ''
+  )
   const [showAdd, setShowAdd] = useState(false)
   const [addForm, setAddForm] = useState({ name: '', phone: '', email: '', notes: '' })
   const [importMsg, setImportMsg] = useState('')

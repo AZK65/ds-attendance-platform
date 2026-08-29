@@ -254,7 +254,7 @@ function StudentsPage() {
   const router = useRouter()
 
   // Search/filter state — persist search in DB so it syncs across devices
-  const [searchQuery, setSearchQueryState] = useState('')
+  const [searchQuery, setSearchQueryState] = useState(() => searchParams.get('search') || '')
   const searchSaveRef = useRef<NodeJS.Timeout | null>(null)
 
   // Load saved search from DB on mount
@@ -262,12 +262,17 @@ function StudentsPage() {
     fetch('/api/preferences?keys=students-search')
       .then(r => r.ok ? r.json() : {})
       .then((prefs: Record<string, string>) => {
-        if (prefs['students-search']) {
+        if (!searchParams.get('search') && prefs['students-search']) {
           setSearchQueryState(prefs['students-search'])
         }
       })
       .catch(() => {})
-  }, [])
+  }, [searchParams])
+
+  useEffect(() => {
+    const globalSearch = searchParams.get('search')
+    if (globalSearch) setSearchQueryState(globalSearch)
+  }, [searchParams])
 
   const setSearchQuery = useCallback((val: string) => {
     setSearchQueryState(val)
