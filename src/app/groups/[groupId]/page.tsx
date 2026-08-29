@@ -10,6 +10,14 @@ import { GroupScheduleDialog } from '@/components/GroupScheduleDialog'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu'
+import {
   Table,
   TableBody,
   TableCell,
@@ -52,6 +60,7 @@ import {
   CalendarDays,
   ClipboardList,
   Copy,
+  MoreHorizontal,
 } from 'lucide-react'
 import { Input } from '@/components/ui/input'
 import Link from 'next/link'
@@ -350,6 +359,22 @@ export default function GroupDetailPage() {
   }
   const currentModuleNumber = groupData?.moduleNumber || 0
   const lastModuleMessageDate = groupData?.lastModuleMessageDate ? new Date(groupData.lastModuleMessageDate) : null
+
+  const openReminderDialog = () => {
+    setReminderModule(currentModuleNumber + 1)
+    setReminderTime('5 pm to 7 pm')
+    setSelectedMembers(new Set(participants.filter(participant => !participant.isSuperAdmin).map(participant => participant.phone)))
+    setReminderLog([])
+    setReminderDone(false)
+    setReminderSummary(null)
+    setReminderSending(false)
+    setScheduleMode('now')
+    setScheduleDate('')
+    setScheduleTime('')
+    setScheduleSuccess(false)
+    setClassDate('')
+    setShowSendReminder(true)
+  }
 
   // Fetch last/next class for all participants
   const participantPhones = useMemo(() => participants.map(p => p.phone), [participants])
@@ -776,181 +801,163 @@ export default function GroupDetailPage() {
             </div>
           </div>
         </div>
-        <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4 mb-6">
-          <div className="flex flex-wrap items-center gap-2">
-            <Badge variant="outline">
-              <Users className="h-3 w-3 mr-1" />
-              {participants.length} members
-            </Badge>
-            {pendingInvites.length > 0 && (
-              <Badge variant="outline" className="border-amber-300 bg-amber-50 text-amber-700">
-                <Clock className="h-3 w-3 mr-1" />
-                {pendingInvites.length} invited · not joined yet
-              </Badge>
-            )}
-            {currentModuleNumber > 0 && (
-              <Badge variant="default">
-                <BookOpen className="h-3 w-3 mr-1" />
-                {classLabel(currentModuleNumber)}
-              </Badge>
-            )}
-            {groupNextTheory?.next && (
-              <Badge variant="secondary" title={groupNextTheory.next.title}>
-                Next theory
-                {groupNextTheory.next.module ? ` · M${groupNextTheory.next.module}` : ''}
-                {' · '}
-                {formatNextTheoryLabel(groupNextTheory.next.date)}
-              </Badge>
-            )}
-          </div>
+        <div className="mb-6 space-y-4">
+          {(pendingInvites.length > 0 || currentModuleNumber > 0 || groupNextTheory?.next) && (
+            <div className="flex flex-wrap items-center gap-2">
+              {pendingInvites.length > 0 && (
+                <Badge variant="outline" className="border-amber-300 bg-amber-50 text-amber-700">
+                  <Clock className="h-3 w-3 mr-1" />
+                  {pendingInvites.length} invited · not joined yet
+                </Badge>
+              )}
+              {currentModuleNumber > 0 && (
+                <Badge variant="default">
+                  <BookOpen className="h-3 w-3 mr-1" />
+                  {classLabel(currentModuleNumber)}
+                </Badge>
+              )}
+              {groupNextTheory?.next && (
+                <Badge variant="secondary" title={groupNextTheory.next.title}>
+                  Next theory
+                  {groupNextTheory.next.module ? ` · M${groupNextTheory.next.module}` : ''}
+                  {' · '}
+                  {formatNextTheoryLabel(groupNextTheory.next.date)}
+                </Badge>
+              )}
+            </div>
+          )}
 
-          <motion.div
-            className="flex flex-wrap gap-2"
-            variants={staggerContainer}
+          <motion.section
+            aria-label="Group actions"
+            className="rounded-xl bg-muted/40 p-3"
+            variants={fadeSlideUp}
             initial="hidden"
             animate="visible"
           >
-            <motion.div variants={fadeSlideUp}>
-              <Button variant="outline" onClick={() => setShowSchedule(true)} disabled={!group?.name}>
-                <CalendarDays className="mr-2 h-4 w-4" />
-                Edit Schedule
-              </Button>
-            </motion.div>
-            <motion.div variants={fadeSlideUp}>
-              <Button
-                variant="outline"
-                onClick={() => refetch()}
-                disabled={isFetching}
-              >
-                <RefreshCw
-                  className={`mr-2 h-4 w-4 ${isFetching ? 'animate-spin' : ''}`}
-                />
-                Refresh
-              </Button>
-            </motion.div>
-            <motion.div variants={fadeSlideUp}>
-              <Button
-                variant="outline"
-                onClick={handleDownloadPDF}
-                disabled={participants.length === 0}
-              >
-                <FileDown className="mr-2 h-4 w-4" />
-                Download PDF
-              </Button>
-            </motion.div>
-            <motion.div variants={fadeSlideUp}>
-              <Button onClick={() => setShowAddModal(true)} disabled={!isConnected}>
-                <UserPlus className="mr-2 h-4 w-4" />
-                Add Person
-              </Button>
-            </motion.div>
-            <motion.div variants={fadeSlideUp}>
-              <Button
-                onClick={() => setShowSendClassMessage(true)}
-                disabled={!isConnected}
-                variant="default"
-              >
-                <Send className="mr-2 h-4 w-4" />
-                Send Class Message
-              </Button>
-            </motion.div>
-            <motion.div variants={fadeSlideUp}>
-              <Button
-                onClick={() => {
-                  setReminderModule(currentModuleNumber + 1)
-                  setReminderTime('5 pm to 7 pm')
-                  setSelectedMembers(new Set(participants.filter(p => !p.isSuperAdmin).map(p => p.phone)))
-                  setReminderLog([])
-                  setReminderDone(false)
-                  setReminderSummary(null)
-                  setReminderSending(false)
-                  setScheduleMode('now')
-                  setScheduleDate('')
-                  setScheduleTime('')
-                  setScheduleSuccess(false)
-                  setClassDate('')
-                  setShowSendReminder(true)
-                }}
-                disabled={!isConnected || participants.length === 0}
-                variant="outline"
-              >
-                <Bell className="mr-2 h-4 w-4" />
-                Send Reminder
-              </Button>
-            </motion.div>
-
-            {/* Archive / Delete — small destructive-ish actions in the same button row.
-                Both are local-only: they don't touch the WhatsApp group itself. */}
-            <motion.div variants={fadeSlideUp}>
-              <Button
-                variant="outline"
-                onClick={() => setShowArchiveConfirm(true)}
-                title="Hide this group from the default /groups list without deleting anything"
-              >
-                <Archive className="mr-2 h-4 w-4" /> Archive
-              </Button>
-            </motion.div>
-            <motion.div variants={fadeSlideUp}>
-              <Button
-                variant="ghost"
-                onClick={() => setShowDeleteConfirm(true)}
-                className="text-red-600 hover:text-red-700 hover:bg-red-50 dark:hover:bg-red-950/40"
-                title="Permanently delete this group and its local data (attendance, members, invoices stay linked but detached)"
-              >
-                <Trash2 className="mr-2 h-4 w-4" /> Delete
-              </Button>
-            </motion.div>
-
-            {/* Exam */}
-            <motion.div variants={fadeSlideUp}>
-              {examCode && examIdState ? (
-                <div className="flex items-center gap-2">
-                  <Link href={`/exam/monitor/${examIdState}`}>
-                    <Button variant="outline" size="sm">
-                      <ClipboardList className="h-4 w-4 mr-1" /> Monitor
-                    </Button>
-                  </Link>
-                  <code className="px-3 py-2 bg-muted rounded-lg text-sm font-mono">{examCode}</code>
-                  <Button variant="outline" size="sm" onClick={copyExamCode}>
-                    {examCopied ? <Check className="h-4 w-4" /> : <Copy className="h-4 w-4" />}
-                  </Button>
-                </div>
-              ) : (
+            <div className="flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
+              <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 md:grid-cols-3 lg:flex lg:flex-wrap lg:items-center">
+                <Button
+                  onClick={() => setShowSendClassMessage(true)}
+                  disabled={!isConnected}
+                  className="w-full transition-all duration-700 ease-[cubic-bezier(0.32,0.72,0,1)] active:scale-[0.98] lg:w-auto"
+                >
+                  <Send className="mr-2 h-4 w-4" />
+                  Send class message
+                </Button>
                 <Button
                   variant="outline"
-                  onClick={generateExam}
-                  disabled={examGenerating}
+                  onClick={() => setShowAddModal(true)}
+                  disabled={!isConnected}
+                  className="w-full bg-background transition-all duration-700 ease-[cubic-bezier(0.32,0.72,0,1)] active:scale-[0.98] lg:w-auto"
                 >
-                  {examGenerating ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <ClipboardList className="mr-2 h-4 w-4" />}
-                  Generate Exam
+                  <UserPlus className="mr-2 h-4 w-4" />
+                  Add person
                 </Button>
-              )}
-            </motion.div>
-            {/* Live-attendance / Zoom flows are for online (car theory) cohorts.
-                Truck cohorts do in-person theory — their attendance surface is
-                the TruckSignInPanel below. */}
-            {group?.vehicleType !== 'truck' && (
-              <>
-                <motion.div variants={fadeSlideUp}>
-                  <Link href={`/groups/${encodeURIComponent(groupId)}/attendance`}>
-                    <Button variant="default">
+                <Button
+                  variant="outline"
+                  onClick={() => setShowSchedule(true)}
+                  disabled={!group?.name}
+                  className="w-full bg-background transition-all duration-700 ease-[cubic-bezier(0.32,0.72,0,1)] active:scale-[0.98] lg:w-auto"
+                >
+                  <CalendarDays className="mr-2 h-4 w-4" />
+                  Edit schedule
+                </Button>
+                <Button
+                  onClick={openReminderDialog}
+                  disabled={!isConnected || participants.length === 0}
+                  variant="outline"
+                  className="w-full bg-background transition-all duration-700 ease-[cubic-bezier(0.32,0.72,0,1)] active:scale-[0.98] lg:w-auto"
+                >
+                  <Bell className="mr-2 h-4 w-4" />
+                  Send reminder
+                </Button>
+
+                {group?.vehicleType !== 'truck' && (
+                  <Link href={`/groups/${encodeURIComponent(groupId)}/attendance`} className="w-full lg:w-auto">
+                    <Button
+                      variant="secondary"
+                      className="w-full transition-all duration-700 ease-[cubic-bezier(0.32,0.72,0,1)] active:scale-[0.98] lg:w-auto"
+                    >
                       <Video className="mr-2 h-4 w-4" />
-                      Live Attendance
+                      Live attendance
                     </Button>
                   </Link>
-                </motion.div>
-                <motion.div variants={fadeSlideUp}>
-                  <Button
-                    onClick={() => setShowZoomAttendance(true)}
-                    variant="outline"
-                  >
-                    <Video className="mr-2 h-4 w-4" />
-                    Process Attendance
-                  </Button>
-                </motion.div>
-              </>
-            )}
-          </motion.div>
+                )}
+              </div>
+
+              <div className="flex flex-wrap items-center gap-2 xl:border-l xl:border-border xl:pl-3">
+                {examCode && examIdState && (
+                  <div className="flex items-center gap-1 rounded-lg border bg-background p-1">
+                    <span className="hidden pl-2 text-xs font-medium text-muted-foreground sm:inline">Exam</span>
+                    <code className="rounded-md bg-muted px-2 py-1.5 text-sm font-medium tabular-nums">{examCode}</code>
+                    <Button variant="ghost" size="icon" onClick={copyExamCode} title="Copy exam link">
+                      {examCopied ? <Check className="h-4 w-4" /> : <Copy className="h-4 w-4" />}
+                    </Button>
+                    <Link href={`/exam/monitor/${examIdState}`}>
+                      <Button variant="ghost" size="sm">
+                        <ClipboardList className="mr-2 h-4 w-4" /> Monitor
+                      </Button>
+                    </Link>
+                  </div>
+                )}
+
+                <Button
+                  variant="outline"
+                  onClick={() => refetch()}
+                  disabled={isFetching}
+                  className="bg-background transition-all duration-700 ease-[cubic-bezier(0.32,0.72,0,1)] active:scale-[0.98]"
+                >
+                  <RefreshCw
+                    className={`mr-2 h-4 w-4 ${isFetching ? 'animate-spin' : ''}`}
+                  />
+                  Refresh
+                </Button>
+
+                <DropdownMenu>
+                  <DropdownMenuTrigger asChild>
+                    <Button
+                      variant="outline"
+                      className="bg-background transition-all duration-700 ease-[cubic-bezier(0.32,0.72,0,1)] active:scale-[0.98]"
+                    >
+                      <MoreHorizontal className="mr-2 h-4 w-4" />
+                      More
+                    </Button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align="end" className="w-56">
+                    <DropdownMenuLabel>Group tools</DropdownMenuLabel>
+                    <DropdownMenuItem onSelect={handleDownloadPDF} disabled={participants.length === 0}>
+                      <FileDown /> Download PDF
+                    </DropdownMenuItem>
+                    {!examCode && (
+                      <DropdownMenuItem onSelect={generateExam} disabled={examGenerating}>
+                        {examGenerating ? <Loader2 className="animate-spin" /> : <ClipboardList />}
+                        Generate exam
+                      </DropdownMenuItem>
+                    )}
+                    {group?.vehicleType !== 'truck' && (
+                      <DropdownMenuItem onSelect={() => setShowZoomAttendance(true)}>
+                        <Video /> Process attendance
+                      </DropdownMenuItem>
+                    )}
+                    <DropdownMenuSeparator />
+                    <DropdownMenuItem
+                      onSelect={() => setShowArchiveConfirm(true)}
+                      title="Hide this group from the default groups list without deleting anything"
+                    >
+                      <Archive /> Archive group
+                    </DropdownMenuItem>
+                    <DropdownMenuItem
+                      variant="destructive"
+                      onSelect={() => setShowDeleteConfirm(true)}
+                      title="Permanently delete this group and its local data"
+                    >
+                      <Trash2 /> Delete group
+                    </DropdownMenuItem>
+                  </DropdownMenuContent>
+                </DropdownMenu>
+              </div>
+            </div>
+          </motion.section>
         </div>
 
         {/* Truck cohorts: physical sign-in sheet for today's class */}
