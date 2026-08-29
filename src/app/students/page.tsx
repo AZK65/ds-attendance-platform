@@ -171,6 +171,7 @@ interface ParticipantWithGroup {
   moduleNumber: number | null
   vehicleType?: string
   lastMessageDate: string | null
+  confirmedAt?: string | null
 }
 
 interface ClassInfo {
@@ -197,6 +198,15 @@ function formatPhoneNumber(phone: string): string {
     return `(${digits.slice(0, 3)}) ${digits.slice(3, 6)}-${digits.slice(6)}`
   }
   return phone
+}
+
+const NEW_STUDENT_WINDOW_MS = 7 * 24 * 60 * 60 * 1000
+
+function recentConfirmationTime(student: ParticipantWithGroup): number {
+  if (!student.confirmedAt) return 0
+  const time = new Date(student.confirmedAt).getTime()
+  if (!Number.isFinite(time) || Date.now() - time > NEW_STUDENT_WINDOW_MS) return 0
+  return time
 }
 
 function cleanName(name: string | null): string | null {
@@ -576,7 +586,25 @@ function StudentsPage() {
         lastMessageDate: null,
         avatarImage: reg.avatarImage || null,
         needsGroup: true,
+        confirmedAt: reg.confirmedAt,
       })
+    }
+
+    // A newly confirmed registration may already be in a WhatsApp group. Add
+    // its approval time to that existing participant as well, so every newly
+    // approved student receives the same New treatment—not only groupless rows.
+    const confirmedBySuffix = new Map<string, string>()
+    for (const reg of confirmedRegistrations) {
+      if (!reg.confirmedAt) continue
+      const digits = (reg.phoneNumber || '').replace(/\D/g, '')
+      if (digits.length < 7) continue
+      confirmedBySuffix.set(digits.length >= 10 ? digits.slice(-10) : digits, reg.confirmedAt)
+    }
+    for (const [phone, student] of byPhone) {
+      const digits = phone.replace(/\D/g, '')
+      const suffix = digits.length >= 10 ? digits.slice(-10) : digits
+      const confirmedAt = confirmedBySuffix.get(suffix)
+      if (confirmedAt) byPhone.set(phone, { ...student, confirmedAt })
     }
     return Array.from(byPhone.values()).filter(s => !dismissedKeys.has(studentKeyOf(s)))
   }, [participantsData, confirmedRegistrations, dismissedKeys])
@@ -660,6 +688,12 @@ function StudentsPage() {
     // Sort
     const sorted = [...result]
     sorted.sort((a, b) => {
+      // Newly approved students always stay above the normal selected sort for
+      // seven days, newest first, so staff can immediately find and process them.
+      const newA = recentConfirmationTime(a)
+      const newB = recentConfirmationTime(b)
+      if (newA !== newB) return newB - newA
+
       switch (sortBy) {
         case 'phase-asc': {
           const phaseA = getPhaseInfo(a.moduleNumber)?.phase ?? 99
@@ -1460,6 +1494,7 @@ function StudentsPage() {
                       const displayName = dbStudent?.full_name || cleanName(student.name) || cleanName(student.pushName) || '-'
                       const needsGroup = (student as { needsGroup?: boolean }).needsGroup
                       const invitePending = (student as { invitePending?: boolean }).invitePending
+                      const isNew = recentConfirmationTime(student) > 0
                       return (
                         <TableRow
                           key={student.phone}
@@ -1508,6 +1543,11 @@ function StudentsPage() {
                                 )}
                               </div>
                               <span className="truncate">{displayName}</span>
+                              {isNew && (
+                                <Badge className="shrink-0 border-emerald-200 bg-emerald-100 text-emerald-800 hover:bg-emerald-100">
+                                  New
+                                </Badge>
+                              )}
                             </div>
                           </TableCell>
                           <TableCell className="text-sm">{formatPhoneNumber(student.phone)}</TableCell>
@@ -2820,7 +2860,12 @@ function StudentsPage() {
                   </Button>
                   <Button
                     onClick={() => confirmMutation.mutate({ id: reviewingRegistration.id, ...reviewFormData })}
-                    disabled={confirmMutation.isPending || rejectMutation.isPending}
+                    disabled={
+                      confirmMutation.isPending
+                      || rejectMutation.isPending
+                      || reviewingRegistration.paymentStatus === 'failed'
+                      || reviewingRegistration.paymentStatus === 'checkout_pending'
+                    }
                   >
                     {confirmMutation.isPending ? (
                       <>
@@ -2832,7 +2877,11 @@ function StudentsPage() {
                         <CheckCircle className="h-4 w-4 mr-2" />
                         {reviewingRegistration.paymentStatus === 'authorized'
                           ? 'Approve & charge $250'
-                          : 'Confirm & Add to DB'}
+                          : reviewingRegistration.paymentStatus === 'checkout_pending'
+                            ? 'Waiting for Clover payment'
+                            : reviewingRegistration.paymentStatus === 'failed'
+                              ? 'Payment required'
+                              : 'Confirm & Add to DB'}
                       </>
                     )}
                   </Button>
@@ -3292,6 +3341,17 @@ function PaymentStatusBlock({ reg }: { reg: Registration }) {
             Captured {new Date(reg.paymentCapturedAt).toLocaleString()}
           </p>
         )}
+      </div>
+    )
+  }
+
+  if (status === 'checkout_pending') {
+    return (
+      <div className="rounded-lg border border-amber-300 bg-amber-50/60 px-3 py-2.5">
+        <p className="text-sm font-medium text-amber-800">Clover checkout opened — waiting for payment</p>
+        <p className="text-[11px] text-muted-foreground mt-0.5">
+          The registration is saved, but Clover has not reported a successful payment yet. Approve the student after this changes to paid.
+        </p>
       </div>
     )
   }

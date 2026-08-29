@@ -479,6 +479,13 @@ model StudentRegistration {
   paymentAuthorizedAt DateTime?
   paymentCapturedAt   DateTime?
   paymentError        String?   // last error from Clover
+  // Hosted Checkout is the online-payment integration enabled on this
+  // merchant. The random return token lets the public success page request a
+  // server-side verification without trusting URL parameters as proof of pay.
+  paymentCheckoutSessionId String?
+  paymentCheckoutUrl       String?
+  paymentCheckoutCreatedAt DateTime?
+  paymentReturnToken       String?   @unique
 
   source         String? // "qr", "online-registration", etc.
 

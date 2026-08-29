@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { randomBytes } from 'crypto'
 import { prisma } from '@/lib/db'
 import { getDepositCents } from '@/lib/pricing'
 import { rateLimit, clientIp, tooManyRequests } from '@/lib/rate-limit'
@@ -14,7 +15,11 @@ export async function POST(request: NextRequest) {
   if (!limit.ok) return tooManyRequests(limit.retryAfter)
 
   try {
-    const { registrationId } = await request.json()
+    const { registrationId, restart = false, channel } = await request.json() as {
+      registrationId?: string
+      restart?: boolean
+      channel?: 'marketing'
+    }
     if (!registrationId) {
       return NextResponse.json({ error: 'registrationId required' }, { status: 400 })
     }
@@ -31,6 +36,31 @@ export async function POST(request: NextRequest) {
     if (!cloverMerchantId || !cloverApiToken) {
       return NextResponse.json({ error: 'Payment provider not configured' }, { status: 503 })
     }
+    const verifiedMarketingReturn = channel === 'marketing'
+    if (verifiedMarketingReturn && registration.paymentStatus === 'captured') {
+      return NextResponse.json({ error: 'Payment already completed' }, { status: 409 })
+    }
+
+    // A Hosted Checkout session is valid for 15 minutes. Reuse it while it is
+    // active so retries and double-clicks cannot create several live payment
+    // pages for the same registration.
+    const checkoutAge = registration.paymentCheckoutCreatedAt
+      ? Date.now() - registration.paymentCheckoutCreatedAt.getTime()
+      : Number.POSITIVE_INFINITY
+    if (
+      verifiedMarketingReturn
+      && !restart
+      && registration.paymentStatus === 'checkout_pending'
+      && registration.paymentCheckoutUrl
+      && registration.paymentReturnToken
+      && checkoutAge < 14 * 60 * 1000
+    ) {
+      return NextResponse.json({
+        paymentUrl: registration.paymentCheckoutUrl,
+        checkoutSessionId: registration.paymentCheckoutSessionId,
+        existing: true,
+      })
+    }
 
     const nameParts = (registration.fullName || 'Student').trim().split(/\s+/)
     const firstName = nameParts[0]
@@ -39,6 +69,10 @@ export async function POST(request: NextRequest) {
     // Deposit for this class from Settings → Pricing (cents).
     const amountCents = await getDepositCents(registration.vehicleType)
     const classLabel = registration.vehicleType === 'truck' ? 'Class 1' : 'Class 5'
+    const returnToken = randomBytes(24).toString('hex')
+    const returnBase = process.env.MARKETING_SITE_URL || 'https://qazidriving.ca'
+    const returnParams = new URLSearchParams({ registration: registration.id, token: returnToken })
+    const registrationMarker = `Registration ${registration.id}`
 
     const checkoutPayload = {
       customer: {
@@ -46,10 +80,18 @@ export async function POST(request: NextRequest) {
         lastName,
         email: registration.email || undefined,
       },
+      ...(verifiedMarketingReturn ? {
+        redirectUrls: {
+          success: `${returnBase}/inscription?payment=success&${returnParams}`,
+          failure: `${returnBase}/inscription?payment=failure&${returnParams}`,
+        },
+      } : {}),
       shoppingCart: {
         lineItems: [
           {
-            name: `${classLabel} Driving Course — First Payment (Registration)`,
+            // The unique marker is later matched against the paid Clover order.
+            // A redirect alone is never accepted as proof of payment.
+            name: `${classLabel} First Payment — ${registrationMarker}`,
             price: amountCents,
             unitQty: 1,
           },
@@ -62,6 +104,7 @@ export async function POST(request: NextRequest) {
       headers: {
         Authorization: `Bearer ${cloverApiToken}`,
         'X-Clover-Merchant-Id': cloverMerchantId,
+        'User-Agent': 'QaziDrivingSchool/1.0 (online-registration)',
         'Content-Type': 'application/json',
       },
       body: JSON.stringify(checkoutPayload),
@@ -74,6 +117,21 @@ export async function POST(request: NextRequest) {
     }
 
     const data = await res.json()
+    if (verifiedMarketingReturn) {
+      const checkoutCreatedAt = new Date()
+      await prisma.studentRegistration.update({
+        where: { id: registration.id },
+        data: {
+          paymentStatus: 'checkout_pending',
+          paymentAmount: amountCents,
+          paymentCheckoutSessionId: data.checkoutSessionId || null,
+          paymentCheckoutUrl: data.href || null,
+          paymentCheckoutCreatedAt: checkoutCreatedAt,
+          paymentReturnToken: returnToken,
+          paymentError: null,
+        },
+      })
+    }
     return NextResponse.json({
       paymentUrl: data.href,
       checkoutSessionId: data.checkoutSessionId,
