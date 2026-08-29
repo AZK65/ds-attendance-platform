@@ -20,6 +20,11 @@ import { QaziNav } from '@/components/qazi-nav'
 import { SignaturePad, type SignaturePadHandle } from '@/components/SignaturePad'
 import { QaziFooter } from '@/components/qazi-footer'
 import { AddressAutocomplete } from '@/components/AddressAutocomplete'
+import {
+  KioskInvoiceInfoForm,
+  type KioskClientInfo,
+  type KioskInvoiceInfoRequest,
+} from '@/components/KioskInvoiceInfoForm'
 import { LangProvider, useT } from './i18n'
 
 type Step =
@@ -209,6 +214,8 @@ export function RegisterPageInner({ kiosk = false }: { kiosk?: boolean } = {}) {
   // (/kiosks). The kiosk posts a heartbeat with its current step every few
   // seconds and applies any command returned (reset, lock, message, reload).
   const [kioskLock, setKioskLock] = useState<{ message: string } | null>(null)
+  const [invoiceInfoRequest, setInvoiceInfoRequest] = useState<KioskInvoiceInfoRequest | null>(null)
+  const [invoiceInfoLive, setInvoiceInfoLive] = useState<KioskClientInfo | null>(null)
 
   const resetKiosk = useCallback(() => {
     setStep('select')
@@ -222,6 +229,7 @@ export function RegisterPageInner({ kiosk = false }: { kiosk?: boolean } = {}) {
     setConsentContactInfo(false); setSignedAtPlace('Montréal'); setFirstCourseDate('')
     setTruckPaymentMethod(''); setCardLocation('')
     setIdType(''); setMedicalConditions([]); setMedicalNone(false); setMedicalAttested(false)
+    setInvoiceInfoRequest(null); setInvoiceInfoLive(null)
   }, [])
 
   // After a completed submission the next walk-in shouldn't see the previous
@@ -232,7 +240,15 @@ export function RegisterPageInner({ kiosk = false }: { kiosk?: boolean } = {}) {
     return () => clearTimeout(timer)
   }, [kiosk, step, resetKiosk])
 
-  const handleKioskCommand = useCallback((cmd: { type: string; message?: string; signature?: string; signerName?: string }) => {
+  const handleKioskCommand = useCallback((cmd: {
+    type: string
+    message?: string
+    signature?: string
+    signerName?: string
+    requestId?: string
+    token?: string
+    fields?: Partial<KioskClientInfo>
+  }) => {
     switch (cmd.type) {
       case 'reset': resetKiosk(); setKioskLock(null); break
       case 'lock':
@@ -248,27 +264,58 @@ export function RegisterPageInner({ kiosk = false }: { kiosk?: boolean } = {}) {
           setStep('payment-method')
         }
         break
+      case 'invoice-info':
+        if (cmd.requestId && cmd.token) {
+          resetKiosk()
+          const fields: KioskClientInfo = {
+            name: cmd.fields?.name || '',
+            phone: cmd.fields?.phone || '',
+            email: cmd.fields?.email || '',
+            address: cmd.fields?.address || '',
+            address2: cmd.fields?.address2 || '',
+            city: cmd.fields?.city || 'Montréal',
+            province: cmd.fields?.province || 'QC',
+            postalCode: cmd.fields?.postalCode || '',
+          }
+          setInvoiceInfoLive(fields)
+          setInvoiceInfoRequest({ requestId: cmd.requestId, token: cmd.token, fields })
+          setKioskLock(null)
+        }
+        break
+      case 'invoice-info-cancel':
+        setInvoiceInfoRequest(current => {
+          if (!cmd.requestId || current?.requestId === cmd.requestId) {
+            setInvoiceInfoLive(null)
+            return null
+          }
+          return current
+        })
+        break
     }
   }, [resetKiosk])
 
   const kioskIdRef = useRef('')
   const stepRef = useRef<Step>(step)
   const vehicleRef = useRef(vehicleType)
+  const invoiceInfoRequestRef = useRef<KioskInvoiceInfoRequest | null>(invoiceInfoRequest)
   useEffect(() => { stepRef.current = step }, [step])
   useEffect(() => { vehicleRef.current = vehicleType }, [vehicleType])
+  useEffect(() => { invoiceInfoRequestRef.current = invoiceInfoRequest }, [invoiceInfoRequest])
 
   // Live snapshot of the in-progress form, shown on the dashboard so staff can
   // see what's being entered. Images are sent as captured/not flags, never the
   // raw data. Updated every render; reported (debounced) below.
   const liveRef = useRef<Record<string, unknown>>({})
-  liveRef.current = {
-    name: fullName, phone: phoneNumber, email, dob,
-    address, city, province, postalCode,
-    permitNumber, permitExpiry,
-    signedAtPlace, firstCourseDate, truckPaymentMethod, cardLocation, repName,
-    hasPermit: !!permitImage, hasId: !!idImage, hasPhoto: !!avatarImage,
-    hasStudentSig: !!signatureImage, hasRepSig: !!repSignatureDataUrl,
-  }
+  liveRef.current = invoiceInfoRequest && invoiceInfoLive
+    ? { ...invoiceInfoLive, purpose: 'invoice-info' }
+    : {
+        name: fullName, phone: phoneNumber, email, dob,
+        address, city, province, postalCode,
+        permitNumber, permitExpiry,
+        signedAtPlace, firstCourseDate, truckPaymentMethod, cardLocation, repName,
+        hasPermit: !!permitImage, hasId: !!idImage, hasPhoto: !!avatarImage,
+        hasStudentSig: !!signatureImage, hasRepSig: !!repSignatureDataUrl,
+      }
 
   // Report the current step + form snapshot to the server (state only —
   // commands arrive over the SSE stream below).
@@ -280,8 +327,8 @@ export function RegisterPageInner({ kiosk = false }: { kiosk?: boolean } = {}) {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           kioskId: kioskIdRef.current,
-          step: stepRef.current,
-          vehicleType: vehicleRef.current,
+          step: invoiceInfoRequestRef.current ? 'invoice-info' : stepRef.current,
+          vehicleType: invoiceInfoRequestRef.current ? 'invoice' : vehicleRef.current,
           data: liveRef.current,
         }),
       })
@@ -330,6 +377,10 @@ export function RegisterPageInner({ kiosk = false }: { kiosk?: boolean } = {}) {
     const t = setTimeout(() => { reportStep() }, 700)
     return () => clearTimeout(t)
   }, [liveKey, kiosk, reportStep])
+
+  const finishInvoiceInfo = useCallback(() => {
+    resetKiosk()
+  }, [resetKiosk])
 
   const permitInputRef = useRef<HTMLInputElement>(null)
   const idInputRef = useRef<HTMLInputElement>(null)
@@ -674,6 +725,16 @@ export function RegisterPageInner({ kiosk = false }: { kiosk?: boolean } = {}) {
       setError('Network error. Please try again.')
       setStep('payment')
     }
+  }
+
+  if (kiosk && invoiceInfoRequest) {
+    return (
+      <KioskInvoiceInfoForm
+        request={invoiceInfoRequest}
+        onChange={setInvoiceInfoLive}
+        onDone={finishInvoiceInfo}
+      />
+    )
   }
 
   return (

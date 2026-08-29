@@ -50,6 +50,8 @@ const STEP_LABELS: Record<string, string> = {
   'rep-sign': 'School sign',
   'payment-method': 'Payment method',
   payment: 'Payment',
+  'invoice-info': 'Invoice information',
+  'invoice-info-done': 'Invoice information sent',
   submitting: 'Submitting…',
   done: 'Done / thank-you',
 }

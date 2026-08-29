@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useMemo, useEffect, useRef, Suspense } from 'react'
+import { useState, useMemo, useEffect, useRef, useCallback, Suspense } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
@@ -16,6 +16,7 @@ import {
   Receipt, Plus, Trash2, Download, Loader2, Settings, CheckCircle2,
   Car, Truck, ArrowLeft, ArrowRight, FileText, Package, Mail, MessageCircle, Send,
   CreditCard, Copy, ExternalLink, Banknote, Globe, DollarSign, Clock, AlertTriangle, Printer, Link2,
+  TabletSmartphone, Wifi, RefreshCw, XCircle,
 } from 'lucide-react'
 import Link from 'next/link'
 import { useSearchParams } from 'next/navigation'
@@ -87,6 +88,25 @@ interface InvoiceService {
   price: number
   vehicleType: string
   taxInclusive: boolean
+}
+
+interface InvoiceKiosk {
+  id: string
+  name: string
+  currentStep: string | null
+  online: boolean
+  lastSeenAt: string
+}
+
+interface KioskClientFields {
+  name: string
+  phone: string
+  email: string
+  address: string
+  address2: string
+  city: string
+  province: string
+  postalCode: string
 }
 
 interface PackageInstalment {
@@ -224,6 +244,135 @@ function InvoicePage() {
     dueDate: thirtyDaysLater,
     notes: '',
   })
+
+  // One-time iPad handoff for collecting the billing details directly from
+  // the client while this invoice remains open on the staff computer.
+  const [showKioskInfo, setShowKioskInfo] = useState(false)
+  const [invoiceKiosks, setInvoiceKiosks] = useState<InvoiceKiosk[]>([])
+  const [kiosksLoading, setKiosksLoading] = useState(false)
+  const [kioskRequest, setKioskRequest] = useState<{ id: string; kioskName: string } | null>(null)
+  const [kioskSendingId, setKioskSendingId] = useState<string | null>(null)
+  const [kioskRequestError, setKioskRequestError] = useState('')
+  const [kioskInfoReceived, setKioskInfoReceived] = useState(false)
+
+  const applyKioskClientFields = useCallback((fields: KioskClientFields) => {
+    setFormData(previous => ({
+      ...previous,
+      studentName: fields.name || previous.studentName,
+      studentPhone: fields.phone || previous.studentPhone,
+      studentEmail: fields.email || previous.studentEmail,
+      studentAddress: fields.address || previous.studentAddress,
+      studentAddress2: fields.address2 || '',
+      studentCity: fields.city || previous.studentCity,
+      studentProvince: fields.province || previous.studentProvince,
+      studentPostalCode: fields.postalCode || previous.studentPostalCode,
+    }))
+    setSelectedStudent(true)
+    setKioskInfoReceived(true)
+    setKioskRequest(null)
+    setShowKioskInfo(false)
+  }, [])
+
+  const loadInvoiceKiosks = useCallback(async () => {
+    setKiosksLoading(true)
+    setKioskRequestError('')
+    try {
+      const response = await fetch('/api/kiosk', { cache: 'no-store' })
+      const data = await response.json().catch(() => ({}))
+      if (!response.ok) throw new Error(data.error || 'Could not load kiosks')
+      setInvoiceKiosks(data.kiosks || [])
+    } catch (error) {
+      setKioskRequestError(error instanceof Error ? error.message : 'Could not load kiosks')
+    } finally {
+      setKiosksLoading(false)
+    }
+  }, [])
+
+  const openKioskInfo = () => {
+    setShowKioskInfo(true)
+    setKioskRequestError('')
+    loadInvoiceKiosks()
+  }
+
+  const sendInfoToKiosk = async (kiosk: InvoiceKiosk) => {
+    setKioskRequestError('')
+    setKioskSendingId(kiosk.id)
+    try {
+      const response = await fetch('/api/kiosk/invoice-request', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          kioskId: kiosk.id,
+          fields: {
+            name: formData.studentName,
+            phone: formData.studentPhone,
+            email: formData.studentEmail,
+            address: formData.studentAddress,
+            address2: formData.studentAddress2,
+            city: formData.studentCity,
+            province: formData.studentProvince,
+            postalCode: formData.studentPostalCode,
+          },
+        }),
+      })
+      const data = await response.json().catch(() => ({}))
+      if (!response.ok) throw new Error(data.error || 'Could not send the form')
+      setKioskRequest({ id: data.requestId, kioskName: data.kioskName || kiosk.name })
+    } catch (error) {
+      setKioskRequestError(error instanceof Error ? error.message : 'Could not send the form')
+    } finally {
+      setKioskSendingId(null)
+    }
+  }
+
+  const cancelKioskRequest = useCallback(async () => {
+    if (!kioskRequest) return
+    const id = kioskRequest.id
+    setKioskRequest(null)
+    setKioskSendingId(null)
+    await fetch(`/api/kiosk/invoice-request/${encodeURIComponent(id)}`, { method: 'DELETE' }).catch(() => {})
+  }, [kioskRequest])
+
+  // Completion is pushed over SSE; polling is retained as a fallback for
+  // iPads or office networks that interrupt a long-lived connection.
+  useEffect(() => {
+    if (!kioskRequest) return
+    const requestId = kioskRequest.id
+    let handled = false
+    let checking = false
+
+    const checkForResult = async () => {
+      if (handled || checking) return
+      checking = true
+      try {
+        const response = await fetch(`/api/kiosk/invoice-request/${encodeURIComponent(requestId)}`, { cache: 'no-store' })
+        if (!response.ok) return
+        const data = await response.json()
+        if (data.status === 'completed' && data.fields) {
+          handled = true
+          applyKioskClientFields(data.fields)
+        }
+        if (data.status === 'expired' || data.status === 'cancelled') {
+          handled = true
+          setKioskRequest(null)
+          setKioskRequestError(`The request was ${data.status}.`)
+        }
+      } catch { /* the next poll can recover */ }
+      finally { checking = false }
+    }
+
+    const events = new EventSource('/api/kiosk/events')
+    events.onmessage = event => {
+      try {
+        const data = JSON.parse(event.data)
+        if (data.type === 'invoice-info-complete' && data.requestId === requestId) {
+          checkForResult()
+        }
+      } catch { /* ignore malformed event */ }
+    }
+    const poll = setInterval(checkForResult, 1500)
+    return () => { handled = true; events.close(); clearInterval(poll) }
+  }, [kioskRequest, applyKioskClientFields])
 
   const [lineItems, setLineItems] = useState<LineItem[]>([
     { id: generateId(), description: '', quantity: 1, unitPrice: 0, taxInclusive: true },
@@ -745,6 +894,13 @@ function InvoicePage() {
   }
 
   const resetForm = () => {
+    if (kioskRequest) {
+      fetch(`/api/kiosk/invoice-request/${encodeURIComponent(kioskRequest.id)}`, { method: 'DELETE' }).catch(() => {})
+    }
+    setKioskRequest(null)
+    setKioskInfoReceived(false)
+    setKioskRequestError('')
+    setShowKioskInfo(false)
     setFormData({
       studentName: '',
       studentAddress: '',
@@ -872,11 +1028,22 @@ function InvoicePage() {
             <motion.div key="step-student" initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -20 }} transition={{ duration: 0.25 }} className="space-y-6">
               {/* Student Search Card */}
               <Card>
-                <CardHeader>
-                  <CardTitle className="text-lg">Student Information</CardTitle>
-                  <CardDescription>Search for an existing student or enter details manually</CardDescription>
+                <CardHeader className="flex flex-row items-start justify-between gap-4">
+                  <div>
+                    <CardTitle className="text-lg">Student Information</CardTitle>
+                    <CardDescription>Search for an existing student or enter details manually</CardDescription>
+                  </div>
+                  <Button type="button" variant="outline" size="sm" className="shrink-0" onClick={openKioskInfo}>
+                    <TabletSmartphone className="h-4 w-4 mr-2" />
+                    {kioskRequest ? 'Waiting on iPad' : 'Fill on iPad'}
+                  </Button>
                 </CardHeader>
                 <CardContent className="space-y-4">
+                  {kioskInfoReceived && (
+                    <div className="flex items-center gap-2 rounded-lg bg-emerald-50 border border-emerald-100 px-3 py-2 text-sm text-emerald-700">
+                      <CheckCircle2 className="h-4 w-4 shrink-0" /> Client information received from the iPad and added below.
+                    </div>
+                  )}
                   <div>
                     <Label className="text-xs text-muted-foreground mb-1 block">Search existing student</Label>
                     <StudentSearchAutocomplete
@@ -2005,6 +2172,87 @@ function InvoicePage() {
           </AnimatePresence>
         </div>
       </main>
+
+      {/* One-time invoice information handoff to a registration iPad */}
+      <Dialog open={showKioskInfo} onOpenChange={setShowKioskInfo}>
+        <DialogContent className="sm:max-w-xl">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <TabletSmartphone className="h-5 w-5" /> Collect information on iPad
+            </DialogTitle>
+            <DialogDescription>
+              The client fills in the details that will appear on this invoice. Their answers return here automatically.
+            </DialogDescription>
+          </DialogHeader>
+
+          {kioskRequest ? (
+            <div className="py-5">
+              <div className="rounded-2xl border bg-muted/30 px-5 py-6 text-center">
+                <div className="mx-auto h-12 w-12 rounded-full bg-blue-50 flex items-center justify-center">
+                  <Loader2 className="h-6 w-6 text-blue-600 animate-spin" />
+                </div>
+                <h3 className="mt-4 font-semibold text-lg">Waiting for {kioskRequest.kioskName}</h3>
+                <p className="mt-1 text-sm text-muted-foreground">
+                  The client-information form is open on the iPad. You can close this window and continue working—the fields will still return here.
+                </p>
+                <Button variant="outline" size="sm" className="mt-5 text-destructive" onClick={cancelKioskRequest}>
+                  <XCircle className="h-4 w-4 mr-2" /> Cancel request
+                </Button>
+              </div>
+            </div>
+          ) : (
+            <div className="space-y-3">
+              <div className="flex items-center justify-between">
+                <p className="text-sm font-medium">Choose an iPad</p>
+                <Button variant="ghost" size="sm" onClick={loadInvoiceKiosks} disabled={kiosksLoading}>
+                  <RefreshCw className={`h-4 w-4 mr-1.5 ${kiosksLoading ? 'animate-spin' : ''}`} /> Refresh
+                </Button>
+              </div>
+
+              {kiosksLoading ? (
+                <div className="flex items-center justify-center py-10 text-sm text-muted-foreground">
+                  <Loader2 className="h-5 w-5 mr-2 animate-spin" /> Finding iPads…
+                </div>
+              ) : invoiceKiosks.length === 0 ? (
+                <div className="rounded-xl border border-dashed p-7 text-center">
+                  <TabletSmartphone className="h-8 w-8 mx-auto text-muted-foreground/50" />
+                  <p className="mt-3 font-medium">No kiosk found</p>
+                  <p className="mt-1 text-sm text-muted-foreground">Open the truck registration kiosk on the iPad, then refresh.</p>
+                </div>
+              ) : (
+                <div className="space-y-2 max-h-72 overflow-y-auto">
+                  {[...invoiceKiosks].sort((a, b) => Number(b.online) - Number(a.online)).map(kiosk => (
+                    <button
+                      key={kiosk.id}
+                      type="button"
+                      disabled={!kiosk.online || !!kioskSendingId}
+                      onClick={() => sendInfoToKiosk(kiosk)}
+                      className="w-full flex items-center gap-3 rounded-xl border px-4 py-3 text-left transition-colors enabled:hover:bg-muted/50 disabled:opacity-50"
+                    >
+                      <span className={`h-10 w-10 rounded-xl flex items-center justify-center ${kiosk.online ? 'bg-emerald-50 text-emerald-600' : 'bg-muted text-muted-foreground'}`}>
+                        {kioskSendingId === kiosk.id ? <Loader2 className="h-5 w-5 animate-spin" /> : <TabletSmartphone className="h-5 w-5" />}
+                      </span>
+                      <span className="min-w-0 flex-1">
+                        <span className="font-medium block truncate">{kiosk.name}</span>
+                        <span className="text-xs text-muted-foreground block truncate">
+                          {kiosk.currentStep ? `Currently: ${kiosk.currentStep.replace(/-/g, ' ')}` : 'Ready'}
+                        </span>
+                      </span>
+                      <Badge variant="outline" className={kiosk.online ? 'bg-emerald-50 text-emerald-700 border-emerald-200' : ''}>
+                        <Wifi className="h-3 w-3 mr-1" /> {kiosk.online ? 'Online' : 'Offline'}
+                      </Badge>
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+
+          {kioskRequestError && (
+            <p className="rounded-lg bg-red-50 border border-red-100 px-3 py-2 text-sm text-red-700">{kioskRequestError}</p>
+          )}
+        </DialogContent>
+      </Dialog>
 
       {/* Clover Match Dialog */}
       <Dialog open={showCloverMatch} onOpenChange={(open) => { if (!open) { setShowCloverMatch(false); setStep('done') } }}>

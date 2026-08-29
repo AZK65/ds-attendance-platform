@@ -53,6 +53,11 @@ export function sendToKiosk(kioskId: string, payload: unknown): boolean {
 export function addDashboardSender(send: Sender) { hub.dashboardSenders.add(send) }
 export function removeDashboardSender(send: Sender) { hub.dashboardSenders.delete(send) }
 
+/** Push a non-list event (for example a completed invoice-info request). */
+export function broadcastDashboard(payload: unknown) {
+  hub.dashboardSenders.forEach(fn => { try { fn(payload) } catch { /* dead stream */ } })
+}
+
 /** Build the current kiosk list with live online status from the hub. */
 export async function buildKioskList() {
   const kiosks = await prisma.kiosk.findMany({ orderBy: { name: 'asc' } })

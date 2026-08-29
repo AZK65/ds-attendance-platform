@@ -619,6 +619,26 @@ model Kiosk {
   updatedAt DateTime @updatedAt
 }
 
+// One-time request sent from invoice creation to a registration kiosk. The
+// public iPad receives only the random token; staff retrieve the completed
+// fields through an authenticated endpoint. Requests expire quickly so an
+// abandoned kiosk form cannot be reused later.
+model KioskInfoRequest {
+  id          String    @id @default(cuid())
+  token       String    @unique
+  kioskId     String    // Kiosk.kioskId device key (kept loose for reconnects)
+  status      String    @default("pending") // pending | completed | cancelled | expired
+  prefillData String    @default("{}")
+  resultData  String?
+  expiresAt   DateTime
+  completedAt DateTime?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  @@index([kioskId, status])
+  @@index([expiresAt])
+}
+
 // An authenticated admin browser session (one per device/login). The session
 // id is stored in the httpOnly `sid` cookie. Used to list logged-in devices
 // in Settings and to remotely log a device out (deleting the row kicks that

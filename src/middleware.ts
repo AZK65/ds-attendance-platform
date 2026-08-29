@@ -3,7 +3,7 @@ import { NextRequest, NextResponse } from 'next/server'
 // Note: '/study' and '/api/lms' are public w.r.t. the ADMIN password — they
 // enforce their own student LMS session. '/api/lms/admin' is the exception and
 // is gated (handled explicitly below), so the startsWith match must not cover it.
-const PUBLIC_PATHS = ['/login', '/camera', '/enroll', '/api/enroll', '/api/zoom/webhook', '/register', '/api/register', '/api/payment', '/api/pricing', '/exam', '/api/exam', '/book', '/api/book', '/api/leads/webhook', '/api/kiosk/heartbeat', '/api/kiosk/stream', '/study', '/api/lms']
+const PUBLIC_PATHS = ['/login', '/camera', '/enroll', '/api/enroll', '/api/zoom/webhook', '/register', '/api/register', '/api/payment', '/api/pricing', '/exam', '/api/exam', '/book', '/api/book', '/api/leads/webhook', '/api/kiosk/heartbeat', '/api/kiosk/stream', '/api/kiosk/invoice-info', '/study', '/api/lms']
 // Exact-match public paths (NOT prefix). /api/auth must be reachable for login
 // and the authed-check, but its subpaths (/api/auth/sessions, /heartbeat) must
 // stay behind auth — a prefix match would wrongly expose the device list.
