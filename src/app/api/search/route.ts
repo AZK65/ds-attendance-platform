@@ -14,6 +14,10 @@ type GlobalSearchResult = {
 }
 
 const clean = (value?: string | null) => (value || '').trim()
+const phoneKey = (value?: string | null) => {
+  const valueDigits = (value || '').replace(/\D/g, '')
+  return valueDigits.length > 10 ? valueDigits.slice(-10) : valueDigits
+}
 const money = (value: number) => value.toLocaleString('en-CA', {
   style: 'currency',
   currency: 'CAD',
@@ -110,31 +114,84 @@ export async function GET(request: NextRequest) {
     process.env.NODE_ENV === 'production' ? searchStudents(q).catch(() => []) : Promise.resolve([]),
   ])
 
-  const localPhones = new Set(students.flatMap(student => [student.phone, student.phoneAlt].filter(Boolean)))
+  // A student and a WhatsApp contact are intentionally separate records in
+  // storage, but they represent one person in search. Pull memberships for
+  // every student phone returned above so a licence/email search can still
+  // open the student's group profile directly.
+  const studentPhoneKeys = Array.from(new Set([
+    ...students.flatMap(student => [phoneKey(student.phone), phoneKey(student.phoneAlt)]),
+    ...externalStudents.map(student => phoneKey(student.phone_number)),
+  ].filter(phone => phone.length >= 7)))
+  const membershipContacts = studentPhoneKeys.length
+    ? await prisma.contact.findMany({
+        where: { OR: studentPhoneKeys.map(phone => ({ phone: { contains: phone } })) },
+        include: {
+          groups: {
+            include: { group: { select: { id: true, name: true, archivedAt: true } } },
+            take: 3,
+          },
+        },
+      }).catch(() => [])
+    : []
+
+  const allContacts = Array.from(new Map(
+    [...contacts, ...membershipContacts].map(contact => [contact.id, contact]),
+  ).values())
+  const contactByPhone = new Map<string, (typeof allContacts)[number]>()
+  allContacts.forEach(contact => {
+    const key = phoneKey(contact.phone)
+    if (key) contactByPhone.set(key, contact)
+  })
+  const matchedContactIds = new Set<string>()
+  const localPhones = new Set(students.flatMap(student => [phoneKey(student.phone), phoneKey(student.phoneAlt)]).filter(Boolean))
   const results: GlobalSearchResult[] = []
 
-  students.forEach(student => results.push({
-    id: `student:${student.id}`,
-    type: 'student',
-    title: student.name,
-    subtitle: [student.phone, student.email, student.licenceNumber && `Licence ${student.licenceNumber}`].filter(Boolean).join(' · ') || 'Student profile',
-    meta: 'Platform student',
-    href: `/students/${encodeURIComponent(student.id)}`,
-  }))
+  students.forEach(student => {
+    const contact = [student.phone, student.phoneAlt]
+      .map(phone => contactByPhone.get(phoneKey(phone)))
+      .find(Boolean)
+    const membership = contact?.groups.find(item => !item.group.archivedAt) || contact?.groups[0]
+    if (contact && membership) matchedContactIds.add(contact.id)
+    const fallbackSearch = student.phone || student.email || student.name
+
+    results.push({
+      id: `student:${student.id}`,
+      type: 'student',
+      title: student.name,
+      subtitle: membership
+        ? [student.phone || contact?.phone, membership.group.name].filter(Boolean).join(' · ')
+        : [student.phone, student.email, student.licenceNumber && `Licence ${student.licenceNumber}`].filter(Boolean).join(' · ') || 'Student profile',
+      meta: membership ? 'Student · Group member' : 'Platform student',
+      href: membership && contact
+        ? `/groups/${encodeURIComponent(membership.groupId)}/student/${encodeURIComponent(contact.id)}`
+        : `/students?search=${encodeURIComponent(fallbackSearch)}`,
+    })
+  })
 
   externalStudents
-    .filter(student => !localPhones.has(student.phone_number))
+    .filter(student => !localPhones.has(phoneKey(student.phone_number)))
     .slice(0, 8)
-    .forEach(student => results.push({
-      id: `external-student:${student.student_id}`,
-      type: 'student',
-      title: student.full_name,
-      subtitle: [student.phone_number, student.permit_number && `Permit ${student.permit_number}`, student.contract_number && `Contract ${student.contract_number}`].filter(Boolean).join(' · '),
-      meta: 'Student archive',
-      href: `/students?search=${encodeURIComponent(student.full_name || student.phone_number)}`,
-    }))
+    .forEach(student => {
+      const contact = contactByPhone.get(phoneKey(student.phone_number))
+      const membership = contact?.groups.find(item => !item.group.archivedAt) || contact?.groups[0]
+      if (contact && membership) matchedContactIds.add(contact.id)
+
+      results.push({
+        id: `external-student:${student.student_id}`,
+        type: 'student',
+        title: student.full_name,
+        subtitle: membership
+          ? [student.phone_number, membership.group.name].filter(Boolean).join(' · ')
+          : [student.phone_number, student.permit_number && `Permit ${student.permit_number}`, student.contract_number && `Contract ${student.contract_number}`].filter(Boolean).join(' · '),
+        meta: membership ? 'Student · Group member' : 'Student archive',
+        href: membership && contact
+          ? `/groups/${encodeURIComponent(membership.groupId)}/student/${encodeURIComponent(contact.id)}`
+          : `/students/${encodeURIComponent(String(student.student_id))}`,
+      })
+    })
 
   contacts.forEach(contact => {
+    if (matchedContactIds.has(contact.id)) return
     const membership = contact.groups.find(item => !item.group.archivedAt) || contact.groups[0]
     if (!membership) return
     results.push({
