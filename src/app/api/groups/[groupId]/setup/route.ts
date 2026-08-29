@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { setGroupDescription, sendPrivateMessage, sendMessageToGroup, sendDocumentToGroup, getWhatsAppState } from '@/lib/whatsapp/client'
 import { prisma } from '@/lib/db'
 import { createTheoryEvent, createTruckTheoryEvent } from '@/lib/teamup'
+import { syncGroupTheoryReminder } from '@/lib/group-theory-schedule'
 import {
   buildTruckSessions, summarizeTruckSessions, describeTruckDay, formatTimeRange,
   DEFAULT_TRUCK_DAYS, TRUCK_THEORY_TARGET_HOURS, TRUCK_PRACTICAL_HOURS, type TruckDay,
@@ -149,39 +150,6 @@ export async function POST(
           }
         }
 
-        // Day-of reminder. Fires at 12 PM for evening classes, but Saturday
-        // starts at 9 AM — so for anything starting before 11 AM we send it
-        // two hours ahead instead of after the class has already begun.
-        const [sh, sm] = s.start.split(':').map(Number)
-        const startsBeforeNoon = sh * 60 + sm < 11 * 60
-        const reminderAt = startsBeforeNoon
-          ? new Date(new Date(`${s.date}T${s.start}:00`).getTime() - 2 * 60 * 60 * 1000)
-          : new Date(`${s.date}T12:00:00`)
-
-        // moduleNumber is deliberately left null: /api/scheduled-messages/process
-        // re-creates a CAR theory event (on Fayyaz's calendar) for any reminder
-        // carrying classDateISO + moduleNumber + classTime. Truck sessions must
-        // not trigger that.
-        if (reminderAt > new Date()) {
-          await prisma.scheduledMessage.updateMany({
-            where: { status: 'pending', groupId: decodedGroupId, classDateISO: s.date, isGroupMessage: true },
-            data: { status: 'cancelled' },
-          })
-          await prisma.scheduledMessage.create({
-            data: {
-              groupId: decodedGroupId,
-              message: `Reminder: Your Class 1 theory class (${s.sessionNumber} of ${sessions.length}) is TODAY, ${timeLabel}, in person at the school. See you there!`,
-              scheduledAt: reminderAt,
-              memberPhones: JSON.stringify([]),
-              classDateISO: s.date,
-              classTime: timeLabel,
-              isGroupMessage: true,
-              status: 'pending',
-            },
-          })
-          remindersScheduled++
-        }
-
         try {
           const ev = await createTruckTheoryEvent({
             classDate: s.date,
@@ -192,7 +160,21 @@ export async function POST(
             groupName,
             subcalendarId,
           })
-          if (ev.success) teamupCreated++
+          if (ev.success) {
+            teamupCreated++
+            const reminderEvent = ev.event || (ev.eventId ? {
+              id: ev.eventId,
+              title: `Class 1 Theory ${s.sessionNumber}/${sessions.length} - ${groupName}`,
+              start_dt: `${s.date}T${s.start}:00`,
+              end_dt: `${s.date}T${s.end}:00`,
+              notes: `Theory class\nClass 1 (Truck)\nIn person at the school\nSession: ${s.sessionNumber} of ${sessions.length}\nGroup: ${groupName}`,
+              subcalendar_ids: subcalendarId ? [subcalendarId] : [],
+            } : null)
+            if (reminderEvent) {
+              const reminder = await syncGroupTheoryReminder(reminderEvent)
+              if (reminder.scheduled) remindersScheduled++
+            }
+          }
           else if (i === 0) results.push({ action: 'Teamup', status: `Failed: ${ev.error}` })
         } catch (err) {
           if (i === 0) results.push({ action: 'Teamup', status: `Failed: ${err instanceof Error ? err.message : 'unknown'}` })
@@ -256,40 +238,41 @@ export async function POST(
           }
         }
 
-        // 12 PM same-day reminder
-        const groupReminderTime = new Date(`${isoWeek}T12:00:00`)
-        if (groupReminderTime > new Date()) {
-          await prisma.scheduledMessage.updateMany({
-            where: { status: 'pending', groupId: decodedGroupId, classDateISO: isoWeek, isGroupMessage: true },
-            data: { status: 'cancelled' },
-          })
-          const groupMessage = `Reminder: Your Module ${weekModule} class is TODAY at ${classTime}! Please make sure to put your full name when joining Zoom. Invite Link: ${zoomLink} — Password: qazi`
-          await prisma.scheduledMessage.create({
-            data: {
-              groupId: decodedGroupId,
-              message: groupMessage,
-              scheduledAt: groupReminderTime,
-              memberPhones: JSON.stringify([]),
-              moduleNumber: weekModule,
-              classDateISO: isoWeek,
-              classTime,
-              isGroupMessage: true,
-              status: 'pending',
-            },
-          })
-          remindersScheduled++
-        }
-
         // Teamup event
         try {
-          await createTheoryEvent({
+          const ev = await createTheoryEvent({
             classDate: isoWeek,
             classTime,
             moduleNumber: weekModule,
             groupName,
             subcalendarId,
           })
-          teamupCreated++
+          if (ev.success) {
+            teamupCreated++
+            const parsedTimes = classTime.match(/(\d{1,2})(?::(\d{2}))?\s*(am|pm).*?(\d{1,2})(?::(\d{2}))?\s*(am|pm)/i)
+            const to24 = (hourText: string, minuteText: string | undefined, periodText: string) => {
+              let hour = Number(hourText)
+              if (periodText.toLowerCase() === 'pm' && hour !== 12) hour += 12
+              if (periodText.toLowerCase() === 'am' && hour === 12) hour = 0
+              return `${String(hour).padStart(2, '0')}:${minuteText || '00'}`
+            }
+            const fallbackStart = parsedTimes ? to24(parsedTimes[1], parsedTimes[2], parsedTimes[3]) : '17:00'
+            const fallbackEnd = parsedTimes ? to24(parsedTimes[4], parsedTimes[5], parsedTimes[6]) : '19:00'
+            const reminderEvent = ev.event || (ev.eventId ? {
+              id: ev.eventId,
+              title: `Module ${weekModule} - ${groupName}`,
+              start_dt: `${isoWeek}T${fallbackStart}:00`,
+              end_dt: `${isoWeek}T${fallbackEnd}:00`,
+              notes: `Theory class\nModule: ${weekModule}\nGroup: ${groupName}`,
+              subcalendar_ids: subcalendarId ? [subcalendarId] : [],
+            } : null)
+            if (reminderEvent) {
+              const reminder = await syncGroupTheoryReminder(reminderEvent)
+              if (reminder.scheduled) remindersScheduled++
+            }
+          } else {
+            results.push({ action: `Teamup M${weekModule}`, status: `Failed: ${ev.error || 'unknown error'}` })
+          }
         } catch (err) {
           results.push({ action: `Teamup M${weekModule}`, status: `Failed: ${err instanceof Error ? err.message : 'unknown'}` })
         }

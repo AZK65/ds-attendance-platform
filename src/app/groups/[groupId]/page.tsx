@@ -6,6 +6,7 @@ import { useState, useMemo } from 'react'
 import { ContactSearchModal } from '@/components/ContactSearchModal'
 import { ConnectionStatus } from '@/components/ConnectionStatus'
 import { TruckSignInPanel } from '@/components/TruckSignInPanel'
+import { GroupScheduleDialog } from '@/components/GroupScheduleDialog'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import {
@@ -92,6 +93,7 @@ export default function GroupDetailPage() {
   const queryClient = useQueryClient()
   const [showArchiveConfirm, setShowArchiveConfirm] = useState(false)
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false)
+  const [showSchedule, setShowSchedule] = useState(false)
 
   // Class 5 cohorts do "Module N" (SAAQ PESR — 12 numbered modules).
   // Class 1 (truck) cohorts don't share that structure — 75 h of theory
@@ -809,6 +811,12 @@ export default function GroupDetailPage() {
             animate="visible"
           >
             <motion.div variants={fadeSlideUp}>
+              <Button variant="outline" onClick={() => setShowSchedule(true)} disabled={!group?.name}>
+                <CalendarDays className="mr-2 h-4 w-4" />
+                Edit Schedule
+              </Button>
+            </motion.div>
+            <motion.div variants={fadeSlideUp}>
               <Button
                 variant="outline"
                 onClick={() => refetch()}
@@ -1197,6 +1205,16 @@ export default function GroupDetailPage() {
         isConnected={isConnected}
       />
 
+      {group?.name && (
+        <GroupScheduleDialog
+          groupId={groupId}
+          groupName={group.name}
+          vehicleType={group.vehicleType || 'car'}
+          open={showSchedule}
+          onOpenChange={setShowSchedule}
+        />
+      )}
+
       <Dialog
         open={removeConfirm !== null}
         onOpenChange={() => setRemoveConfirm(null)}
@@ -1255,7 +1273,7 @@ export default function GroupDetailPage() {
               <br /><br />
               The actual WhatsApp group on WhatsApp is NOT touched — students stay in the WA group and messages remain. To re-track it, sync groups again from /groups.
               <br /><br />
-              This can't be undone. Prefer <em>Archive</em> if you're not sure.
+              This can&apos;t be undone. Prefer <em>Archive</em> if you&apos;re not sure.
             </DialogDescription>
           </DialogHeader>
           <DialogFooter>

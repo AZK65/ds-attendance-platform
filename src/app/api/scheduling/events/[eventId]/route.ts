@@ -4,6 +4,15 @@ import {
   extractPhone,
   scheduleReminderFromEvent,
 } from '@/lib/in-car-reminders'
+import {
+  cancelGroupTheoryReminders,
+  isGroupTheoryEvent,
+  notifyGroupTheoryScheduleChange,
+  resolveTheoryGroup,
+  syncGroupTheoryReminder,
+  type GroupTheoryEvent,
+} from '@/lib/group-theory-schedule'
+import { prisma } from '@/lib/db'
 
 const BASE_URL = 'https://api.teamup.com'
 
@@ -11,8 +20,12 @@ const BASE_URL = 'https://api.teamup.com'
 // date/phone were — needed to cancel the old reminder when an admin
 // reschedules a class via the app's edit dialog.
 async function fetchTeamupEvent(eventId: string): Promise<{
+  id?: string
+  title?: string
   start_dt?: string
+  end_dt?: string
   notes?: string
+  subcalendar_ids?: number[]
 } | null> {
   try {
     const apiKey = process.env.TEAMUP_API_KEY || ''
@@ -67,24 +80,55 @@ export async function PUT(
 
     const data = await res.json()
 
-    // Cancel reminder on the *old* date (if it differs) then queue a
-    // fresh one for the new date. scheduleReminderFromEvent itself is
-    // idempotent for the new (date, phone) pair.
+    // Group theory and individual road classes use different reminder
+    // destinations. Keep both synchronized immediately for in-app edits;
+    // the Teamup poller covers edits made directly inside Teamup.
     try {
-      if (previous) {
-        const oldPhone = extractPhone(previous.notes)
-        const oldDateISO = (previous.start_dt || '').split('T')[0]
-        const newDateISO = (startDate || '').split('T')[0]
-        if (oldPhone && oldDateISO && oldDateISO !== newDateISO) {
-          await cancelInCarReminderFor({ phone: oldPhone, classDateISO: oldDateISO })
-        }
-      }
-      await scheduleReminderFromEvent({
-        startDateIso: startDate,
-        notes,
+      const updatedEvent = (data.event || {
+        id: eventId,
         title,
-        subcalendarId: Array.isArray(subcalendarIds) ? Number(subcalendarIds[0]) : undefined,
-      })
+        start_dt: startDate,
+        end_dt: endDate,
+        subcalendar_ids: subcalendarIds,
+        notes: notes || '',
+      }) as GroupTheoryEvent
+      if (isGroupTheoryEvent(updatedEvent)) {
+        await syncGroupTheoryReminder(updatedEvent, previous?.start_dt || null)
+        const timeChanged = previous?.start_dt !== startDate || previous?.end_dt !== endDate
+        if (timeChanged) await notifyGroupTheoryScheduleChange(updatedEvent)
+        await prisma.teamupEventSnapshot.upsert({
+          where: { eventId: String(eventId) },
+          update: {
+            title: updatedEvent.title,
+            startDt: updatedEvent.start_dt,
+            endDt: updatedEvent.end_dt,
+            notes: updatedEvent.notes || '',
+            lastSeen: new Date(),
+          },
+          create: {
+            eventId: String(eventId),
+            title: updatedEvent.title,
+            startDt: updatedEvent.start_dt,
+            endDt: updatedEvent.end_dt,
+            notes: updatedEvent.notes || '',
+          },
+        })
+      } else {
+        if (previous) {
+          const oldPhone = extractPhone(previous.notes)
+          const oldDateISO = (previous.start_dt || '').split('T')[0]
+          const newDateISO = (startDate || '').split('T')[0]
+          if (oldPhone && oldDateISO && oldDateISO !== newDateISO) {
+            await cancelInCarReminderFor({ phone: oldPhone, classDateISO: oldDateISO })
+          }
+        }
+        await scheduleReminderFromEvent({
+          startDateIso: startDate,
+          notes,
+          title,
+          subcalendarId: Array.isArray(subcalendarIds) ? Number(subcalendarIds[0]) : undefined,
+        })
+      }
     } catch (err) {
       console.error('[events PUT] reminder update failed (non-fatal):', err)
     }
@@ -130,7 +174,16 @@ export async function DELETE(
     }
 
     try {
-      if (previous) {
+      if (previous && isGroupTheoryEvent({ title: previous.title || '', notes: previous.notes || '' })) {
+        const group = await resolveTheoryGroup({ title: previous.title || '', notes: previous.notes || '' })
+        if (group) {
+          await cancelGroupTheoryReminders({
+            eventId: String(eventId),
+            groupId: group.id,
+            dates: [(previous.start_dt || '').split('T')[0]],
+          })
+        }
+      } else if (previous) {
         const phone = extractPhone(previous.notes)
         const dateISO = (previous.start_dt || '').split('T')[0]
         if (phone && dateISO) {

@@ -1,5 +1,14 @@
 const BASE_URL = 'https://api.teamup.com'
 
+export interface CreatedTeamupEvent {
+  id: string
+  title: string
+  start_dt: string
+  end_dt: string
+  notes?: string
+  subcalendar_ids?: number[]
+}
+
 let cachedFayyazSubcalendarId: number | null = null
 let cachedNasarSubcalendarId: number | null = null
 
@@ -112,7 +121,7 @@ export async function createTheoryEvent({
   moduleNumber: number
   groupName: string
   subcalendarId?: number | null
-}): Promise<{ success: boolean; error?: string }> {
+}): Promise<{ success: boolean; eventId?: string; event?: CreatedTeamupEvent; error?: string }> {
   const apiKey = process.env.TEAMUP_API_KEY || ''
   const calendarKey = process.env.TEAMUP_CALENDAR_KEY || ''
   if (!apiKey || !calendarKey) {
@@ -162,7 +171,16 @@ export async function createTheoryEvent({
       return { success: false, error: `Teamup API error: ${res.status}` }
     }
 
-    return { success: true }
+    const data = await res.json() as Partial<Omit<CreatedTeamupEvent, 'id'>> & {
+      id?: string | number
+      event?: Omit<CreatedTeamupEvent, 'id'> & { id?: string | number }
+    }
+    const rawEvent = data.event || (data.start_dt ? data : undefined)
+    const eventId = rawEvent?.id ?? data.id
+    const event = rawEvent && eventId != null
+      ? { ...rawEvent, id: String(eventId) } as CreatedTeamupEvent
+      : undefined
+    return { success: true, eventId: eventId != null ? String(eventId) : undefined, event }
   } catch (error) {
     console.error('Failed to create theory event:', error)
     return { success: false, error: error instanceof Error ? error.message : 'Unknown error' }
@@ -200,7 +218,7 @@ export async function createTruckTheoryEvent({
   totalSessions: number
   groupName: string
   subcalendarId?: number | null
-}): Promise<{ success: boolean; error?: string }> {
+}): Promise<{ success: boolean; eventId?: string; event?: CreatedTeamupEvent; error?: string }> {
   const apiKey = process.env.TEAMUP_API_KEY || ''
   const calendarKey = process.env.TEAMUP_CALENDAR_KEY || ''
   if (!apiKey || !calendarKey) {
@@ -237,7 +255,16 @@ export async function createTruckTheoryEvent({
       return { success: false, error: `Teamup API error: ${res.status}` }
     }
 
-    return { success: true }
+    const data = await res.json() as Partial<Omit<CreatedTeamupEvent, 'id'>> & {
+      id?: string | number
+      event?: Omit<CreatedTeamupEvent, 'id'> & { id?: string | number }
+    }
+    const rawEvent = data.event || (data.start_dt ? data : undefined)
+    const eventId = rawEvent?.id ?? data.id
+    const event = rawEvent && eventId != null
+      ? { ...rawEvent, id: String(eventId) } as CreatedTeamupEvent
+      : undefined
+    return { success: true, eventId: eventId != null ? String(eventId) : undefined, event }
   } catch (error) {
     console.error('Failed to create truck theory event:', error)
     return { success: false, error: error instanceof Error ? error.message : 'Unknown error' }

@@ -400,6 +400,9 @@ model PackageInstalment {
 model ScheduledMessage {
   id             String    @id @default(cuid())
   groupId        String
+  // Exact Teamup event this reminder follows. Older reminders may be null;
+  // date/group fallback matching keeps those editable during migration.
+  teamupEventId  String?
   message        String
   scheduledAt    DateTime
   memberPhones   String
@@ -414,6 +417,7 @@ model ScheduledMessage {
   updatedAt      DateTime  @updatedAt
 
   @@index([status, scheduledAt])
+  @@index([teamupEventId, status])
 }
 
 model AnalyticsChat {
