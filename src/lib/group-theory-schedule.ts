@@ -213,6 +213,31 @@ export async function notifyGroupTheoryScheduleChange(event: GroupTheoryEvent): 
   return true
 }
 
+export async function notifyGroupTheoryCancellation(event: GroupTheoryEvent): Promise<boolean> {
+  const group = await resolveTheoryGroup(event)
+  if (!group || !getWhatsAppState().isConnected) return false
+
+  const sequence = extractTheorySequence(event)
+  const date = formatDateLong(event.start_dt)
+  const time = `${formatTime12h(event.start_dt)} to ${formatTime12h(event.end_dt)}`
+  const label = sequence.isTruck
+    ? `Class 1 theory${sequence.sessionNumber ? ` session ${sequence.sessionNumber}` : ' class'}`
+    : sequence.moduleNumber ? `Module ${sequence.moduleNumber}` : 'theory class'
+  const message = `Class cancelled: Your ${label} scheduled for ${date}, ${time} has been cancelled. We will share the replacement date as soon as it is available.`
+
+  await sendMessageToGroup(group.id, message)
+  await prisma.messageLog.create({
+    data: {
+      type: 'class-cancelled',
+      to: group.id,
+      toName: group.name,
+      message: message.slice(0, 500),
+      status: 'sent',
+    },
+  }).catch(() => {})
+  return true
+}
+
 export async function notifyGroupTheoryWeekdayScheduleChange(
   event: GroupTheoryEvent,
   weekday: string,

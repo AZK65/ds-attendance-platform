@@ -4,6 +4,7 @@ import { sendPrivateMessage, getWhatsAppState } from '@/lib/whatsapp/client'
 import {
   cancelGroupTheoryReminders,
   isGroupTheoryEvent,
+  notifyGroupTheoryCancellation,
   notifyGroupTheoryScheduleChange,
   resolveTheoryGroup,
   syncGroupTheoryReminder,
@@ -26,8 +27,10 @@ function stripHtml(text: string): string {
 
 function extractPhone(notes: string): string | null {
   const clean = stripHtml(notes)
-  const match = clean.match(/Phone:\s*(\d+)/)
-  return match ? match[1] : null
+  const match = clean.match(/Phone:\s*([^\n]+)/i)
+  if (!match) return null
+  const digits = match[1].replace(/\D/g, '')
+  return digits.length >= 10 ? digits : null
 }
 
 function extractStudentName(notes: string): string | null {
@@ -188,10 +191,12 @@ export async function POST() {
 
         changes.push({ type: 'deleted', eventId: snapshot.eventId, studentName })
 
+        const groupTheory = isGroupTheoryEvent(snapshotEvent)
+
         // Cancel any pending scheduled reminders for this event.
         try {
           let cancelled = 0
-          if (isGroupTheoryEvent(snapshotEvent)) {
+          if (groupTheory) {
             const group = await resolveTheoryGroup(snapshotEvent)
             if (group) {
               cancelled = await cancelGroupTheoryReminders({
@@ -214,21 +219,49 @@ export async function POST() {
           console.error(`[poll-changes] Failed to cancel reminders:`, err)
         }
 
-        if (phone && state.isConnected) {
+        // Group theory events intentionally have no individual phone number in
+        // Teamup. They must notify the mapped WhatsApp group; previously this
+        // branch only handled phone-targeted road/truck events, so cancelling a
+        // car or Class 1 group class silently sent nothing.
+        let notificationDelivered = false
+        let notificationFailed = false
+        if (groupTheory && state.isConnected) {
+          try {
+            notificationDelivered = await notifyGroupTheoryCancellation(snapshotEvent)
+            if (notificationDelivered) {
+              console.log(`[poll-changes] Sent group cancellation for event ${snapshot.eventId}`)
+            } else {
+              console.warn(`[poll-changes] Could not map cancelled event ${snapshot.eventId} to a WhatsApp group`)
+            }
+          } catch (err) {
+            notificationFailed = true
+            console.error(`[poll-changes] Failed to send group cancellation:`, err)
+          }
+        } else if (phone && state.isConnected) {
           const message = `Hi ${cleanName}! Your class on ${dateStr} ${timeStr} has been cancelled. We'll reach out to reschedule.`
           try {
             await sendPrivateMessage(phone, message)
             await prisma.messageLog.create({
               data: { type: 'class-cancelled', to: phone, toName: studentName, message: message.slice(0, 500), status: 'sent' },
             }).catch(() => {})
+            notificationDelivered = true
             console.log(`[poll-changes] Sent cancel notification to ${phone} for event ${snapshot.eventId}`)
           } catch (err) {
+            notificationFailed = true
             console.error(`[poll-changes] Failed to notify ${phone}:`, err)
           }
         }
 
-        // Remove the snapshot
-        await prisma.teamupEventSnapshot.delete({ where: { eventId: snapshot.eventId } })
+        // If WhatsApp is temporarily offline, retain the snapshot so the next
+        // two-minute poll retries the cancellation instead of losing it. Events
+        // with no WhatsApp destination can be cleaned up immediately.
+        const hasDestination = groupTheory || !!phone
+        const destinationCouldNotBeMapped = groupTheory && state.isConnected && !notificationDelivered && !notificationFailed
+        if (notificationDelivered || !hasDestination || destinationCouldNotBeMapped) {
+          await prisma.teamupEventSnapshot.delete({ where: { eventId: snapshot.eventId } })
+        } else {
+          console.log(`[poll-changes] Retaining cancelled event ${snapshot.eventId} until WhatsApp reconnects`)
+        }
       }
     }
 
