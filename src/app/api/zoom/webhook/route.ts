@@ -7,6 +7,23 @@ import {
   handleParticipantLeft
 } from '@/lib/zoom/live-store'
 import { autoSaveAttendanceOnMeetingEnd } from '@/lib/zoom/auto-save-attendance'
+import { reconcileEndedMeetingAttendance } from '@/lib/zoom/report-reconciliation'
+
+function scheduleReportReconciliation(input: {
+  meetingUUID: string
+  topic?: string
+  endedAt: Date
+}) {
+  const delays = [60_000, 3 * 60_000, 10 * 60_000]
+  for (const delay of delays) {
+    setTimeout(async () => {
+      const result = await reconcileEndedMeetingAttendance(input)
+      if (result.reconciled) {
+        console.log(`[Webhook] Zoom report reconciled ${result.matchedCount} attendee(s)`)
+      }
+    }, delay)
+  }
+}
 
 export async function POST(request: NextRequest) {
   try {
@@ -62,12 +79,15 @@ export async function POST(request: NextRequest) {
         // wipe of currentMeeting). Auto-save reads the still-live store,
         // matches participants against each group's cached members, and
         // writes a ZoomAttendance row under the best-matching group.
-        autoSaveAttendanceOnMeetingEnd({
+        const endedMeeting = {
           meetingId: String(body.payload?.object?.id ?? ''),
           meetingUUID: String(body.payload?.object?.uuid ?? ''),
           topic: body.payload?.object?.topic,
           endedAt: body.payload?.object?.end_time ? new Date(body.payload.object.end_time) : new Date(),
-        }).catch(err => console.error('[Webhook] auto-save error:', err))
+        }
+        autoSaveAttendanceOnMeetingEnd(endedMeeting)
+          .catch(err => console.error('[Webhook] auto-save error:', err))
+        scheduleReportReconciliation(endedMeeting)
         handleMeetingEnded(body.payload)
         break
       case 'meeting.participant_joined':

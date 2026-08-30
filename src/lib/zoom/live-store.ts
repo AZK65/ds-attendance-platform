@@ -289,9 +289,30 @@ export function handleParticipantLeft(payload: {
   if (!currentMeeting) return
 
   const { participant } = payload.object
-  currentMeeting.participants.delete(participant.user_id)
-  console.log(`[Live Store] Participant left: ${participant.user_name} (${currentMeeting.participants.size} remaining)`)
-  notifyListeners()
+  // Attendance means "joined at any point", not "still connected right now".
+  // Removing someone here made students flip back to absent as soon as they
+  // left Zoom, and could leave a completed class showing zero attendees.
+  // Keep the first-seen participant in the meeting snapshot instead. If the
+  // server restarted after they joined, participant_left is also enough to
+  // recover them as an attendee even though their original join was missed.
+  const hostEmails = (process.env.ZOOM_HOST_EMAILS || '')
+    .split(',').map(s => s.trim().toLowerCase()).filter(Boolean)
+  if (participant.email && hostEmails.includes(participant.email.toLowerCase())) return
+
+  if (!currentMeeting.participants.has(participant.user_id)) {
+    currentMeeting.participants.set(participant.user_id, {
+      user_name: participant.user_name || 'Unknown',
+      user_id: participant.user_id,
+      // The exact join time was in the missed event. Preserve attendance and
+      // use leave time as the best available recovery timestamp.
+      join_time: participant.leave_time || new Date().toISOString(),
+      email: participant.email,
+    })
+    console.log(`[Live Store] Recovered attendee from leave event: ${participant.user_name}`)
+    notifyListeners()
+  } else {
+    console.log(`[Live Store] Participant left: ${participant.user_name} (retained for attendance)`)
+  }
 }
 
 export function getCurrentState() {
@@ -327,6 +348,9 @@ export function hydrateFromApi(input: {
     }
   } else {
     currentMeeting.isLive = true
+    if (input.meetingUUID) currentMeeting.meetingUUID = input.meetingUUID
+    if (input.topic) currentMeeting.topic = input.topic
+    if (input.startTime) currentMeeting.startTime = input.startTime
   }
   const hostEmails = (process.env.ZOOM_HOST_EMAILS || '')
     .split(',').map(s => s.trim().toLowerCase()).filter(Boolean)

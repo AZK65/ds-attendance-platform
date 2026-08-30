@@ -40,6 +40,7 @@ async function maybeHydrateFromApi(): Promise<{ checked: boolean; available: boo
       // running. Keeps "available: false" so the banner surfaces.
       hydrateFromApi({
         meetingId: String(details.id),
+        meetingUUID: details.uuid,
         topic: details.topic,
         startTime: details.start_time,
         participants: [],
@@ -49,6 +50,7 @@ async function maybeHydrateFromApi(): Promise<{ checked: boolean; available: boo
     }
     hydrateFromApi({
       meetingId: String(details.id),
+      meetingUUID: details.uuid,
       topic: details.topic,
       startTime: details.start_time,
       participants,

@@ -360,7 +360,7 @@ export default function LiveAttendancePage() {
               <p className="font-medium text-amber-900 dark:text-amber-100">Meeting is live but participant data isn&apos;t available</p>
               <p className="text-amber-800 dark:text-amber-200 mt-1">
                 We&apos;re polling Zoom every 30s — auto-detection will pick up as soon as a join event arrives.
-                If your plan doesn&apos;t include the Zoom Dashboard API, mark students present manually for now.
+                Without the Zoom Dashboard API, students are recovered automatically from the next join or leave event and verified after the meeting ends.
               </p>
             </div>
           </div>

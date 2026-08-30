@@ -6,7 +6,7 @@ interface ZoomTokenResponse {
   expires_in: number
 }
 
-interface ZoomParticipant {
+export interface ZoomParticipant {
   id: string
   name: string
   user_email?: string
@@ -133,6 +133,7 @@ export async function getLiveMeetingParticipants(meetingId: string): Promise<
 }
 
 export async function getMeetingDetails(meetingId: string): Promise<{
+  uuid?: string
   id: number
   topic: string
   status: string // "waiting" | "started" | "finished"

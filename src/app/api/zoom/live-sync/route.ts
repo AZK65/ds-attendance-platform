@@ -25,6 +25,7 @@ export async function POST(request: NextRequest) {
       if (participants) {
         restoredFromZoom = hydrateFromApi({
           meetingId: String(details.id),
+          meetingUUID: details.uuid,
           topic: details.topic,
           startTime: details.start_time,
           participants,
@@ -34,6 +35,7 @@ export async function POST(request: NextRequest) {
         // a live roster. New webhook joins will continue to populate it.
         hydrateFromApi({
           meetingId: String(details.id),
+          meetingUUID: details.uuid,
           topic: details.topic,
           startTime: details.start_time,
           participants: [],
@@ -55,7 +57,7 @@ export async function POST(request: NextRequest) {
         ? `Restored ${restored} participant${restored === 1 ? '' : 's'}.`
         : dashboardAvailable
           ? 'Zoom is synchronized. No additional participants were found.'
-          : 'Saved attendance was checked. This Zoom plan cannot retrieve a live roster, so students who joined while the server was offline must rejoin or be marked present manually.',
+          : 'Zoom webhooks are reconnected. Students missed during the restart will be recovered from their next join or leave event, then the complete class will be verified from Zoom after the meeting ends.',
     })
   } catch (error) {
     console.error('[Live Sync] Error:', error)

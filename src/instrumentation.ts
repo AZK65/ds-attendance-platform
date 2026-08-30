@@ -9,6 +9,7 @@ export async function register() {
 
     let isProcessing = false
     let isPolling = false
+    let isReconcilingZoom = false
 
     // Process scheduled messages every 30 seconds
     async function processScheduledMessages() {
@@ -55,10 +56,35 @@ export async function register() {
       }
     }
 
+    // If the server missed meeting.ended during a restart, detect that the
+    // tracked meeting has closed and rebuild final attendance from Zoom's
+    // completed-meeting report.
+    async function reconcileZoomAttendance() {
+      if (isReconcilingZoom) return
+      isReconcilingZoom = true
+      try {
+        const res = await fetch(`${BASE_URL}/api/zoom/reconcile-live`, {
+          method: 'POST',
+          headers: { 'x-internal': '1' },
+        })
+        if (res.ok) {
+          const data = await res.json()
+          if (data.reconciled) {
+            console.log(`[ZoomRecovery] Reconciled ${data.matchedCount} attendee(s)`)
+          }
+        }
+      } catch {
+        // Report may not be ready yet; the next interval retries.
+      } finally {
+        isReconcilingZoom = false
+      }
+    }
+
     // Wait for the server to be ready before starting intervals
     const STARTUP_DELAY = 10_000 // 10 seconds
     const MESSAGE_INTERVAL = 30_000 // 30 seconds
     const POLL_INTERVAL = 15_000 // 15 seconds
+    const ZOOM_RECONCILE_INTERVAL = 60_000 // 1 minute
 
     setTimeout(async () => {
       // Rehydrate live Zoom store from the persisted snapshot so a server
@@ -88,6 +114,8 @@ export async function register() {
 
       processScheduledMessages()
       setInterval(processScheduledMessages, MESSAGE_INTERVAL)
+      reconcileZoomAttendance()
+      setInterval(reconcileZoomAttendance, ZOOM_RECONCILE_INTERVAL)
 
       // Stagger the poller start by 15 seconds so they don't overlap on startup
       setTimeout(() => {
