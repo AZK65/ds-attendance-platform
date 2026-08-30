@@ -1,8 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server'
 import JSZip from 'jszip'
-import { PDFDocument, StandardFonts, rgb, type PDFFont, type PDFPage } from 'pdf-lib'
+import { PDFDocument, StandardFonts } from 'pdf-lib'
+import { promises as fs } from 'fs'
+import path from 'path'
 import { prisma } from '@/lib/db'
 import { getStudentById, searchStudents, type StudentRecord } from '@/lib/external-db'
+import { getPricing, type ClassPricing } from '@/lib/pricing'
 
 export const runtime = 'nodejs'
 
@@ -44,43 +47,6 @@ function decodeUpload(value: string | null | undefined): { bytes: Buffer; extens
   }
 }
 
-const CLASS_5_TERMS = [
-  ['Agreement', 'This agreement is entered into between the student and Qazi Driving School for enrolment in the Class 5 driving course. The course is approximately one year in length and is governed by an eighteen-month contract. If the course extends beyond eighteen months, an additional fee of $150 plus applicable taxes will be charged.'],
-  ['School hours and eligibility', 'The School operates daily from 11:00 AM to 7:00 PM and is closed on Fridays. The minimum age for enrolment is sixteen years. All fees referenced in this agreement are exclusive of applicable taxes unless otherwise stated.'],
-  ['Course fee', 'The total course cost presented during registration is inclusive of taxes and course materials and is payable in installments according to the payment schedule shown to the student.'],
-  ['1. Missed theory class', 'If the student misses a scheduled theory class, the student must wait for the next available group covering the missed material before resuming the course. No time limit applies to this provision.'],
-  ['2. Missed road class', 'The student must provide at least twenty-four hours advance notice for a cancellation or rescheduling of a road class. Failure to provide notice results in a penalty of $40 plus applicable taxes.'],
-  ['3. Cancellation of contract', 'The cancellation policy takes effect immediately when this agreement is signed. Cancellation charges are: a $150 administrative fee plus taxes; $18.85 plus taxes for each two-hour theory class attended; $42.91 plus taxes for each one-hour road class attended; and course books and materials are non-refundable.'],
-  ['4. Contract duration', 'This contract remains in effect for eighteen months from the registration date. A continuation fee of $150 plus applicable taxes applies if additional time is required.'],
-  ["5. In-school exam retakes", 'After two unsuccessful in-school written examination attempts, a fee of $40 plus applicable taxes applies to each later attempt.'],
-  ['6. Acknowledgement', 'By signing, the student acknowledges that they have read, understood, and agreed to these terms and confirms that the information supplied during registration is accurate.'],
-] as const
-
-function plainPdfText(value: string) {
-  return value
-    .normalize('NFKD')
-    .replace(/[\u0300-\u036f]/g, '')
-    .replace(/[\u2018\u2019]/g, "'")
-    .replace(/[\u201c\u201d]/g, '"')
-    .replace(/[\u2013\u2014]/g, '-')
-}
-
-function wrapPdfText(text: string, font: PDFFont, size: number, maxWidth: number) {
-  const words = plainPdfText(text).split(/\s+/)
-  const lines: string[] = []
-  let line = ''
-  for (const word of words) {
-    const candidate = line ? `${line} ${word}` : word
-    if (font.widthOfTextAtSize(candidate, size) <= maxWidth) line = candidate
-    else {
-      if (line) lines.push(line)
-      line = word
-    }
-  }
-  if (line) lines.push(line)
-  return lines
-}
-
 async function buildClass5AgreementPdf(registration: {
   fullName: string | null
   phoneNumber: string | null
@@ -89,82 +55,83 @@ async function buildClass5AgreementPdf(registration: {
   city: string | null
   province: string | null
   postalCode: string | null
+  dob: string | null
   permitNumber: string | null
   signatureImage: string | null
   submittedAt: Date | null
   createdAt: Date
+}, options: {
+  contractNumber: string
+  pricing: ClassPricing
+  gstNumber: string
+  qstNumber: string
 }) {
-  const doc = await PDFDocument.create()
-  const regular = await doc.embedFont(StandardFonts.Helvetica)
-  const bold = await doc.embedFont(StandardFonts.HelveticaBold)
-  const ink = rgb(0.08, 0.08, 0.09)
-  const muted = rgb(0.38, 0.39, 0.43)
-  const accent = rgb(0.75, 0.05, 0.08)
-  const margin = 48
-  const width = 612 - margin * 2
-  let page!: PDFPage
-  let y!: number
-
-  const newPage = () => {
-    page = doc.addPage([612, 792])
-    y = 744
-    page.drawText('QAZI DRIVING SCHOOL', { x: margin, y, size: 9, font: bold, color: accent })
-    page.drawText('Class 5 Registration Agreement', { x: margin, y: y - 25, size: 21, font: bold, color: ink })
-    page.drawLine({ start: { x: margin, y: y - 36 }, end: { x: 612 - margin, y: y - 36 }, thickness: 1, color: accent })
-    y -= 58
+  const templatePath = path.join(process.cwd(), 'public', 'forms', 'qazi-class-5-official-contract-fillable.pdf')
+  const doc = await PDFDocument.load(await fs.readFile(templatePath))
+  const form = doc.getForm()
+  const font = await doc.embedFont(StandardFonts.Helvetica)
+  const fullName = registration.fullName?.trim() || ''
+  const commaParts = fullName.includes(',') ? fullName.split(',').map(part => part.trim()) : null
+  const words = fullName.split(/\s+/).filter(Boolean)
+  const lastName = commaParts ? commaParts[0] : words.length > 1 ? words.at(-1) || '' : fullName
+  const firstName = commaParts ? commaParts.slice(1).join(' ') : words.length > 1 ? words.slice(0, -1).join(' ') : ''
+  const acceptedAt = registration.submittedAt || registration.createdAt
+  const firstCourseDate = acceptedAt.toISOString().slice(0, 10)
+  const end = new Date(acceptedAt)
+  end.setMonth(end.getMonth() + 18)
+  const total = options.pricing.total
+  const beforeTax = Math.round((total / 1.14975) * 100) / 100
+  const gstAmount = Math.round(beforeTax * 0.05 * 100) / 100
+  const qstAmount = Math.round(beforeTax * 0.09975 * 100) / 100
+  const values: Record<string, string> = {
+    contractNumberPage1: options.contractNumber,
+    contractNumberPage2: options.contractNumber,
+    lastName,
+    firstName,
+    streetAddress: registration.fullAddress || '',
+    studentCity: registration.city || '',
+    studentPostalCode: registration.postalCode || '',
+    homePhone: registration.phoneNumber || '',
+    dateOfBirth: registration.dob || '',
+    learnerLicenceNumber: registration.permitNumber || '',
+    email: registration.email || '',
+    theoryHours: '24',
+    practicalHours: '15',
+    totalHours: '39',
+    totalBeforeTax: beforeTax.toFixed(2),
+    gstNumber: options.gstNumber,
+    gstAmount: gstAmount.toFixed(2),
+    qstNumber: options.qstNumber,
+    qstAmount: qstAmount.toFixed(2),
+    totalAfterTax: total.toFixed(2),
+    cancellationNoticeHours: '24',
+    firstCourseDate,
+    contractEndDate: end.toISOString().slice(0, 10),
+    signedPlace: registration.city ? `${registration.city}, QC` : 'MONTREAL QC',
+    signedDate: firstCourseDate,
+    studentNameSignatureLine: fullName,
   }
-  newPage()
-
-  const drawWrapped = (text: string, options?: { font?: PDFFont; size?: number; color?: ReturnType<typeof rgb>; gap?: number }) => {
-    const selectedFont = options?.font || regular
-    const size = options?.size || 9.5
-    const lineHeight = size * 1.42
-    const lines = wrapPdfText(text, selectedFont, size, width)
-    if (y - lines.length * lineHeight < 62) newPage()
-    for (const line of lines) {
-      page.drawText(line, { x: margin, y, size, font: selectedFont, color: options?.color || ink })
-      y -= lineHeight
-    }
-    y -= options?.gap ?? 8
+  options.pricing.schedule.slice(0, 4).forEach((installment, index) => {
+    values[`installment${index + 1}Amount`] = installment.amount.toFixed(2)
+  })
+  for (const [name, value] of Object.entries(values)) {
+    if (!value) continue
+    try { form.getTextField(name).setText(value) } catch { /* optional field */ }
   }
+  try { form.getCheckBox('trainingAutomobile').check() } catch { /* already checked in template */ }
+  form.updateFieldAppearances(font)
 
-  drawWrapped(`Student: ${registration.fullName || 'Not recorded'}`, { font: bold, size: 10.5, gap: 3 })
-  drawWrapped(`Phone: ${registration.phoneNumber || 'Not recorded'}    Email: ${registration.email || 'Not recorded'}`, { size: 9, color: muted, gap: 3 })
-  drawWrapped(`Address: ${[registration.fullAddress, registration.city, registration.province, registration.postalCode].filter(Boolean).join(', ') || 'Not recorded'}`, { size: 9, color: muted, gap: 3 })
-  drawWrapped(`Permit: ${registration.permitNumber || 'Not recorded'}    Registration accepted: ${(registration.submittedAt || registration.createdAt).toISOString().slice(0, 10)}`, { size: 9, color: muted, gap: 16 })
-
-  for (const [title, body] of CLASS_5_TERMS) {
-    drawWrapped(title, { font: bold, size: 10, gap: 3 })
-    drawWrapped(body, { size: 9.2, gap: 10 })
-  }
-
-  if (y < 180) newPage()
-  drawWrapped('Student acceptance and signature', { font: bold, size: 11, gap: 5 })
-  drawWrapped('The completed registration records the student acceptance of the terms above and confirmation that the information provided is accurate.', { size: 9, color: muted, gap: 8 })
   const signature = decodeUpload(registration.signatureImage)
   if (signature) {
     try {
       const image = signature.extension === 'jpg'
         ? await doc.embedJpg(signature.bytes)
         : await doc.embedPng(signature.bytes)
-      const maxW = 220
-      const maxH = 80
-      const scale = Math.min(maxW / image.width, maxH / image.height, 1)
-      const imageW = image.width * scale
-      const imageH = image.height * scale
-      page.drawImage(image, { x: margin, y: y - imageH, width: imageW, height: imageH })
-      y -= imageH + 7
-    } catch {
-      page.drawText('[Signature image is stored with the registration]', { x: margin, y, size: 9, font: regular, color: muted })
-      y -= 22
-    }
-  } else {
-    page.drawText('[No signature image found]', { x: margin, y, size: 9, font: regular, color: muted })
-    y -= 22
+      const page = doc.getPage(1)
+      const scale = Math.min(175 / image.width, 36 / image.height)
+      page.drawImage(image, { x: 70, y: 58, width: image.width * scale, height: image.height * scale })
+    } catch { /* retain the typed student name when the signature image is unreadable */ }
   }
-  page.drawLine({ start: { x: margin, y }, end: { x: margin + 240, y }, thickness: 0.7, color: muted })
-  page.drawText('Student signature', { x: margin, y: y - 14, size: 8, font: regular, color: muted })
-
   return Buffer.from(await doc.save())
 }
 
@@ -281,9 +248,10 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: 'No matching student records found' }, { status: 404 })
     }
 
-    const [invoiceSettings, schoolSettings] = await Promise.all([
+    const [invoiceSettings, schoolSettings, pricing] = await Promise.all([
       prisma.invoiceSettings.findUnique({ where: { id: 'default' } }),
       prisma.certificateSettings.findUnique({ where: { id: 'default' } }),
+      getPricing(),
     ])
 
     const zip = new JSZip()
@@ -334,9 +302,18 @@ export async function GET(request: NextRequest) {
       )
     } else if (registration?.vehicleType === 'car') {
       try {
-        const agreement = await buildClass5AgreementPdf(registration)
-        zip.file('Contract/class-5-registration-agreement.pdf', agreement)
-        notes.push({ status: 'included', label: 'Class 5 registration agreement' })
+        const agreement = await buildClass5AgreementPdf(registration, {
+          contractNumber: String(
+            externalStudent?.user_defined_contract_number ||
+            externalStudent?.contract_number ||
+            registration.id,
+          ),
+          pricing: pricing.car,
+          gstNumber: invoiceSettings?.gstNumber || '',
+          qstNumber: invoiceSettings?.qstNumber || '',
+        })
+        zip.file('Contract/class-5-official-sales-contract.pdf', agreement)
+        notes.push({ status: 'included', label: 'Official Class 5 sales contract' })
       } catch (error) {
         notes.push({
           status: 'failed',
