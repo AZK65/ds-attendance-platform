@@ -502,6 +502,11 @@ export default function StudentProfilePage() {
               </Link>
             </Button>
             <AttendanceSheetButton phone={phone} />
+            <Button variant="outline" size="sm" asChild>
+              <a href={`/api/students/documents?studentId=${encodeURIComponent(studentId)}`}>
+                <Download className="h-4 w-4 mr-1" /> Download Documents
+              </a>
+            </Button>
             <Button variant="outline" size="sm" onClick={() => setShowLms(true)}>
               <GraduationCap className="h-4 w-4 mr-1" /> LMS Activity
             </Button>

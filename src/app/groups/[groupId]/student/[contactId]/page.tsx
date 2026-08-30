@@ -1301,6 +1301,18 @@ export default function StudentDetailPage() {
                   </Link>
                 </Button>
                 <AttendanceSheetButton phone={phone} />
+                <Button variant="outline" size="sm" asChild>
+                  <a
+                    href={`/api/students/documents?${new URLSearchParams({
+                      ...(profileData?.dbStudent?.student_id ? { studentId: String(profileData.dbStudent.student_id) } : {}),
+                      phone,
+                      name: displayName,
+                      ...(profileData?.localStudent?.id ? { localStudentId: profileData.localStudent.id } : {}),
+                    }).toString()}`}
+                  >
+                    <Download className="h-4 w-4 mr-1" /> Download Documents
+                  </a>
+                </Button>
                 <Button variant="outline" size="sm" onClick={startEditing}>
                   <Edit3 className="h-4 w-4 mr-1" />
                   Edit
