@@ -32,7 +32,8 @@ export async function register() {
       }
     }
 
-    // Poll Teamup for changes every 2 minutes
+    // Poll Teamup frequently so direct calendar cancellations and reschedules
+    // reach WhatsApp while the admin is still working in Teamup.
     async function pollTeamupChanges() {
       if (isPolling) return
       isPolling = true
@@ -57,7 +58,7 @@ export async function register() {
     // Wait for the server to be ready before starting intervals
     const STARTUP_DELAY = 10_000 // 10 seconds
     const MESSAGE_INTERVAL = 30_000 // 30 seconds
-    const POLL_INTERVAL = 2 * 60_000 // 2 minutes
+    const POLL_INTERVAL = 15_000 // 15 seconds
 
     setTimeout(async () => {
       // Rehydrate live Zoom store from the persisted snapshot so a server
@@ -83,7 +84,7 @@ export async function register() {
       }
 
       console.log('[ServerProcessor] Starting server-side scheduled message processor (every 30s)')
-      console.log('[ServerPoller] Starting server-side Teamup change poller (every 2m)')
+      console.log('[ServerPoller] Starting server-side Teamup change poller (every 15s)')
 
       processScheduledMessages()
       setInterval(processScheduledMessages, MESSAGE_INTERVAL)

@@ -147,6 +147,7 @@ export async function POST() {
     const url = `${BASE_URL}/${calendarKey}/events?startDate=${startDate}&endDate=${endDate}`
     const res = await fetch(url, {
       headers: { 'Teamup-Token': apiKey },
+      cache: 'no-store',
     })
 
     if (!res.ok) {
