@@ -68,7 +68,13 @@ export async function autoSaveAttendanceOnMeetingEnd(opts: AutoSaveOptions): Pro
     select: {
       id: true,
       moduleNumber: true,
-      members: { select: { phone: true, contact: { select: { name: true, pushName: true } } } },
+      members: {
+        select: {
+          phone: true,
+          isSuperAdmin: true,
+          contact: { select: { name: true, pushName: true } },
+        },
+      },
     },
   })
   if (groups.length === 0) return { saved: false, reason: 'No groups in DB' }
@@ -92,7 +98,7 @@ export async function autoSaveAttendanceOnMeetingEnd(opts: AutoSaveOptions): Pro
 
   for (const g of groups) {
     if (g.members.length === 0) continue
-    const members = g.members.map(m => ({
+    const members = g.members.filter(m => !m.isSuperAdmin).map(m => ({
       name: m.contact.name,
       pushName: m.contact.pushName,
       phone: m.phone,

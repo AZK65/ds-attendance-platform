@@ -58,7 +58,11 @@ export async function reconcileEndedMeetingAttendance(options: ReconcileOptions)
       select: {
         id: true,
         members: {
-          select: { phone: true, contact: { select: { name: true, pushName: true } } },
+          select: {
+            phone: true,
+            isSuperAdmin: true,
+            contact: { select: { name: true, pushName: true } },
+          },
         },
       },
     }),
@@ -77,7 +81,7 @@ export async function reconcileEndedMeetingAttendance(options: ReconcileOptions)
 
   for (const group of groups) {
     if (group.members.length === 0) continue
-    const members = group.members.map(member => ({
+    const members = group.members.filter(member => !member.isSuperAdmin).map(member => ({
       name: member.contact.name,
       pushName: member.contact.pushName,
       phone: member.phone,
