@@ -131,29 +131,18 @@ function AttendanceSheetButton({ phone }: { phone: string }) {
 
   return (
     <>
-      <div className="inline-flex rounded-md overflow-hidden border" role="group">
-        <button
-          type="button"
-          onClick={() => setShowHistory(true)}
-          className="inline-flex items-center gap-1.5 h-9 px-3 text-sm hover:bg-accent transition-colors"
-          title="View sign-in history"
-        >
-          <FileSignature className="h-4 w-4" />
-          Attendance
-          {count > 0 && (
-            <Badge variant="secondary" className="ml-0.5 text-[10px] px-1.5">{count}</Badge>
-          )}
-        </button>
-        <a
-          href={`/api/scheduling/signature/pdf?phone=${encodeURIComponent(phone)}`}
-          target="_blank"
-          rel="noopener"
-          className="inline-flex items-center gap-1 h-9 px-2.5 border-l text-xs hover:bg-accent transition-colors text-muted-foreground"
-          title="Download SAAQ attendance booklet PDF"
-        >
-          PDF
-        </a>
-      </div>
+      <Button
+        type="button"
+        variant="ghost"
+        size="sm"
+        onClick={() => setShowHistory(true)}
+        className="text-muted-foreground transition-all duration-700 ease-[cubic-bezier(0.32,0.72,0,1)] hover:text-foreground"
+        title="View sign-in history"
+      >
+        <FileSignature className="h-4 w-4" />
+        Attendance
+        {count > 0 && <Badge variant="secondary" className="ml-0.5 text-xs">{count}</Badge>}
+      </Button>
 
       <Dialog open={showHistory} onOpenChange={setShowHistory}>
         <DialogContent className="max-w-2xl">
@@ -452,66 +441,68 @@ export default function StudentProfilePage() {
   }
 
   return (
-    <main className="max-w-3xl mx-auto p-4 sm:p-6 space-y-6">
+    <main className="max-w-5xl mx-auto p-4 sm:p-6 space-y-6">
       {/* Header — same as group profile */}
       <motion.div initial={{ opacity: 0, y: -10 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.25 }}>
         <Button variant="ghost" size="sm" asChild className="mb-4">
           <Link href="/students"><ArrowLeft className="h-4 w-4 mr-1" /> Back to Students</Link>
         </Button>
 
-        <div className="space-y-4">
-          <div className="flex items-center gap-5 min-w-0">
+        <section className="overflow-hidden rounded-xl bg-muted/40">
+          <div className="flex flex-col gap-6 p-6 sm:flex-row sm:items-center sm:justify-between">
+          <div className="flex items-center gap-4 min-w-0">
             <StudentAvatar
               src={data?.localStudent?.avatarImage || null}
               name={displayName}
-              size={96}
+              size={80}
               className="shrink-0"
               zoomable
             />
             <div className="min-w-0">
-              <div className="flex items-center gap-2.5 min-w-0">
-                <h1 className="text-3xl font-bold truncate leading-tight">{displayName}</h1>
+              <div className="flex items-center gap-2 min-w-0">
+                <h1 className="text-3xl font-semibold tracking-tight truncate">{displayName}</h1>
                 {data?.vehicleType === 'truck' ? (
-                  <Badge className="bg-amber-100 text-amber-800 border-amber-300 hover:bg-amber-100 font-medium shrink-0">
+                  <Badge variant="outline" className="border-foreground/15 bg-background text-foreground font-medium shrink-0">
                     <Truck className="h-3.5 w-3.5 mr-1" /> Truck
                   </Badge>
                 ) : (
-                  <Badge className="bg-blue-100 text-blue-800 border-blue-300 hover:bg-blue-100 font-medium shrink-0">
+                  <Badge variant="outline" className="border-foreground/15 bg-background text-foreground font-medium shrink-0">
                     <Car className="h-3.5 w-3.5 mr-1" /> Car
                   </Badge>
                 )}
               </div>
-              <a href={`tel:+${phone}`} className="text-muted-foreground hover:text-primary flex items-center gap-1.5 mt-1.5">
+              <a href={`tel:+${phone}`} className="mt-1.5 flex w-fit items-center gap-1.5 text-sm text-muted-foreground transition-all duration-700 ease-[cubic-bezier(0.32,0.72,0,1)] hover:text-foreground">
                 <Phone className="h-4 w-4" /> +{phone}
               </a>
             </div>
           </div>
-          <div className="flex gap-2 flex-wrap">
-            <Button variant="default" size="sm" asChild>
+          <div className="flex shrink-0 flex-wrap gap-2">
+            <Button variant="default" asChild>
               <Link href={`/scheduling?bookFor=${encodeURIComponent(displayName)}&phone=${encodeURIComponent(phone)}`}>
-                <CalendarDays className="h-4 w-4 mr-1" /> Book Class
+                <CalendarDays className="h-4 w-4" /> Book Class
               </Link>
             </Button>
-            <Button variant="outline" size="sm" asChild>
+            <StudentDocumentDownloadDialog studentName={displayName} params={{ studentId }} />
+            </div>
+            </div>
+
+          <nav aria-label="Student actions" className="flex flex-wrap items-center gap-1 border-t border-foreground/10 px-4 py-2">
+            <Button variant="ghost" size="sm" asChild className="text-muted-foreground hover:text-foreground">
               <Link href={`/certificate?studentName=${encodeURIComponent(displayName)}&studentPhone=${encodeURIComponent(phone)}`}>
-                <Award className="h-4 w-4 mr-1" /> Certificate
+                <Award className="h-4 w-4" /> Certificate
               </Link>
             </Button>
-            <Button variant="outline" size="sm" asChild>
+            <Button variant="ghost" size="sm" asChild className="text-muted-foreground hover:text-foreground">
               <Link href={`/invoice?studentName=${encodeURIComponent(student.full_name)}&studentPhone=${encodeURIComponent(student.phone_number)}&studentAddress=${encodeURIComponent(student.full_address || '')}&studentCity=${encodeURIComponent(student.city || '')}&studentPostalCode=${encodeURIComponent(student.postal_code || '')}&studentEmail=${encodeURIComponent(data.localStudent?.email || student.email || "")}`}>
-                <Receipt className="h-4 w-4 mr-1" /> Invoice
+                <Receipt className="h-4 w-4" /> Invoice
               </Link>
             </Button>
             <AttendanceSheetButton phone={phone} />
-            <StudentDocumentDownloadDialog
-              studentName={displayName}
-              params={{ studentId }}
-            />
-            <Button variant="outline" size="sm" onClick={() => setShowLms(true)}>
-              <GraduationCap className="h-4 w-4 mr-1" /> LMS Activity
+            <Button variant="ghost" size="sm" onClick={() => setShowLms(true)} className="text-muted-foreground hover:text-foreground">
+              <GraduationCap className="h-4 w-4" /> LMS Activity
             </Button>
-          </div>
-        </div>
+          </nav>
+        </section>
       </motion.div>
 
       <LmsActivityPanel
@@ -525,49 +516,49 @@ export default function StudentProfilePage() {
         }}
       />
 
-      {/* Info Cards — same 6-column layout */}
-      <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.1, duration: 0.25 }} className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
+      {/* Student summary */}
+      <motion.section initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.1, duration: 0.25 }} className="grid grid-cols-2 gap-2 rounded-xl bg-muted/40 p-2 sm:grid-cols-3 lg:grid-cols-6">
         {groups.length > 0 ? (
-          <Link href={`/groups/${encodeURIComponent(groups[0].groupId)}`} className="p-3 border rounded-lg text-center hover:bg-accent/50 transition-colors cursor-pointer block">
-            <Users className="h-5 w-5 mx-auto text-muted-foreground mb-1" />
+          <Link href={`/groups/${encodeURIComponent(groups[0].groupId)}`} className="min-w-0 rounded-lg p-3 transition-all duration-700 ease-[cubic-bezier(0.32,0.72,0,1)] hover:bg-background">
+            <Users className="mb-2 h-4 w-4 text-muted-foreground" />
             <p className="text-xs text-muted-foreground">Group</p>
-            <p className="font-medium text-sm truncate text-primary">{groups[0].groupName}</p>
+            <p className="truncate text-sm font-semibold">{groups[0].groupName}</p>
           </Link>
         ) : (
-          <div className="p-3 border rounded-lg text-center">
-            <Users className="h-5 w-5 mx-auto text-muted-foreground mb-1" />
+          <div className="min-w-0 rounded-lg p-3">
+            <Users className="mb-2 h-4 w-4 text-muted-foreground" />
             <p className="text-xs text-muted-foreground">Group</p>
-            <p className="font-medium text-sm text-muted-foreground">None</p>
+            <p className="text-sm font-semibold text-muted-foreground">None</p>
           </div>
         )}
-        <div className="p-3 border rounded-lg text-center">
-          <Shield className="h-5 w-5 mx-auto text-muted-foreground mb-1" />
+        <div className="rounded-lg p-3">
+          <Shield className="mb-2 h-4 w-4 text-muted-foreground" />
           <p className="text-xs text-muted-foreground">Status</p>
-          <p className="font-medium text-sm">{student.status || 'Active'}</p>
+          <p className="text-sm font-semibold">{student.status || 'Active'}</p>
         </div>
-        <div className="p-3 border rounded-lg text-center">
-          <CalendarDays className="h-5 w-5 mx-auto text-muted-foreground mb-1" />
+        <div className="rounded-lg p-3">
+          <CalendarDays className="mb-2 h-4 w-4 text-muted-foreground" />
           <p className="text-xs text-muted-foreground">Classes</p>
-          <p className="font-medium text-sm">{studentEvents.length}</p>
+          <p className="text-sm font-semibold tabular-nums">{studentEvents.length}</p>
         </div>
-        <div className="p-3 border rounded-lg text-center">
-          <GraduationCap className="h-5 w-5 mx-auto text-muted-foreground mb-1" />
+        <div className="rounded-lg p-3">
+          <GraduationCap className="mb-2 h-4 w-4 text-muted-foreground" />
           <p className="text-xs text-muted-foreground">Attendance</p>
-          <p className="font-medium text-sm">{Object.keys(attendanceMap).length > 0 ? `${Math.round((Object.values(attendanceMap).filter(v => v).length / Object.keys(attendanceMap).length) * 100)}%` : '-'}</p>
+          <p className="text-sm font-semibold tabular-nums">{Object.keys(attendanceMap).length > 0 ? `${Math.round((Object.values(attendanceMap).filter(v => v).length / Object.keys(attendanceMap).length) * 100)}%` : '—'}</p>
         </div>
-        <div className="p-3 border rounded-lg text-center">
-          <DollarSign className="h-5 w-5 mx-auto text-muted-foreground mb-1" />
+        <div className="rounded-lg p-3">
+          <DollarSign className="mb-2 h-4 w-4 text-muted-foreground" />
           <p className="text-xs text-muted-foreground">Invoiced</p>
-          <p className="font-medium text-sm">${mergedSummary.totalInvoiced.toFixed(2)}</p>
+          <p className="text-sm font-semibold tabular-nums">${mergedSummary.totalInvoiced.toFixed(2)}</p>
         </div>
-        <div className={`p-3 border rounded-lg text-center ${mergedSummary.openBalance > 0 ? 'border-amber-300 bg-amber-50 dark:bg-amber-950/30' : ''}`}>
-          <CreditCard className={`h-5 w-5 mx-auto mb-1 ${mergedSummary.openBalance > 0 ? 'text-amber-600' : 'text-green-600'}`} />
+        <div className={`rounded-lg p-3 ${mergedSummary.openBalance > 0 ? 'bg-amber-50 dark:bg-amber-950/30' : 'bg-background/70'}`}>
+          <CreditCard className={`mb-2 h-4 w-4 ${mergedSummary.openBalance > 0 ? 'text-amber-600' : 'text-green-600'}`} />
           <p className="text-xs text-muted-foreground">Balance</p>
-          <p className={`font-medium text-sm ${mergedSummary.openBalance > 0 ? 'text-amber-700' : 'text-green-700'}`}>
+          <p className={`text-sm font-semibold tabular-nums ${mergedSummary.openBalance > 0 ? 'text-amber-700' : 'text-green-700'}`}>
             {mergedSummary.openBalance > 0 ? `$${mergedSummary.openBalance.toFixed(2)}` : 'Paid up'}
           </p>
         </div>
-      </motion.div>
+      </motion.section>
 
       {/* Database Profile Card */}
       <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.15, duration: 0.25 }}>

@@ -1304,6 +1304,7 @@ export default function StudentDetailPage() {
                 <AttendanceSheetButton phone={phone} />
                 <StudentDocumentDownloadDialog
                   studentName={displayName}
+                  compact
                   params={{
                     studentId: profileData?.dbStudent?.student_id,
                     phone,

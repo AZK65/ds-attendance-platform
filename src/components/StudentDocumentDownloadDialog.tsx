@@ -68,11 +68,13 @@ type DocumentId = (typeof documentOptions)[number]['id']
 interface StudentDocumentDownloadDialogProps {
   studentName: string
   params: Record<string, string | number | null | undefined>
+  compact?: boolean
 }
 
 export function StudentDocumentDownloadDialog({
   studentName,
   params,
+  compact = false,
 }: StudentDocumentDownloadDialogProps) {
   const [open, setOpen] = useState(false)
   const [selected, setSelected] = useState<Set<DocumentId>>(() => new Set())
@@ -118,7 +120,7 @@ export function StudentDocumentDownloadDialog({
       <DialogTrigger asChild>
         <Button
           variant="outline"
-          size="sm"
+          size={compact ? 'sm' : 'default'}
           className="border-foreground/15 bg-background shadow-xs transition-all duration-700 ease-[cubic-bezier(0.32,0.72,0,1)] hover:-translate-y-0.5 hover:border-foreground/30 hover:bg-muted active:translate-y-0"
         >
           <Download className="h-4 w-4" />
