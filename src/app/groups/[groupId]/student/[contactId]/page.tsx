@@ -750,14 +750,19 @@ function AttendanceSheetButton({ phone }: { phone: string }) {
   })
   const count = data?.signatures?.length ?? 0
   return (
-    <Button variant="outline" size="sm" asChild>
+    <Button
+      variant="ghost"
+      size="sm"
+      asChild
+      className="text-muted-foreground transition-all duration-700 ease-[cubic-bezier(0.32,0.72,0,1)] hover:text-foreground"
+    >
       <a
         href={`/api/scheduling/signature/pdf?phone=${encodeURIComponent(phone)}`}
         target="_blank"
         rel="noopener"
       >
         <FileSignature className="h-4 w-4 mr-1" />
-        Attendance Sheet
+        Attendance
         {count > 0 && (
           <Badge variant="secondary" className="ml-1.5 text-[10px] px-1.5">{count}</Badge>
         )}
@@ -1233,7 +1238,7 @@ export default function StudentDetailPage() {
   }
 
   return (
-    <main className="max-w-3xl mx-auto p-4 sm:p-6 space-y-6">
+    <main className="max-w-5xl mx-auto p-4 sm:p-6 space-y-6">
       {/* Header */}
       <motion.div
         initial={{ opacity: 0, y: -10 }}
@@ -1254,71 +1259,78 @@ export default function StudentDetailPage() {
             <span className="text-muted-foreground">Loading...</span>
           </div>
         ) : (
-          <div className="space-y-4">
-            <div className="flex items-center gap-5 min-w-0">
-              <StudentAvatar
-                src={profileData?.localStudent?.avatarImage || null}
-                name={displayName}
-                size={96}
-                className="shrink-0"
-                zoomable
-              />
-              <div className="min-w-0">
-                <div className="flex items-center gap-2.5 min-w-0">
-                  <h1 className="text-3xl font-bold truncate leading-tight">{displayName}</h1>
-                  {profileData?.vehicleType === 'truck' ? (
-                    <Badge className="bg-amber-100 text-amber-800 border-amber-300 hover:bg-amber-100 font-medium shrink-0">
-                      <Truck className="h-3.5 w-3.5 mr-1" /> Truck
+          <section className="overflow-hidden rounded-xl bg-muted/40">
+            <div className="flex flex-col gap-6 p-6 sm:flex-row sm:items-center sm:justify-between">
+              <div className="flex min-w-0 items-center gap-4">
+                <StudentAvatar
+                  src={profileData?.localStudent?.avatarImage || null}
+                  name={displayName}
+                  size={80}
+                  className="shrink-0"
+                  zoomable
+                />
+                <div className="min-w-0">
+                  <div className="flex min-w-0 items-center gap-2.5">
+                    <h1 className="truncate text-3xl font-semibold leading-tight tracking-tight">{displayName}</h1>
+                    <Badge variant="outline" className="shrink-0 border-foreground/15 bg-background font-medium text-foreground">
+                      {profileData?.vehicleType === 'truck' ? (
+                        <><Truck className="mr-1 h-3.5 w-3.5" /> Truck</>
+                      ) : (
+                        <><Car className="mr-1 h-3.5 w-3.5" /> Car</>
+                      )}
                     </Badge>
-                  ) : (
-                    <Badge className="bg-blue-100 text-blue-800 border-blue-300 hover:bg-blue-100 font-medium shrink-0">
-                      <Car className="h-3.5 w-3.5 mr-1" /> Car
-                    </Badge>
-                  )}
+                  </div>
+                  <a
+                    href={`tel:+${phone}`}
+                    className="mt-1.5 flex items-center gap-1.5 text-sm text-muted-foreground transition-colors duration-700 hover:text-foreground"
+                  >
+                    <Phone className="h-4 w-4" />
+                    +{phone}
+                  </a>
                 </div>
-                <a href={`tel:+${phone}`} className="text-muted-foreground hover:text-primary flex items-center gap-1.5 mt-1.5">
-                  <Phone className="h-4 w-4" />
-                  +{phone}
-                </a>
               </div>
+
+              {participant && (
+                <div className="flex shrink-0 flex-wrap gap-2">
+                  <Button asChild>
+                    <Link href={`/scheduling?bookFor=${encodeURIComponent(displayName)}&phone=${encodeURIComponent(phone)}`}>
+                      <CalendarDays className="mr-1 h-4 w-4" />
+                      Book Class
+                    </Link>
+                  </Button>
+                  <StudentDocumentDownloadDialog
+                    studentName={displayName}
+                    params={{
+                      studentId: profileData?.dbStudent?.student_id,
+                      phone,
+                      name: displayName,
+                      localStudentId: profileData?.localStudent?.id,
+                    }}
+                  />
+                </div>
+              )}
             </div>
 
             {participant && (
-              <div className="flex gap-2 flex-wrap">
-                <Button variant="default" size="sm" asChild>
-                  <Link href={`/scheduling?bookFor=${encodeURIComponent(displayName)}&phone=${encodeURIComponent(phone)}`}>
-                    <CalendarDays className="h-4 w-4 mr-1" />
-                    Book Class
-                  </Link>
-                </Button>
-                <Button variant="outline" size="sm" onClick={() => setCertificateMenuOpen(true)}>
-                  <Award className="h-4 w-4 mr-1" />
+              <nav aria-label="Student actions" className="flex flex-wrap items-center gap-1 border-t border-foreground/10 px-4 py-2">
+                <Button variant="ghost" size="sm" className="text-muted-foreground hover:text-foreground" onClick={() => setCertificateMenuOpen(true)}>
+                  <Award className="mr-1 h-4 w-4" />
                   Certificate
                 </Button>
-                <Button variant="outline" size="sm" asChild>
+                <Button variant="ghost" size="sm" className="text-muted-foreground hover:text-foreground" asChild>
                   <Link href={buildInvoiceUrl(profileData, displayName, phone)}>
-                    <Receipt className="h-4 w-4 mr-1" />
+                    <Receipt className="mr-1 h-4 w-4" />
                     Invoice
                   </Link>
                 </Button>
                 <AttendanceSheetButton phone={phone} />
-                <StudentDocumentDownloadDialog
-                  studentName={displayName}
-                  compact
-                  params={{
-                    studentId: profileData?.dbStudent?.student_id,
-                    phone,
-                    name: displayName,
-                    localStudentId: profileData?.localStudent?.id,
-                  }}
-                />
-                <Button variant="outline" size="sm" onClick={startEditing}>
-                  <Edit3 className="h-4 w-4 mr-1" />
+                <Button variant="ghost" size="sm" className="text-muted-foreground hover:text-foreground" onClick={startEditing}>
+                  <Edit3 className="mr-1 h-4 w-4" />
                   Edit
                 </Button>
-              </div>
+              </nav>
             )}
-          </div>
+          </section>
         )}
       </motion.div>
 
@@ -1416,49 +1428,49 @@ export default function StudentDetailPage() {
           initial={{ opacity: 0, y: 10 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ delay: 0.1, duration: 0.25 }}
-          className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-7 gap-3"
+          className="grid grid-cols-2 gap-2 rounded-xl bg-muted/40 p-2 sm:grid-cols-4 lg:grid-cols-7"
         >
-          <Link href={`/groups/${encodeURIComponent(groupId)}`} className="p-3 border rounded-lg text-center hover:bg-accent/50 transition-colors cursor-pointer block">
-            <Users className="h-5 w-5 mx-auto text-muted-foreground mb-1" />
+          <Link href={`/groups/${encodeURIComponent(groupId)}`} className="block rounded-lg p-3 transition-colors duration-700 hover:bg-background">
+            <Users className="mb-2 h-4 w-4 text-muted-foreground" />
             <p className="text-xs text-muted-foreground">Group</p>
-            <p className="font-medium text-sm truncate text-primary">{groupData?.group?.name || '-'}</p>
+            <p className="truncate text-sm font-semibold">{groupData?.group?.name || '-'}</p>
           </Link>
-          <div className="p-3 border rounded-lg text-center">
-            <Shield className="h-5 w-5 mx-auto text-muted-foreground mb-1" />
+          <div className="rounded-lg p-3">
+            <Shield className="mb-2 h-4 w-4 text-muted-foreground" />
             <p className="text-xs text-muted-foreground">Role</p>
-            <p className="font-medium text-sm">
+            <p className="text-sm font-semibold">
               {participant?.isSuperAdmin ? 'Owner' : participant?.isAdmin ? 'Admin' : 'Member'}
             </p>
           </div>
-          <div className="p-3 border rounded-lg text-center">
-            <CalendarDays className="h-5 w-5 mx-auto text-muted-foreground mb-1" />
+          <div className="rounded-lg p-3">
+            <CalendarDays className="mb-2 h-4 w-4 text-muted-foreground" />
             <p className="text-xs text-muted-foreground">Classes</p>
-            <p className="font-medium text-sm">{studentEvents.length}</p>
+            <p className="text-sm font-semibold tabular-nums">{studentEvents.length}</p>
           </div>
-          <div className="p-3 border rounded-lg text-center">
-            <GraduationCap className="h-5 w-5 mx-auto text-muted-foreground mb-1" />
+          <div className="rounded-lg p-3">
+            <GraduationCap className="mb-2 h-4 w-4 text-muted-foreground" />
             <p className="text-xs text-muted-foreground">Attendance</p>
-            <p className="font-medium text-sm">{attendanceStats.rate}%</p>
+            <p className="text-sm font-semibold tabular-nums">{attendanceStats.rate}%</p>
           </div>
-          <div className="p-3 border rounded-lg text-center">
-            <DollarSign className="h-5 w-5 mx-auto text-muted-foreground mb-1" />
+          <div className="rounded-lg p-3">
+            <DollarSign className="mb-2 h-4 w-4 text-muted-foreground" />
             <p className="text-xs text-muted-foreground">Invoiced</p>
-            <p className="font-medium text-sm">
+            <p className="text-sm font-semibold tabular-nums">
               {loadingProfile ? '...' : `$${(profileData?.summary?.totalInvoiced || 0).toFixed(2)}`}
             </p>
           </div>
-          <div className={`p-3 border rounded-lg text-center ${
+          <div className={`rounded-lg p-3 ${
             !loadingProfile && (profileData?.summary?.openBalance || 0) > 0
-              ? 'border-amber-300 bg-amber-50 dark:bg-amber-950/30'
-              : ''
+              ? 'bg-amber-50 dark:bg-amber-950/30'
+              : 'bg-background/70'
           }`}>
-            <CreditCard className={`h-5 w-5 mx-auto mb-1 ${
+            <CreditCard className={`mb-2 h-4 w-4 ${
               !loadingProfile && (profileData?.summary?.openBalance || 0) > 0
                 ? 'text-amber-600'
                 : 'text-green-600'
             }`} />
             <p className="text-xs text-muted-foreground">Balance</p>
-            <p className={`font-medium text-sm ${
+            <p className={`text-sm font-semibold tabular-nums ${
               !loadingProfile && (profileData?.summary?.openBalance || 0) > 0
                 ? 'text-amber-700'
                 : 'text-green-700'
@@ -1472,16 +1484,16 @@ export default function StudentDetailPage() {
             const exams = profileData?.exams || []
             const latestExam = exams[0]
             const cardContent = (
-              <div className={`p-3 border rounded-lg text-center ${
-                latestExam?.passed ? 'border-green-300 bg-green-50 dark:bg-green-950/30' :
-                latestExam?.passed === false ? 'border-red-300 bg-red-50 dark:bg-red-950/30' : ''
-              } ${latestExam?.id ? 'hover:bg-accent/50 transition-colors cursor-pointer' : ''}`}>
-                <ClipboardList className={`h-5 w-5 mx-auto mb-1 ${
+              <div className={`rounded-lg p-3 ${
+                latestExam?.passed ? 'bg-green-50 dark:bg-green-950/30' :
+                latestExam?.passed === false ? 'bg-red-50 dark:bg-red-950/30' : 'bg-background/70'
+              } ${latestExam?.id ? 'cursor-pointer transition-colors duration-700 hover:bg-background' : ''}`}>
+                <ClipboardList className={`mb-2 h-4 w-4 ${
                   latestExam?.passed ? 'text-green-600' :
                   latestExam?.passed === false ? 'text-red-600' : 'text-muted-foreground'
                 }`} />
                 <p className="text-xs text-muted-foreground">Exam</p>
-                <p className={`font-medium text-sm ${
+                <p className={`text-sm font-semibold tabular-nums ${
                   latestExam?.passed ? 'text-green-700' :
                   latestExam?.passed === false ? 'text-red-700' : ''
                 }`}>
