@@ -175,6 +175,13 @@ export async function GET(request: NextRequest) {
     const requestedPhone = request.nextUrl.searchParams.get('phone') || ''
     const requestedName = request.nextUrl.searchParams.get('name') || ''
     const localStudentId = request.nextUrl.searchParams.get('localStudentId') || ''
+    const requestedIncludes = new Set(
+      (request.nextUrl.searchParams.get('include') || '')
+        .split(',')
+        .map(value => value.trim().toLowerCase())
+        .filter(Boolean),
+    )
+    const wants = (category: string) => requestedIncludes.size === 0 || requestedIncludes.has(category)
 
     if (!externalId && !requestedPhone && !requestedName && !localStudentId) {
       return NextResponse.json({ error: 'Student ID, phone, name, or local student ID is required' }, { status: 400 })
@@ -284,58 +291,64 @@ export async function GET(request: NextRequest) {
       }
     }
 
-    if (externalStudent && registration?.medical) {
-      await addPdf(
-        'Medical self-declaration',
-        'Medical/medical-self-declaration.pdf',
-        `/api/students/${externalStudent.student_id}/medical-pdf`,
-      )
-    } else {
-      notes.push({ status: 'unavailable', label: 'Medical self-declaration', detail: 'No completed medical declaration found' })
-    }
-
-    if (registration?.vehicleType === 'truck') {
-      await addPdf(
-        'Class 1 service contract',
-        'Contract/class-1-service-contract-en-fr.pdf',
-        `/api/register/contract?registrationId=${encodeURIComponent(registration.id)}&lang=both`,
-      )
-    } else if (registration?.vehicleType === 'car') {
-      try {
-        const agreement = await buildClass5AgreementPdf(registration, {
-          contractNumber: String(
-            externalStudent?.user_defined_contract_number ||
-            externalStudent?.contract_number ||
-            registration.id,
-          ),
-          pricing: pricing.car,
-          gstNumber: invoiceSettings?.gstNumber || '',
-          qstNumber: invoiceSettings?.qstNumber || '',
-        })
-        zip.file('Contract/class-5-official-sales-contract.pdf', agreement)
-        notes.push({ status: 'included', label: 'Official Class 5 sales contract' })
-      } catch (error) {
-        notes.push({
-          status: 'failed',
-          label: 'Class 5 registration agreement',
-          detail: error instanceof Error ? error.message : 'Unknown error',
-        })
+    if (wants('medical')) {
+      if (externalStudent && registration?.medical) {
+        await addPdf(
+          'Medical self-declaration',
+          'Medical/medical-self-declaration.pdf',
+          `/api/students/${externalStudent.student_id}/medical-pdf`,
+        )
+      } else {
+        notes.push({ status: 'unavailable', label: 'Medical self-declaration', detail: 'No completed medical declaration found' })
       }
-    } else {
-      notes.push({ status: 'unavailable', label: 'Registration agreement', detail: 'No completed registration found' })
     }
 
-    if (phoneSuffix(resolvedPhone).length >= 7) {
-      await addPdf(
-        'Student attendance booklet',
-        'Attendance/student-attendance-booklet.pdf',
-        `/api/scheduling/signature/pdf?phone=${encodeURIComponent(resolvedPhone || '')}`,
-      )
-    } else {
-      notes.push({ status: 'unavailable', label: 'Student attendance booklet', detail: 'No usable phone number found' })
+    if (wants('contract')) {
+      if (registration?.vehicleType === 'truck') {
+        await addPdf(
+          'Class 1 service contract',
+          'Contract/class-1-service-contract-en-fr.pdf',
+          `/api/register/contract?registrationId=${encodeURIComponent(registration.id)}&lang=both`,
+        )
+      } else if (registration?.vehicleType === 'car') {
+        try {
+          const agreement = await buildClass5AgreementPdf(registration, {
+            contractNumber: String(
+              externalStudent?.user_defined_contract_number ||
+              externalStudent?.contract_number ||
+              registration.id,
+            ),
+            pricing: pricing.car,
+            gstNumber: invoiceSettings?.gstNumber || '',
+            qstNumber: invoiceSettings?.qstNumber || '',
+          })
+          zip.file('Contract/class-5-official-sales-contract.pdf', agreement)
+          notes.push({ status: 'included', label: 'Official Class 5 sales contract' })
+        } catch (error) {
+          notes.push({
+            status: 'failed',
+            label: 'Class 5 registration agreement',
+            detail: error instanceof Error ? error.message : 'Unknown error',
+          })
+        }
+      } else {
+        notes.push({ status: 'unavailable', label: 'Registration agreement', detail: 'No completed registration found' })
+      }
     }
 
-    if (localStudent?.certificates.length) {
+    if (wants('attendance')) {
+      if (phoneSuffix(resolvedPhone).length >= 7) {
+        await addPdf(
+          'Student attendance booklet',
+          'Attendance/student-attendance-booklet.pdf',
+          `/api/scheduling/signature/pdf?phone=${encodeURIComponent(resolvedPhone || '')}`,
+        )
+      } else {
+        notes.push({ status: 'unavailable', label: 'Student attendance booklet', detail: 'No usable phone number found' })
+      }
+    }
+
+    if (wants('certificates') && localStudent?.certificates.length) {
       for (const certificate of localStudent.certificates) {
         const type = certificate.certificateType === 'phase1' ? 'learners' : 'full'
         const stamp = certificate.generatedAt.toISOString().slice(0, 10)
@@ -354,11 +367,11 @@ export async function GET(request: NextRequest) {
           },
         )
       }
-    } else {
+    } else if (wants('certificates')) {
       notes.push({ status: 'unavailable', label: 'Certificates', detail: 'No saved certificates found' })
     }
 
-    if (invoices.length) {
+    if (wants('invoices') && invoices.length) {
       for (const invoice of invoices) {
         let lineItems: Array<{ description: string; quantity: number; unitPrice: number }> = []
         try { lineItems = JSON.parse(invoice.lineItems) } catch { /* generator accepts an empty list */ }
@@ -401,24 +414,26 @@ export async function GET(request: NextRequest) {
           },
         )
       }
-    } else {
+    } else if (wants('invoices')) {
       notes.push({ status: 'unavailable', label: 'Invoices', detail: 'No saved invoices found' })
     }
 
-    const uploads = [
-      { label: 'Permit image', folder: 'Registration', filename: 'permit', value: registration?.permitImage },
-      { label: 'Identification image', folder: 'Registration', filename: 'identification', value: registration?.idImage },
-      { label: 'Profile photo', folder: 'Registration', filename: 'profile-photo', value: registration?.avatarImage || localStudent?.avatarImage },
-      { label: 'Student signature', folder: 'Registration', filename: 'student-signature', value: registration?.signatureImage },
-      { label: 'School representative signature', folder: 'Contract', filename: 'school-representative-signature', value: registration?.repSignatureImage },
-    ]
-    for (const upload of uploads) {
-      const decoded = decodeUpload(upload.value)
-      if (decoded) {
-        zip.file(`${upload.folder}/${upload.filename}.${decoded.extension}`, decoded.bytes)
-        notes.push({ status: 'included', label: upload.label })
-      } else {
-        notes.push({ status: 'unavailable', label: upload.label })
+    if (wants('registration')) {
+      const uploads = [
+        { label: 'Permit image', folder: 'Registration', filename: 'permit', value: registration?.permitImage },
+        { label: 'Identification image', folder: 'Registration', filename: 'identification', value: registration?.idImage },
+        { label: 'Profile photo', folder: 'Registration', filename: 'profile-photo', value: registration?.avatarImage || localStudent?.avatarImage },
+        { label: 'Student signature', folder: 'Registration', filename: 'student-signature', value: registration?.signatureImage },
+        { label: 'School representative signature', folder: 'Contract', filename: 'school-representative-signature', value: registration?.repSignatureImage },
+      ]
+      for (const upload of uploads) {
+        const decoded = decodeUpload(upload.value)
+        if (decoded) {
+          zip.file(`${upload.folder}/${upload.filename}.${decoded.extension}`, decoded.bytes)
+          notes.push({ status: 'included', label: upload.label })
+        } else {
+          notes.push({ status: 'unavailable', label: upload.label })
+        }
       }
     }
 

@@ -24,6 +24,7 @@ import Link from 'next/link'
 import { motion } from 'motion/react'
 import { StudentAvatar } from '@/components/StudentAvatar'
 import { LmsActivityPanel } from '@/components/LmsActivityPanel'
+import { StudentDocumentDownloadDialog } from '@/components/StudentDocumentDownloadDialog'
 
 interface TeamupEvent {
   id: string
@@ -502,11 +503,10 @@ export default function StudentProfilePage() {
               </Link>
             </Button>
             <AttendanceSheetButton phone={phone} />
-            <Button variant="outline" size="sm" asChild>
-              <a href={`/api/students/documents?studentId=${encodeURIComponent(studentId)}`}>
-                <Download className="h-4 w-4 mr-1" /> Download Documents
-              </a>
-            </Button>
+            <StudentDocumentDownloadDialog
+              studentName={displayName}
+              params={{ studentId }}
+            />
             <Button variant="outline" size="sm" onClick={() => setShowLms(true)}>
               <GraduationCap className="h-4 w-4 mr-1" /> LMS Activity
             </Button>

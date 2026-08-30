@@ -59,6 +59,7 @@ import {
 import Link from 'next/link'
 import { motion } from 'motion/react'
 import { StudentAvatar } from '@/components/StudentAvatar'
+import { StudentDocumentDownloadDialog } from '@/components/StudentDocumentDownloadDialog'
 
 interface Participant {
   id: string
@@ -1301,18 +1302,15 @@ export default function StudentDetailPage() {
                   </Link>
                 </Button>
                 <AttendanceSheetButton phone={phone} />
-                <Button variant="outline" size="sm" asChild>
-                  <a
-                    href={`/api/students/documents?${new URLSearchParams({
-                      ...(profileData?.dbStudent?.student_id ? { studentId: String(profileData.dbStudent.student_id) } : {}),
-                      phone,
-                      name: displayName,
-                      ...(profileData?.localStudent?.id ? { localStudentId: profileData.localStudent.id } : {}),
-                    }).toString()}`}
-                  >
-                    <Download className="h-4 w-4 mr-1" /> Download Documents
-                  </a>
-                </Button>
+                <StudentDocumentDownloadDialog
+                  studentName={displayName}
+                  params={{
+                    studentId: profileData?.dbStudent?.student_id,
+                    phone,
+                    name: displayName,
+                    localStudentId: profileData?.localStudent?.id,
+                  }}
+                />
                 <Button variant="outline" size="sm" onClick={startEditing}>
                   <Edit3 className="h-4 w-4 mr-1" />
                   Edit
