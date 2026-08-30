@@ -19,6 +19,7 @@ import {
   HelpCircle,
   Smartphone,
   AlertTriangle,
+  Loader2,
 } from 'lucide-react'
 import Link from 'next/link'
 import { motion } from 'motion/react'
@@ -75,6 +76,8 @@ export default function LiveAttendancePage() {
   const [liveData, setLiveData] = useState<SSEData | null>(null)
   const [expandedPhone, setExpandedPhone] = useState<string | null>(null)
   const [pickingForPhone, setPickingForPhone] = useState<string | null>(null)
+  const [forceSyncing, setForceSyncing] = useState(false)
+  const [syncNotice, setSyncNotice] = useState<{ message: string; error: boolean } | null>(null)
   // Optimistic overrides: shown immediately while waiting for SSE confirmation
   const [optimisticAdds, setOptimisticAdds] = useState<Map<string, string>>(new Map())
   const [optimisticRemoves, setOptimisticRemoves] = useState<Set<string>>(new Set())
@@ -156,6 +159,26 @@ export default function LiveAttendancePage() {
       if (reconnectTimeoutRef.current) clearTimeout(reconnectTimeoutRef.current)
     }
   }, [connectSSE])
+
+  const forceSync = async () => {
+    setForceSyncing(true)
+    setSyncNotice(null)
+    try {
+      const response = await fetch('/api/zoom/live-sync?meetingId=4171672829', { method: 'POST' })
+      const result = await response.json()
+      if (!response.ok || !result.ok) throw new Error(result.error || 'Force sync failed')
+      setSyncNotice({ message: result.message, error: false })
+      await recheckMeeting()
+      connectSSE()
+    } catch (error) {
+      setSyncNotice({
+        message: error instanceof Error ? error.message : 'Force sync failed',
+        error: true,
+      })
+    } finally {
+      setForceSyncing(false)
+    }
+  }
 
   // Derive overrides from SSE data + optimistic state
   const serverOverrides = useMemo(() => {
@@ -306,15 +329,25 @@ export default function LiveAttendancePage() {
             <Button
               variant="outline"
               size="sm"
-              onClick={() => {
-                recheckMeeting()
-                connectSSE()
-              }}
+              onClick={forceSync}
+              disabled={forceSyncing}
+              className="gap-1.5"
             >
-              <RefreshCw className="h-4 w-4" />
+              {forceSyncing ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
+              Force Sync
             </Button>
           </div>
         </motion.div>
+
+        {syncNotice && (
+          <div className={`mb-4 rounded-lg border px-4 py-3 text-sm ${
+            syncNotice.error
+              ? 'border-red-200 bg-red-50 text-red-800 dark:border-red-900/50 dark:bg-red-950/30 dark:text-red-200'
+              : 'border-blue-200 bg-blue-50 text-blue-800 dark:border-blue-900/50 dark:bg-blue-950/30 dark:text-blue-200'
+          }`}>
+            {syncNotice.message}
+          </div>
+        )}
 
         {/* Webhook missing banner — Zoom says meeting is live but neither
             the webhook stream nor the Dashboard API gave us participants.

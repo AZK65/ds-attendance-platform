@@ -315,7 +315,7 @@ export function hydrateFromApi(input: {
   topic?: string
   startTime?: string
   participants: Array<{ id: string; user_name: string; join_time: string; email?: string }>
-}): void {
+}): number {
   if (!currentMeeting) {
     currentMeeting = {
       meetingId: input.meetingId,
@@ -328,9 +328,11 @@ export function hydrateFromApi(input: {
   } else {
     currentMeeting.isLive = true
   }
+  const hostEmails = (process.env.ZOOM_HOST_EMAILS || '')
+    .split(',').map(s => s.trim().toLowerCase()).filter(Boolean)
   let added = 0
   for (const p of input.participants) {
-    if (p.email) continue // Skip licensed/host accounts (same rule as webhook path)
+    if (p.email && hostEmails.includes(p.email.toLowerCase())) continue
     if (!currentMeeting.participants.has(p.id)) added++
     currentMeeting.participants.set(p.id, {
       user_name: p.user_name || 'Unknown',
@@ -341,6 +343,34 @@ export function hydrateFromApi(input: {
   if (added > 0) {
     console.log(`[Live Store] Hydrated ${added} participant(s) from Zoom API`)
     notifyListeners()
+  }
+  return added
+}
+
+/** Re-merge the persisted participant snapshot after an intentional restart. */
+export async function restorePersistedLiveState(): Promise<number> {
+  try {
+    const row = await prisma.appPreference.findUnique({ where: { key: PERSIST_KEY } })
+    if (!row?.value) return 0
+    const saved = JSON.parse(row.value)?.currentMeeting
+    if (!saved?.isLive || !Array.isArray(saved.participants)) return 0
+    if (currentMeeting && currentMeeting.meetingId !== String(saved.meetingId)) return 0
+
+    return hydrateFromApi({
+      meetingId: String(saved.meetingId),
+      meetingUUID: saved.meetingUUID || '',
+      topic: saved.topic || 'Zoom Meeting',
+      startTime: saved.startTime || new Date().toISOString(),
+      participants: saved.participants.map((participant: LiveParticipant) => ({
+        id: participant.user_id,
+        user_name: participant.user_name,
+        join_time: participant.join_time,
+        email: participant.email,
+      })),
+    })
+  } catch (err) {
+    console.error('[Live Store] Forced restore failed:', err)
+    return 0
   }
 }
 
