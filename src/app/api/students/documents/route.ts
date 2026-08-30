@@ -132,8 +132,8 @@ async function buildClass5AgreementPdf(registration: {
         : await doc.embedPng(signature.bytes)
       const page = doc.getPage(1)
       const scale = Math.min(190 / image.width, 22 / image.height)
-      page.drawLine({ start: { x: 55, y: 35 }, end: { x: 278, y: 35 }, thickness: 0.7, color: rgb(0, 0, 0) })
-      page.drawImage(image, { x: 65, y: 37, width: image.width * scale, height: image.height * scale })
+      page.drawLine({ start: { x: 57, y: 111 }, end: { x: 278, y: 111 }, thickness: 0.7, color: rgb(0, 0, 0) })
+      page.drawImage(image, { x: 65, y: 113, width: image.width * scale, height: image.height * scale })
     } catch { /* retain the typed student name when the signature image is unreadable */ }
   }
   return Buffer.from(await doc.save())
