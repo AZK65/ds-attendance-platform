@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import JSZip from 'jszip'
-import { PDFDocument, StandardFonts } from 'pdf-lib'
+import { PDFDocument, rgb, StandardFonts } from 'pdf-lib'
 import { promises as fs } from 'fs'
 import path from 'path'
 import { prisma } from '@/lib/db'
@@ -83,6 +83,7 @@ async function buildClass5AgreementPdf(registration: {
   const beforeTax = Math.round((total / 1.14975) * 100) / 100
   const gstAmount = Math.round(beforeTax * 0.05 * 100) / 100
   const qstAmount = Math.round(beforeTax * 0.09975 * 100) / 100
+  const signature = decodeUpload(registration.signatureImage)
   const values: Record<string, string> = {
     contractNumberPage1: '',
     contractNumberPage2: '',
@@ -109,7 +110,7 @@ async function buildClass5AgreementPdf(registration: {
     contractEndDate: end.toISOString().slice(0, 10),
     signedPlace: registration.city ? `${registration.city}, QC` : 'MONTREAL QC',
     signedDate: firstCourseDate,
-    studentNameSignatureLine: fullName,
+    studentNameSignatureLine: signature ? '' : fullName,
   }
   options.pricing.schedule.slice(0, 4).forEach((installment, index) => {
     values[`installment${index + 1}Amount`] = installment.amount.toFixed(2)
@@ -119,17 +120,20 @@ async function buildClass5AgreementPdf(registration: {
     try { form.getTextField(name).setText(value) } catch { /* optional field */ }
   }
   try { form.getCheckBox('trainingAutomobile').check() } catch { /* already checked in template */ }
+  if (signature) {
+    try { form.removeField(form.getTextField('studentNameSignatureLine')) } catch { /* optional field */ }
+  }
   form.updateFieldAppearances(font)
 
-  const signature = decodeUpload(registration.signatureImage)
   if (signature) {
     try {
       const image = signature.extension === 'jpg'
         ? await doc.embedJpg(signature.bytes)
         : await doc.embedPng(signature.bytes)
       const page = doc.getPage(1)
-      const scale = Math.min(175 / image.width, 36 / image.height)
-      page.drawImage(image, { x: 70, y: 58, width: image.width * scale, height: image.height * scale })
+      const scale = Math.min(190 / image.width, 22 / image.height)
+      page.drawLine({ start: { x: 55, y: 35 }, end: { x: 278, y: 35 }, thickness: 0.7, color: rgb(0, 0, 0) })
+      page.drawImage(image, { x: 65, y: 37, width: image.width * scale, height: image.height * scale })
     } catch { /* retain the typed student name when the signature image is unreadable */ }
   }
   return Buffer.from(await doc.save())
