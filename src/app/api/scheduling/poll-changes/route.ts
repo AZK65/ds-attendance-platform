@@ -167,11 +167,13 @@ export async function POST() {
     // 1. Detect DELETED events (snapshot exists but not in live events)
     for (const snapshot of snapshots) {
       if (!liveEventIds.has(snapshot.eventId)) {
-        // Only treat as cancelled if the event is in the future
-        // Past events disappearing from the API is normal, not a cancellation
-        const eventTime = new Date(snapshot.startDt)
-        if (eventTime < now) {
-          // Past event — just clean up the snapshot, don't notify
+        // Events older than the beginning of this fetch window naturally fall
+        // out of Teamup's response and are only snapshot cleanup. An event that
+        // is still inside the fetched date window but disappears was deleted in
+        // Teamup—even if its start time already passed today—and still needs a
+        // cancellation notice.
+        const snapshotDate = snapshot.startDt.slice(0, 10)
+        if (snapshotDate < startDate) {
           await prisma.teamupEventSnapshot.delete({ where: { eventId: snapshot.eventId } }).catch(() => {})
           continue
         }
