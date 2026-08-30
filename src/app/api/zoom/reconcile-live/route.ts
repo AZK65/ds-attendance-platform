@@ -1,11 +1,29 @@
-import { NextResponse } from 'next/server'
+import { NextRequest, NextResponse } from 'next/server'
 import { getMeetingDetails } from '@/lib/zoom/client'
 import { getCurrentState, handleMeetingEnded, hydrateFromDb } from '@/lib/zoom/live-store'
 import { reconcileEndedMeetingAttendance } from '@/lib/zoom/report-reconciliation'
 
 export const dynamic = 'force-dynamic'
 
-export async function POST() {
+export async function POST(request: NextRequest) {
+  let requestedUUID = request.nextUrl.searchParams.get('meetingUUID') || ''
+  let requestedTopic = request.nextUrl.searchParams.get('topic') || ''
+  try {
+    const body = await request.json()
+    requestedUUID = String(body?.meetingUUID || requestedUUID)
+    requestedTopic = String(body?.topic || requestedTopic)
+  } catch {
+    // Automated polling sends no body.
+  }
+
+  if (requestedUUID) {
+    const result = await reconcileEndedMeetingAttendance({
+      meetingUUID: requestedUUID,
+      topic: requestedTopic,
+    })
+    return NextResponse.json({ ok: true, ...result })
+  }
+
   await hydrateFromDb()
   const state = getCurrentState()
   if (!state.meetingId || !state.meetingUUID) {
