@@ -104,6 +104,7 @@ export function StudentDocumentDownloadDialog({
     setDownloading(mode)
     const query = new URLSearchParams(baseQuery)
     if (mode === 'selected') query.set('include', Array.from(selected).join(','))
+    if (mode === 'all') query.set('archive', '1')
     const link = document.createElement('a')
     link.href = `/api/students/documents?${query.toString()}`
     link.download = ''
@@ -135,7 +136,7 @@ export function StudentDocumentDownloadDialog({
           </div>
           <DialogTitle className="text-xl">Download student documents</DialogTitle>
           <DialogDescription className="max-w-md text-sm">
-            Choose what to include for {studentName}. Files that have not been completed will be noted in the ZIP.
+            Choose what to download for {studentName}. Unavailable files are skipped automatically.
           </DialogDescription>
         </DialogHeader>
 

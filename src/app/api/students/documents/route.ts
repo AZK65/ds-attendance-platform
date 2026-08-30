@@ -10,6 +10,7 @@ import { getPricing, type ClassPricing } from '@/lib/pricing'
 export const runtime = 'nodejs'
 
 type BundleNote = { status: 'included' | 'unavailable' | 'failed'; label: string; detail?: string }
+type DownloadFile = { filename: string; bytes: Buffer; contentType: string }
 
 function digits(value: string | null | undefined) {
   return (value || '').replace(/\D/g, '')
@@ -61,7 +62,6 @@ async function buildClass5AgreementPdf(registration: {
   submittedAt: Date | null
   createdAt: Date
 }, options: {
-  contractNumber: string
   pricing: ClassPricing
   gstNumber: string
   qstNumber: string
@@ -84,8 +84,8 @@ async function buildClass5AgreementPdf(registration: {
   const gstAmount = Math.round(beforeTax * 0.05 * 100) / 100
   const qstAmount = Math.round(beforeTax * 0.09975 * 100) / 100
   const values: Record<string, string> = {
-    contractNumberPage1: options.contractNumber,
-    contractNumberPage2: options.contractNumber,
+    contractNumberPage1: '',
+    contractNumberPage2: '',
     lastName,
     firstName,
     streetAddress: registration.fullAddress || '',
@@ -157,17 +157,6 @@ async function findExternalStudent(externalId: number | null, phone: string, nam
   return null
 }
 
-function externalSummary(student: StudentRecord | null) {
-  if (!student) return []
-  return [
-    `External student ID: ${student.student_id}`,
-    `Permit number: ${student.permit_number || 'Not recorded'}`,
-    `Date of birth: ${student.dob || 'Not recorded'}`,
-    `Address: ${[student.full_address, student.city, student.postal_code].filter(Boolean).join(', ') || 'Not recorded'}`,
-    `Email: ${student.email || 'Not recorded'}`,
-  ]
-}
-
 export async function GET(request: NextRequest) {
   try {
     const externalIdText = request.nextUrl.searchParams.get('studentId') || ''
@@ -182,6 +171,7 @@ export async function GET(request: NextRequest) {
         .filter(Boolean),
     )
     const wants = (category: string) => requestedIncludes.size === 0 || requestedIncludes.has(category)
+    const forceArchive = request.nextUrl.searchParams.get('archive') === '1'
 
     if (!externalId && !requestedPhone && !requestedName && !localStudentId) {
       return NextResponse.json({ error: 'Student ID, phone, name, or local student ID is required' }, { status: 400 })
@@ -263,9 +253,15 @@ export async function GET(request: NextRequest) {
 
     const zip = new JSZip()
     const notes: BundleNote[] = []
+    const downloadFiles: DownloadFile[] = []
     const port = process.env.PORT || '3000'
     const internalBase = `http://localhost:${port}`
     const authCookie = request.headers.get('cookie') || ''
+
+    const addFile = (filename: string, bytes: Buffer, contentType: string) => {
+      zip.file(filename, bytes)
+      downloadFiles.push({ filename, bytes, contentType })
+    }
 
     const addPdf = async (label: string, filename: string, path: string, init?: RequestInit) => {
       try {
@@ -284,7 +280,7 @@ export async function GET(request: NextRequest) {
           return
         }
         const bytes = Buffer.from(await response.arrayBuffer())
-        zip.file(filename, bytes)
+        addFile(filename, bytes, response.headers.get('content-type') || 'application/pdf')
         notes.push({ status: 'included', label })
       } catch (error) {
         notes.push({ status: 'failed', label, detail: error instanceof Error ? error.message : 'Unknown error' })
@@ -313,16 +309,11 @@ export async function GET(request: NextRequest) {
       } else if (registration?.vehicleType === 'car') {
         try {
           const agreement = await buildClass5AgreementPdf(registration, {
-            contractNumber: String(
-              externalStudent?.user_defined_contract_number ||
-              externalStudent?.contract_number ||
-              registration.id,
-            ),
             pricing: pricing.car,
             gstNumber: invoiceSettings?.gstNumber || '',
             qstNumber: invoiceSettings?.qstNumber || '',
           })
-          zip.file('Contract/class-5-official-sales-contract.pdf', agreement)
+          addFile('Contract/class-5-official-sales-contract.pdf', agreement, 'application/pdf')
           notes.push({ status: 'included', label: 'Official Class 5 sales contract' })
         } catch (error) {
           notes.push({
@@ -429,7 +420,14 @@ export async function GET(request: NextRequest) {
       for (const upload of uploads) {
         const decoded = decodeUpload(upload.value)
         if (decoded) {
-          zip.file(`${upload.folder}/${upload.filename}.${decoded.extension}`, decoded.bytes)
+          const contentType = decoded.extension === 'pdf'
+            ? 'application/pdf'
+            : decoded.extension === 'jpg'
+              ? 'image/jpeg'
+              : decoded.extension === 'webp'
+                ? 'image/webp'
+                : 'image/png'
+          addFile(`${upload.folder}/${upload.filename}.${decoded.extension}`, decoded.bytes, contentType)
           notes.push({ status: 'included', label: upload.label })
         } else {
           notes.push({ status: 'unavailable', label: upload.label })
@@ -437,21 +435,23 @@ export async function GET(request: NextRequest) {
       }
     }
 
-    const includedCount = notes.filter(note => note.status === 'included').length
-    const index = [
-      'QAZI DRIVING SCHOOL — STUDENT DOCUMENT BUNDLE',
-      '',
-      `Student: ${resolvedName || 'Unknown'}`,
-      `Phone: ${resolvedPhone || 'Not recorded'}`,
-      ...externalSummary(externalStudent),
-      `Generated: ${new Date().toISOString()}`,
-      '',
-      'CONTENTS',
-      ...notes.map(note => `${note.status === 'included' ? '[INCLUDED]' : note.status === 'failed' ? '[FAILED]' : '[NOT AVAILABLE]'} ${note.label}${note.detail ? ` — ${note.detail}` : ''}`),
-      '',
-      `Included documents/files: ${includedCount}`,
-    ].join('\n')
-    zip.file('DOCUMENT-INDEX.txt', index)
+    if (downloadFiles.length === 0) {
+      return NextResponse.json(
+        { error: 'No selected documents are available for this student', documents: notes },
+        { status: 404 },
+      )
+    }
+
+    if (!forceArchive && downloadFiles.length === 1) {
+      const file = downloadFiles[0]
+      return new NextResponse(file.bytes as unknown as BodyInit, {
+        headers: {
+          'Content-Type': file.contentType,
+          'Content-Disposition': `attachment; filename="${path.basename(file.filename)}"`,
+          'Cache-Control': 'private, no-store',
+        },
+      })
+    }
 
     const archive = await zip.generateAsync({
       type: 'uint8array',
