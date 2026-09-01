@@ -3,7 +3,7 @@ import { MEDICAL_CONDITIONS } from './medical'
 
 export interface MedicalDeclarationPdfInput {
   fullName: string
-  dateOfBirth?: string | null
+  dateOfBirth?: string | Date | null
   phone?: string | null
   permitNumber?: string | null
   address?: string | null
@@ -12,6 +12,18 @@ export interface MedicalDeclarationPdfInput {
   postalCode?: string | null
   medical: string
   signatureImage?: string | null
+}
+
+function displayDate(value: string | Date | null | undefined): string {
+  if (!value) return ''
+  if (value instanceof Date) {
+    return Number.isNaN(value.getTime()) ? '' : value.toISOString().slice(0, 10)
+  }
+
+  const clean = String(value).trim()
+  if (!clean) return ''
+  const date = new Date(clean)
+  return Number.isNaN(date.getTime()) ? clean : date.toISOString().slice(0, 10)
 }
 
 type ParsedMedical = {
@@ -103,7 +115,7 @@ export async function buildMedicalDeclarationPdf(input: MedicalDeclarationPdfInp
   drawField('LAST NAME', lastName, 36, 250)
   drawField('FIRST NAME', firstName, 300, 250)
   y -= 40
-  drawField('DATE OF BIRTH', input.dateOfBirth || '', 36, 190)
+  drawField('DATE OF BIRTH', displayDate(input.dateOfBirth), 36, 190)
   drawField('PHONE', input.phone || '', 240, 190)
   drawField('PERMIT NO.', input.permitNumber || '', 444, 130)
   y -= 40
