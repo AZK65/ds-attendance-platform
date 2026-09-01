@@ -6,6 +6,7 @@ import path from 'path'
 import { prisma } from '@/lib/db'
 import { getStudentById, searchStudents, type StudentRecord } from '@/lib/external-db'
 import { getPricing, type ClassPricing } from '@/lib/pricing'
+import { buildMedicalDeclarationPdf } from '@/lib/medical-pdf'
 
 export const runtime = 'nodejs'
 
@@ -292,12 +293,29 @@ export async function GET(request: NextRequest) {
     }
 
     if (wants('medical')) {
-      if (externalStudent && registration?.medical) {
-        await addPdf(
-          'Medical self-declaration',
-          'Medical/medical-self-declaration.pdf',
-          `/api/students/${externalStudent.student_id}/medical-pdf`,
-        )
+      if (registration?.medical) {
+        try {
+          const medicalPdf = await buildMedicalDeclarationPdf({
+            fullName: resolvedName || registration.fullName || 'Student',
+            dateOfBirth: externalStudent?.dob || registration.dob,
+            phone: resolvedPhone || registration.phoneNumber,
+            permitNumber: externalStudent?.permit_number || localStudent?.licenceNumber || registration.permitNumber,
+            address: externalStudent?.full_address || localStudent?.address || registration.fullAddress,
+            city: externalStudent?.city || localStudent?.municipality || registration.city,
+            province: localStudent?.province || registration.province || 'QC',
+            postalCode: externalStudent?.postal_code || localStudent?.postalCode || registration.postalCode,
+            medical: registration.medical,
+            signatureImage: registration.signatureImage,
+          })
+          addFile('Medical/medical-self-declaration.pdf', medicalPdf, 'application/pdf')
+          notes.push({ status: 'included', label: 'Medical self-declaration' })
+        } catch (error) {
+          notes.push({
+            status: 'failed',
+            label: 'Medical self-declaration',
+            detail: error instanceof Error ? error.message : 'Unknown error',
+          })
+        }
       } else {
         notes.push({ status: 'unavailable', label: 'Medical self-declaration', detail: 'No completed medical declaration found' })
       }

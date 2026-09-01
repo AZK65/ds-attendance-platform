@@ -3,6 +3,7 @@
 import { useMemo, useState } from 'react'
 import {
   Archive,
+  AlertCircle,
   Award,
   ClipboardList,
   Download,
@@ -79,6 +80,7 @@ export function StudentDocumentDownloadDialog({
   const [open, setOpen] = useState(false)
   const [selected, setSelected] = useState<Set<DocumentId>>(() => new Set())
   const [downloading, setDownloading] = useState<'selected' | 'all' | null>(null)
+  const [downloadError, setDownloadError] = useState('')
 
   const baseQuery = useMemo(() => {
     const query = new URLSearchParams()
@@ -99,19 +101,41 @@ export function StudentDocumentDownloadDialog({
     })
   }
 
-  const startDownload = (mode: 'selected' | 'all') => {
+  const startDownload = async (mode: 'selected' | 'all') => {
     if (mode === 'selected' && selected.size === 0) return
     setDownloading(mode)
+    setDownloadError('')
     const query = new URLSearchParams(baseQuery)
     if (mode === 'selected') query.set('include', Array.from(selected).join(','))
     if (mode === 'all') query.set('archive', '1')
-    const link = document.createElement('a')
-    link.href = `/api/students/documents?${query.toString()}`
-    link.download = ''
-    document.body.appendChild(link)
-    link.click()
-    link.remove()
-    window.setTimeout(() => setDownloading(null), 1200)
+    try {
+      const response = await fetch(`/api/students/documents?${query.toString()}`)
+      if (!response.ok) {
+        const payload = await response.json().catch(() => null) as { error?: string } | null
+        throw new Error(payload?.error || 'The selected documents could not be prepared')
+      }
+
+      const blob = await response.blob()
+      const disposition = response.headers.get('content-disposition') || ''
+      const encodedName = /filename\*=UTF-8''([^;]+)/i.exec(disposition)?.[1]
+      const quotedName = /filename="([^"]+)"/i.exec(disposition)?.[1]
+      const plainName = /filename=([^;]+)/i.exec(disposition)?.[1]?.trim()
+      const filename = encodedName
+        ? decodeURIComponent(encodedName)
+        : quotedName || plainName || (mode === 'all' ? 'student-documents.zip' : 'student-document.pdf')
+      const objectUrl = URL.createObjectURL(blob)
+      const link = document.createElement('a')
+      link.href = objectUrl
+      link.download = filename
+      document.body.appendChild(link)
+      link.click()
+      link.remove()
+      window.setTimeout(() => URL.revokeObjectURL(objectUrl), 1000)
+    } catch (error) {
+      setDownloadError(error instanceof Error ? error.message : 'The download failed')
+    } finally {
+      setDownloading(null)
+    }
   }
 
   const allSelected = selected.size === documentOptions.length
@@ -186,9 +210,17 @@ export function StudentDocumentDownloadDialog({
         </div>
 
         <DialogFooter className="border-t bg-muted/30 px-6 py-4 sm:items-center sm:justify-between">
-          <p className="text-xs text-muted-foreground">
-            {selected.size} of {documentOptions.length} categories selected
-          </p>
+          <div>
+            <p className="text-xs text-muted-foreground">
+              {selected.size} of {documentOptions.length} categories selected
+            </p>
+            {downloadError && (
+              <p className="mt-1 flex max-w-64 items-center gap-1.5 text-xs text-destructive">
+                <AlertCircle className="h-3.5 w-3.5 shrink-0" />
+                {downloadError}
+              </p>
+            )}
+          </div>
           <div className="flex flex-col-reverse gap-2 sm:flex-row">
             <Button
               type="button"

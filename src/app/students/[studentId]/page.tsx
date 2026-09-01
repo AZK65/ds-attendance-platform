@@ -1043,10 +1043,10 @@ function MedicalDeclarationCard({
                   className="flex items-start gap-3 p-2 rounded-md bg-amber-500/5 border border-amber-500/20"
                 >
                   <span className="font-mono text-[11px] text-muted-foreground tabular-nums shrink-0 mt-0.5">
-                    {String(n).padStart(2, '0')}
+                    {String(n + 1).padStart(2, '0')}
                   </span>
                   <span className="text-sm text-foreground/90">
-                    {SAAQ_CONDITIONS_SHORT[n - 1] ?? `Condition ${n}`}
+                    {SAAQ_CONDITIONS_SHORT[n] ?? `Condition ${n + 1}`}
                   </span>
                 </li>
               ))}

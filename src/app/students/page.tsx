@@ -3425,9 +3425,9 @@ function MedicalDeclarationBlock({ medical }: { medical: string | null }) {
         {conditions.map((n) => (
           <li key={n} className="flex items-start gap-2">
             <span className="font-mono text-[10.5px] text-muted-foreground tabular-nums shrink-0">
-              {String(n).padStart(2, '0')}
+              {String(n + 1).padStart(2, '0')}
             </span>
-            <span>{SAAQ_CONDITIONS_EN[n - 1] ?? `Condition ${n}`}</span>
+            <span>{SAAQ_CONDITIONS_EN[n] ?? `Condition ${n + 1}`}</span>
           </li>
         ))}
       </ul>
