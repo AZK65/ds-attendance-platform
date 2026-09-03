@@ -16,11 +16,17 @@ let cachedNasarSubcalendarId: number | null = null
  * Parse a time range string like "5 pm to 7 pm" into { start: "17:00", end: "19:00" }
  */
 export function parseTimeRange(timeStr: string): { start: string; end: string } | null {
-  // Match patterns like "5 pm", "5:30 pm", "10 am"
-  const timePattern = /(\d{1,2})(?::(\d{2}))?\s*(am|pm)/gi
-  const matches = [...timeStr.matchAll(timePattern)]
+  // Match patterns like "5 pm", "5:30 pm", "7 :30pm", and "10 am".
+  // Admins commonly type an extra space around the colon; without accepting
+  // it, "7 :30pm" was previously read as "30pm" and became an invalid 42:00.
+  const timePattern = /\b(\d{1,2})(?:\s*:\s*(\d{1,2}))?\s*(am|pm)\b/gi
+  const matches = [...timeStr.matchAll(timePattern)].filter(match => {
+    const hour = Number(match[1])
+    const minute = match[2] == null ? 0 : Number(match[2])
+    return hour >= 1 && hour <= 12 && minute >= 0 && minute <= 59
+  })
 
-  if (matches.length < 2) return null
+  if (matches.length !== 2) return null
 
   const parse = (m: RegExpMatchArray) => {
     let hour = parseInt(m[1])
@@ -135,17 +141,13 @@ export async function createTheoryEvent({
 
   // Parse time range
   const times = parseTimeRange(classTime)
-  let startTime: string
-  let endTime: string
-
-  if (times) {
-    startTime = times.start
-    endTime = times.end
-  } else {
-    // Fallback: 5pm to 7pm
-    startTime = '17:00'
-    endTime = '19:00'
+  if (!times) {
+    return {
+      success: false,
+      error: 'Invalid class time. Use a range such as 5:30 pm to 7:30 pm.',
+    }
   }
+  const { start: startTime, end: endTime } = times
 
   const title = `Module ${moduleNumber} - ${groupName}`
 
