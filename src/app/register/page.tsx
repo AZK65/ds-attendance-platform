@@ -123,7 +123,7 @@ export default function RegisterPage() {
  * completed submission so the next walk-in starts fresh.
  */
 export function RegisterPageInner({ kiosk = false }: { kiosk?: boolean } = {}) {
-  const { t } = useT()
+  const { t, lang } = useT()
   const router = useRouter()
   const [step, setStep] = useState<Step>('select')
   const [error, setError] = useState('')
@@ -662,6 +662,7 @@ export function RegisterPageInner({ kiosk = false }: { kiosk?: boolean } = {}) {
           address, city, province, postalCode,
           permitNumber, permitExpiry, permitImage, idImage, avatarImage,
           signatureImage, agreedToTerms: agreedTerms && agreedPolicy,
+          termsLanguage: lang,
           vehicleType, // server cross-checks against the admin cookie
           idType,
           medical: medicalAttested

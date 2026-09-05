@@ -1,6 +1,7 @@
 'use client'
 
 import { createContext, useContext, useEffect, useState } from 'react'
+import { REGISTRATION_TERMS } from '@/lib/registration-terms'
 
 export type Lang = 'fr' | 'en'
 export const LANG_STORAGE_KEY = 'qazi:lang'
@@ -114,31 +115,7 @@ const dict = {
       firstDue: 'First payment due now:',
       firstDueNote: "You'll be redirected to our secure checkout to complete payment and confirm your registration.",
     },
-    tc: {
-      title: 'Terms and Conditions',
-      subtitle: 'Class 5 (Car Course) — Qazi Driving School',
-      p1: 'This agreement is entered into between the student (the "Student") and Qazi Driving School (the "School") for enrolment in the Class 5 driving course. The course is approximately one (1) year in length and is governed by an eighteen (18) month contract. Should the course extend beyond eighteen (18) months, an additional fee of $150 plus applicable taxes will be charged.',
-      p2: 'The School operates daily from 11:00 AM to 7:00 PM and is closed on Fridays. The minimum age requirement for enrolment is sixteen (16) years. All fees referenced in this agreement are exclusive of applicable taxes unless otherwise stated.',
-      feeIntro: 'The total cost of the course is $1,000, inclusive of taxes and course materials, and is payable in installments as set out in the payment schedule presented during registration.',
-      s1Title: '1. Missed Theory Class (Any Phase)',
-      s1: 'In the event that the Student misses any scheduled theory class, the Student shall be required to wait for the next available group covering the missed material in order to resume the course. No time limit applies to this provision.',
-      s2Title: '2. Missed Road Class',
-      s2: "The Student is required to provide the School with at least twenty-four (24) hours' advance notice for any cancellation or rescheduling of a road class. Failure to provide such notice shall result in a penalty of $40 plus applicable taxes.",
-      s3Title: '3. Cancellation of Contract',
-      s3a: 'The cancellation policy set forth herein shall take effect immediately upon execution of this contract, at any phase of the course. Upon cancellation, the following fees shall apply:',
-      s3b: [
-        'Administrative cancellation fee of $150 plus applicable taxes.',
-        'Each two (2) hour theory class attended: $18.85 plus applicable taxes.',
-        'Each one (1) hour road class attended: $42.91 plus applicable taxes.',
-        'Course books and materials are non-refundable.',
-      ],
-      s4Title: '4. Contract Duration',
-      s4: 'This contract shall remain in effect for a period of eighteen (18) months from the date of registration. Should the Student require additional time to complete the course beyond this period, a continuation fee of $150 plus applicable taxes shall be charged.',
-      s5Title: "5. In-School Exam Retake Policy (Learner's Licence)",
-      s5: 'Should the Student fail the in-school written examination on two (2) occasions, a fee of $40 plus applicable taxes shall be assessed for each subsequent attempt thereafter.',
-      s6Title: '6. Acknowledgement',
-      s6: 'By signing below, the Student acknowledges that they have read, understood, and agree to be bound by all of the terms and conditions set forth in this agreement.',
-    },
+    tc: REGISTRATION_TERMS.en,
     actions: {
       back: 'Back',
       next: 'Next',
@@ -277,31 +254,7 @@ const dict = {
       firstDue: 'Premier paiement dû maintenant :',
       firstDueNote: 'Vous serez redirigé vers notre paiement sécurisé pour confirmer votre inscription.',
     },
-    tc: {
-      title: 'Conditions générales',
-      subtitle: 'Classe 5 (cours auto) — École de conduite Qazi',
-      p1: 'La présente entente est conclue entre l’élève (« l’Élève ») et École de conduite Qazi (« l’École ») pour l’inscription au cours de conduite Classe 5. Le cours dure environ un (1) an et est régi par un contrat de dix-huit (18) mois. Si la formation se prolonge au-delà de dix-huit (18) mois, des frais supplémentaires de 150 $ plus les taxes applicables seront facturés.',
-      p2: "L’École est ouverte tous les jours de 11 h à 19 h et est fermée le vendredi. L’âge minimum pour l’inscription est de seize (16) ans. Tous les frais mentionnés dans la présente entente excluent les taxes applicables, sauf indication contraire.",
-      feeIntro: 'Le coût total du cours est de 1 000 $, taxes et manuels inclus, et est payable en plusieurs versements selon le calendrier présenté lors de l’inscription.',
-      s1Title: '1. Absence à un cours théorique (toutes phases)',
-      s1: "Si l’Élève manque un cours théorique prévu à l’horaire, il devra attendre le prochain groupe couvrant la matière manquée afin de poursuivre sa formation. Aucune limite de temps ne s’applique à cette disposition.",
-      s2Title: '2. Absence à un cours pratique',
-      s2: 'L’Élève doit aviser l’École au moins vingt-quatre (24) heures à l’avance de toute annulation ou modification d’un cours pratique. À défaut d’un tel préavis, des frais de 40 $ plus les taxes applicables seront facturés.',
-      s3Title: '3. Annulation du contrat',
-      s3a: "La politique d’annulation prévue aux présentes prend effet immédiatement à la signature du contrat, quelle que soit la phase. En cas d’annulation, les frais suivants s’appliquent :",
-      s3b: [
-        "Frais administratifs d’annulation de 150 $ plus les taxes applicables.",
-        'Chaque cours théorique de deux (2) heures suivi : 18,85 $ plus les taxes applicables.',
-        'Chaque cours pratique d’une (1) heure suivi : 42,91 $ plus les taxes applicables.',
-        'Les manuels et le matériel de cours ne sont pas remboursables.',
-      ],
-      s4Title: '4. Durée du contrat',
-      s4: 'Le contrat demeure en vigueur pour une période de dix-huit (18) mois à compter de la date d’inscription. Si l’Élève a besoin de temps supplémentaire pour compléter la formation, des frais de prolongation de 150 $ plus les taxes applicables seront facturés.',
-      s5Title: '5. Politique de reprise des examens internes (permis d’apprenti)',
-      s5: 'Si l’Élève échoue l’examen écrit interne à deux (2) reprises, des frais de 40 $ plus les taxes applicables seront facturés pour chaque tentative subséquente.',
-      s6Title: '6. Reconnaissance',
-      s6: "En signant ci-dessous, l’Élève reconnaît avoir lu, compris et accepté de se conformer à l’ensemble des conditions énoncées dans la présente entente.",
-    },
+    tc: REGISTRATION_TERMS.fr,
     actions: {
       back: 'Retour',
       next: 'Suivant',

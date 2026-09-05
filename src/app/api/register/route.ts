@@ -5,6 +5,7 @@ import { getDepositCents } from '@/lib/pricing'
 import { sendEmailViaResend, getEmailSender } from '@/lib/email'
 import { rateLimit, clientIp, tooManyRequests } from '@/lib/rate-limit'
 import { verifyHuman, rejectBot } from '@/lib/bot-guard'
+import { makeRegistrationTermsSnapshot, REGISTRATION_TERMS_VERSION } from '@/lib/registration-terms'
 
 // POST /api/register — Public student registration
 export async function POST(request: NextRequest) {
@@ -38,7 +39,7 @@ export async function POST(request: NextRequest) {
       fullName, phoneNumber, email, dob,
       address, city, province, postalCode,
       permitNumber, permitExpiry, permitImage, idImage, avatarImage,
-      signatureImage, agreedToTerms, medical,
+      signatureImage, agreedToTerms, termsLanguage, medical,
       idType, // car single-ID type (licence/passport/health/pr/other)
       vehicleType: requestedVehicleType,
       // Truck-only contract fields (ignored when vehicleType="car")
@@ -123,6 +124,16 @@ export async function POST(request: NextRequest) {
     // (cash / card-on-terminal) invoice — the truck path in particular.
     const depositCents = await getDepositCents(vehicleType)
 
+    const acceptedAt = new Date()
+    const termsSnapshot = makeRegistrationTermsSnapshot({
+      language: termsLanguage,
+      vehicleType,
+      acceptedAt,
+      consentSaaqTransmission,
+      consentFileTransfer,
+      consentContactInfo,
+    })
+
     const registration = await prisma.studentRegistration.create({
       data: {
         status: 'submitted',
@@ -170,8 +181,12 @@ export async function POST(request: NextRequest) {
         signatureImage: signatureImage || null,
         idType: vehicleType === 'car' ? (idType || null) : null,
         medical: medical ? JSON.stringify(medical) : null,
+        termsAcceptedAt: acceptedAt,
+        termsVersion: REGISTRATION_TERMS_VERSION,
+        termsLanguage: termsSnapshot.language,
+        termsSnapshot: JSON.stringify(termsSnapshot),
         source: 'online-registration',
-        submittedAt: new Date(),
+        submittedAt: acceptedAt,
         expiresAt: new Date(Date.now() + 365 * 24 * 60 * 60 * 1000),
       },
     })

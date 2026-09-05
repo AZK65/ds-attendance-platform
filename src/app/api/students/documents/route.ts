@@ -7,6 +7,8 @@ import { prisma } from '@/lib/db'
 import { getStudentById, searchStudents, type StudentRecord } from '@/lib/external-db'
 import { getPricing, type ClassPricing } from '@/lib/pricing'
 import { buildMedicalDeclarationPdf } from '@/lib/medical-pdf'
+import { buildRegistrationTermsPdf } from '@/lib/registration-terms-pdf'
+import { readRegistrationTermsSnapshot } from '@/lib/registration-terms'
 
 export const runtime = 'nodejs'
 
@@ -346,6 +348,40 @@ export async function GET(request: NextRequest) {
         }
       } else {
         notes.push({ status: 'unavailable', label: 'Registration agreement', detail: 'No completed registration found' })
+      }
+    }
+
+    if (wants('terms')) {
+      if (registration) {
+        try {
+          const acceptedAt = registration.termsAcceptedAt || registration.submittedAt || registration.createdAt
+          const { snapshot, isLegacy } = readRegistrationTermsSnapshot(registration.termsSnapshot, {
+            language: registration.termsLanguage,
+            vehicleType: registration.vehicleType,
+            acceptedAt,
+            consentSaaqTransmission: registration.consentSaaqTransmission,
+            consentFileTransfer: registration.consentFileTransfer,
+            consentContactInfo: registration.consentContactInfo,
+          })
+          const termsPdf = await buildRegistrationTermsPdf({
+            studentName: resolvedName || registration.fullName || 'Student',
+            phone: resolvedPhone || registration.phoneNumber,
+            email: registration.email,
+            signatureImage: registration.signatureImage,
+            snapshot,
+            isLegacy,
+          })
+          addFile('Terms/registration-terms-and-conditions.pdf', termsPdf, 'application/pdf')
+          notes.push({ status: 'included', label: 'Registration terms and conditions' })
+        } catch (error) {
+          notes.push({
+            status: 'failed',
+            label: 'Registration terms and conditions',
+            detail: error instanceof Error ? error.message : 'Unknown error',
+          })
+        }
+      } else {
+        notes.push({ status: 'unavailable', label: 'Registration terms and conditions', detail: 'No completed registration found' })
       }
     }
 

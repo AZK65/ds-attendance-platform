@@ -12,6 +12,7 @@ import {
   Images,
   Loader2,
   Receipt,
+  ScrollText,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Checkbox } from '@/components/ui/checkbox'
@@ -31,6 +32,12 @@ const documentOptions = [
     label: 'Course contract',
     description: 'The student’s Class 5 or Class 1 agreement',
     icon: FileSignature,
+  },
+  {
+    id: 'terms',
+    label: 'Terms & conditions',
+    description: 'The terms accepted and signed during registration',
+    icon: ScrollText,
   },
   {
     id: 'attendance',

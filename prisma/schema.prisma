@@ -469,6 +469,12 @@ model StudentRegistration {
   signatureImage String? // base64 signature
   idType         String? // car single-ID type: licence | passport | health | pr | other
   medical        String? // JSON: SAAQ 6224A self-declaration { conditions:number[], none:bool, attestedAt:string }
+  // Exact terms accepted during registration. Snapshotting the displayed
+  // wording keeps the student's downloadable record stable if terms change.
+  termsAcceptedAt DateTime?
+  termsVersion    String?
+  termsLanguage   String?
+  termsSnapshot   String?
 
   // Clover auth-then-capture payment state for the $250 first installment.
   paymentChargeId     String?   // Clover charge id (auth created at submit time)
