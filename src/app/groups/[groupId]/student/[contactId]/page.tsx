@@ -2,7 +2,7 @@
 
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { useParams, useRouter } from 'next/navigation'
-import { useState, useMemo } from 'react'
+import { useState, useMemo, type ReactNode } from 'react'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Input } from '@/components/ui/input'
@@ -413,12 +413,13 @@ interface JourneyCardProps {
     zoomName?: string
     groupId?: string
   }>
-  studentEvents: Array<{ id: string; title: string; start_dt: string; end_dt?: string; subcalendar_ids?: number[] }>
+  studentEvents: TeamupEvent[]
   classAttendanceMap: Record<string, boolean>
   loadingEvents: boolean
   loadingTheory: boolean
   studentName: string
   studentPhone: string
+  vehicleType?: string | null
 }
 
 interface SessionDetail {
@@ -434,7 +435,285 @@ interface SessionDetail {
   title?: string
 }
 
-function JourneyCard({ theoryClasses, studentEvents, classAttendanceMap, loadingEvents, loadingTheory, studentName, studentPhone }: JourneyCardProps) {
+interface JourneySignature {
+  id: string
+  eventId: string
+  studentPhone: string
+  sessionLabel: string | null
+  signedAt: string
+}
+
+type TruckProgressStatus = 'present' | 'scheduled' | 'absent' | 'unrecorded'
+
+interface TruckProgressEvent {
+  event: TeamupEvent
+  number: number | null
+  label: string
+  hours: number
+  status: TruckProgressStatus
+}
+
+const truckEventHours = (event: TeamupEvent) => {
+  const start = new Date(event.start_dt).getTime()
+  const end = new Date(event.end_dt).getTime()
+  if (!Number.isFinite(start) || !Number.isFinite(end) || end <= start) return 0
+  return Math.round(((end - start) / 3_600_000) * 10) / 10
+}
+
+const truckTheoryNumber = (event: TeamupEvent) => {
+  const match = event.title.match(/^Class 1 Theory\s+(\d+)/i)
+  return match ? Number(match[1]) : null
+}
+
+const truckPracticalNumber = (event: TeamupEvent) => {
+  const match = event.title.match(/^Truck Class\s+(\d+)/i)
+  return match ? Number(match[1]) : null
+}
+
+function TruckJourneyCard({
+  studentEvents,
+  classAttendanceMap,
+  loadingEvents,
+  studentName,
+  studentPhone,
+}: JourneyCardProps) {
+  const [openEvent, setOpenEvent] = useState<TruckProgressEvent | null>(null)
+  const { data: signatureData, isLoading: loadingSignatures } = useQuery<{ signatures: JourneySignature[] }>({
+    queryKey: ['truck-journey-signatures', studentPhone],
+    queryFn: async () => {
+      const res = await fetch(`/api/scheduling/signature?phone=${encodeURIComponent(studentPhone)}`)
+      if (!res.ok) return { signatures: [] }
+      return res.json()
+    },
+    enabled: !!studentPhone,
+    staleTime: 30_000,
+  })
+
+  const progress = useMemo(() => {
+    const signedEventIds = new Set((signatureData?.signatures || []).map(signature => String(signature.eventId)))
+    const now = Date.now()
+    const statusFor = (event: TeamupEvent, theory: boolean): TruckProgressStatus => {
+      if (new Date(event.start_dt).getTime() > now) return 'scheduled'
+      if (signedEventIds.has(String(event.id))) return 'present'
+      if (!theory && classAttendanceMap[String(event.id)] === true) return 'present'
+      if (!theory && classAttendanceMap[String(event.id)] === false) return 'absent'
+      return 'unrecorded'
+    }
+
+    const theory = studentEvents
+      .filter(event => truckTheoryNumber(event) !== null)
+      .map(event => ({
+        event,
+        number: truckTheoryNumber(event),
+        label: `Theory class ${truckTheoryNumber(event)}`,
+        hours: truckEventHours(event),
+        status: statusFor(event, true),
+      }))
+      .sort((a, b) => (a.number || 0) - (b.number || 0) || new Date(a.event.start_dt).getTime() - new Date(b.event.start_dt).getTime())
+
+    const practical = studentEvents
+      .filter(event => truckPracticalNumber(event) !== null)
+      .map(event => ({
+        event,
+        number: truckPracticalNumber(event),
+        label: `Practical class ${truckPracticalNumber(event)}`,
+        hours: truckEventHours(event),
+        status: statusFor(event, false),
+      }))
+      .sort((a, b) => (a.number || 0) - (b.number || 0) || new Date(a.event.start_dt).getTime() - new Date(b.event.start_dt).getTime())
+
+    const exams = studentEvents
+      .filter(event => /^Truck Exam/i.test(event.title))
+      .sort((a, b) => new Date(a.start_dt).getTime() - new Date(b.start_dt).getTime())
+
+    const theorySigned = theory.filter(item => item.status === 'present')
+    const practicalCompleted = practical.filter(item => item.status === 'present')
+    const theoryHours = Math.min(75, theorySigned.reduce((total, item) => total + item.hours, 0))
+    const practicalHours = Math.min(50, practicalCompleted.reduce((total, item) => total + item.hours, 0))
+    const totalHours = Math.min(125, theoryHours + practicalHours)
+
+    return {
+      theory,
+      practical,
+      exams,
+      theorySigned: theorySigned.length,
+      practicalCompleted: practicalCompleted.length,
+      theoryHours,
+      practicalHours,
+      totalHours,
+      overallPercent: Math.round((totalHours / 125) * 100),
+    }
+  }, [signatureData, studentEvents, classAttendanceMap])
+
+  const statusClasses: Record<TruckProgressStatus, string> = {
+    present: 'border-green-200 bg-green-50 text-green-800 dark:border-green-900 dark:bg-green-950/30 dark:text-green-200',
+    scheduled: 'border-blue-200 bg-blue-50 text-blue-800 dark:border-blue-900 dark:bg-blue-950/30 dark:text-blue-200',
+    absent: 'border-red-200 bg-red-50 text-red-800 dark:border-red-900 dark:bg-red-950/30 dark:text-red-200',
+    unrecorded: 'border-border bg-background text-muted-foreground',
+  }
+  const statusText: Record<TruckProgressStatus, string> = {
+    present: 'Signed',
+    scheduled: 'Scheduled',
+    absent: 'Absent',
+    unrecorded: 'No signature',
+  }
+  const loading = loadingEvents || loadingSignatures
+  const fmtHours = (hours: number) => Number.isInteger(hours) ? String(hours) : hours.toFixed(1)
+  const eventDate = (event: TeamupEvent) => new Date(event.start_dt).toLocaleDateString('en-CA', { month: 'short', day: 'numeric' })
+
+  const SessionGrid = ({ items, empty }: { items: TruckProgressEvent[]; empty: ReactNode }) => (
+    items.length ? (
+      <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-5">
+        {items.map(item => (
+          <button
+            key={item.event.id}
+            type="button"
+            onClick={() => setOpenEvent(item)}
+            className={`rounded-lg border p-3 text-left transition-all duration-700 ease-[cubic-bezier(0.32,0.72,0,1)] hover:-translate-y-0.5 hover:border-foreground/30 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring ${statusClasses[item.status]}`}
+          >
+            <span className="block text-sm font-semibold tabular-nums">{item.label}</span>
+            <span className="mt-1 block text-xs opacity-80">{eventDate(item.event)} · {fmtHours(item.hours)} h</span>
+            <span className="mt-2 block text-xs font-medium">{statusText[item.status]}</span>
+          </button>
+        ))}
+      </div>
+    ) : <>{empty}</>
+  )
+
+  return (
+    <Card>
+      <CardHeader className="space-y-4">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+          <div>
+            <p className="text-xs font-medium uppercase tracking-wider text-red-600">Class 1 program</p>
+            <CardTitle className="mt-1 flex items-center gap-2 text-xl">
+              <Truck className="h-5 w-5" /> Truck journey
+            </CardTitle>
+            <p className="mt-1 text-sm text-muted-foreground">75 hours of classroom theory, then 50 hours of practical training.</p>
+          </div>
+          <div className="text-left sm:text-right">
+            <p className="text-2xl font-semibold tabular-nums">{fmtHours(progress.totalHours)} <span className="text-sm font-normal text-muted-foreground">of 125 h</span></p>
+            <p className="text-xs text-muted-foreground">{progress.overallPercent}% of the program recorded</p>
+          </div>
+        </div>
+        <div className="h-2 overflow-hidden rounded-full bg-muted" aria-label={`${progress.overallPercent}% complete`}>
+          <div className="h-full rounded-full bg-red-600 transition-all duration-700 ease-[cubic-bezier(0.32,0.72,0,1)]" style={{ width: `${progress.overallPercent}%` }} />
+        </div>
+      </CardHeader>
+      <CardContent>
+        {loading ? (
+          <div className="space-y-3 py-2">
+            <div className="h-24 animate-pulse rounded-lg bg-muted" />
+            <div className="h-24 animate-pulse rounded-lg bg-muted" />
+          </div>
+        ) : (
+          <div className="space-y-6">
+            <section aria-labelledby="truck-theory-progress">
+              <div className="mb-3 flex flex-wrap items-end justify-between gap-2">
+                <div>
+                  <h3 id="truck-theory-progress" className="font-semibold">Theory training</h3>
+                  <p className="text-sm text-muted-foreground">In-person cohort classes at the school</p>
+                </div>
+                <div className="text-right">
+                  <p className="font-semibold tabular-nums">{fmtHours(progress.theoryHours)} / 75 h</p>
+                  <p className="text-xs text-muted-foreground">{progress.theorySigned} of {progress.theory.length} classes signed</p>
+                </div>
+              </div>
+              <SessionGrid
+                items={progress.theory}
+                empty={<div className="rounded-lg border border-dashed p-6 text-sm text-muted-foreground">No Class 1 theory schedule found for this group.</div>}
+              />
+            </section>
+
+            <section aria-labelledby="truck-practical-progress" className="border-t pt-6">
+              <div className="mb-3 flex flex-wrap items-end justify-between gap-2">
+                <div>
+                  <h3 id="truck-practical-progress" className="font-semibold">Practical training</h3>
+                  <p className="text-sm text-muted-foreground">Individual in-cab classes scheduled after theory</p>
+                </div>
+                <div className="text-right">
+                  <p className="font-semibold tabular-nums">{fmtHours(progress.practicalHours)} / 50 h</p>
+                  <p className="text-xs text-muted-foreground">{progress.practicalCompleted} completed classes</p>
+                </div>
+              </div>
+              <SessionGrid
+                items={progress.practical}
+                empty={(
+                  <div className="flex flex-col gap-3 rounded-lg border border-dashed p-6 sm:flex-row sm:items-center sm:justify-between">
+                    <div>
+                      <p className="text-sm font-medium">Practical training has not been scheduled yet</p>
+                      <p className="text-sm text-muted-foreground">The 50 in-cab hours are booked separately for each student.</p>
+                    </div>
+                    <Button variant="outline" size="sm" asChild>
+                      <Link href={`/scheduling?bookFor=${encodeURIComponent(studentName)}&phone=${encodeURIComponent(studentPhone)}`}>
+                        <CalendarDays className="h-4 w-4" /> Schedule practical
+                      </Link>
+                    </Button>
+                  </div>
+                )}
+              />
+            </section>
+
+            <section aria-labelledby="truck-exam-progress" className="border-t pt-6">
+              <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                <div>
+                  <h3 id="truck-exam-progress" className="font-semibold">Road exam</h3>
+                  <p className="text-sm text-muted-foreground">Final Class 1 exam after training is complete</p>
+                </div>
+                {progress.exams.length ? (
+                  <Button variant="outline" size="sm" onClick={() => {
+                    const exam = progress.exams[0]
+                    setOpenEvent({ event: exam, number: null, label: 'Class 1 road exam', hours: truckEventHours(exam), status: new Date(exam.start_dt).getTime() > Date.now() ? 'scheduled' : 'unrecorded' })
+                  }}>
+                    <CalendarDays className="h-4 w-4" /> {new Date(progress.exams[0].start_dt).toLocaleDateString('en-CA', { month: 'short', day: 'numeric', year: 'numeric' })}
+                  </Button>
+                ) : (
+                  <Badge variant="outline">Not scheduled</Badge>
+                )}
+              </div>
+            </section>
+          </div>
+        )}
+      </CardContent>
+
+      <Dialog open={!!openEvent} onOpenChange={open => { if (!open) setOpenEvent(null) }}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>{openEvent?.label || 'Class 1 training'}</DialogTitle>
+            <DialogDescription>Class 1 truck program attendance</DialogDescription>
+          </DialogHeader>
+          {openEvent && (
+            <div className="grid grid-cols-2 gap-4 text-sm">
+              <div>
+                <p className="text-xs text-muted-foreground">Date</p>
+                <p className="font-medium">{new Date(openEvent.event.start_dt).toLocaleDateString('en-CA', { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric' })}</p>
+              </div>
+              <div>
+                <p className="text-xs text-muted-foreground">Time</p>
+                <p className="font-medium">{formatTime12h(openEvent.event.start_dt)} – {formatTime12h(openEvent.event.end_dt)}</p>
+              </div>
+              <div>
+                <p className="text-xs text-muted-foreground">Duration</p>
+                <p className="font-medium tabular-nums">{fmtHours(openEvent.hours)} hours</p>
+              </div>
+              <div>
+                <p className="text-xs text-muted-foreground">Attendance</p>
+                <Badge variant="outline" className={statusClasses[openEvent.status]}>{statusText[openEvent.status]}</Badge>
+              </div>
+              <div className="col-span-2 pt-2">
+                <Button variant="outline" size="sm" asChild>
+                  <Link href={`/scheduling?eventId=${encodeURIComponent(openEvent.event.id)}`}>View in scheduler</Link>
+                </Button>
+              </div>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
+    </Card>
+  )
+}
+
+function CarJourneyCard({ theoryClasses, studentEvents, classAttendanceMap, loadingEvents, loadingTheory, studentName, studentPhone }: JourneyCardProps) {
   const router = useRouter()
   const [openCell, setOpenCell] = useState<{ id: string; label: string; phaseColor: string; detail: SessionDetail } | null>(null)
 
@@ -716,6 +995,12 @@ function JourneyCard({ theoryClasses, studentEvents, classAttendanceMap, loading
   )
 }
 
+function JourneyCard(props: JourneyCardProps) {
+  return props.vehicleType === 'truck'
+    ? <TruckJourneyCard {...props} />
+    : <CarJourneyCard {...props} />
+}
+
 function phaseOf(module: string): 1 | 2 | 3 | 4 | null {
   if (module.startsWith('S')) {
     const n = parseInt(module.slice(1))
@@ -789,7 +1074,7 @@ export default function StudentDetailPage() {
 
   // Fetch group data to get participant info
   const { data: groupData, isLoading: loadingGroup } = useQuery<{
-    group: { id: string; name: string; participantCount: number; moduleNumber?: number }
+    group: { id: string; name: string; participantCount: number; moduleNumber?: number; vehicleType?: string }
     participants: Participant[]
   }>({
     queryKey: ['group', groupId],
@@ -1749,8 +2034,8 @@ export default function StudentDetailPage() {
         </motion.div>
       )}
 
-      {/* Journey Progress — SAAQ 4-phase curriculum tracker (now above
-          Upcoming Classes so the at-a-glance grid is the first thing seen). */}
+      {/* Vehicle-aware journey: Class 5 keeps the SAAQ four-phase curriculum;
+          Class 1 uses the 75 h theory + 50 h practical program. */}
       <motion.div
         initial={{ opacity: 0, y: 10 }}
         animate={{ opacity: 1, y: 0 }}
@@ -1764,6 +2049,7 @@ export default function StudentDetailPage() {
           loadingTheory={loadingTheory}
           studentName={displayName}
           studentPhone={phone}
+          vehicleType={groupData?.group?.vehicleType || profileData?.vehicleType}
         />
       </motion.div>
 

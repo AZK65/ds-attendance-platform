@@ -55,6 +55,7 @@ export async function GET(
       name: group?.name || '',
       participantCount: cachedMembers.length,
       lastSynced: group?.lastSynced || new Date(0),
+      vehicleType: group?.vehicleType || 'car',
     },
     participants: cachedMembers.map(m => ({
       id: m.contactId,
@@ -115,6 +116,7 @@ export async function GET(
           name: freshGroup?.name || info.name,
           participantCount: freshMembers.length,
           lastSynced: freshGroup?.lastSynced || new Date(),
+          vehicleType: freshGroup?.vehicleType || 'car',
         },
         participants: freshMembers.map(m => ({
           id: m.contactId,
