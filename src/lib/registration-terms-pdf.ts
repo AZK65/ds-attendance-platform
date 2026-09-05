@@ -117,13 +117,13 @@ export async function buildRegistrationTermsPdf(input: RegistrationTermsPdfInput
     return nextY - (options.gapAfter ?? 7)
   }
 
-  const compactSize = french ? 7.3 : 7.6
-  const compactLine = french ? 9.05 : 9.35
+  const compactSize = french ? 8.8 : 9
+  const compactLine = french ? 10.7 : 10.9
   const columnGap = 20
   const columnWidth = (CONTENT_WIDTH - columnGap) / 2
   const drawSection = (x: number, y: number, title: string, body: string) => {
     let nextY = drawWrappedAt(title, {
-      x, y, width: columnWidth, font: bold, size: 8.7, gapAfter: 2.5, lineHeight: 10.2,
+      x, y, width: columnWidth, font: bold, size: 9.8, gapAfter: 3, lineHeight: 11.3,
     })
     nextY = drawWrappedAt(body, {
       x, y: nextY, width: columnWidth, size: compactSize, gapAfter: 6, lineHeight: compactLine,
@@ -131,28 +131,28 @@ export async function buildRegistrationTermsPdf(input: RegistrationTermsPdfInput
     return nextY
   }
 
-  page.drawText(safeText(input.snapshot.terms.title), { x: LEFT, y: 716, size: 18, font: bold, color: ink })
-  page.drawText(safeText(input.snapshot.terms.subtitle), { x: LEFT, y: 696, size: 9, font: regular, color: muted })
+  page.drawText(safeText(input.snapshot.terms.title), { x: LEFT, y: 716, size: 20, font: bold, color: ink })
+  page.drawText(safeText(input.snapshot.terms.subtitle), { x: LEFT, y: 694, size: 10, font: regular, color: muted })
 
   const boxTop = 680
   page.drawRectangle({ x: LEFT, y: boxTop - 50, width: CONTENT_WIDTH, height: 54, color: rgb(0.96, 0.96, 0.97), borderColor: line, borderWidth: 0.6 })
-  page.drawText(labels.student, { x: LEFT + 11, y: boxTop - 10, size: 6.5, font: bold, color: muted })
-  page.drawText(safeText(input.studentName || '-').slice(0, 46), { x: LEFT + 11, y: boxTop - 23, size: 9.5, font: bold, color: ink })
-  page.drawText(labels.contact, { x: LEFT + 270, y: boxTop - 10, size: 6.5, font: bold, color: muted })
-  page.drawText(safeText([input.phone, input.email].filter(Boolean).join(' · ') || '-').slice(0, 54), { x: LEFT + 270, y: boxTop - 23, size: 8, font: regular, color: ink })
-  page.drawText(labels.accepted, { x: LEFT + 11, y: boxTop - 40, size: 6.5, font: bold, color: muted })
-  page.drawText(safeText(displayDate(input.snapshot.acceptedAt, input.snapshot.language)), { x: LEFT + 78, y: boxTop - 40, size: 7.6, font: regular, color: ink })
-  page.drawText(`${labels.version} ${input.snapshot.version}`, { x: LEFT + 370, y: boxTop - 40, size: 6.5, font: bold, color: muted })
+  page.drawText(labels.student, { x: LEFT + 11, y: boxTop - 10, size: 7.3, font: bold, color: muted })
+  page.drawText(safeText(input.studentName || '-').slice(0, 46), { x: LEFT + 11, y: boxTop - 24, size: 10.5, font: bold, color: ink })
+  page.drawText(labels.contact, { x: LEFT + 270, y: boxTop - 10, size: 7.3, font: bold, color: muted })
+  page.drawText(safeText([input.phone, input.email].filter(Boolean).join(' · ') || '-').slice(0, 54), { x: LEFT + 270, y: boxTop - 24, size: 8.8, font: regular, color: ink })
+  page.drawText(labels.accepted, { x: LEFT + 11, y: boxTop - 41, size: 7.3, font: bold, color: muted })
+  page.drawText(safeText(displayDate(input.snapshot.acceptedAt, input.snapshot.language)), { x: LEFT + 82, y: boxTop - 41, size: 8.2, font: regular, color: ink })
+  page.drawText(`${labels.version} ${input.snapshot.version}`, { x: LEFT + 370, y: boxTop - 41, size: 7.3, font: bold, color: muted })
 
   let introY = boxTop - 66
   introY = drawWrappedAt(input.snapshot.terms.p1, {
-    x: LEFT, y: introY, width: CONTENT_WIDTH, size: 7.7, lineHeight: 9.45, gapAfter: 4,
+    x: LEFT, y: introY, width: CONTENT_WIDTH, size: 9, lineHeight: 10.9, gapAfter: 4,
   })
   introY = drawWrappedAt(input.snapshot.terms.p2, {
-    x: LEFT, y: introY, width: CONTENT_WIDTH, size: 7.7, lineHeight: 9.45, gapAfter: 4,
+    x: LEFT, y: introY, width: CONTENT_WIDTH, size: 9, lineHeight: 10.9, gapAfter: 4,
   })
   introY = drawWrappedAt(input.snapshot.terms.feeIntro, {
-    x: LEFT, y: introY, width: CONTENT_WIDTH, font: bold, size: 7.7, lineHeight: 9.45, gapAfter: 9,
+    x: LEFT, y: introY, width: CONTENT_WIDTH, font: bold, size: 9, lineHeight: 10.9, gapAfter: 9,
   })
 
   page.drawLine({ start: { x: LEFT, y: introY + 3 }, end: { x: PAGE_WIDTH - RIGHT, y: introY + 3 }, thickness: 0.5, color: line })
@@ -173,14 +173,14 @@ export async function buildRegistrationTermsPdf(input: RegistrationTermsPdfInput
 
   if (input.snapshot.truckConsents?.length) {
     rightY = drawWrappedAt(labels.consents, {
-      x: rightX, y: rightY - 1, width: columnWidth, font: bold, size: 8.7, gapAfter: 4, lineHeight: 10.2,
+      x: rightX, y: rightY - 1, width: columnWidth, font: bold, size: 9.8, gapAfter: 4, lineHeight: 11.3,
     })
     for (const consent of input.snapshot.truckConsents) {
       const boxY = rightY - 1
       page.drawRectangle({ x: rightX, y: boxY - 7, width: 8, height: 8, borderColor: ink, borderWidth: 0.6, color: consent.accepted ? ink : rgb(1, 1, 1) })
       if (consent.accepted) page.drawText('X', { x: rightX + 1.2, y: boxY - 6.2, size: 6.2, font: bold, color: rgb(1, 1, 1) })
       rightY = drawWrappedAt(`${consent.title}. ${consent.body}`, {
-        x: rightX + 13, y: rightY, width: columnWidth - 13, size: 6.8, gapAfter: 4, lineHeight: 8.25,
+        x: rightX + 13, y: rightY, width: columnWidth - 13, size: 8.1, gapAfter: 4, lineHeight: 9.7,
       })
     }
   }
@@ -189,13 +189,13 @@ export async function buildRegistrationTermsPdf(input: RegistrationTermsPdfInput
   page.drawLine({ start: { x: LEFT, y: footerY }, end: { x: PAGE_WIDTH - RIGHT, y: footerY }, thickness: 0.5, color: line })
   footerY -= 13
   footerY = drawWrappedAt(labels.acknowledgements, {
-    x: LEFT, y: footerY, width: CONTENT_WIDTH, font: bold, size: 9.2, gapAfter: 5, lineHeight: 10.5,
+    x: LEFT, y: footerY, width: CONTENT_WIDTH, font: bold, size: 9.8, gapAfter: 5, lineHeight: 11.2,
   })
   for (const statement of input.snapshot.acceptanceStatements) {
     page.drawRectangle({ x: LEFT, y: footerY - 7, width: 8, height: 8, color: ink })
     page.drawText('X', { x: LEFT + 1.2, y: footerY - 6.2, size: 6.2, font: bold, color: rgb(1, 1, 1) })
     footerY = drawWrappedAt(statement, {
-      x: LEFT + 13, y: footerY, width: CONTENT_WIDTH - 13, size: 7.1, gapAfter: 3, lineHeight: 8.5,
+      x: LEFT + 13, y: footerY, width: CONTENT_WIDTH - 13, size: 8.4, gapAfter: 3, lineHeight: 9.9,
     })
   }
 
@@ -214,17 +214,17 @@ export async function buildRegistrationTermsPdf(input: RegistrationTermsPdfInput
     } catch { /* draw a signature-on-file line below */ }
   }
   page.drawLine({ start: { x: LEFT, y: footerY - 3 }, end: { x: LEFT + 240, y: footerY - 3 }, thickness: 0.6, color: ink })
-  page.drawText(signatureDrawn ? labels.signature : labels.signatureOnFile, { x: LEFT, y: footerY - 14, size: 6.5, font: regular, color: muted })
-  page.drawText(safeText(displayDate(input.snapshot.acceptedAt, input.snapshot.language)), { x: LEFT + 300, y: footerY, size: 7.3, font: regular, color: ink })
+  page.drawText(signatureDrawn ? labels.signature : labels.signatureOnFile, { x: LEFT, y: footerY - 14, size: 7.2, font: regular, color: muted })
+  page.drawText(safeText(displayDate(input.snapshot.acceptedAt, input.snapshot.language)), { x: LEFT + 300, y: footerY, size: 8.1, font: regular, color: ink })
   page.drawLine({ start: { x: LEFT + 300, y: footerY - 3 }, end: { x: PAGE_WIDTH - RIGHT, y: footerY - 3 }, thickness: 0.6, color: ink })
-  page.drawText(labels.date, { x: LEFT + 300, y: footerY - 14, size: 6.5, font: regular, color: muted })
+  page.drawText(labels.date, { x: LEFT + 300, y: footerY - 14, size: 7.2, font: regular, color: muted })
 
   if (input.isLegacy) {
     drawWrappedAt(labels.legacy, {
-      x: LEFT, y: footerY - 28, width: CONTENT_WIDTH, size: 5.6,
+      x: LEFT, y: footerY - 28, width: CONTENT_WIDTH, size: 6.8,
       color: muted,
       gapAfter: 0,
-      lineHeight: 6.8,
+      lineHeight: 8.1,
     })
   }
 
