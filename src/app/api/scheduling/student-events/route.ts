@@ -67,16 +67,23 @@ export async function GET(request: NextRequest) {
       }
     }
 
-    // Search by group name to find theory classes for the student's group
+    // Fetch the calendar window and match the group locally. Teamup's `query`
+    // search treats characters such as `#` specially, so a real cohort name
+    // like "Qazi Truck #001" can return zero events even though all of its
+    // classes exist. Local matching also follows the same title/notes logic
+    // used below when deciding whether an event belongs to this student.
     if (groupName) {
-      const groupUrl = `${BASE_URL}/${calendarKey}/events?startDate=${formatDate(startDate)}&endDate=${formatDate(endDate)}&query=${encodeURIComponent(groupName)}`
+      const groupUrl = `${BASE_URL}/${calendarKey}/events?startDate=${formatDate(startDate)}&endDate=${formatDate(endDate)}`
       const groupRes = await fetch(groupUrl, {
         headers: { 'Teamup-Token': apiKey },
       })
       if (groupRes.ok) {
         const groupData = await groupRes.json()
+        const groupClean = groupName.trim().toLowerCase()
         for (const ev of (groupData.events || [])) {
-          if (!seenIds.has(ev.id)) {
+          const title = String(ev.title || '').toLowerCase()
+          const notes = String(ev.notes || '').toLowerCase()
+          if ((title.includes(groupClean) || notes.includes(groupClean)) && !seenIds.has(ev.id)) {
             seenIds.add(ev.id)
             allEvents.push(ev)
           }
