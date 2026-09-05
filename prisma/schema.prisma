@@ -875,6 +875,16 @@ model BotMessage {
   @@index([conversationId, createdAt])
 }
 
+// Atomic idempotency receipt for inbound WhatsApp events. Some WhatsApp Web
+// builds emit the same message through two listeners with no usable event ID;
+// the stable fingerprint key ensures only one handler can generate a reply.
+model BotInboundReceipt {
+  key       String   @id
+  createdAt DateTime @default(now())
+
+  @@index([createdAt])
+}
+
 // Per-phone pause state. When pausedUntil > now(), bot ignores inbound
 // messages on that thread. Set automatically when admin sends a manual
 // message (24h cooldown) or explicitly via the /whatsapp admin UI.

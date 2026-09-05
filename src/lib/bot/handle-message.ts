@@ -75,6 +75,7 @@ export interface InboundContext {
                     // breaks for @lid contacts (WhatsApp errors 'No LID for user').
   fromName?: string // pushname from WA if available
   body: string
+  inboundKey?: string // stable event fingerprint used for atomic deduplication
 }
 
 export interface BotResult {
@@ -92,7 +93,7 @@ export async function handleInboundMessage(ctx: InboundContext): Promise<BotResu
   // without a code deploy while debugging.
   if (process.env.BOT_ENABLED === 'false') {
     const conv = await upsertConversation(ctx)
-    await logMessage(conv.id, 'user', body)
+    await logInboundOnce(conv.id, body, ctx.inboundKey)
     return { reply: null, deferred: true, conversationId: conv.id, fromJid: ctx.fromJid }
   }
 
@@ -106,7 +107,7 @@ export async function handleInboundMessage(ctx: InboundContext): Promise<BotResu
   const paused = await isPaused(ctx.fromPhone, ctx.fromJid)
   if (paused) {
     const conv = await upsertConversation(ctx)
-    await logMessage(conv.id, 'user', body)
+    await logInboundOnce(conv.id, body, ctx.inboundKey)
     return { reply: null, deferred: true, conversationId: conv.id, fromJid: ctx.fromJid }
   }
 
@@ -115,7 +116,11 @@ export async function handleInboundMessage(ctx: InboundContext): Promise<BotResu
     return null
   })
   const conv = await upsertConversation(ctx, studentContext?.studentId)
-  await logMessage(conv.id, 'user', body)
+  const claimed = await logInboundOnce(conv.id, body, ctx.inboundKey)
+  if (!claimed) {
+    console.log(`[bot] Database lock ignored duplicate inbound ${ctx.inboundKey}`)
+    return { reply: null, deferred: true, conversationId: conv.id, fromJid: ctx.fromJid }
+  }
 
   const verifiedHoursReply = officeHoursReply(body)
   if (verifiedHoursReply) {
@@ -318,6 +323,39 @@ async function logMessage(
   return prisma.botMessage.create({
     data: { conversationId, role, body, status, waMessageId: waMessageId || null },
   })
+}
+
+// Claims and logs an inbound as one SQLite transaction. The in-memory event
+// guard handles the common duplicate, while this database constraint is the
+// final protection if two listeners/workers enter concurrently.
+async function logInboundOnce(
+  conversationId: string,
+  body: string,
+  inboundKey?: string,
+): Promise<boolean> {
+  if (!inboundKey) {
+    await logMessage(conversationId, 'user', body)
+    return true
+  }
+
+  try {
+    await prisma.$transaction([
+      prisma.botInboundReceipt.create({ data: { key: inboundKey } }),
+      prisma.botMessage.create({
+        data: {
+          conversationId,
+          role: 'user',
+          body,
+          status: 'sent',
+          waMessageId: inboundKey,
+        },
+      }),
+    ])
+    return true
+  } catch (error) {
+    if ((error as { code?: string })?.code === 'P2002') return false
+    throw error
+  }
 }
 
 // ── Pause helpers ───────────────────────────────────────────────

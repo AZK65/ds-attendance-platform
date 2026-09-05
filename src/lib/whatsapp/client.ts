@@ -1,4 +1,5 @@
 import path from 'path'
+import { createHash } from 'crypto'
 import { prisma } from '@/lib/db'
 import { handleInboundMessage, pauseForAdminReply, logAdminMessage, logBotSendSuccess, logBotSendFailure } from '@/lib/bot/handle-message'
 
@@ -670,11 +671,16 @@ export async function connectWhatsApp(): Promise<void> {
     type IncomingMsg = {
       body: string
       from: string        // e.g. '15145551234@c.us' or '...@g.us' for groups
-      id?: { _serialized?: string }
+      id?: { _serialized?: string; id?: string }
+      timestamp?: number
       isStatus?: boolean
       hasMedia?: boolean
       type?: string       // 'chat' | 'image' | 'sticker' | 'audio' | ...
-      _data?: { notifyName?: string }
+      _data?: {
+        notifyName?: string
+        t?: number
+        id?: { _serialized?: string; id?: string }
+      }
       getContact?: () => Promise<{ number?: string; pushname?: string; name?: string }>
     }
     client.on('message', async (msg: IncomingMsg) => {
@@ -685,8 +691,25 @@ export async function connectWhatsApp(): Promise<void> {
         // Only plain text for now. Skipping media doesn't lose context
         // because a follow-up text will usually explain it.
         if (msg.type && msg.type !== 'chat') return
-        if (isDuplicateWaEvent('inbound', msg.id?._serialized)) {
-          console.log(`[bot] Ignored duplicate inbound ${msg.id?._serialized}`)
+        const rawEventId = msg.id?._serialized || msg._data?.id?._serialized || msg.id?.id || msg._data?.id?.id
+        const rawTimestamp = msg.timestamp || msg._data?.t
+        // The installed WhatsApp Web build currently delivers some inbound
+        // messages twice without a stable serialized ID. Fingerprint the
+        // sender + WhatsApp timestamp + exact body so both copies converge on
+        // one key. The 5-second fallback bucket is only used when WA omits its
+        // timestamp too.
+        const messageMoment = rawTimestamp
+          ? (rawTimestamp > 1_000_000_000_000 ? Math.floor(rawTimestamp / 1000) : rawTimestamp)
+          : Math.floor(Date.now() / 5000) * 5
+        const inboundKey = `inbound:${createHash('sha256')
+          .update(`${msg.from || ''}|${messageMoment}|${(msg.body || '').trim()}`)
+          .digest('hex')}`
+
+        if (
+          (rawEventId && isDuplicateWaEvent('inbound', rawEventId)) ||
+          isDuplicateWaEvent('inbound', inboundKey)
+        ) {
+          console.log(`[bot] Ignored duplicate inbound ${rawEventId || inboundKey}`)
           return
         }
 
@@ -724,6 +747,7 @@ export async function connectWhatsApp(): Promise<void> {
           fromJid,
           fromName: resolvedName,
           body: msg.body || '',
+          inboundKey,
         })
 
         if (result.reply) {
