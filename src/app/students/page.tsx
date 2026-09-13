@@ -469,7 +469,7 @@ function StudentsPage() {
   const { data: confirmedRegsData } = useQuery<{ registrations: Registration[] }>({
     queryKey: ['registrations', 'confirmed'],
     queryFn: async () => {
-      const res = await fetch('/api/registrations?status=confirmed', { cache: 'no-store' })
+      const res = await fetch('/api/registrations?status=confirmed&compact=1', { cache: 'no-store' })
       if (!res.ok) throw new Error('Failed to fetch')
       return res.json()
     },

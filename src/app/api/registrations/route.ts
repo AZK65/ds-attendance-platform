@@ -48,6 +48,7 @@ export async function POST(request: NextRequest) {
 export async function GET(request: NextRequest) {
   try {
     const status = request.nextUrl.searchParams.get('status')
+    const compact = request.nextUrl.searchParams.get('compact') === '1'
 
     // Auto-expire stale pending_scan registrations
     await prisma.studentRegistration.updateMany({
@@ -61,11 +62,27 @@ export async function GET(request: NextRequest) {
     const where: Record<string, string> = {}
     if (status) where.status = status
 
-    const registrations = await prisma.studentRegistration.findMany({
-      where,
-      orderBy: { createdAt: 'desc' },
-      take: 50,
-    })
+    const registrations = compact
+      ? await prisma.studentRegistration.findMany({
+          where,
+          orderBy: { createdAt: 'desc' },
+          take: 50,
+          // List views must not transfer multi-megabyte licence, signature,
+          // and avatar data URLs for every registration.
+          select: {
+            id: true,
+            fullName: true,
+            phoneNumber: true,
+            vehicleType: true,
+            confirmedAt: true,
+            createdAt: true,
+          },
+        })
+      : await prisma.studentRegistration.findMany({
+          where,
+          orderBy: { createdAt: 'desc' },
+          take: 50,
+        })
 
     return NextResponse.json({ registrations })
   } catch (error) {
