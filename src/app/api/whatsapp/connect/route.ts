@@ -15,7 +15,7 @@ export async function POST(request: NextRequest) {
     } else if (body?.force) {
       // Force reset if requested
       console.log('[WhatsApp] Force reset requested')
-      resetWhatsAppState()
+      await resetWhatsAppState()
     }
 
     await connectWhatsApp()

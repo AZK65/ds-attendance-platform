@@ -100,4 +100,6 @@ EXPOSE 3000
 ENV NODE_OPTIONS="--max-old-space-size=3072"
 
 # Start the app
-CMD ["sh", "-c", "npx prisma db push --skip-generate --accept-data-loss && npm start"]
+# exec makes Next.js PID 1 so Docker's SIGTERM reaches the graceful WhatsApp
+# shutdown handler instead of stopping at an intermediate shell/npm process.
+CMD ["sh", "-c", "npx prisma db push --skip-generate --accept-data-loss && exec node_modules/.bin/next start"]

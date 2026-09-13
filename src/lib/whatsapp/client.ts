@@ -214,16 +214,10 @@ export function getWhatsAppState() {
   }
 }
 
-export function resetWhatsAppState(): void {
-  if (state.client) {
-    try {
-      const client = state.client as { destroy: () => Promise<void> }
-      client.destroy().catch(() => {})
-    } catch {
-      // ignore
-    }
-  }
-  state.client = null
+export async function resetWhatsAppState(): Promise<void> {
+  // Never launch a replacement Chromium while the previous one is still
+  // closing over the same LocalAuth profile.
+  await destroyClientHard()
   state.qr = null
   state.isConnected = false
   state.isConnecting = false
@@ -248,12 +242,12 @@ async function clearWebCache(): Promise<void> {
 // client.destroy() can hang or fail when the page is wedged mid-navigation;
 // an orphaned Chromium then eats memory and fights the next launch for the
 // profile lock, so after destroy we SIGKILL the browser process directly.
-async function destroyClientHard(): Promise<void> {
-  const client = state.client as {
+type DestroyableWhatsAppClient = {
     destroy: () => Promise<void>
     pupBrowser?: { process: () => { kill: (sig: string) => boolean } | null } | null
-  } | null
-  state.client = null
+}
+
+async function destroyClientInstance(client: DestroyableWhatsAppClient | null): Promise<void> {
   if (!client) return
   try {
     await Promise.race([
@@ -269,6 +263,24 @@ async function destroyClientHard(): Promise<void> {
   } catch {
     // process already gone
   }
+}
+
+async function destroyClientHard(): Promise<void> {
+  const client = state.client as DestroyableWhatsAppClient | null
+  // Relinquish ownership before destroy() emits page-close/disconnect events.
+  state.client = null
+  await destroyClientInstance(client)
+}
+
+// Docker calls this before replacing the container. Closing Chromium cleanly
+// flushes WhatsApp's IndexedDB/Local Storage to the persistent auth volume so
+// the next container can restore the linked device without another QR scan.
+export async function shutdownWhatsApp(): Promise<void> {
+  state.intentionalDisconnect = true
+  state.isConnected = false
+  state.isConnecting = false
+  state.qr = null
+  await destroyClientHard()
 }
 
 // Full factory reset: kill the client, wipe the saved session + web cache.
@@ -542,7 +554,10 @@ export async function connectWhatsApp(): Promise<void> {
 
     state.client = client
 
+    const isCurrentClient = () => state.client === client
+
     client.on('qr', (qr: string) => {
+      if (!isCurrentClient()) return
       console.log('QR code received')
       state.qr = qr
       state.lastQrAt = Date.now()
@@ -558,6 +573,7 @@ export async function connectWhatsApp(): Promise<void> {
     let authWorkaroundStarted = false
 
     client.on('ready', async () => {
+      if (!isCurrentClient()) return
       console.log('WhatsApp client is ready!')
       state.isConnected = true
       state.isConnecting = false
@@ -685,6 +701,7 @@ export async function connectWhatsApp(): Promise<void> {
     }
     client.on('message', async (msg: IncomingMsg) => {
       try {
+        if (!isCurrentClient()) return
         // Group and status messages: never respond.
         if (msg.from?.endsWith('@g.us')) return
         if (msg.isStatus) return
@@ -791,6 +808,7 @@ export async function connectWhatsApp(): Promise<void> {
     }
     client.on('message_create', async (msg: CreatedMsg) => {
       try {
+        if (!isCurrentClient()) return
         if (!msg.fromMe) return
         const dest = msg.to || ''
         // Individual (non-group) chats only. Both @c.us and @lid.
@@ -837,6 +855,7 @@ export async function connectWhatsApp(): Promise<void> {
     })
 
     client.on('authenticated', async () => {
+      if (!isCurrentClient()) return
       console.log('WhatsApp authenticated')
       if (authWorkaroundStarted) return
       authWorkaroundStarted = true
@@ -879,6 +898,7 @@ export async function connectWhatsApp(): Promise<void> {
     })
 
     client.on('auth_failure', (msg: string) => {
+      if (!isCurrentClient()) return
       console.error('WhatsApp authentication failed:', msg)
       logWaEvent('auth_failure', msg)
       state.isConnecting = false
@@ -886,31 +906,39 @@ export async function connectWhatsApp(): Promise<void> {
     })
 
     client.on('disconnected', (reason: string) => {
+      // Late events from a retired browser must not knock its replacement
+      // offline or make the AI reply twice.
+      if (!isCurrentClient()) {
+        logWaEvent('stale_client_disconnected', reason)
+        return
+      }
       console.log('WhatsApp disconnected:', reason)
       logWaEvent('disconnected', reason)
       state.isConnected = false
-      state.isConnecting = false
-      state.client = null
+      state.isConnecting = true
       state.groupsCache = []
 
-      // Auto-reconnect after a delay (unless logout was intentional)
-      if (reason !== 'LOGOUT') {
+      void (async () => {
+        await destroyClientHard()
+        state.isConnecting = false
+        if (state.intentionalDisconnect) return
         console.log('[WhatsApp] Will attempt to reconnect in 10 seconds...')
         setTimeout(() => {
-          if (!state.isConnected && !state.isConnecting) {
+          if (!state.isConnected && !state.isConnecting && !state.intentionalDisconnect) {
             console.log('[WhatsApp] Auto-reconnecting...')
             connectWhatsApp().catch(err => {
               console.error('[WhatsApp] Auto-reconnect failed:', err)
             })
           }
         }, 10000)
-      }
+      })()
     })
 
     // Handle page crashes and frame detachment (Jan 2026 WhatsApp Web issues)
     const typedClientForCrash = client as { pupPage?: { on: (event: string, handler: (error: Error) => void) => void } }
     if (typedClientForCrash.pupPage) {
       typedClientForCrash.pupPage.on('error', (error: Error) => {
+        if (!isCurrentClient()) return
         console.error('[WhatsApp] Page error:', error.message)
         logWaEvent('page_error', error.message)
         if (error.message.includes('detached') || error.message.includes('Target closed')) {
@@ -920,6 +948,7 @@ export async function connectWhatsApp(): Promise<void> {
       })
 
       typedClientForCrash.pupPage.on('close', () => {
+        if (!isCurrentClient()) return
         console.log('[WhatsApp] Page closed unexpectedly')
         logWaEvent('page_closed', 'Chromium page closed (often an OOM kill / crash)')
         state.isConnected = false
@@ -958,15 +987,16 @@ export async function connectWhatsApp(): Promise<void> {
 export async function disconnectWhatsApp(): Promise<void> {
   state.intentionalDisconnect = true // user asked for this — watchdog must not undo it
   if (state.client) {
-    const client = state.client as { logout: () => Promise<void>; destroy: () => Promise<void> }
+    const client = state.client as DestroyableWhatsAppClient & { logout: () => Promise<void> }
+    state.client = null
+    state.isConnected = false
+    state.isConnecting = false
     try {
       await client.logout()
     } catch {
       // Ignore logout errors
     }
-    await client.destroy()
-    state.client = null
-    state.isConnected = false
+    await destroyClientInstance(client)
     state.qr = null
     state.groupsCache = []
   }

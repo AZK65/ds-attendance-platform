@@ -7,6 +7,31 @@ export async function register() {
   if (process.env.NEXT_RUNTIME === 'nodejs') {
     const BASE_URL = `http://localhost:${process.env.PORT || 3000}`
 
+    const shutdownGlobal = globalThis as unknown as { qaziShutdownHandlersInstalled?: boolean }
+    if (!shutdownGlobal.qaziShutdownHandlersInstalled) {
+      shutdownGlobal.qaziShutdownHandlersInstalled = true
+      let shuttingDown = false
+      const gracefulShutdown = async (signal: string) => {
+        if (shuttingDown) return
+        shuttingDown = true
+        console.log(`[Shutdown] ${signal} received — saving WhatsApp session`)
+        try {
+          const { shutdownWhatsApp } = await import('@/lib/whatsapp/client')
+          await Promise.race([
+            shutdownWhatsApp(),
+            new Promise((_, reject) => setTimeout(() => reject(new Error('WhatsApp shutdown timed out')), 20_000)),
+          ])
+          console.log('[Shutdown] WhatsApp session saved')
+        } catch (err) {
+          console.error('[Shutdown] WhatsApp cleanup failed:', err)
+        } finally {
+          process.exit(0)
+        }
+      }
+      process.once('SIGTERM', () => void gracefulShutdown('SIGTERM'))
+      process.once('SIGINT', () => void gracefulShutdown('SIGINT'))
+    }
+
     let isProcessing = false
     let isPolling = false
     let isReconcilingZoom = false
