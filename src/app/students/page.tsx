@@ -446,15 +446,19 @@ function StudentsPage() {
     }
   }, [searchParams])
 
-  // Fetch pending registrations (poll every 10s)
+  // Keep registrations live across admin devices. A student often completes
+  // the form on the kiosk while this page is already open elsewhere, so a
+  // long/stale query makes the new row look missing.
   const { data: pendingData } = useQuery<{ registrations: Registration[] }>({
     queryKey: ['registrations', 'submitted'],
     queryFn: async () => {
-      const res = await fetch('/api/registrations?status=submitted')
+      const res = await fetch('/api/registrations?status=submitted', { cache: 'no-store' })
       if (!res.ok) throw new Error('Failed to fetch')
       return res.json()
     },
-    refetchInterval: 10000,
+    staleTime: 0,
+    refetchInterval: 3000,
+    refetchIntervalInBackground: true,
   })
 
   const pendingRegistrations = pendingData?.registrations || []
@@ -465,11 +469,13 @@ function StudentsPage() {
   const { data: confirmedRegsData } = useQuery<{ registrations: Registration[] }>({
     queryKey: ['registrations', 'confirmed'],
     queryFn: async () => {
-      const res = await fetch('/api/registrations?status=confirmed')
+      const res = await fetch('/api/registrations?status=confirmed', { cache: 'no-store' })
       if (!res.ok) throw new Error('Failed to fetch')
       return res.json()
     },
-    staleTime: 30 * 1000,
+    staleTime: 0,
+    refetchInterval: 5000,
+    refetchIntervalInBackground: true,
   })
 
   const confirmedRegistrations = confirmedRegsData?.registrations || []
