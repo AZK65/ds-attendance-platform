@@ -507,7 +507,7 @@ export async function connectWhatsApp(): Promise<void> {
       webVersionCache: {
         type: 'remote',
         remotePath:
-          `https://raw.githubusercontent.com/wppconnect-team/wa-version/main/html/${process.env.WA_WEB_VERSION || '2.3000.1042641488-alpha'}.html`,
+          `https://raw.githubusercontent.com/wppconnect-team/wa-version/main/html/${process.env.WA_WEB_VERSION || '2.3000.1047447330-alpha'}.html`,
       },
       puppeteer: {
         // Use chrome-headless-shell ('shell') rather than full Chrome's new

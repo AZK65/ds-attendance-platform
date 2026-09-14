@@ -1,0 +1,197 @@
+diff --git a/node_modules/whatsapp-web.js/src/util/Injected/Utils.js b/node_modules/whatsapp-web.js/src/util/Injected/Utils.js
+index 8317d2b..96df416 100644
+--- a/node_modules/whatsapp-web.js/src/util/Injected/Utils.js
++++ b/node_modules/whatsapp-web.js/src/util/Injected/Utils.js
+@@ -3,6 +3,51 @@
+ exports.LoadUtils = () => {
+     window.WWebJS = {};
+ 
++    // WhatsApp Web 2.3000.x renamed the internal wid property `_serialized`
++    // to `$1` on some live model objects. Normalize every model crossing the
++    // browser boundary so the Node-side structures always receive the shape
++    // they expect.
++    window.WWebJS.__widToSerialized = (wid) => {
++        if (wid === null || wid === undefined) return wid;
++        if (typeof wid === 'string') return wid;
++        if (typeof wid._serialized === 'string') return wid._serialized;
++        if (typeof wid.$1 === 'string') return wid.$1;
++        if (typeof wid.user === 'string' && typeof wid.server === 'string') {
++            return `${wid.user}@${wid.server}`;
++        }
++        return undefined;
++    };
++
++    window.WWebJS.__ensureSerializedIds = (model) => {
++        try {
++            if (!model || typeof model !== 'object') return model;
++            const fixWid = (obj, key) => {
++                const value = obj && obj[key];
++                if (!value || typeof value !== 'object') return;
++                const serialized = window.WWebJS.__widToSerialized(value);
++                if (serialized !== undefined) obj[key] = serialized;
++            };
++            const fixId = (obj) => {
++                if (!obj || typeof obj !== 'object') return;
++                if (obj.id && typeof obj.id === 'object' && typeof obj.id._serialized !== 'string') {
++                    const serialized = window.WWebJS.__widToSerialized(obj.id);
++                    if (serialized !== undefined) obj.id._serialized = serialized;
++                }
++                fixWid(obj, 'from');
++                fixWid(obj, 'to');
++                fixWid(obj, 'author');
++            };
++            fixId(model);
++            if (model.groupMetadata && Array.isArray(model.groupMetadata.participants)) {
++                model.groupMetadata.participants.forEach((participant) => fixId(participant));
++            }
++            if (model.lastMessage) fixId(model.lastMessage);
++            return model;
++        } catch (_) {
++            return model;
++        }
++    };
++
+     window.WWebJS.forwardMessage = async (chatId, msgId) => {
+         const msg = window.Store.Msg.get(msgId) || (await window.Store.Msg.getMessagesById([msgId]))?.messages?.[0];
+         const chat = await window.WWebJS.getChat(chatId, { getAsModel: false });
+@@ -370,7 +415,7 @@ exports.LoadUtils = () => {
+ 
+         if (options.waitUntilMsgSent) await sendMsgResultPromise;
+ 
+-        return window.Store.Msg.get(newMsgKey._serialized);
++        return window.Store.Msg.get(newMsgKey._serialized || newMsgKey.$1);
+     };
+ 	
+     window.WWebJS.editMessage = async (msg, content, options = {}) => {
+@@ -407,7 +452,7 @@ exports.LoadUtils = () => {
+         };
+ 
+         await window.Store.EditMessage.sendMessageEdit(msg, content, internalOptions);
+-        return window.Store.Msg.get(msg.id._serialized);
++        return window.Store.Msg.get(msg.id._serialized || msg.id.$1);
+     };
+ 
+     window.WWebJS.toStickerData = async (mediaInfo) => {
+@@ -544,6 +589,7 @@ exports.LoadUtils = () => {
+ 
+     window.WWebJS.getMessageModel = (message) => {
+         const msg = message.serialize();
++        window.WWebJS.__ensureSerializedIds(msg);
+ 
+         msg.isEphemeral = message.isEphemeral;
+         msg.isStatusV3 = message.isStatusV3;
+@@ -563,7 +609,7 @@ exports.LoadUtils = () => {
+         }
+ 
+         if (typeof msg.id.remote === 'object') {
+-            msg.id = Object.assign({}, msg.id, { remote: msg.id.remote._serialized });
++            msg.id = Object.assign({}, msg.id, { remote: msg.id.remote._serialized || msg.id.remote.$1 });
+         }
+ 
+         delete msg.pendingAckUpdate;
+@@ -643,23 +689,43 @@ exports.LoadUtils = () => {
+         };
+     };
+ 
++    // One stale group, LID-migrated participant, or revoked channel must not
++    // reject the complete chat list. Fall back to the basic serialized model
++    // for that chat and omit it only when even serialization is impossible.
++    window.WWebJS.__getChatModelSafe = async (chat, options) => {
++        try {
++            return await window.WWebJS.getChatModel(chat, options);
++        } catch (_) {
++            try {
++                const fallback = chat && chat.serialize ? chat.serialize() : null;
++                if (fallback) window.WWebJS.__ensureSerializedIds(fallback);
++                return fallback || null;
++            } catch (_) {
++                return null;
++            }
++        }
++    };
++
+     window.WWebJS.getChats = async () => {
+         const chats = window.Store.Chat.getModelsArray();
+-        const chatPromises = chats.map(chat => window.WWebJS.getChatModel(chat));
+-        return await Promise.all(chatPromises);
++        const chatPromises = chats.map(chat => window.WWebJS.__getChatModelSafe(chat));
++        const results = await Promise.all(chatPromises);
++        return results.filter(Boolean);
+     };
+ 
+     window.WWebJS.getChannels = async () => {
+         const newsletterCollection = window.Store.NewsletterCollection || window.Store.WAWebNewsletterMetadataCollection;
+         const channels = newsletterCollection?.getModelsArray();
+-        const channelPromises = channels?.map((channel) => window.WWebJS.getChatModel(channel, { isChannel: true }));
+-        return await Promise.all(channelPromises ?? []);
++        const channelPromises = channels?.map((channel) => window.WWebJS.__getChatModelSafe(channel, { isChannel: true }));
++        const results = await Promise.all(channelPromises ?? []);
++        return results.filter(Boolean);
+     };
+ 
+     window.WWebJS.getChatModel = async (chat, { isChannel = false } = {}) => {
+         if (!chat) return null;
+ 
+         const model = chat.serialize();
++        window.WWebJS.__ensureSerializedIds(model);
+         model.isGroup = false;
+         model.isMuted = chat.mute?.expiration !== 0;
+         if (isChannel) {
+@@ -670,27 +736,38 @@ exports.LoadUtils = () => {
+ 
+         if (chat.groupMetadata) {
+             model.isGroup = true;
+-            const chatWid = window.Store.WidFactory.createWid(chat.id._serialized);
++            const chatWid = window.Store.WidFactory.createWid(chat.id._serialized || chat.id.$1);
+             const groupMetadataStore = window.Store.GroupMetadata || window.Store.WAWebGroupMetadataCollection;
+-            await groupMetadataStore?.update(chatWid);
+-            chat.groupMetadata.participants._models
+-                .filter(x => x.id?._serialized?.endsWith('@lid'))
+-                .forEach(x => x.contact?.phoneNumber && (x.id = x.contact.phoneNumber));
+-            model.groupMetadata = chat.groupMetadata.serialize();
+-            model.isReadOnly = chat.groupMetadata.announce;
++            try {
++                await groupMetadataStore?.update(chatWid);
++            } catch (_) { /* Keep the already loaded metadata. */ }
++            try {
++                chat.groupMetadata.participants._models
++                    .filter(x => (x.id?._serialized || x.id?.$1)?.endsWith('@lid'))
++                    .forEach(x => x.contact?.phoneNumber && (x.id = x.contact.phoneNumber));
++                model.groupMetadata = chat.groupMetadata.serialize();
++                window.WWebJS.__ensureSerializedIds(model);
++            } catch (_) { /* A bad participant must not reject every chat. */ }
++            try {
++                model.isReadOnly = chat.groupMetadata.announce;
++            } catch (_) { /* Optional metadata. */ }
+         }
+ 
+         if (chat.newsletterMetadata) {
+             const newsletterStore = window.Store.NewsletterMetadataCollection || window.Store.WAWebNewsletterMetadataCollection;
+-            await newsletterStore?.update(chat.id);
+-            model.channelMetadata = chat.newsletterMetadata.serialize();
+-            model.channelMetadata.createdAtTs = chat.newsletterMetadata.creationTime;
++            try {
++                await newsletterStore?.update(chat.id);
++            } catch (_) { /* Keep existing channel metadata. */ }
++            try {
++                model.channelMetadata = chat.newsletterMetadata.serialize();
++                model.channelMetadata.createdAtTs = chat.newsletterMetadata.creationTime;
++            } catch (_) { /* Optional metadata. */ }
+         }
+ 
+         model.lastMessage = null;
+         if (model.msgs && model.msgs.length) {
+             const lastMessage = chat.lastReceivedKey
+-                ? window.Store.Msg.get(chat.lastReceivedKey._serialized) || (await window.Store.Msg.getMessagesById([chat.lastReceivedKey._serialized]))?.messages?.[0]
++                ? window.Store.Msg.get(chat.lastReceivedKey._serialized || chat.lastReceivedKey.$1) || (await window.Store.Msg.getMessagesById([chat.lastReceivedKey._serialized || chat.lastReceivedKey.$1]))?.messages?.[0]
+                 : null;
+             lastMessage && (model.lastMessage = window.WWebJS.getMessageModel(lastMessage));
+         }
+@@ -704,6 +781,7 @@ exports.LoadUtils = () => {
+ 
+     window.WWebJS.getContactModel = contact => {
+         let res = contact.serialize();
++        window.WWebJS.__ensureSerializedIds(res);
+         res.isBusiness = contact.isBusiness === undefined ? false : contact.isBusiness;
+ 
+         if (contact.businessProfile) {
