@@ -57,8 +57,10 @@ ENV PUPPETEER_CACHE_DIR=/app/.cache/puppeteer
 
 WORKDIR /app
 
-# Copy package files
+# Copy package files and dependency patches before installation so the
+# postinstall hook can repair whatsapp-web.js inside the image.
 COPY package.json package-lock.json* ./
+COPY patches ./patches
 
 # Install dependencies (ci for clean, reproducible installs)
 RUN npm ci
