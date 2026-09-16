@@ -460,6 +460,17 @@ export async function connectWhatsApp(): Promise<void> {
     return
   }
 
+  // Never overwrite a client merely because one of its event handlers
+  // temporarily flipped the connection flags. Doing so loses our only
+  // reference to that Chromium process, leaving it alive on the same
+  // LocalAuth profile while a second browser starts. That overlap causes
+  // profile-lock contention, hundreds of Chrome threads, and permanent CDP
+  // timeouts until the whole container is restarted.
+  if (state.client) {
+    logWaEvent('stale_client_before_connect', 'destroying existing Chromium before replacement')
+    await destroyClientHard()
+  }
+
   state.isConnecting = true
   state.qr = null
   state.intentionalDisconnect = false
@@ -901,8 +912,18 @@ export async function connectWhatsApp(): Promise<void> {
       if (!isCurrentClient()) return
       console.error('WhatsApp authentication failed:', msg)
       logWaEvent('auth_failure', msg)
-      state.isConnecting = false
       state.isConnected = false
+      // A transient Target-closed auth event can be followed by `ready`
+      // seconds later while WhatsApp reloads. Keep this client as the sole
+      // owner during a short grace period so the watchdog cannot start a
+      // second Chromium against the same profile. If it does not recover,
+      // tear it down fully before reconnecting.
+      state.isConnecting = true
+      setTimeout(() => {
+        if (!isCurrentClient() || state.isConnected || state.intentionalDisconnect) return
+        state.isConnecting = false
+        fullReconnect().catch(err => console.error('[auth_failure] Reconnect failed:', err))
+      }, 10_000)
     })
 
     client.on('disconnected', (reason: string) => {
@@ -944,6 +965,12 @@ export async function connectWhatsApp(): Promise<void> {
         if (error.message.includes('detached') || error.message.includes('Target closed')) {
           console.log('[WhatsApp] Page detached, marking as disconnected')
           state.isConnected = false
+          state.isConnecting = true
+          setTimeout(() => {
+            if (!isCurrentClient() || state.isConnected || state.intentionalDisconnect) return
+            state.isConnecting = false
+            fullReconnect().catch(err => console.error('[page_error] Reconnect failed:', err))
+          }, 5_000)
         }
       })
 
