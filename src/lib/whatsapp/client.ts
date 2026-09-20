@@ -1405,118 +1405,39 @@ export async function addParticipantToGroup(groupId: string, phone: string): Pro
   }
 
   const client = state.client as {
-    getChatById: (id: string) => Promise<{
-      addParticipants: (participants: string[], options?: unknown) => Promise<Record<string, { code: number; message: string; isInviteV4Sent: boolean }>>
-      getInviteCode: () => Promise<string>
-      name: string
-    }>
+    getChatById: (id: string) => Promise<{ name: string }>
     getNumberId: (phone: string) => Promise<{ _serialized: string } | null>
-    getChats: () => Promise<unknown[]>
   }
 
+  // WhatsApp Web currently logs the linked device out as soon as a direct
+  // add is rejected by the student's privacy settings (code 403), even when
+  // its broken Invite V4 fallback is disabled. Existing groups therefore use
+  // a normal private group-link message only. The group-creation RPC still
+  // directly adds every selected student WhatsApp permits in one operation.
+  await recordGroupInvite(groupId, phone).catch(() => {})
+
   try {
-    // Resolve the WhatsApp id BEFORE trying to add. Contacts WhatsApp has
-    // migrated to Linked IDs return '<lid>@lid' here (not '<phone>@c.us').
-    // Using phoneToJid blindly would build '<digits>@c.us' — an address
-    // that doesn't exist on WA for those contacts, which is why previous
-    // add attempts silently failed with 'No LID for user'.
-    let participantId: string
-    try {
-      const resolved = await client.getNumberId(phone)
-      if (!resolved?._serialized) {
-        // Not on WhatsApp at all — record as pending so the roster keeps
-        // them, and surface the copyable invite link so admin can send
-        // via SMS / email.
-        await recordGroupInvite(groupId, phone).catch(() => {})
-        try {
-          const inviteLink = await getGroupInviteLink(groupId)
-          return {
-            success: false,
-            error: 'This number has no WhatsApp account — send them the invite link manually',
-            ...(inviteLink ? { inviteLink } : {}),
-          }
-        } catch {
-          return { success: false, error: 'This number has no WhatsApp account' }
-        }
-      }
-      participantId = resolved._serialized
-    } catch (resolveErr) {
-      // getNumberId itself failed — fall back to the old phoneToJid path
-      // so we still attempt the add. Better than hard-failing.
-      console.warn('[addParticipant] getNumberId failed, using phoneToJid fallback:', resolveErr)
-      participantId = phoneToJid(phone)
+    const inviteLink = await getGroupInviteLink(groupId)
+    if (!inviteLink) {
+      return { success: false, error: 'Student saved, but the group invite link is unavailable' }
     }
 
-    console.log(`[addParticipant] resolved ${phone} -> ${participantId}, adding to ${groupId}`)
-    const chat = await client.getChatById(groupId)
-
-    // Add timeout to prevent hanging (WhatsApp can stall on privacy-restricted numbers)
-    const addWithTimeout = Promise.race([
-      // WhatsApp Web's automatic Invite V4 fallback currently crashes on a
-      // privacy-restricted student and can invalidate the linked session.
-      // Request only a direct add; code 403 is handled safely below.
-      chat.addParticipants([participantId], { autoSendInviteV4: false }),
-      new Promise<never>((_, reject) => setTimeout(() => reject(new Error('Add participant timed out after 8s')), 8000)),
-    ])
-    const result = await addWithTimeout
-    console.log('[addParticipant] result:', result)
-
-    // Check if there was an error for this participant
-    const participantResult = result[participantId]
-    if (participantResult && participantResult.code !== 200) {
-      // A 429 means WhatsApp is actively throttling group changes. Do not
-      // ask for an invite code or continue hammering other members: doing so
-      // can invalidate the whole linked-device session.
-      if (participantResult.code === 429) {
-        await recordGroupInvite(groupId, phone).catch(() => {})
-        return {
-          success: false,
-          rateLimited: true,
-          error: 'WhatsApp temporarily rate-limited group additions — try the pending students later',
-        }
-      }
-
-      // If invite was already sent by WhatsApp via V4, report it
-      if (participantResult.isInviteV4Sent) {
-        console.log(`[addParticipant] Invite V4 sent to ${participantId}`)
-        await recordGroupInvite(groupId, phone).catch(() => {})
-        return { success: true, inviteSent: true }
-      }
-
-      // Direct add failed — try sending an invite link. If sendPrivateMessage
-      // itself throws (common with 'No LID for user' on brand-new contacts),
-      // still return the invite link so admin can copy-paste it into an SMS.
-      console.log(`[addParticipant] Direct add failed (${participantResult.code} ${participantResult.message}), preparing invite link...`)
-      const inviteLink = await getGroupInviteLink(groupId) || undefined
-      if (inviteLink) {
-        const groupName = chat.name || 'the group'
-        try {
-          await sendPrivateMessage(
-            phone,
-            `You've been invited to join *${groupName}*!\n\nClick the link to join:\n${inviteLink}`
-          )
-          console.log(`[addParticipant] Invite link auto-sent to ${phone}`)
-          await recordGroupInvite(groupId, phone).catch(() => {})
-          return { success: true, inviteSent: true }
-        } catch (sendErr) {
-          const sendMsg = sendErr instanceof Error ? sendErr.message : String(sendErr)
-          console.warn(`[addParticipant] Invite auto-send failed for ${phone} (${sendMsg}); returning link for manual send.`)
-          await recordGroupInvite(groupId, phone).catch(() => {})
-          // Manual-send path — admin can copy the link out of the UI.
-          return {
-            success: false,
-            error: 'WhatsApp wouldn\'t auto-add this number. Send them the invite link manually.',
-            inviteLink,
-          }
-        }
-      }
+    const resolved = await client.getNumberId(phone).catch(() => null)
+    if (!resolved?._serialized) {
       return {
         success: false,
-        error: participantResult.message || `Error code ${participantResult.code}`,
+        error: 'This number has no WhatsApp account — send the invite link by SMS or email',
+        inviteLink,
       }
     }
 
-    return { success: true }
+    const chat = await client.getChatById(groupId)
+    await sendPrivateMessage(
+      phone,
+      `You've been invited to join *${chat.name || 'your Qazi class group'}*!\n\nTap here to join:\n${inviteLink}`
+    )
+    console.log(`[addParticipant] Safe invite link sent to ${phone}`)
+    return { success: true, inviteSent: true, inviteLink }
   } catch (error) {
     const errMsg = error instanceof Error ? error.message : String(error)
     console.error('[addParticipant] error:', errMsg)
@@ -1531,6 +1452,23 @@ export async function getGroupInviteLink(groupId: string): Promise<string | null
 
   const cached = whatsappInviteLinks.get(groupId)
   if (cached) return cached
+
+  const persisted = await prisma.group.findUnique({
+    where: { id: groupId },
+    select: { inviteLink: true },
+  }).catch(() => null)
+  if (persisted?.inviteLink) {
+    whatsappInviteLinks.set(groupId, persisted.inviteLink)
+    return persisted.inviteLink
+  }
+
+  const rememberLink = async (link: string): Promise<void> => {
+    whatsappInviteLinks.set(groupId, link)
+    await prisma.group.updateMany({
+      where: { id: groupId },
+      data: { inviteLink: link },
+    }).catch(error => console.warn('[getGroupInviteLink] Could not persist link:', error))
+  }
 
   type InvitePage = {
     evaluate: <T>(fn: () => T) => Promise<T>
@@ -1550,7 +1488,7 @@ export async function getGroupInviteLink(groupId: string): Promise<string | null
 
   try {
     const link = await fetchLink()
-    if (link) whatsappInviteLinks.set(groupId, link)
+    if (link) await rememberLink(link)
     return link
   } catch (firstError) {
     // WhatsApp moved fetchMexGroupInviteCode into the lazy-loaded "Invite to
@@ -1571,9 +1509,14 @@ export async function getGroupInviteLink(groupId: string): Promise<string | null
         await page.evaluate(() => {
           const continueButton = Array.from(document.querySelectorAll('button,[role="button"]'))
             .find(el => (el.textContent || '').trim() === 'Continue')
-          const card = continueButton?.closest('[role="dialog"]') || continueButton?.parentElement?.parentElement
-          const close = card?.querySelector('[aria-label="Close"]') as HTMLElement | null
-          close?.click()
+          if (continueButton) {
+            const visibleClose = Array.from(document.querySelectorAll('[aria-label="Close"]'))
+              .find(el => {
+                const box = (el as HTMLElement).getBoundingClientRect()
+                return box.width > 0 && box.height > 0
+              }) as HTMLElement | undefined
+            visibleClose?.click()
+          }
         })
         await new Promise(resolve => setTimeout(resolve, 250))
 
@@ -1622,7 +1565,7 @@ export async function getGroupInviteLink(groupId: string): Promise<string | null
     try {
       await globalForWhatsApp.whatsappInviteLoader
       const link = await fetchLink()
-      if (link) whatsappInviteLinks.set(groupId, link)
+      if (link) await rememberLink(link)
       return link
     } catch (retryError) {
       console.error('[getGroupInviteLink] Failed after loading invite screen:', retryError)
@@ -1631,7 +1574,8 @@ export async function getGroupInviteLink(groupId: string): Promise<string | null
   }
 }
 
-// Add multiple participants to a group in batches of 3 (prevents Chromium OOM on low-memory servers)
+// Safely invite multiple students. Direct bulk group mutations are disabled
+// because current WhatsApp Web builds can invalidate the linked session.
 export async function addParticipantsToGroupBulk(
   groupId: string,
   phones: string[]
@@ -1640,65 +1584,24 @@ export async function addParticipantsToGroupBulk(
     throw new Error('WhatsApp not connected')
   }
 
-  const client = state.client as {
-    getChatById: (id: string) => Promise<{
-      addParticipants: (participants: string[], options?: unknown) => Promise<Record<string, { code: number; message: string; isInviteV4Sent: boolean }>>
-      getInviteCode: () => Promise<string>
-      name: string
-    }>
-  }
-
-  const chat = await client.getChatById(groupId)
-  const BATCH_SIZE = 3
   const results: Array<{ phone: string; success: boolean; inviteSent?: boolean; error?: string }> = []
-
-  for (let i = 0; i < phones.length; i += BATCH_SIZE) {
-    const batch = phones.slice(i, i + BATCH_SIZE)
-    const batchJids = batch.map(p => phoneToJid(p))
-
-    console.log(`[addParticipantsBulk] Batch ${Math.floor(i / BATCH_SIZE) + 1}: adding ${batch.length} participants`)
-
+  for (const phone of phones) {
     try {
-      const addWithTimeout = Promise.race([
-        chat.addParticipants(batchJids),
-        new Promise<never>((_, reject) => setTimeout(() => reject(new Error('Batch add timed out')), 15000)),
-      ])
-      const result = await addWithTimeout
-
-      for (let j = 0; j < batch.length; j++) {
-        const jid = batchJids[j]
-        const phone = batch[j]
-        const r = result[jid]
-
-        if (!r || r.code === 200) {
-          results.push({ phone, success: true })
-        } else if (r.isInviteV4Sent) {
-          await recordGroupInvite(groupId, phone)
-          results.push({ phone, success: true, inviteSent: true })
-        } else {
-          // Try sending invite link as fallback
-          try {
-            const inviteCode = await chat.getInviteCode()
-            const inviteLink = `https://chat.whatsapp.com/${inviteCode}`
-            await sendPrivateMessage(phone, `You've been invited to join *${chat.name}*!\n\nClick the link to join:\n${inviteLink}`)
-            await recordGroupInvite(groupId, phone)
-            results.push({ phone, success: true, inviteSent: true })
-          } catch {
-            results.push({ phone, success: false, error: r.message || `Code ${r.code}` })
-          }
-        }
-      }
-    } catch (err) {
-      console.error(`[addParticipantsBulk] Batch failed:`, err)
-      for (const phone of batch) {
-        results.push({ phone, success: false, error: err instanceof Error ? err.message : 'Batch failed' })
-      }
+      const result = await addParticipantToGroup(groupId, phone)
+      results.push({
+        phone,
+        success: result.success,
+        inviteSent: result.inviteSent,
+        ...(result.error ? { error: result.error } : {}),
+      })
+    } catch (error) {
+      results.push({
+        phone,
+        success: false,
+        error: error instanceof Error ? error.message : 'Invite failed',
+      })
     }
-
-    // Brief pause between batches to let Chromium breathe
-    if (i + BATCH_SIZE < phones.length) {
-      await new Promise(r => setTimeout(r, 2000))
-    }
+    await new Promise(resolve => setTimeout(resolve, 1500))
   }
 
   return results

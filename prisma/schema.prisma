@@ -33,6 +33,9 @@ model Group {
   vehicleType        String           @default("car")
   lastMessageDate    DateTime?
   lastMessagePreview String?
+  // Reusable WhatsApp join link. Persisted because WhatsApp now lazy-loads
+  // the invite-code API and can make it unavailable after a restart.
+  inviteLink         String?
   attendanceSheet    AttendanceSheet?
   members            GroupMember[]
 }

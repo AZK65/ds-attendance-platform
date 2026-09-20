@@ -328,9 +328,8 @@ export default function GroupDetailPage() {
   const participants: Participant[] = groupData?.participants || []
   const pendingInvites: PendingInvite[] = groupData?.pendingInvites || []
 
-  // A single retry may attempt a direct add. Sending all pending invitations
-  // uses normal private messages only, which cannot trigger the broken bulk
-  // group-add path in WhatsApp Web.
+  // Pending actions send normal private link messages only; current WhatsApp
+  // Web builds can log the linked device out after a rejected direct add.
   const [inviteActionPhone, setInviteActionPhone] = useState<string | null>(null)
   const [sendingAllInvites, setSendingAllInvites] = useState(false)
   const sendAllPendingInvites = async () => {
@@ -1231,7 +1230,7 @@ export default function GroupDetailPage() {
                           size="icon"
                           onClick={() => resendInvite(invite)}
                           disabled={!isConnected || inviteActionPhone === invite.phone}
-                          title={!isConnected ? 'Connect first to resend' : 'Try adding again / resend invite link'}
+                          title={!isConnected ? 'Connect first to resend' : 'Resend group invite link'}
                         >
                           {inviteActionPhone === invite.phone ? (
                             <Loader2 className="h-4 w-4 animate-spin" />
