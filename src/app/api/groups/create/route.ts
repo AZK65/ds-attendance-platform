@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { createWhatsAppGroup, getWhatsAppState, phoneToJid, getGroupParticipants, sendPrivateMessage, addParticipantToGroup, recordGroupInvite } from '@/lib/whatsapp/client'
+import { createWhatsAppGroup, getWhatsAppState, phoneToJid, getGroupParticipants, sendPrivateMessage, getGroupInviteLink, recordGroupInvite } from '@/lib/whatsapp/client'
 import { prisma } from '@/lib/db'
 
 export async function POST(request: NextRequest) {
@@ -91,46 +91,30 @@ export async function POST(request: NextRequest) {
 
       if (missingMembers.length > 0) {
         const initiallyMissing = [...missingMembers]
-        const stillMissing: string[] = []
         let invitedCount = 0
-        console.log(`[createGroup] ${initiallyMissing.length} participants not added, trying individual add + invite links...`)
-        for (let i = 0; i < initiallyMissing.length; i++) {
-          const phone = initiallyMissing[i]
-          try {
-            const result = await addParticipantToGroup(groupId, phone)
-            if (result.inviteSent) {
-              invitedCount++
-              console.log(`[createGroup] Invite sent to ${phone}`)
-            } else if (result.success) {
-              console.log(`[createGroup] Added ${phone} on retry`)
-            } else {
-              stillMissing.push(phone)
-              await recordGroupInvite(groupId, phone).catch(() => {})
-            }
+        const inviteLink = await getGroupInviteLink(groupId)
+        console.log(`[createGroup] ${initiallyMissing.length} participants were not added directly; sending safe group-link messages...`)
 
-            if (result.rateLimited) {
-              // Stop immediately. Repeated 429s can cause WhatsApp to log out
-              // the linked device. Keep every unattempted student visible as
-              // pending so an admin can retry them after the cooldown.
-              const unattempted = initiallyMissing.slice(i + 1)
-              stillMissing.push(...unattempted)
-              await Promise.all(unattempted.map(p => recordGroupInvite(groupId, p).catch(() => {})))
-              console.warn(`[createGroup] WhatsApp rate-limited additions; stopped with ${stillMissing.length} pending`)
-              break
-            }
+        // Do not retry a whole roster with addParticipants. Rapid group
+        // mutations — and WhatsApp's broken automatic Invite V4 fallback —
+        // are what invalidated the linked device. The creation RPC already
+        // directly added everyone WhatsApp allowed; only the rejected people
+        // receive the normal group link here.
+        await Promise.all(initiallyMissing.map(phone => recordGroupInvite(groupId, phone).catch(() => {})))
+        for (const phone of initiallyMissing) {
+          if (!inviteLink) continue
+          try {
+            await sendPrivateMessage(phone, `You've been invited to join *${title}*\n\nTap here to join:\n${inviteLink}`)
+            invitedCount++
           } catch (err) {
-            console.log(`[createGroup] Failed to add/invite ${phone}:`, err)
-            stillMissing.push(phone)
-            await recordGroupInvite(groupId, phone).catch(() => {})
+            console.log(`[createGroup] Could not message invite to ${phone}:`, err)
           }
           await new Promise(r => setTimeout(r, 1500))
         }
-        missingMembers = stillMissing
-        if (stillMissing.length > 0) {
-          whatsappWarning = `${stillMissing.length} member(s) still need a manual invite`
-        } else if (invitedCount > 0) {
-          whatsappWarning = `${invitedCount} member(s) received a WhatsApp group invite`
-        }
+        missingMembers = initiallyMissing
+        whatsappWarning = inviteLink
+          ? `${invitedCount} member(s) received a WhatsApp group invite; ${initiallyMissing.length} remain pending until they join`
+          : `${initiallyMissing.length} member(s) remain pending; the invite link could not be loaded`
       }
     } catch (checkErr) {
       console.log('[createGroup] Could not verify participants:', checkErr)

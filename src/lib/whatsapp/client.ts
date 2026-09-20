@@ -148,7 +148,14 @@ export interface ParticipantInfo {
 // Use global to persist state across module reloads in development
 const globalForWhatsApp = globalThis as unknown as {
   whatsappState: WhatsAppState | undefined
+  whatsappInviteLinks?: Map<string, string>
+  whatsappInviteLoader?: Promise<void> | null
 }
+
+// Group links remain valid until an admin explicitly resets them. Keeping
+// them globally avoids reopening WhatsApp's group-info UI for every student.
+const whatsappInviteLinks = globalForWhatsApp.whatsappInviteLinks ?? new Map<string, string>()
+globalForWhatsApp.whatsappInviteLinks = whatsappInviteLinks
 
 const state: WhatsAppState = globalForWhatsApp.whatsappState ?? {
   client: null,
@@ -1422,12 +1429,11 @@ export async function addParticipantToGroup(groupId: string, phone: string): Pro
         // via SMS / email.
         await recordGroupInvite(groupId, phone).catch(() => {})
         try {
-          const chat = await client.getChatById(groupId)
-          const inviteCode = await chat.getInviteCode()
+          const inviteLink = await getGroupInviteLink(groupId)
           return {
             success: false,
             error: 'This number has no WhatsApp account — send them the invite link manually',
-            inviteLink: `https://chat.whatsapp.com/${inviteCode}`,
+            ...(inviteLink ? { inviteLink } : {}),
           }
         } catch {
           return { success: false, error: 'This number has no WhatsApp account' }
@@ -1446,7 +1452,10 @@ export async function addParticipantToGroup(groupId: string, phone: string): Pro
 
     // Add timeout to prevent hanging (WhatsApp can stall on privacy-restricted numbers)
     const addWithTimeout = Promise.race([
-      chat.addParticipants([participantId]),
+      // WhatsApp Web's automatic Invite V4 fallback currently crashes on a
+      // privacy-restricted student and can invalidate the linked session.
+      // Request only a direct add; code 403 is handled safely below.
+      chat.addParticipants([participantId], { autoSendInviteV4: false }),
       new Promise<never>((_, reject) => setTimeout(() => reject(new Error('Add participant timed out after 8s')), 8000)),
     ])
     const result = await addWithTimeout
@@ -1478,13 +1487,7 @@ export async function addParticipantToGroup(groupId: string, phone: string): Pro
       // itself throws (common with 'No LID for user' on brand-new contacts),
       // still return the invite link so admin can copy-paste it into an SMS.
       console.log(`[addParticipant] Direct add failed (${participantResult.code} ${participantResult.message}), preparing invite link...`)
-      let inviteLink: string | undefined
-      try {
-        const inviteCode = await chat.getInviteCode()
-        inviteLink = `https://chat.whatsapp.com/${inviteCode}`
-      } catch (linkErr) {
-        console.error('[addParticipant] Could not fetch invite code:', linkErr)
-      }
+      const inviteLink = await getGroupInviteLink(groupId) || undefined
       if (inviteLink) {
         const groupName = chat.name || 'the group'
         try {
@@ -1525,16 +1528,106 @@ export async function addParticipantToGroup(groupId: string, phone: string): Pro
 
 export async function getGroupInviteLink(groupId: string): Promise<string | null> {
   if (!state.client || !state.isConnected) return null
-  try {
-    const client = state.client as {
-      getChatById: (id: string) => Promise<{ getInviteCode: () => Promise<string> }>
-    }
+
+  const cached = whatsappInviteLinks.get(groupId)
+  if (cached) return cached
+
+  type InvitePage = {
+    evaluate: <T>(fn: () => T) => Promise<T>
+    mouse: { click: (x: number, y: number) => Promise<void> }
+    waitForFunction: (fn: () => unknown, options?: { timeout?: number }) => Promise<unknown>
+  }
+  const client = state.client as {
+    getChatById: (id: string) => Promise<{ getInviteCode: () => Promise<string> }>
+    interface?: { openChatWindow: (id: string) => Promise<void> }
+    pupPage?: InvitePage
+  }
+  const fetchLink = async (): Promise<string | null> => {
     const chat = await client.getChatById(groupId)
     const code = await chat.getInviteCode()
-    return `https://chat.whatsapp.com/${code}`
-  } catch (err) {
-    console.error('[getGroupInviteLink] Failed:', err)
-    return null
+    return code ? `https://chat.whatsapp.com/${code}` : null
+  }
+
+  try {
+    const link = await fetchLink()
+    if (link) whatsappInviteLinks.set(groupId, link)
+    return link
+  } catch (firstError) {
+    // WhatsApp moved fetchMexGroupInviteCode into the lazy-loaded "Invite to
+    // group via link" screen. Load that official screen once, then retry the
+    // read-only API. This never changes group membership.
+    if (!client.interface || !client.pupPage) {
+      console.error('[getGroupInviteLink] Failed:', firstError)
+      return null
+    }
+
+    if (!globalForWhatsApp.whatsappInviteLoader) {
+      globalForWhatsApp.whatsappInviteLoader = (async () => {
+        const page = client.pupPage!
+        await client.interface!.openChatWindow(groupId)
+        await new Promise(resolve => setTimeout(resolve, 500))
+
+        // A fresh login can show a "What's new" card over the group header.
+        await page.evaluate(() => {
+          const continueButton = Array.from(document.querySelectorAll('button,[role="button"]'))
+            .find(el => (el.textContent || '').trim() === 'Continue')
+          const card = continueButton?.closest('[role="dialog"]') || continueButton?.parentElement?.parentElement
+          const close = card?.querySelector('[aria-label="Close"]') as HTMLElement | null
+          close?.click()
+        })
+        await new Promise(resolve => setTimeout(resolve, 250))
+
+        const inviteRowIsOpen = await page.evaluate(() =>
+          Array.from(document.querySelectorAll('[role="button"],button'))
+            .some(el => (el.textContent || '').trim() === 'Invite to group via link')
+        )
+        if (!inviteRowIsOpen) {
+          const rect = await page.evaluate(() => {
+            const el = document.querySelector('[title="Profile details"]') as HTMLElement | null
+            if (!el) return null
+            const box = el.getBoundingClientRect()
+            return box.width && box.height
+              ? { x: box.left + box.width / 2, y: box.top + box.height / 2 }
+              : null
+          })
+          if (!rect) throw new Error('Could not open WhatsApp group info')
+          await page.mouse.click(rect.x, rect.y)
+          await page.waitForFunction(() =>
+            Array.from(document.querySelectorAll('[role="button"],button'))
+              .some(el => (el.textContent || '').trim() === 'Invite to group via link'),
+          { timeout: 8000 })
+        }
+
+        await page.evaluate(() => {
+          const row = Array.from(document.querySelectorAll('[role="button"],button'))
+            .find(el => (el.textContent || '').trim() === 'Invite to group via link') as HTMLElement | undefined
+          row?.click()
+        })
+        await page.waitForFunction(() => {
+          try {
+            type WindowWithRequire = Window & {
+              require: (name: string) => { fetchMexGroupInviteCode?: unknown }
+            }
+            return typeof (window as WindowWithRequire)
+              .require('WAWebMexFetchGroupInviteCodeJob')?.fetchMexGroupInviteCode === 'function'
+          } catch {
+            return false
+          }
+        }, { timeout: 10000 })
+      })().finally(() => {
+        globalForWhatsApp.whatsappInviteLoader = null
+      })
+    }
+
+    try {
+      await globalForWhatsApp.whatsappInviteLoader
+      const link = await fetchLink()
+      if (link) whatsappInviteLinks.set(groupId, link)
+      return link
+    } catch (retryError) {
+      console.error('[getGroupInviteLink] Failed after loading invite screen:', retryError)
+      return null
+    }
   }
 }
 
@@ -1646,7 +1739,7 @@ export async function createWhatsAppGroup(name: string, participantPhones: strin
   }
 
   const client = state.client as {
-    createGroup: (title: string, participants: string[]) => Promise<CreateResult | string>
+    createGroup: (title: string, participants: string[], options?: { autoSendInviteV4?: boolean }) => Promise<CreateResult | string>
     getChats: () => Promise<Array<{ id: WidLike; name: string; isGroup: boolean; timestamp: number }>>
   }
 
@@ -1696,7 +1789,7 @@ export async function createWhatsAppGroup(name: string, participantPhones: strin
     // lazy WhatsApp group-creation module before making this call.
     const participantJids = participantPhones.map(phoneToJid)
     console.log(`[createGroup] Creating group "${name}" with ${participantJids.length} participant(s)`)
-    const result = await client.createGroup(name, participantJids)
+    const result = await client.createGroup(name, participantJids, { autoSendInviteV4: false })
     const created = parseResult(result)
     console.log(`[createGroup] Group created: ${created.groupId}`)
     return created

@@ -328,9 +328,29 @@ export default function GroupDetailPage() {
   const participants: Participant[] = groupData?.participants || []
   const pendingInvites: PendingInvite[] = groupData?.pendingInvites || []
 
-  // Resend an invite (retries a direct add first, falls back to a new invite
-  // link) or dismiss one that's never going to be accepted.
+  // A single retry may attempt a direct add. Sending all pending invitations
+  // uses normal private messages only, which cannot trigger the broken bulk
+  // group-add path in WhatsApp Web.
   const [inviteActionPhone, setInviteActionPhone] = useState<string | null>(null)
+  const [sendingAllInvites, setSendingAllInvites] = useState(false)
+  const sendAllPendingInvites = async () => {
+    setSendingAllInvites(true)
+    try {
+      const response = await fetch(`/api/groups/${encodeURIComponent(groupId)}/invites`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({}),
+      })
+      const data = await response.json()
+      if (!response.ok) throw new Error(data.error || 'Could not send invitations')
+      alert(`Invite link sent to ${data.sent} student${data.sent === 1 ? '' : 's'}${data.failed ? `; ${data.failed} could not be messaged` : ''}.`)
+      await refetch()
+    } catch (error) {
+      alert(error instanceof Error ? error.message : 'Could not send invitations')
+    } finally {
+      setSendingAllInvites(false)
+    }
+  }
   const resendInvite = async (invite: PendingInvite) => {
     setInviteActionPhone(invite.phone)
     try {
@@ -805,10 +825,23 @@ export default function GroupDetailPage() {
           {(pendingInvites.length > 0 || currentModuleNumber > 0 || groupNextTheory?.next) && (
             <div className="flex flex-wrap items-center gap-2">
               {pendingInvites.length > 0 && (
-                <Badge variant="outline" className="border-amber-300 bg-amber-50 text-amber-700">
-                  <Clock className="h-3 w-3 mr-1" />
-                  {pendingInvites.length} invited · not joined yet
-                </Badge>
+                <>
+                  <Badge variant="outline" className="border-amber-300 bg-amber-50 text-amber-700">
+                    <Clock className="h-3 w-3 mr-1" />
+                    {pendingInvites.length} invited · not joined yet
+                  </Badge>
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="outline"
+                    className="h-7 gap-1.5"
+                    onClick={sendAllPendingInvites}
+                    disabled={!isConnected || sendingAllInvites}
+                  >
+                    {sendingAllInvites ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Send className="h-3.5 w-3.5" />}
+                    Send all invites
+                  </Button>
+                </>
               )}
               {currentModuleNumber > 0 && (
                 <Badge variant="default">
