@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { createWhatsAppGroup, getWhatsAppState, phoneToJid, getGroupParticipants, sendPrivateMessage, addParticipantToGroup } from '@/lib/whatsapp/client'
+import { createWhatsAppGroup, getWhatsAppState, phoneToJid, getGroupParticipants, sendPrivateMessage, addParticipantToGroup, recordGroupInvite } from '@/lib/whatsapp/client'
 import { prisma } from '@/lib/db'
 
 export async function POST(request: NextRequest) {
@@ -94,7 +94,8 @@ export async function POST(request: NextRequest) {
         const stillMissing: string[] = []
         let invitedCount = 0
         console.log(`[createGroup] ${initiallyMissing.length} participants not added, trying individual add + invite links...`)
-        for (const phone of initiallyMissing) {
+        for (let i = 0; i < initiallyMissing.length; i++) {
+          const phone = initiallyMissing[i]
           try {
             const result = await addParticipantToGroup(groupId, phone)
             if (result.inviteSent) {
@@ -104,10 +105,23 @@ export async function POST(request: NextRequest) {
               console.log(`[createGroup] Added ${phone} on retry`)
             } else {
               stillMissing.push(phone)
+              await recordGroupInvite(groupId, phone).catch(() => {})
+            }
+
+            if (result.rateLimited) {
+              // Stop immediately. Repeated 429s can cause WhatsApp to log out
+              // the linked device. Keep every unattempted student visible as
+              // pending so an admin can retry them after the cooldown.
+              const unattempted = initiallyMissing.slice(i + 1)
+              stillMissing.push(...unattempted)
+              await Promise.all(unattempted.map(p => recordGroupInvite(groupId, p).catch(() => {})))
+              console.warn(`[createGroup] WhatsApp rate-limited additions; stopped with ${stillMissing.length} pending`)
+              break
             }
           } catch (err) {
             console.log(`[createGroup] Failed to add/invite ${phone}:`, err)
             stillMissing.push(phone)
+            await recordGroupInvite(groupId, phone).catch(() => {})
           }
           await new Promise(r => setTimeout(r, 1500))
         }

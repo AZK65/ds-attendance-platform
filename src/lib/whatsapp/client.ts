@@ -1392,7 +1392,7 @@ async function resolveJoinedInvites(groupId: string, participantPhones: string[]
   }
 }
 
-export async function addParticipantToGroup(groupId: string, phone: string): Promise<{ success: boolean; error?: string; inviteSent?: boolean; inviteLink?: string }> {
+export async function addParticipantToGroup(groupId: string, phone: string): Promise<{ success: boolean; error?: string; inviteSent?: boolean; inviteLink?: string; rateLimited?: boolean }> {
   if (!state.client || !state.isConnected) {
     throw new Error('WhatsApp not connected')
   }
@@ -1455,6 +1455,18 @@ export async function addParticipantToGroup(groupId: string, phone: string): Pro
     // Check if there was an error for this participant
     const participantResult = result[participantId]
     if (participantResult && participantResult.code !== 200) {
+      // A 429 means WhatsApp is actively throttling group changes. Do not
+      // ask for an invite code or continue hammering other members: doing so
+      // can invalidate the whole linked-device session.
+      if (participantResult.code === 429) {
+        await recordGroupInvite(groupId, phone).catch(() => {})
+        return {
+          success: false,
+          rateLimited: true,
+          error: 'WhatsApp temporarily rate-limited group additions — try the pending students later',
+        }
+      }
+
       // If invite was already sent by WhatsApp via V4, report it
       if (participantResult.isInviteV4Sent) {
         console.log(`[addParticipant] Invite V4 sent to ${participantId}`)
@@ -1678,11 +1690,13 @@ export async function createWhatsAppGroup(name: string, participantPhones: strin
   }
 
   try {
-    // Creating a group with a large participant array currently fails inside
-    // WhatsApp Web. Create the shell first; the API route verifies membership
-    // and adds/invites each requested student immediately afterwards.
-    console.log(`[createGroup] Creating empty group "${name}"; ${participantPhones.length} requested participant(s) will be added next`)
-    const result = await client.createGroup(name, [])
+    // Send the selected students in the creation RPC. This is one WhatsApp
+    // operation and avoids the anti-spam throttling caused by dozens of
+    // individual add-participant requests. The patched client loads the
+    // lazy WhatsApp group-creation module before making this call.
+    const participantJids = participantPhones.map(phoneToJid)
+    console.log(`[createGroup] Creating group "${name}" with ${participantJids.length} participant(s)`)
+    const result = await client.createGroup(name, participantJids)
     const created = parseResult(result)
     console.log(`[createGroup] Group created: ${created.groupId}`)
     return created
