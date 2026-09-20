@@ -115,6 +115,24 @@ index f03255b..ea51774 100644
          }, title, participants, options);
      }
  
+diff --git a/node_modules/whatsapp-web.js/src/structures/GroupChat.js b/node_modules/whatsapp-web.js/src/structures/GroupChat.js
+index ae4c95d..feca4e5 100644
+--- a/node_modules/whatsapp-web.js/src/structures/GroupChat.js
++++ b/node_modules/whatsapp-web.js/src/structures/GroupChat.js
+@@ -278,7 +278,12 @@ class GroupChat extends Chat {
+             let descId = chat.groupMetadata.descId;
+             let newId = await window.Store.MsgKey.newId();
+             try {
+-                await window.Store.GroupUtils.setGroupDescription(chatWid, description, newId, descId);
++                await window.Store.GroupUtils.setGroupDescription({
++                    desc: description,
++                    groupWid: chatWid,
++                    newDescId: newId,
++                    prevDescId: descId
++                });
+                 return true;
+             } catch (err) {
+                 if(err.name === 'ServerStatusCodeError') return false;
 diff --git a/node_modules/whatsapp-web.js/src/util/Injected/Utils.js b/node_modules/whatsapp-web.js/src/util/Injected/Utils.js
 index 8317d2b..96df416 100644
 --- a/node_modules/whatsapp-web.js/src/util/Injected/Utils.js
