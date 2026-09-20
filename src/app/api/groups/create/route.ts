@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createWhatsAppGroup, getWhatsAppState, phoneToJid, getGroupParticipants, sendPrivateMessage, getGroupInviteLink, recordGroupInvite } from '@/lib/whatsapp/client'
 import { prisma } from '@/lib/db'
+import { syncGroupMembers } from '@/lib/group-sync'
 
 export async function POST(request: NextRequest) {
   const state = getWhatsAppState()
@@ -45,15 +46,23 @@ export async function POST(request: NextRequest) {
     try {
       await prisma.group.upsert({
         where: { id: groupId },
-        update: { name: title, lastSynced: new Date(), vehicleType },
+        update: { name: title, vehicleType },
         create: {
           id: groupId,
           name: title,
-          participantCount: (participants?.length || 0) + 1,
+          // Do not count every selected student as joined. WhatsApp may add
+          // only some of them and require the rest to use an invite link.
+          // The authoritative live roster below fills this in.
+          participantCount: 0,
+          lastSynced: new Date(0),
           vehicleType,
         },
       })
 
+      // Save the student contacts now, but do not create GroupMember rows
+      // until WhatsApp confirms they are actually inside the group. The old
+      // flow inserted all selected students here and then also rendered the
+      // rejected ones as pending invites (for example 30 + 18 = 48 rows).
       for (let i = 0; i < (participants || []).length; i++) {
         const phone = participants[i]
         const memberName = participantNames?.[i] || null
@@ -62,11 +71,6 @@ export async function POST(request: NextRequest) {
           where: { id: jid },
           update: { phone, ...(memberName ? { name: memberName } : {}), lastSynced: new Date() },
           create: { id: jid, phone, name: memberName },
-        })
-        await prisma.groupMember.upsert({
-          where: { groupId_contactId: { groupId, contactId: jid } },
-          update: { phone },
-          create: { groupId, contactId: jid, phone },
         })
       }
     } catch (dbError) {
@@ -80,6 +84,9 @@ export async function POST(request: NextRequest) {
     try {
       await new Promise(r => setTimeout(r, 2000)) // Let WhatsApp settle
       const actualParticipants = await getGroupParticipants(groupId)
+      // The live WhatsApp roster is the only source of truth for "joined".
+      // Everyone absent from this list is represented once, as pending.
+      await syncGroupMembers(groupId, actualParticipants)
       const actualPhones = new Set(actualParticipants.map(p => p.phone))
 
       for (const phone of (participants || [])) {
