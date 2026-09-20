@@ -1,3 +1,91 @@
+diff --git a/node_modules/whatsapp-web.js/src/Client.js b/node_modules/whatsapp-web.js/src/Client.js
+index f03255b..f42b2a5 100644
+--- a/node_modules/whatsapp-web.js/src/Client.js
++++ b/node_modules/whatsapp-web.js/src/Client.js
+@@ -1891,7 +1891,10 @@ class Client extends EventEmitter {
+      */
+     async createGroup(title, participants = [], options = {}) {
+         !Array.isArray(participants) && (participants = [participants]);
+-        participants.map(p => (p instanceof Contact) ? p.id._serialized : p);
++        participants = participants.map(p => {
++            if (!(p instanceof Contact)) return p;
++            return p.id?._serialized || p.id?.$1 || (p.id?.user && p.id?.server ? `${p.id.user}@${p.id.server}` : p);
++        });
+ 
+         return await this.pupPage.evaluate(async (title, participants, options) => {
+             const {
+@@ -1902,6 +1905,11 @@ class Client extends EventEmitter {
+             } = options;
+             const participantData = {}, participantWids = [], failedParticipants = [];
+             let createGroupResult, parentGroupWid;
++            const widToSerialized = wid => {
++                if (!wid) return undefined;
++                if (typeof wid === 'string') return wid;
++                return wid._serialized || wid.$1 || (wid.user && wid.server ? `${wid.user}@${wid.server}` : undefined);
++            };
+ 
+             const addParticipantResultCodes = {
+                 default: 'An unknown error occupied while adding a participant',
+@@ -1935,25 +1943,33 @@ class Client extends EventEmitter {
+                     participantWids
+                 );
+             } catch (err) {
+-                return 'CreateGroupError: An unknown error occupied while creating a group';
++                const detail = err?.message || err?.name || String(err);
++                return `CreateGroupError: ${detail}`;
++            }
++
++            const groupWid = createGroupResult?.wid || createGroupResult?.gid;
++            const groupId = widToSerialized(groupWid);
++            if (!groupId) {
++                return 'CreateGroupError: WhatsApp did not return a group ID';
+             }
+ 
+-            for (const participant of createGroupResult.participants) {
++            for (const participant of (createGroupResult.participants || [])) {
+                 let isInviteV4Sent = false;
+-                participant.wid.server == 'lid' && (participant.wid = window.Store.LidUtils.getPhoneNumber(participant.wid));
+-                const participantId = participant.wid._serialized;
++                let participantWid = participant?.wid || participant?.userWid;
++                participantWid?.server == 'lid' && (participantWid = window.Store.LidUtils.getPhoneNumber(participantWid) || participantWid);
++                const participantId = widToSerialized(participantWid) || `unknown-${Object.keys(participantData).length + 1}`;
+                 const statusCode = participant.error || 200;
+ 
+-                if (autoSendInviteV4 && statusCode === 403) {
+-                    window.Store.Contact.gadd(participant.wid, { silent: true });
++                if (autoSendInviteV4 && statusCode === 403 && participantWid) {
++                    window.Store.Contact.gadd(participantWid, { silent: true });
+                     const addParticipantResult = await window.Store.GroupInviteV4.sendGroupInviteMessage(
+-                        window.Store.Chat.get(participant.wid) || await window.Store.Chat.find(participant.wid),
+-                        createGroupResult.wid._serialized,
++                        window.Store.Chat.get(participantWid) || await window.Store.Chat.find(participantWid),
++                        groupId,
+                         createGroupResult.subject,
+                         participant.invite_code,
+                         participant.invite_code_exp,
+                         comment,
+-                        await window.WWebJS.getProfilePicThumbToBase64(createGroupResult.wid)
++                        await window.WWebJS.getProfilePicThumbToBase64(groupWid)
+                     );
+                     isInviteV4Sent = addParticipantResult.messageSendResult === 'OK';
+                 }
+@@ -1975,7 +1991,15 @@ class Client extends EventEmitter {
+                 };
+             }
+ 
+-            return { title: title, gid: createGroupResult.wid, participants: participantData };
++            return {
++                title: title,
++                gid: {
++                    user: groupWid?.user,
++                    server: groupWid?.server,
++                    _serialized: groupId
++                },
++                participants: participantData
++            };
+         }, title, participants, options);
+     }
+ 
 diff --git a/node_modules/whatsapp-web.js/src/util/Injected/Utils.js b/node_modules/whatsapp-web.js/src/util/Injected/Utils.js
 index 8317d2b..96df416 100644
 --- a/node_modules/whatsapp-web.js/src/util/Injected/Utils.js

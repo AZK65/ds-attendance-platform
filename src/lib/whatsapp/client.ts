@@ -1626,57 +1626,73 @@ export async function createWhatsAppGroup(name: string, participantPhones: strin
     throw new Error('WhatsApp not connected')
   }
 
-  try {
-    const client = state.client as {
-      createGroup: (title: string, participants: string[]) => Promise<{ gid: { _serialized: string }; title: string; participants: Array<{ id: { _serialized: string }; statusCode: number }> }>
-    }
+  type WidLike = { _serialized?: string; $1?: string; user?: string; server?: string }
+  type CreateResult = {
+    gid?: WidLike | string
+    title?: string
+    participants?: Record<string, { statusCode?: number }> | Array<{ id?: WidLike; statusCode?: number }>
+  }
 
-    const participantJids = participantPhones.map(p => phoneToJid(p))
-    console.log(`[createGroup] Creating group "${name}" with ${participantJids.length} participants`)
+  const client = state.client as {
+    createGroup: (title: string, participants: string[]) => Promise<CreateResult | string>
+    getChats: () => Promise<Array<{ id: WidLike; name: string; isGroup: boolean; timestamp: number }>>
+  }
 
-    const result = await client.createGroup(name, participantJids)
-    const groupId = result.gid._serialized
+  const serializedWid = (wid: WidLike | string | undefined): string | null => {
+    if (!wid) return null
+    if (typeof wid === 'string') return wid.includes('@') ? wid : null
+    return wid._serialized || wid.$1 || (wid.user && wid.server ? `${wid.user}@${wid.server}` : null)
+  }
 
-    console.log(`[createGroup] Group created: ${groupId}`)
+  const recoverCreatedGroup = async (): Promise<{ groupId: string; title: string } | null> => {
+    console.log(`[createGroup] Searching chats for a newly-created group named "${name}"...`)
+    try {
+      await new Promise(r => setTimeout(r, 3000))
+      const chats = await client.getChats()
+      const matchingGroups = chats
+        .filter(c => (c.isGroup || c.id?.server === 'g.us') && c.name === name)
+        .sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0))
 
-    // Log any participant add failures
-    const participants = Array.isArray(result.participants) ? result.participants : []
-    for (const p of participants) {
-      if (p.statusCode !== 200) {
-        console.warn(`[createGroup] Failed to add ${p.id?._serialized}: status ${p.statusCode}`)
+      for (const group of matchingGroups) {
+        const groupId = serializedWid(group.id)
+        if (groupId) {
+          console.log(`[createGroup] Recovered group ID: ${groupId}`)
+          return { groupId, title: group.name }
+        }
       }
+    } catch (recoveryError) {
+      console.error('[createGroup] Recovery failed:', recoveryError)
     }
+    return null
+  }
 
-    return { groupId, title: result.title }
+  const parseResult = (result: CreateResult | string): { groupId: string; title: string } => {
+    if (typeof result === 'string') {
+      throw new Error(result)
+    }
+    const groupId = serializedWid(result?.gid)
+    if (!groupId) {
+      throw new Error('WhatsApp created no usable group ID')
+    }
+    return { groupId, title: result.title || name }
+  }
+
+  try {
+    // Creating a group with a large participant array currently fails inside
+    // WhatsApp Web. Create the shell first; the API route verifies membership
+    // and adds/invites each requested student immediately afterwards.
+    console.log(`[createGroup] Creating empty group "${name}"; ${participantPhones.length} requested participant(s) will be added next`)
+    const result = await client.createGroup(name, [])
+    const created = parseResult(result)
+    console.log(`[createGroup] Group created: ${created.groupId}`)
+    return created
   } catch (error) {
-    const errMsg = error instanceof Error ? error.message : String(error)
     console.error('Create group error:', error)
 
-    // "Lid is missing in chat table" is a known whatsapp-web.js bug where
-    // the group IS created on WhatsApp but the library fails to parse the response.
-    // Try to recover by finding the newly created group in the chat list.
-    if (errMsg.includes('Lid is missing') || errMsg.includes('lid')) {
-      console.log(`[createGroup] Attempting recovery — searching for group "${name}" in chats...`)
-      try {
-        await new Promise(r => setTimeout(r, 3000))
-
-        const chatClient = state.client as {
-          getChats: () => Promise<Array<{ id: { _serialized: string }; name: string; isGroup: boolean; timestamp: number }>>
-        }
-        const chats = await chatClient.getChats()
-        const recentGroups = chats
-          .filter(c => c.isGroup && c.name === name)
-          .sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0))
-
-        if (recentGroups.length > 0) {
-          const recovered = recentGroups[0]
-          console.log(`[createGroup] Recovered group ID: ${recovered.id._serialized}`)
-          return { groupId: recovered.id._serialized, title: recovered.name }
-        }
-      } catch (recoveryErr) {
-        console.error('[createGroup] Recovery failed:', recoveryErr)
-      }
-    }
+    // WhatsApp occasionally creates the group successfully and then throws
+    // while serializing its response. Recover it instead of creating a duplicate.
+    const recovered = await recoverCreatedGroup()
+    if (recovered) return recovered
 
     throw error
   }

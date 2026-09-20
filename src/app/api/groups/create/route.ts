@@ -76,7 +76,7 @@ export async function POST(request: NextRequest) {
     }
 
     // Check which participants actually got added and send invite links to the rest
-    const missingMembers: string[] = []
+    let missingMembers: string[] = []
     try {
       await new Promise(r => setTimeout(r, 2000)) // Let WhatsApp settle
       const actualParticipants = await getGroupParticipants(groupId)
@@ -90,21 +90,33 @@ export async function POST(request: NextRequest) {
       }
 
       if (missingMembers.length > 0) {
-        console.log(`[createGroup] ${missingMembers.length} participants not added, trying individual add + invite links...`)
-        for (const phone of missingMembers) {
+        const initiallyMissing = [...missingMembers]
+        const stillMissing: string[] = []
+        let invitedCount = 0
+        console.log(`[createGroup] ${initiallyMissing.length} participants not added, trying individual add + invite links...`)
+        for (const phone of initiallyMissing) {
           try {
             const result = await addParticipantToGroup(groupId, phone)
             if (result.inviteSent) {
+              invitedCount++
               console.log(`[createGroup] Invite sent to ${phone}`)
             } else if (result.success) {
               console.log(`[createGroup] Added ${phone} on retry`)
+            } else {
+              stillMissing.push(phone)
             }
           } catch (err) {
             console.log(`[createGroup] Failed to add/invite ${phone}:`, err)
+            stillMissing.push(phone)
           }
           await new Promise(r => setTimeout(r, 1500))
         }
-        whatsappWarning = `${missingMembers.length} member(s) couldn't be added directly — invite links sent`
+        missingMembers = stillMissing
+        if (stillMissing.length > 0) {
+          whatsappWarning = `${stillMissing.length} member(s) still need a manual invite`
+        } else if (invitedCount > 0) {
+          whatsappWarning = `${invitedCount} member(s) received a WhatsApp group invite`
+        }
       }
     } catch (checkErr) {
       console.log('[createGroup] Could not verify participants:', checkErr)
