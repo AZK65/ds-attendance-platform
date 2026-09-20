@@ -1,5 +1,5 @@
 diff --git a/node_modules/whatsapp-web.js/src/Client.js b/node_modules/whatsapp-web.js/src/Client.js
-index f03255b..f42b2a5 100644
+index f03255b..ea51774 100644
 --- a/node_modules/whatsapp-web.js/src/Client.js
 +++ b/node_modules/whatsapp-web.js/src/Client.js
 @@ -1891,7 +1891,10 @@ class Client extends EventEmitter {
@@ -26,7 +26,36 @@ index f03255b..f42b2a5 100644
  
              const addParticipantResultCodes = {
                  default: 'An unknown error occupied while adding a participant',
-@@ -1935,25 +1943,33 @@ class Client extends EventEmitter {
+@@ -1921,7 +1929,27 @@ class Client extends EventEmitter {
+             parentGroupId && (parentGroupWid = window.Store.WidFactory.createWid(parentGroupId));
+ 
+             try {
+-                createGroupResult = await window.Store.GroupUtils.createGroup(
++                let createGroup = window.Store.GroupUtils?.createGroup;
++
++                // WhatsApp now ships the group-creation job in the lazy-loaded
++                // New Group bundle. ExposeStore runs before that bundle exists,
++                // so GroupUtils no longer contains createGroup at startup.
++                if (typeof createGroup !== 'function') {
++                    const newGroupBundle = window.require('WAWebNewGroupFlowLoadable');
++                    if (typeof newGroupBundle?.requireBundle === 'function') {
++                        await newGroupBundle.requireBundle();
++                    }
++                    createGroup = window.require('WAWebGroupCreateJob')?.createGroup;
++                    if (typeof createGroup === 'function') {
++                        window.Store.GroupUtils.createGroup = createGroup;
++                    }
++                }
++
++                if (typeof createGroup !== 'function') {
++                    throw new Error('WhatsApp group creation module is unavailable');
++                }
++
++                createGroupResult = await createGroup(
+                     {
+                         'addressingModeOverride': 'lid',
+                         'memberAddMode': options.memberAddMode ?? false,
+@@ -1935,25 +1963,33 @@ class Client extends EventEmitter {
                      participantWids
                  );
              } catch (err) {
@@ -69,7 +98,7 @@ index f03255b..f42b2a5 100644
                      );
                      isInviteV4Sent = addParticipantResult.messageSendResult === 'OK';
                  }
-@@ -1975,7 +1991,15 @@ class Client extends EventEmitter {
+@@ -1975,7 +2011,15 @@ class Client extends EventEmitter {
                  };
              }
  
