@@ -98,11 +98,14 @@ export async function POST(request: NextRequest) {
     // notes carry "Phone: …" we always queue a reminder, regardless of
     // what the client passed at submit time.
     try {
+      const createdEvent = data.event || data
       await scheduleReminderFromEvent({
         startDateIso: startDate,
+        endDateIso: endDate,
         notes,
         title,
         subcalendarId: Array.isArray(subcalendarIds) ? Number(subcalendarIds[0]) : undefined,
+        teamupEventId: createdEvent?.id != null ? String(createdEvent.id) : undefined,
       })
     } catch (err) {
       console.error('[events POST] scheduleReminderFromEvent failed (non-fatal):', err)

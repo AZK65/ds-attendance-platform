@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/db'
 import { sendPrivateMessage, getWhatsAppState } from '@/lib/whatsapp/client'
+import { scheduleReminderFromEvent } from '@/lib/in-car-reminders'
 
 export async function POST(request: NextRequest) {
   let phone = 'unknown'
@@ -49,7 +50,7 @@ export async function POST(request: NextRequest) {
       ? `Hi ${cleanName}! Your ${moduleStr} class has been updated${teacherStr}. It is now on ${dateStr} ${timeStr}. See you there!`.trim()
       : `Hi ${cleanName}! Your ${moduleStr} class has been scheduled${teacherStr} on ${dateStr} ${timeStr}. See you there!`.trim()
 
-    // Only send the instant WhatsApp message if not reminderOnly (reminderOnly = only reschedule the 1hr reminder)
+    // Only send the instant WhatsApp message if not reminderOnly.
     const msgType = isCancelled ? 'class-cancelled' : isEdit ? 'class-edited' : 'class-scheduled'
     if (!reminderOnly) {
       console.log(`[notify] Sending ${msgType} notification to ${phone} (${studentName})`)
@@ -67,55 +68,20 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ success: true, reminderScheduled: false })
     }
 
-    // Schedule a 3-hour-before reminder (with dedup — cancel any existing reminder for same phone + date first)
+    // Schedule the 3-hour-before reminder through the same server-side
+    // combiner used by Teamup event creation. Adjacent one-hour sessions are
+    // kept as one continuous window (11–12 + 12–1 becomes 11–1).
     let reminderScheduled = false
-    if (classDateISO && startTime) {
+    if (classDateISO && startTime && endTime) {
       try {
-        const classDateTime = new Date(`${classDateISO}T${startTime}:00`)
-        const reminderTime = new Date(classDateTime.getTime() - 3 * 60 * 60 * 1000) // 3 hours before
-
-        if (reminderTime > new Date()) {
-          // Cancel any existing pending reminders for this phone + classDateISO to prevent duplicates
-          const existingReminders = await prisma.scheduledMessage.findMany({
-            where: {
-              status: 'pending',
-              classDateISO,
-              isGroupMessage: false,
-            },
-          })
-          const toCancel = existingReminders.filter(r => {
-            try {
-              const phones: string[] = JSON.parse(r.memberPhones)
-              return phones.includes(phone)
-            } catch {
-              return false
-            }
-          })
-          if (toCancel.length > 0) {
-            await prisma.scheduledMessage.updateMany({
-              where: { id: { in: toCancel.map(r => r.id) } },
-              data: { status: 'cancelled' },
-            })
-            console.log(`[notify] Cancelled ${toCancel.length} existing reminder(s) for ${phone} on ${classDateISO} before creating new one`)
-          }
-
-          const reminderMessage = `Reminder: Hi ${cleanName}, your ${moduleStr} class${teacherStr} is in 3 hours (${formatTime12h(startTime)}). See you soon!`
-
-          await prisma.scheduledMessage.create({
-            data: {
-              groupId: 'in-car-reminders',
-              message: reminderMessage,
-              scheduledAt: reminderTime,
-              memberPhones: JSON.stringify([phone]),
-              classDateISO,
-              classTime: timeStr,
-              isGroupMessage: false,
-              status: 'pending',
-            },
-          })
-          reminderScheduled = true
-          console.log(`[notify] Scheduled 1hr reminder for ${phone} at ${reminderTime.toISOString()}`)
-        }
+        await scheduleReminderFromEvent({
+          startDateIso: `${classDateISO}T${startTime}:00`,
+          endDateIso: `${classDateISO}T${endTime}:00`,
+          notes: `Student: ${studentName}\nPhone: ${phone}`,
+          title: moduleStr,
+          teacherName,
+        })
+        reminderScheduled = true
       } catch (reminderErr) {
         console.error('[notify] Failed to schedule reminder:', reminderErr)
       }

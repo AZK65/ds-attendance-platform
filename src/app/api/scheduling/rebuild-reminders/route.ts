@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server'
 import { prisma } from '@/lib/db'
+import { scheduleReminderFromEvent } from '@/lib/in-car-reminders'
 
 const BASE_URL = 'https://api.teamup.com'
 
@@ -25,15 +26,7 @@ export async function POST() {
     })
     console.log(`[rebuild-reminders] Cancelled ${cancelled.count} pending reminders`)
 
-    // Step 2: Fetch subcalendars (teachers) for name lookup
-    const subCalRes = await fetch(`${BASE_URL}/${calendarKey}/subcalendars`, {
-      headers: { 'Teamup-Token': apiKey },
-    })
-    const subCalData = await subCalRes.json()
-    const subcalendars: Array<{ id: number; name: string }> = subCalData.subcalendars || []
-    const teacherMap = new Map(subcalendars.map(s => [s.id, s.name]))
-
-    // Step 3: Fetch all events from today forward (up to 3 months)
+    // Step 2: Fetch all events from today forward (up to 3 months)
     const today = new Date()
     const formatDate = (d: Date) => d.toISOString().split('T')[0]
     const endDate = new Date(today)
@@ -61,26 +54,21 @@ export async function POST() {
       subcalendar_ids: number[]
     }> = eventsData.events || []
 
-    // Step 4: Recreate reminders for each future event
+    // Step 3: Recreate reminders for each future event
     let created = 0
     const now = new Date()
 
     for (const event of events) {
       const notes = (event.notes || '').replace(/<[^>]+>/g, '')
       const phoneMatch = notes.match(/Phone:\s*(\d+)/)
-      const studentMatch = notes.match(/Student:\s*(.+)/)
       const isTruck = /TruckClass:\s*yes/i.test(notes)
 
       if (!phoneMatch) continue // No phone = can't send reminder
 
       const phone = phoneMatch[1]
-      const studentName = studentMatch ? studentMatch[1].trim().replace(/\s*#\d+$/, '') : 'Student'
       const startDt = new Date(event.start_dt)
       const startTime = event.start_dt.slice(11, 16) // "HH:MM"
       const teacherId = event.subcalendar_ids[0]
-      const teacherFullName = teacherId ? teacherMap.get(teacherId) : null
-      const teacherFirst = teacherFullName ? teacherFullName.split(' ')[0] : ''
-      const teacherStr = teacherFirst ? ` with ${teacherFirst}` : ''
 
       if (isTruck) {
         // Truck: 6 hours before
@@ -111,30 +99,13 @@ export async function POST() {
         })
         created++
       } else {
-        // Car: 3 hours before
-        const reminderTime = new Date(startDt.getTime() - 3 * 60 * 60 * 1000)
-        if (reminderTime <= now) continue
-
-        // Parse module from title (e.g. "Session 5 - StudentName" or "Pre-Trip - StudentName")
-        const titleParts = event.title.split(' - ')
-        const moduleStr = titleParts[0]?.trim() || 'class'
-        const classDateISO = event.start_dt.split('T')[0]
-        const endTime = event.end_dt.slice(11, 16)
-        const timeStr = `from ${formatTime12h(startTime)} to ${formatTime12h(endTime)}`
-
-        const reminderMessage = `Reminder: Hi ${studentName}, your ${moduleStr} class${teacherStr} is in 3 hours (${formatTime12h(startTime)}). See you soon!`
-
-        await prisma.scheduledMessage.create({
-          data: {
-            groupId: 'in-car-reminders',
-            message: reminderMessage,
-            scheduledAt: reminderTime,
-            memberPhones: JSON.stringify([phone]),
-            classDateISO,
-            classTime: timeStr,
-            isGroupMessage: false,
-            status: 'pending',
-          },
+        await scheduleReminderFromEvent({
+          startDateIso: event.start_dt,
+          endDateIso: event.end_dt,
+          notes: event.notes,
+          title: event.title,
+          subcalendarId: teacherId,
+          teamupEventId: String(event.id),
         })
         created++
       }

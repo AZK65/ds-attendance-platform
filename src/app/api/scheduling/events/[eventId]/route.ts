@@ -124,9 +124,11 @@ export async function PUT(
         }
         await scheduleReminderFromEvent({
           startDateIso: startDate,
+          endDateIso: endDate,
           notes,
           title,
           subcalendarId: Array.isArray(subcalendarIds) ? Number(subcalendarIds[0]) : undefined,
+          teamupEventId: String(eventId),
         })
       }
     } catch (err) {

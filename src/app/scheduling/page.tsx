@@ -793,7 +793,7 @@ function SchedulingPage() {
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ phone: data.studentPhone, classDateISO: data.date, startTime: originalStartTime }),
         }).then(() => {
-          // Send edit notification to student + reschedule a fresh 1hr reminder
+          // Send edit notification to student + reschedule a fresh 3-hour reminder
           const teacher = activeTeachers.find(t => t.id.toString() === data.subcalendarId)
           const moduleLabel = getModuleLabel(data.module)
           const [year, month, day] = data.date.split('-').map(Number)
