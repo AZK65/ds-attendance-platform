@@ -180,16 +180,32 @@ export async function GET(request: NextRequest) {
 
 // Background sync — fetches live data from WhatsApp and updates SQLite
 async function syncFromWhatsApp(courseOnly: boolean) {
-  const groups = await getGroupsWithDetails()
-
-  // GroupInfo comes from WhatsApp and does not carry our local program tag.
-  // Read it from SQLite so Class 1 groups are included even though they do
-  // not use the car program's module-number convention.
+  // For the Students page, the DB already tells us which groups are active
+  // course groups. Do not sweep message history across every old WhatsApp
+  // group merely to rediscover module numbers; that made a roster refresh
+  // take minutes and can trip broken fetchMessages internals in WA Web.
   const tracked = await prisma.group.findMany({
-    where: { id: { in: groups.map(g => g.id) } },
-    select: { id: true, vehicleType: true },
+    where: courseOnly
+      ? {
+          archivedAt: null,
+          OR: [{ moduleNumber: { not: null } }, { vehicleType: 'truck' }],
+        }
+      : undefined,
   })
-  const vehicleByGroup = new Map(tracked.map(group => [group.id, group.vehicleType]))
+  const groups = courseOnly
+    ? tracked.map(group => ({
+        id: group.id,
+        name: group.name,
+        participantCount: group.participantCount,
+        moduleNumber: group.moduleNumber,
+        lastMessageDate: group.lastMessageDate,
+        lastMessagePreview: group.lastMessagePreview,
+      }))
+    : await getGroupsWithDetails()
+  const trackedForTypes = courseOnly
+    ? tracked
+    : await prisma.group.findMany({ where: { id: { in: groups.map(g => g.id) } } })
+  const vehicleByGroup = new Map(trackedForTypes.map(group => [group.id, group.vehicleType]))
 
   const validGroups = courseOnly
     ? groups.filter(g => g.name && g.name !== 'Status Broadcast' && (g.moduleNumber || vehicleByGroup.get(g.id) === 'truck'))
@@ -224,13 +240,28 @@ async function syncFromWhatsApp(courseOnly: boolean) {
 
 // Fetch live participants (used only when no cache exists)
 async function fetchLiveParticipants(courseOnly: boolean): Promise<ParticipantWithGroup[]> {
-  const groups = await getGroupsWithDetails()
-
   const tracked = await prisma.group.findMany({
-    where: { id: { in: groups.map(g => g.id) } },
-    select: { id: true, vehicleType: true },
+    where: courseOnly
+      ? {
+          archivedAt: null,
+          OR: [{ moduleNumber: { not: null } }, { vehicleType: 'truck' }],
+        }
+      : undefined,
   })
-  const vehicleByGroup = new Map(tracked.map(group => [group.id, group.vehicleType]))
+  const groups = courseOnly
+    ? tracked.map(group => ({
+        id: group.id,
+        name: group.name,
+        participantCount: group.participantCount,
+        moduleNumber: group.moduleNumber,
+        lastMessageDate: group.lastMessageDate,
+        lastMessagePreview: group.lastMessagePreview,
+      }))
+    : await getGroupsWithDetails()
+  const trackedForTypes = courseOnly
+    ? tracked
+    : await prisma.group.findMany({ where: { id: { in: groups.map(g => g.id) } } })
+  const vehicleByGroup = new Map(trackedForTypes.map(group => [group.id, group.vehicleType]))
 
   const validGroups = courseOnly
     ? groups.filter(g => g.name && g.name !== 'Status Broadcast' && (g.moduleNumber || vehicleByGroup.get(g.id) === 'truck'))
