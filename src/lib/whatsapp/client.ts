@@ -1224,59 +1224,66 @@ export async function getGroupParticipants(groupId: string): Promise<Participant
 
   console.log(`[getGroupParticipants] Found ${chatParticipants.length} participants`)
 
-  const participants: ParticipantInfo[] = []
+  // A single wwebjs getContactById call can remain pending forever after
+  // WhatsApp Web changes its internal contact store. The old serial loop then
+  // prevented *every* member in the group from being saved. Resolve contacts
+  // with bounded concurrency and a short timeout; the participant's raw JID
+  // still gives us a usable fallback row when one lookup is unhealthy.
+  const participants = new Array<ParticipantInfo>(chatParticipants.length)
+  const CONTACT_LOOKUP_TIMEOUT_MS = 4_000
+  const CONTACT_LOOKUP_CONCURRENCY = 6
+  let nextParticipantIndex = 0
 
-  for (const participant of chatParticipants) {
-    try {
-      const contact = await client.getContactById(participant.id._serialized)
-      const phone = contact.number || participant.id.user
+  const resolveParticipant = async () => {
+    while (nextParticipantIndex < chatParticipants.length) {
+      const index = nextParticipantIndex++
+      const participant = chatParticipants[index]
+      let contact: Awaited<ReturnType<typeof client.getContactById>> | null = null
 
-      participants.push({
+      try {
+        contact = await Promise.race([
+          client.getContactById(participant.id._serialized),
+          new Promise<never>((_, reject) => {
+            setTimeout(() => reject(new Error('contact lookup timed out')), CONTACT_LOOKUP_TIMEOUT_MS)
+          }),
+        ])
+      } catch (error) {
+        console.warn(
+          `[getGroupParticipants] Using JID fallback for ${participant.id._serialized}: ${error instanceof Error ? error.message : String(error)}`
+        )
+      }
+
+      participants[index] = {
         id: participant.id._serialized,
-        phone,
-        name: contact.name || null,
-        pushName: contact.pushname || null,
+        phone: contact?.number || participant.id.user,
+        name: contact?.name || null,
+        pushName: contact?.pushname || null,
         isAdmin: participant.isAdmin || false,
-        isSuperAdmin: participant.isSuperAdmin || false
-      })
-
-      // Sync to database — never overwrite existing names with null
-      const contactUpdate: Record<string, unknown> = { phone, lastSynced: new Date() }
-      if (contact.name) contactUpdate.name = contact.name
-      if (contact.pushname) contactUpdate.pushName = contact.pushname
-
-      await prisma.contact.upsert({
-        where: { id: participant.id._serialized },
-        update: contactUpdate,
-        create: {
-          id: participant.id._serialized,
-          phone,
-          name: contact.name || null,
-          pushName: contact.pushname || null
-        }
-      })
-    } catch (error) {
-      console.error(`Error getting contact ${participant.id._serialized}:`, error)
-      // Add with basic info if contact fetch fails
-      participants.push({
-        id: participant.id._serialized,
-        phone: participant.id.user,
-        name: null,
-        pushName: null,
-        isAdmin: participant.isAdmin || false,
-        isSuperAdmin: participant.isSuperAdmin || false
-      })
+        isSuperAdmin: participant.isSuperAdmin || false,
+      }
     }
   }
 
+  await Promise.all(
+    Array.from(
+      { length: Math.min(CONTACT_LOOKUP_CONCURRENCY, chatParticipants.length) },
+      () => resolveParticipant()
+    )
+  )
+
   // Enrich: fill in missing names from SQLite Contact table
   // (names set by wizard or manual entry that WhatsApp doesn't know about)
-  for (const p of participants) {
-    if (!p.name) {
-      const savedContact = await prisma.contact.findUnique({ where: { id: p.id } })
-      if (savedContact?.name) {
-        p.name = savedContact.name
-      }
+  const missingNameIds = participants.filter(p => !p.name).map(p => p.id)
+  if (missingNameIds.length > 0) {
+    const savedContacts = await prisma.contact.findMany({
+      where: { id: { in: missingNameIds } },
+      select: { id: true, name: true, pushName: true },
+    })
+    const savedById = new Map(savedContacts.map(contact => [contact.id, contact]))
+    for (const participant of participants) {
+      const saved = savedById.get(participant.id)
+      if (!participant.name && saved?.name) participant.name = saved.name
+      if (!participant.pushName && saved?.pushName) participant.pushName = saved.pushName
     }
   }
 
