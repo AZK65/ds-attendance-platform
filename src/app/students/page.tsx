@@ -503,8 +503,8 @@ function StudentsPage() {
     return () => clearTimeout(t)
   }, [lastDismissed])
 
-  // Fetch active students from WhatsApp groups (only course groups with module numbers)
-  const { data: participantsData, isLoading: isLoadingParticipants } = useQuery<{
+  // Fetch active students from tracked car and truck WhatsApp groups.
+  const { data: participantsData, isLoading: isLoadingParticipants, refetch: refetchParticipants } = useQuery<{
     participants: ParticipantWithGroup[]
     pendingInvites?: Array<{
       phone: string
@@ -524,10 +524,23 @@ function StudentsPage() {
       if (!res.ok) throw new Error('Failed to fetch')
       return res.json()
     },
-    staleTime: 60 * 60 * 1000,        // 1 hour
+    staleTime: 5 * 60 * 1000,
     gcTime: 2 * 60 * 60 * 1000,       // 2 hours
-    refetchInterval: 60 * 60 * 1000,   // Background refresh every hour
+    refetchInterval: 5 * 60 * 1000,
   })
+
+  // The first DB-first response starts a WhatsApp roster sync in the
+  // background. Fetch once more shortly afterwards so manual additions show
+  // during this visit instead of leaving the old result cached for an hour.
+  const rosterFollowUpDone = useRef(false)
+  useEffect(() => {
+    if (rosterFollowUpDone.current || !participantsData?.fromCache || !participantsData.isConnected) return
+    rosterFollowUpDone.current = true
+    const timer = window.setTimeout(() => {
+      void refetchParticipants()
+    }, 15_000)
+    return () => window.clearTimeout(timer)
+  }, [participantsData?.fromCache, participantsData?.isConnected, refetchParticipants])
 
   // Deduplicate participants by phone (keep the one with highest module
   // number). Also inject confirmed registrations whose phone isn't yet

@@ -182,8 +182,17 @@ export async function GET(request: NextRequest) {
 async function syncFromWhatsApp(courseOnly: boolean) {
   const groups = await getGroupsWithDetails()
 
+  // GroupInfo comes from WhatsApp and does not carry our local program tag.
+  // Read it from SQLite so Class 1 groups are included even though they do
+  // not use the car program's module-number convention.
+  const tracked = await prisma.group.findMany({
+    where: { id: { in: groups.map(g => g.id) } },
+    select: { id: true, vehicleType: true },
+  })
+  const vehicleByGroup = new Map(tracked.map(group => [group.id, group.vehicleType]))
+
   const validGroups = courseOnly
-    ? groups.filter(g => g.name && g.name !== 'Status Broadcast' && g.moduleNumber)
+    ? groups.filter(g => g.name && g.name !== 'Status Broadcast' && (g.moduleNumber || vehicleByGroup.get(g.id) === 'truck'))
     : groups.filter(g => g.name && g.name !== 'Status Broadcast')
 
   const BATCH_SIZE = 5
@@ -217,8 +226,14 @@ async function syncFromWhatsApp(courseOnly: boolean) {
 async function fetchLiveParticipants(courseOnly: boolean): Promise<ParticipantWithGroup[]> {
   const groups = await getGroupsWithDetails()
 
+  const tracked = await prisma.group.findMany({
+    where: { id: { in: groups.map(g => g.id) } },
+    select: { id: true, vehicleType: true },
+  })
+  const vehicleByGroup = new Map(tracked.map(group => [group.id, group.vehicleType]))
+
   const validGroups = courseOnly
-    ? groups.filter(g => g.name && g.name !== 'Status Broadcast' && g.moduleNumber)
+    ? groups.filter(g => g.name && g.name !== 'Status Broadcast' && (g.moduleNumber || vehicleByGroup.get(g.id) === 'truck'))
     : groups.filter(g => g.name && g.name !== 'Status Broadcast')
 
   const BATCH_SIZE = 5
@@ -242,7 +257,7 @@ async function fetchLiveParticipants(courseOnly: boolean): Promise<ParticipantWi
           moduleNumber: group.moduleNumber || null,
           // Live WhatsApp data carries no vehicleType (DB-only field); the
           // cached path fills it in correctly on the next sync.
-          vehicleType: 'car',
+          vehicleType: vehicleByGroup.get(group.id) || 'car',
           lastMessageDate: group.lastMessageDate ? group.lastMessageDate.toISOString() : null
         }))
       })

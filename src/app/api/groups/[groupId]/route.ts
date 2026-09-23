@@ -150,9 +150,7 @@ export async function GET(
 
   if (shouldSync) {
     lastWaSyncAt.set(decodedGroupId, now) // reserve the slot BEFORE async work
-    // Fire-and-forget. Errors logged, never surface to the caller — the
-    // response has already gone out with DB-served rows.
-    ;(async () => {
+    const syncKnownGroup = async () => {
       try {
         const info = await getGroupInfo(decodedGroupId)
         const waParticipants = await getGroupParticipants(decodedGroupId)
@@ -176,10 +174,55 @@ export async function GET(
         })
         await syncGroupMembers(decodedGroupId, waParticipants)
         console.log(`[GET /groups/${decodedGroupId}] background sync ok (${waParticipants.length} from WA, ${cachedMembers.length} previously in DB)`)
+        return true
       } catch (err) {
         console.error(`[GET /groups/${decodedGroupId}] background sync failed:`, err)
+        return false
       }
-    })()
+    }
+
+    // A user explicitly pressing Refresh expects the response itself to
+    // contain newly-added WhatsApp members. Previously we started this sync
+    // in the background and returned the old DB roster, while React Query
+    // cached that stale response. Wait for the one requested group only and
+    // return its freshly-saved rows.
+    if (forceRefresh) {
+      const synced = await syncKnownGroup()
+      if (synced) {
+        const freshGroup = await prisma.group.findUnique({ where: { id: decodedGroupId } })
+        const freshMembers = await prisma.groupMember.findMany({
+          where: { groupId: decodedGroupId },
+          include: { contact: true },
+        })
+        const pendingInvites = await getPendingInvites(decodedGroupId).catch(() => [])
+        return NextResponse.json({
+          group: {
+            id: decodedGroupId,
+            name: freshGroup?.name || group?.name || '',
+            participantCount: freshMembers.length,
+            lastSynced: freshGroup?.lastSynced || new Date(),
+            vehicleType: freshGroup?.vehicleType || group?.vehicleType || 'car',
+          },
+          participants: freshMembers.map(m => ({
+            id: m.contactId,
+            phone: m.phone,
+            name: m.contact?.name || null,
+            pushName: m.contact?.pushName || null,
+            isAdmin: m.isAdmin,
+            isSuperAdmin: m.isSuperAdmin,
+          })),
+          pendingInvites,
+          moduleNumber: freshGroup?.moduleNumber ?? null,
+          lastModuleMessageDate: freshGroup?.lastMessageDate?.toISOString() ?? null,
+          fromCache: false,
+          isConnected: true,
+        })
+      }
+    } else {
+      // Normal page reads stay instant and refresh stale data in the
+      // background. Only an explicit refresh waits for WhatsApp.
+      void syncKnownGroup()
+    }
   }
 
   const pendingInvites = await getPendingInvites(decodedGroupId).catch(() => [])
