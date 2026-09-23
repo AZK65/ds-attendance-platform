@@ -231,6 +231,7 @@ export default function StudentProfilePage() {
   const [balanceSaving, setBalanceSaving] = useState(false)
   const [balanceError, setBalanceError] = useState<string | null>(null)
   const [showLms, setShowLms] = useState(false)
+  const [certificateMenuOpen, setCertificateMenuOpen] = useState(false)
   const [editingEmail, setEditingEmail] = useState(false)
   const [emailInput, setEmailInput] = useState('')
 
@@ -487,10 +488,13 @@ export default function StudentProfilePage() {
             </div>
 
           <nav aria-label="Student actions" className="flex flex-wrap items-center gap-1 border-t border-foreground/10 px-4 py-2">
-            <Button variant="ghost" size="sm" asChild className="text-muted-foreground hover:text-foreground">
-              <Link href={`/certificate?studentName=${encodeURIComponent(displayName)}&studentPhone=${encodeURIComponent(phone)}`}>
-                <Award className="h-4 w-4" /> Certificate
-              </Link>
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => setCertificateMenuOpen(true)}
+              className="text-muted-foreground hover:text-foreground"
+            >
+              <Award className="h-4 w-4" /> Certificate
             </Button>
             <Button variant="ghost" size="sm" asChild className="text-muted-foreground hover:text-foreground">
               <Link href={`/invoice?studentName=${encodeURIComponent(student.full_name)}&studentPhone=${encodeURIComponent(student.phone_number)}&studentAddress=${encodeURIComponent(student.full_address || '')}&studentCity=${encodeURIComponent(student.city || '')}&studentPostalCode=${encodeURIComponent(student.postal_code || '')}&studentEmail=${encodeURIComponent(data.localStudent?.email || student.email || "")}`}>
@@ -504,6 +508,52 @@ export default function StudentProfilePage() {
           </nav>
         </section>
       </motion.div>
+
+      <Dialog open={certificateMenuOpen} onOpenChange={setCertificateMenuOpen}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Certificate</DialogTitle>
+            <DialogDescription>
+              Choose the certificate workflow for {displayName}.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-3 pt-1">
+            <Button variant="outline" className="w-full h-auto justify-start p-4 text-left" asChild>
+              <Link
+                href={`/certificate?mode=database&search=${encodeURIComponent(displayName)}&phone=${encodeURIComponent(phone)}`}
+                onClick={() => setCertificateMenuOpen(false)}
+              >
+                <Award className="h-5 w-5 mr-3 text-blue-600 shrink-0" />
+                <span>
+                  <span className="block font-medium">
+                    {data.localStudent?.certificates?.length ? 'Open Existing Certificate' : 'Regular Certificate'}
+                  </span>
+                  <span className="block text-xs font-normal text-muted-foreground mt-1 whitespace-normal">
+                    {data.localStudent?.certificates?.length
+                      ? 'Review dates, update details, or download using the assigned numbers.'
+                      : 'Build the certificate from classes completed through Qazi.'}
+                  </span>
+                </span>
+              </Link>
+            </Button>
+
+            <Button variant="outline" className="w-full h-auto justify-start p-4 text-left" asChild>
+              <Link
+                href={`/certificate?mode=database&transfer=1&search=${encodeURIComponent(displayName)}&phone=${encodeURIComponent(phone)}`}
+                onClick={() => setCertificateMenuOpen(false)}
+              >
+                <FileSignature className="h-5 w-5 mr-3 text-amber-600 shrink-0" />
+                <span>
+                  <span className="block font-medium">Transfer Student</span>
+                  <span className="block text-xs font-normal text-muted-foreground mt-1 whitespace-normal">
+                    Scan the previous school&apos;s record, merge Qazi attendance, and assign new Qazi numbers.
+                  </span>
+                </span>
+              </Link>
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
 
       <LmsActivityPanel
         open={showLms}
