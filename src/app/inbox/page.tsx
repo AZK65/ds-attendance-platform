@@ -72,6 +72,7 @@ interface Message {
   senderName: string | null
   type: string
   hasMedia: boolean
+  isAiReply?: boolean
 }
 
 // ── Helpers ────────────────────────────────────────────────────
@@ -163,7 +164,12 @@ function ChatListItem({
   const preview = chat.lastMessage?.body || ''
   const truncated = preview.length > 45 ? preview.slice(0, 45) + '...' : preview
   const isPaused = !!botState?.paused
-  const isBotActive = !chat.isGroup && !isPaused
+  const isBotActive = !chat.isGroup && !!botState && !isPaused
+  const lastMessageIsAi = !!(
+    chat.lastMessage?.fromMe &&
+    botState?.lastMessage?.role === 'assistant' &&
+    botState.lastMessage.body === chat.lastMessage.body
+  )
   const needsAttention =
     !!botState?.lastMessage &&
     botState.lastMessage.role === 'assistant' &&
@@ -210,7 +216,11 @@ function ChatListItem({
         </div>
         <div className="flex items-center justify-between gap-2 mt-0.5">
           <span className="text-xs text-muted-foreground truncate">
-            {chat.lastMessage?.fromMe && <span className="text-primary">You: </span>}
+            {chat.lastMessage?.fromMe && (
+              <span className={lastMessageIsAi ? 'font-medium text-violet-600 dark:text-violet-400' : 'text-primary'}>
+                {lastMessageIsAi ? 'AI: ' : 'You: '}
+              </span>
+            )}
             {truncated || 'No messages'}
           </span>
           {chat.unreadCount > 0 && (
@@ -264,11 +274,20 @@ function MessageBubble({
         className={`
           max-w-[85%] md:max-w-[70%] px-3.5 py-2 shadow-sm ${cornerCls}
           ${mine
-            ? 'bg-[#DCF8C6] text-neutral-900 dark:bg-emerald-800 dark:text-neutral-50'
+            ? message.isAiReply
+              ? 'bg-violet-50 text-neutral-900 border border-violet-300 ring-1 ring-violet-100 dark:bg-violet-950/70 dark:text-neutral-50 dark:border-violet-700 dark:ring-violet-900'
+              : 'bg-[#DCF8C6] text-neutral-900 dark:bg-emerald-800 dark:text-neutral-50'
             : 'bg-white text-neutral-900 dark:bg-neutral-800 dark:text-neutral-100 border border-black/[0.03] dark:border-white/5'
           }
         `}
       >
+        {message.isAiReply && (
+          <div className="mb-1 flex items-center gap-1 text-[10px] font-semibold uppercase tracking-[0.12em] text-violet-700 dark:text-violet-300">
+            <Bot className="h-3 w-3" />
+            AI reply
+          </div>
+        )}
+
         {/* Sender name for group received messages — only on first-in-run so it
             isn't repeated on every bubble of the same sender's stack. */}
         {isGroup && !mine && message.senderName && isFirstInRun && (
@@ -293,7 +312,7 @@ function MessageBubble({
         {/* Timestamp — right-aligned, inline with last line via flex-end.
             Only on the last message of a run to reduce visual noise. */}
         {isLastInRun && (
-          <div className={`flex justify-end mt-1 text-[10.5px] tabular-nums ${mine ? 'text-neutral-500 dark:text-neutral-300/70' : 'text-neutral-400 dark:text-neutral-400'}`}>
+          <div className={`flex justify-end mt-1 text-[10.5px] tabular-nums ${message.isAiReply ? 'text-violet-500 dark:text-violet-300/70' : mine ? 'text-neutral-500 dark:text-neutral-300/70' : 'text-neutral-400 dark:text-neutral-400'}`}>
             {formatMessageTime(message.timestamp)}
           </div>
         )}
@@ -377,9 +396,26 @@ export default function InboxPage() {
     queryFn: () => fetch('/api/bot').then(r => r.json()),
     refetchInterval: 15000,
   })
-  const botByPhone = new Map((botStatus?.conversations || []).map(c => [c.phone, c]))
-  const selectedPhone = chatIdToPhone(selectedChatId)
-  const selectedBotState = selectedPhone ? botByPhone.get(selectedPhone) || null : null
+  const botConversations = botStatus?.conversations || []
+  const botByPhone = new Map(botConversations.map(c => [c.phone, c]))
+  const botStateForChat = (chat: Chat | undefined): BotConversation | null => {
+    if (!chat || chat.isGroup) return null
+    const phone = chatIdToPhone(chat.id)
+    const exact = phone ? botByPhone.get(phone) : null
+    if (exact) return exact
+    // New WhatsApp Linked IDs do not contain the phone number. Match the
+    // latest exact bot reply so AI status and pause controls still attach to
+    // the correct conversation in the inbox.
+    if (chat.lastMessage?.fromMe && chat.lastMessage.body) {
+      return botConversations.find(conversation =>
+        conversation.lastMessage?.role === 'assistant' &&
+        conversation.lastMessage.body === chat.lastMessage?.body
+      ) || null
+    }
+    return null
+  }
+  const selectedBotState = botStateForChat(chatData?.chats?.find(chat => chat.id === selectedChatId))
+  const selectedPhone = selectedBotState?.phone || chatIdToPhone(selectedChatId)
 
   const botToggle = useMutation({
     mutationFn: async (args: { phone: string; action: 'pause' | 'resume' }) => {
@@ -567,14 +603,13 @@ export default function InboxPage() {
             </div>
           ) : (
             chats.map(chat => {
-              const phone = chatIdToPhone(chat.id)
               return (
                 <ChatListItem
                   key={chat.id}
                   chat={chat}
                   isSelected={chat.id === selectedChatId}
                   onClick={() => setSelectedChatId(chat.id)}
-                  botState={phone ? botByPhone.get(phone) : null}
+                  botState={botStateForChat(chat)}
                 />
               )
             })
@@ -701,6 +736,7 @@ export default function InboxPage() {
                     const runBreak = (a: Message | null, b: Message | null): boolean => {
                       if (!a || !b) return true
                       if (a.fromMe !== b.fromMe) return true
+                      if (!!a.isAiReply !== !!b.isAiReply) return true
                       if ((a.senderName || '') !== (b.senderName || '')) return true
                       const gap = Math.abs((b.timestamp || 0) - (a.timestamp || 0))
                       if (gap > 5 * 60) return true

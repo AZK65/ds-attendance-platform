@@ -198,6 +198,7 @@ export interface ChatMessage {
   senderName: string | null
   type: string
   hasMedia: boolean
+  isAiReply?: boolean
 }
 
 // Inbox chat cache
@@ -2362,6 +2363,9 @@ export async function getChatMessages(chatId: string, limit = 50): Promise<ChatM
       name?: string
       pushname?: string
     }>
+    pupPage?: {
+      evaluate: <T>(pageFunction: string) => Promise<T>
+    }
   }
 
   try {
@@ -2379,9 +2383,59 @@ export async function getChatMessages(chatId: string, limit = 50): Promise<ChatM
       messages = await chat.fetchMessages({ limit })
     } catch (fetchErr) {
       // whatsapp-web.js's chat.fetchMessages can throw when the chat's
-      // underlying WA Web view isn't ready yet ("Evaluation failed",
-      // "Target closed", etc.). Don't 500 — fall through to lastMessage.
-      console.warn(`[getChatMessages] fetchMessages threw for ${chatId}, falling back to lastMessage:`, fetchErr)
+      // underlying WA Web view isn't ready. Current WA Web builds also removed
+      // the internal waitForChatLoading function used by loadEarlierMsgs.
+      // Read the messages that are already present in Store.Chat directly so
+      // the inbox still shows the conversation instead of only one message.
+      console.warn(`[getChatMessages] fetchMessages threw for ${chatId}; reading loaded Store.Chat messages:`, fetchErr)
+      if (client.pupPage) {
+        try {
+          const safeChatId = JSON.stringify(chatId)
+          const safeLimit = Math.max(1, Math.min(2000, Math.floor(limit)))
+          messages = await client.pupPage.evaluate<Array<{
+            id: { id: string; _serialized: string }
+            body: string
+            timestamp: number
+            fromMe: boolean
+            author?: string
+            type: string
+            hasMedia: boolean
+          }>>(`(() => {
+            const serialize = (value) => {
+              if (!value) return '';
+              if (typeof value === 'string') return value;
+              return value._serialized || value.$1 ||
+                (value.user && value.server ? value.user + '@' + value.server : '');
+            };
+            const chats = window.Store?.Chat?.getModelsArray?.() || [];
+            const chat = chats.find((candidate) => serialize(candidate?.id) === ${safeChatId});
+            const models = chat?.msgs?.getModelsArray?.() || [];
+            return models
+              .filter((message) => !message?.isNotification)
+              .sort((a, b) => Number(a?.t || a?.timestamp || 0) - Number(b?.t || b?.timestamp || 0))
+              .slice(-${safeLimit})
+              .map((message) => {
+                const id = message?.id || {};
+                const remote = serialize(id.remote);
+                const fromMe = Boolean(id.fromMe ?? message?.fromMe);
+                const rawId = String(id.id || message?.id || '');
+                const serializedId = serialize(id) || [fromMe, remote, rawId].filter(Boolean).join('_');
+                return {
+                  id: { id: rawId || serializedId, _serialized: serializedId },
+                  body: String(message?.body || message?.caption || ''),
+                  timestamp: Number(message?.t || message?.timestamp || 0),
+                  fromMe,
+                  author: serialize(message?.author) || undefined,
+                  type: String(message?.type || 'chat'),
+                  hasMedia: Boolean(message?.isMedia || message?.hasMedia),
+                };
+              });
+          })()`)
+          console.log(`[getChatMessages] Store.Chat fallback returned ${messages.length} messages for ${chatId}`)
+        } catch (storeErr) {
+          console.warn(`[getChatMessages] Store.Chat fallback failed for ${chatId}:`, storeErr)
+        }
+      }
     }
     // Fallback: whatsapp-web.js often returns [] (or throws) until WA
     // Web has "opened" a chat. lastMessage is always in memory, so

@@ -24,7 +24,45 @@ export async function GET(
     const decodedChatId = decodeURIComponent(chatId)
     const messages = await getChatMessages(decodedChatId, limit)
 
-    return NextResponse.json({ messages, connected: true, limit })
+    // Mark bot-generated outbound messages for the admin inbox. Historical
+    // bot sends did not always persist WhatsApp's message id, so correlate by
+    // exact body plus a tight timestamp window as a backwards-compatible
+    // fallback. Manual replies keep the normal appearance.
+    const outboundTextMessages = messages.filter(message => message.fromMe && message.body)
+    let enrichedMessages = messages
+    if (!decodedChatId.endsWith('@g.us') && outboundTextMessages.length > 0) {
+      const bodies = [...new Set(outboundTextMessages.map(message => message.body))]
+      const timestamps = outboundTextMessages.map(message => message.timestamp).filter(Boolean)
+      const oldest = Math.min(...timestamps)
+      const newest = Math.max(...timestamps)
+      const aiMessages = await prisma.botMessage.findMany({
+        where: {
+          role: 'assistant',
+          status: 'sent',
+          body: { in: bodies },
+          ...(Number.isFinite(oldest) && Number.isFinite(newest)
+            ? {
+                createdAt: {
+                  gte: new Date((oldest - 180) * 1000),
+                  lte: new Date((newest + 180) * 1000),
+                },
+              }
+            : {}),
+        },
+        select: { body: true, createdAt: true, waMessageId: true },
+      })
+
+      enrichedMessages = messages.map(message => ({
+        ...message,
+        isAiReply: message.fromMe && aiMessages.some(aiMessage =>
+          (!!aiMessage.waMessageId && aiMessage.waMessageId === message.id) ||
+          (aiMessage.body === message.body &&
+            Math.abs(aiMessage.createdAt.getTime() - message.timestamp * 1000) <= 180_000)
+        ),
+      }))
+    }
+
+    return NextResponse.json({ messages: enrichedMessages, connected: true, limit })
   } catch (error) {
     console.error('[API /inbox/messages] Error:', error)
     return NextResponse.json(
