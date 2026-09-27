@@ -212,6 +212,12 @@ export interface InboxMessageMedia {
   filesize?: number
 }
 
+const INBOX_MEDIA_TYPES = new Set(['image', 'video', 'audio', 'ptt', 'document', 'sticker'])
+
+function isInboxMediaType(type: string | null | undefined): boolean {
+  return INBOX_MEDIA_TYPES.has(String(type || '').toLowerCase())
+}
+
 function looksLikeEncodedMedia(body: string, type: string, hasMedia: boolean): boolean {
   if (!hasMedia || type === 'chat') return false
   const compact = body.replace(/\s/g, '')
@@ -2334,7 +2340,7 @@ export async function getAllChats(): Promise<ChatInfo[]> {
         body: inboxMessageBody(
           chat.lastMessage.body,
           chat.lastMessage.type || 'chat',
-          Boolean(chat.lastMessage.hasMedia)
+          Boolean(chat.lastMessage.hasMedia) || isInboxMediaType(chat.lastMessage.type)
         ),
         timestamp: chat.lastMessage.timestamp,
         fromMe: chat.lastMessage.fromMe
@@ -2494,7 +2500,8 @@ export async function getChatMessages(chatId: string, limit = 50): Promise<ChatM
                   fromMe,
                   author: serialize(message?.author) || undefined,
                   type: String(message?.type || 'chat'),
-                  hasMedia: Boolean(message?.isMedia || message?.hasMedia),
+                  hasMedia: Boolean(message?.isMedia || message?.hasMedia) ||
+                    ['image', 'video', 'audio', 'ptt', 'document', 'sticker'].includes(String(message?.type || '').toLowerCase()),
                   mimetype: String(message?.mimetype || message?.mediaData?.mimetype || '') || undefined,
                   filename: String(message?.filename || message?.mediaData?.fileName || '') || undefined,
                 };
@@ -2539,12 +2546,16 @@ export async function getChatMessages(chatId: string, limit = 50): Promise<ChatM
     const result: ChatMessage[] = messages
       .map(msg => ({
         id: msg.id._serialized || msg.id.id,
-        body: inboxMessageBody(msg.body, msg.type || 'chat', Boolean(msg.hasMedia)),
+        body: inboxMessageBody(
+          msg.body,
+          msg.type || 'chat',
+          Boolean(msg.hasMedia) || isInboxMediaType(msg.type)
+        ),
         timestamp: msg.timestamp,
         fromMe: msg.fromMe,
         senderName: msg.author ? (senderNames.get(msg.author) || msg.author.replace('@c.us', '')) : null,
         type: msg.type || 'chat',
-        hasMedia: msg.hasMedia || false,
+        hasMedia: Boolean(msg.hasMedia) || isInboxMediaType(msg.type),
         mimetype: msg.mimetype || null,
         filename: msg.filename || null,
       }))
