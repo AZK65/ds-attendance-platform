@@ -1,14 +1,19 @@
 'use client'
 
+import Link from 'next/link'
 import { useState, useEffect, useRef, useCallback } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { Input } from '@/components/ui/input'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import {
+  Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle,
+} from '@/components/ui/dialog'
+import {
   Search, Send, ArrowLeft, Users, User, Wifi, WifiOff,
   Loader2, MessageCircle, ImageIcon, FileText, Mic, Video,
-  Bot, Pause, Play, AlertCircle, CalendarClock
+  Bot, Pause, Play, AlertCircle, CalendarClock, CalendarPlus,
+  CalendarX, RefreshCw, ExternalLink
 } from 'lucide-react'
 
 // ── Bot state (per-conversation) ───────────────────────────────
@@ -74,7 +79,10 @@ interface Message {
   hasMedia: boolean
   isAiReply?: boolean
   isReminder?: boolean
+  systemKind?: SystemMessageKind
 }
+
+type SystemMessageKind = 'reminder' | 'scheduled' | 'updated' | 'cancelled'
 
 // ── Helpers ────────────────────────────────────────────────────
 
@@ -242,19 +250,49 @@ function MessageBubble({
   isGroup,
   isFirstInRun,
   isLastInRun,
+  onSystemMessageClick,
 }: {
   message: Message
   isGroup: boolean
   isFirstInRun: boolean
   isLastInRun: boolean
+  onSystemMessageClick: (message: Message) => void
 }) {
   const isNonText = message.type !== 'chat' && message.type !== 'e2e_notification' && message.type !== 'notification_template'
   const media = isNonText ? mediaPlaceholder(message.type) : null
   const MediaIcon = media?.icon
   const mine = message.fromMe
-  const displayBody = message.isReminder
+  const systemKind = message.systemKind || (message.isReminder ? 'reminder' : undefined)
+  const systemMeta = systemKind ? {
+    reminder: {
+      label: 'Class reminder',
+      icon: CalendarClock,
+      badge: 'bg-amber-100 text-amber-900 dark:bg-amber-900/50 dark:text-amber-200',
+    },
+    scheduled: {
+      label: 'Class scheduled',
+      icon: CalendarPlus,
+      badge: 'bg-blue-100 text-blue-900 dark:bg-blue-900/50 dark:text-blue-200',
+    },
+    updated: {
+      label: 'Schedule updated',
+      icon: RefreshCw,
+      badge: 'bg-orange-100 text-orange-900 dark:bg-orange-900/50 dark:text-orange-200',
+    },
+    cancelled: {
+      label: 'Class cancelled',
+      icon: CalendarX,
+      badge: 'bg-red-100 text-red-900 dark:bg-red-900/50 dark:text-red-200',
+    },
+  }[systemKind] : null
+  const SystemIcon = systemMeta?.icon
+  const displayBody = systemKind === 'reminder'
     ? message.body.replace(/^\s*Reminder\s*:\s*/i, '')
-    : message.body
+    : systemKind === 'updated'
+      ? message.body.replace(/^\s*Schedule update\s*:\s*/i, '')
+      : systemKind === 'cancelled'
+        ? message.body.replace(/^\s*Class cancelled\s*:\s*/i, '')
+        : message.body
 
   // WhatsApp-style bubble rounding: tail (cut corner) only on the last
   // message of a same-sender run. Within a run, keep all corners rounded
@@ -275,26 +313,36 @@ function MessageBubble({
   return (
     <div className={`flex ${mine ? 'justify-end' : 'justify-start'} ${runGap} px-1`}>
       <div
+        role={systemMeta ? 'button' : undefined}
+        tabIndex={systemMeta ? 0 : undefined}
+        onClick={() => systemMeta && onSystemMessageClick(message)}
+        onKeyDown={(event) => {
+          if (systemMeta && (event.key === 'Enter' || event.key === ' ')) {
+            event.preventDefault()
+            onSystemMessageClick(message)
+          }
+        }}
         className={`
           max-w-[85%] md:max-w-[70%] px-3.5 py-2 shadow-sm ${cornerCls}
           ${mine
-            ? message.isReminder
+            ? systemMeta
               ? 'bg-white text-neutral-900 border border-neutral-200 dark:bg-neutral-800 dark:text-neutral-50 dark:border-neutral-700'
               : message.isAiReply
               ? 'bg-violet-50 text-neutral-900 border border-violet-300 ring-1 ring-violet-100 dark:bg-violet-950/70 dark:text-neutral-50 dark:border-violet-700 dark:ring-violet-900'
               : 'bg-[#DCF8C6] text-neutral-900 dark:bg-emerald-800 dark:text-neutral-50'
             : 'bg-white text-neutral-900 dark:bg-neutral-800 dark:text-neutral-100 border border-black/[0.03] dark:border-white/5'
           }
+          ${systemMeta ? 'cursor-pointer transition-all duration-300 ease-[cubic-bezier(0.32,0.72,0,1)] hover:-translate-y-0.5 hover:border-neutral-300 hover:shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-neutral-400 focus-visible:ring-offset-2 dark:hover:border-neutral-600' : ''}
         `}
       >
-        {message.isReminder && (
-          <div className="mb-2 inline-flex items-center gap-1.5 rounded-md bg-amber-100 px-2 py-1 text-xs font-semibold text-amber-900 dark:bg-amber-900/50 dark:text-amber-200">
-            <CalendarClock className="h-3.5 w-3.5" strokeWidth={2} />
-            Class reminder
+        {systemMeta && SystemIcon && (
+          <div className={`mb-2 inline-flex items-center gap-1.5 rounded-md px-2 py-1 text-xs font-semibold ${systemMeta.badge}`}>
+            <SystemIcon className="h-3.5 w-3.5" strokeWidth={2} />
+            {systemMeta.label}
           </div>
         )}
 
-        {message.isAiReply && (
+        {message.isAiReply && !systemMeta && (
           <div className="mb-1 flex items-center gap-1 text-[10px] font-semibold uppercase tracking-[0.12em] text-violet-700 dark:text-violet-300">
             <Bot className="h-3 w-3" />
             AI reply
@@ -338,6 +386,7 @@ function MessageBubble({
 
 export default function InboxPage() {
   const [selectedChatId, setSelectedChatId] = useState<string | null>(null)
+  const [selectedSystemMessage, setSelectedSystemMessage] = useState<Message | null>(null)
   const [searchTerm, setSearchTerm] = useState('')
   const [debouncedSearch, setDebouncedSearch] = useState('')
   const [messageInput, setMessageInput] = useState('')
@@ -552,6 +601,19 @@ export default function InboxPage() {
   const connected = chatData?.connected ?? true
   const messages = messageData?.messages || []
   const selectedChat = chats.find(c => c.id === selectedChatId)
+  const bookingName = (selectedChat?.name || 'Student').replace(/\s*#\d+\s*$/, '').trim()
+  const bookingPhone = selectedBotState?.phone || (selectedChatId?.endsWith('@c.us')
+    ? selectedChatId.replace('@c.us', '').replace(/\D/g, '')
+    : '')
+  const bookingParams = new URLSearchParams({ bookFor: bookingName })
+  if (bookingPhone) bookingParams.set('phone', bookingPhone)
+  const systemDialogTitle = selectedSystemMessage?.systemKind === 'cancelled'
+    ? 'Class cancelled'
+    : selectedSystemMessage?.systemKind === 'updated'
+      ? 'Schedule updated'
+      : selectedSystemMessage?.systemKind === 'scheduled'
+        ? 'Class scheduled'
+        : 'Class reminder'
 
   // ── Render ─────────────────────────────────────────────────
 
@@ -749,8 +811,8 @@ export default function InboxPage() {
                     const runBreak = (a: Message | null, b: Message | null): boolean => {
                       if (!a || !b) return true
                       if (a.fromMe !== b.fromMe) return true
-                      if (!!a.isReminder !== !!b.isReminder) return true
-                      if (a.isReminder || b.isReminder) return true
+                      if ((a.systemKind || '') !== (b.systemKind || '')) return true
+                      if (a.systemKind || b.systemKind || a.isReminder || b.isReminder) return true
                       if (!!a.isAiReply !== !!b.isAiReply) return true
                       if ((a.senderName || '') !== (b.senderName || '')) return true
                       const gap = Math.abs((b.timestamp || 0) - (a.timestamp || 0))
@@ -769,6 +831,7 @@ export default function InboxPage() {
                           isGroup={selectedChat?.isGroup || false}
                           isFirstInRun={isFirstInRun}
                           isLastInRun={isLastInRun}
+                          onSystemMessageClick={setSelectedSystemMessage}
                         />
                       </div>
                     )
@@ -813,6 +876,46 @@ export default function InboxPage() {
           </>
         )}
       </div>
+
+      <Dialog
+        open={!!selectedSystemMessage}
+        onOpenChange={(open) => !open && setSelectedSystemMessage(null)}
+      >
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>{systemDialogTitle}</DialogTitle>
+            <DialogDescription>
+              Open the school calendar or start booking another class for {bookingName}.
+            </DialogDescription>
+          </DialogHeader>
+
+          {selectedSystemMessage?.body && (
+            <div className="rounded-lg bg-muted/60 p-3 text-sm leading-relaxed text-muted-foreground">
+              {selectedSystemMessage.body.replace(/^\s*(Reminder|Schedule update|Class cancelled)\s*:\s*/i, '')}
+            </div>
+          )}
+
+          <div className="grid gap-2 sm:grid-cols-2">
+            <Button asChild className="justify-between">
+              <Link href="/scheduling" onClick={() => setSelectedSystemMessage(null)}>
+                Open calendar
+                <ExternalLink className="h-4 w-4" />
+              </Link>
+            </Button>
+            {!selectedChat?.isGroup && (
+              <Button variant="outline" asChild className="justify-between">
+                <Link
+                  href={`/scheduling?${bookingParams.toString()}`}
+                  onClick={() => setSelectedSystemMessage(null)}
+                >
+                  Book another class
+                  <CalendarPlus className="h-4 w-4" />
+                </Link>
+              </Button>
+            )}
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }

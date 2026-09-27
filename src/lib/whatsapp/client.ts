@@ -200,6 +200,7 @@ export interface ChatMessage {
   hasMedia: boolean
   isAiReply?: boolean
   isReminder?: boolean
+  systemKind?: 'reminder' | 'scheduled' | 'updated' | 'cancelled'
 }
 
 // Inbox chat cache

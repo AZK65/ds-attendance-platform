@@ -2,6 +2,18 @@ import { NextRequest, NextResponse } from 'next/server'
 import { getChatMessages, sendMessageToGroup, sendPrivateMessage, sendToRawChatId, getWhatsAppState } from '@/lib/whatsapp/client'
 import { prisma } from '@/lib/db'
 
+type SystemMessageKind = 'reminder' | 'scheduled' | 'updated' | 'cancelled'
+
+function classifySystemMessage(message: { fromMe: boolean; body: string }): SystemMessageKind | undefined {
+  if (!message.fromMe || !message.body) return undefined
+  const body = message.body.trim()
+  if (/\b(cancelled|canceled)\b/i.test(body)) return 'cancelled'
+  if (/^schedule update\s*:|\bhas been (updated|moved)\b|\bit is now on\b/i.test(body)) return 'updated'
+  if (/^reminder\s*:/i.test(body)) return 'reminder'
+  if (/\bclass (?:has been|is) scheduled\b/i.test(body)) return 'scheduled'
+  return undefined
+}
+
 export async function GET(
   request: NextRequest,
   { params }: { params: Promise<{ chatId: string }> }
@@ -29,10 +41,10 @@ export async function GET(
     // exact body plus a tight timestamp window as a backwards-compatible
     // fallback. Manual replies keep the normal appearance.
     const outboundTextMessages = messages.filter(message => message.fromMe && message.body)
-    let enrichedMessages = messages.map(message => ({
-      ...message,
-      isReminder: message.fromMe && /^\s*Reminder\s*:/i.test(message.body || ''),
-    }))
+    let enrichedMessages = messages.map(message => {
+      const systemKind = classifySystemMessage(message)
+      return { ...message, systemKind, isReminder: systemKind === 'reminder' }
+    })
     if (!decodedChatId.endsWith('@g.us') && outboundTextMessages.length > 0) {
       const bodies = [...new Set(outboundTextMessages.map(message => message.body))]
       const timestamps = outboundTextMessages.map(message => message.timestamp).filter(Boolean)
@@ -55,15 +67,19 @@ export async function GET(
         select: { body: true, createdAt: true, waMessageId: true },
       })
 
-      enrichedMessages = messages.map(message => ({
-        ...message,
-        isReminder: message.fromMe && /^\s*Reminder\s*:/i.test(message.body || ''),
-        isAiReply: message.fromMe && aiMessages.some(aiMessage =>
-          (!!aiMessage.waMessageId && aiMessage.waMessageId === message.id) ||
-          (aiMessage.body === message.body &&
-            Math.abs(aiMessage.createdAt.getTime() - message.timestamp * 1000) <= 180_000)
-        ),
-      }))
+      enrichedMessages = messages.map(message => {
+        const systemKind = classifySystemMessage(message)
+        return {
+          ...message,
+          systemKind,
+          isReminder: systemKind === 'reminder',
+          isAiReply: !systemKind && message.fromMe && aiMessages.some(aiMessage =>
+            (!!aiMessage.waMessageId && aiMessage.waMessageId === message.id) ||
+            (aiMessage.body === message.body &&
+              Math.abs(aiMessage.createdAt.getTime() - message.timestamp * 1000) <= 180_000)
+          ),
+        }
+      })
     }
 
     return NextResponse.json({ messages: enrichedMessages, connected: true, limit })
