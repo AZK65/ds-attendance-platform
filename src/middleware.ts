@@ -137,5 +137,5 @@ export const config = {
   // The LMS file-upload route is excluded: middleware buffers request bodies
   // with a 10MB cap, which breaks larger PowerPoint/PDF uploads. That route
   // does its own auth check instead (see the route handler).
-  matcher: ['/((?!_next/static|_next/image|favicon.ico|api/lms/admin/upload).*)'],
+  matcher: ['/((?!_next/static|_next/image|favicon.ico|api/lms/admin/upload|api/inbox/media).*)'],
 }

@@ -43,7 +43,14 @@ export async function GET(
     const outboundTextMessages = messages.filter(message => message.fromMe && message.body)
     let enrichedMessages = messages.map(message => {
       const systemKind = classifySystemMessage(message)
-      return { ...message, systemKind, isReminder: systemKind === 'reminder' }
+      return {
+        ...message,
+        systemKind,
+        isReminder: systemKind === 'reminder',
+        mediaUrl: message.hasMedia
+          ? `/api/inbox/media/${encodeURIComponent(message.id)}`
+          : undefined,
+      }
     })
     if (!decodedChatId.endsWith('@g.us') && outboundTextMessages.length > 0) {
       const bodies = [...new Set(outboundTextMessages.map(message => message.body))]
@@ -73,6 +80,9 @@ export async function GET(
           ...message,
           systemKind,
           isReminder: systemKind === 'reminder',
+          mediaUrl: message.hasMedia
+            ? `/api/inbox/media/${encodeURIComponent(message.id)}`
+            : undefined,
           isAiReply: !systemKind && message.fromMe && aiMessages.some(aiMessage =>
             (!!aiMessage.waMessageId && aiMessage.waMessageId === message.id) ||
             (aiMessage.body === message.body &&

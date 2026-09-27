@@ -198,9 +198,35 @@ export interface ChatMessage {
   senderName: string | null
   type: string
   hasMedia: boolean
+  mimetype?: string | null
+  filename?: string | null
   isAiReply?: boolean
   isReminder?: boolean
   systemKind?: 'reminder' | 'scheduled' | 'updated' | 'cancelled'
+}
+
+export interface InboxMessageMedia {
+  data: string
+  mimetype: string
+  filename?: string
+  filesize?: number
+}
+
+function looksLikeEncodedMedia(body: string, type: string, hasMedia: boolean): boolean {
+  if (!hasMedia || type === 'chat') return false
+  const compact = body.replace(/\s/g, '')
+  if (compact.length < 512) return false
+  if (!/^[A-Za-z0-9+/=]+$/.test(compact)) return false
+
+  // Common JPEG, PNG, GIF, WEBP, PDF, MP4 and audio base64 prefixes. The
+  // generic long-base64 fallback covers media formats WhatsApp adds later.
+  return /^(\/9j\/|iVBOR|R0lGOD|UklGR|JVBER|AAAA.{0,16}Z0eX|SUQz)/.test(compact) || compact.length > 2_000
+}
+
+function inboxMessageBody(body: string | null | undefined, type: string, hasMedia: boolean): string {
+  const value = String(body || '')
+  if (looksLikeEncodedMedia(value, type, hasMedia)) return ''
+  return value || (hasMedia ? '' : (type !== 'chat' ? `[${type}]` : ''))
 }
 
 // Inbox chat cache
@@ -2292,6 +2318,7 @@ export async function getAllChats(): Promise<ChatInfo[]> {
         timestamp: number
         fromMe: boolean
         type: string
+        hasMedia?: boolean
       }
     }>>
   }
@@ -2304,7 +2331,11 @@ export async function getAllChats(): Promise<ChatInfo[]> {
       name: chat.name || chat.id._serialized,
       isGroup: chat.isGroup,
       lastMessage: chat.lastMessage ? {
-        body: chat.lastMessage.body || (chat.lastMessage.type !== 'chat' ? `[${chat.lastMessage.type}]` : ''),
+        body: inboxMessageBody(
+          chat.lastMessage.body,
+          chat.lastMessage.type || 'chat',
+          Boolean(chat.lastMessage.hasMedia)
+        ),
         timestamp: chat.lastMessage.timestamp,
         fromMe: chat.lastMessage.fromMe
       } : null,
@@ -2350,6 +2381,8 @@ export async function getChatMessages(chatId: string, limit = 50): Promise<ChatM
         author?: string
         type: string
         hasMedia: boolean
+        mimetype?: string
+        filename?: string
       }
       fetchMessages: (options: { limit: number }) => Promise<Array<{
         id: { id: string; _serialized: string }
@@ -2359,6 +2392,8 @@ export async function getChatMessages(chatId: string, limit = 50): Promise<ChatM
         author?: string
         type: string
         hasMedia: boolean
+        mimetype?: string
+        filename?: string
       }>>
     }>
     getContactById: (id: string) => Promise<{
@@ -2380,6 +2415,8 @@ export async function getChatMessages(chatId: string, limit = 50): Promise<ChatM
       author?: string
       type: string
       hasMedia: boolean
+      mimetype?: string
+      filename?: string
     }> = []
     try {
       messages = await chat.fetchMessages({ limit })
@@ -2402,6 +2439,8 @@ export async function getChatMessages(chatId: string, limit = 50): Promise<ChatM
             author?: string
             type: string
             hasMedia: boolean
+            mimetype?: string
+            filename?: string
           }>>(`(async () => {
             const serialize = (value) => {
               if (!value) return '';
@@ -2456,6 +2495,8 @@ export async function getChatMessages(chatId: string, limit = 50): Promise<ChatM
                   author: serialize(message?.author) || undefined,
                   type: String(message?.type || 'chat'),
                   hasMedia: Boolean(message?.isMedia || message?.hasMedia),
+                  mimetype: String(message?.mimetype || message?.mediaData?.mimetype || '') || undefined,
+                  filename: String(message?.filename || message?.mediaData?.fileName || '') || undefined,
                 };
               });
           })()`)
@@ -2498,12 +2539,14 @@ export async function getChatMessages(chatId: string, limit = 50): Promise<ChatM
     const result: ChatMessage[] = messages
       .map(msg => ({
         id: msg.id._serialized || msg.id.id,
-        body: msg.body || (msg.type !== 'chat' ? `[${msg.type}]` : ''),
+        body: inboxMessageBody(msg.body, msg.type || 'chat', Boolean(msg.hasMedia)),
         timestamp: msg.timestamp,
         fromMe: msg.fromMe,
         senderName: msg.author ? (senderNames.get(msg.author) || msg.author.replace('@c.us', '')) : null,
         type: msg.type || 'chat',
-        hasMedia: msg.hasMedia || false
+        hasMedia: msg.hasMedia || false,
+        mimetype: msg.mimetype || null,
+        filename: msg.filename || null,
       }))
       .sort((a, b) => a.timestamp - b.timestamp)
 
@@ -2584,6 +2627,84 @@ export async function sendToRawChatId(chatId: string, text: string): Promise<voi
       state.isConnected = false
     }
     throw err
+  }
+}
+
+/** Download one WhatsApp attachment on demand for the admin inbox. */
+export async function getInboxMessageMedia(messageId: string): Promise<InboxMessageMedia> {
+  if (!state.client || !state.isConnected) {
+    throw new Error('WhatsApp not connected')
+  }
+
+  const client = state.client as {
+    getMessageById: (id: string) => Promise<{
+      downloadMedia: () => Promise<{
+        data: string
+        mimetype: string
+        filename?: string
+        filesize?: number
+      } | undefined>
+    } | null>
+  }
+
+  const message = await client.getMessageById(messageId)
+  if (!message) throw new Error('Message is no longer available in WhatsApp')
+  const media = await message.downloadMedia()
+  if (!media?.data || !media.mimetype) {
+    throw new Error('This attachment is no longer available to download')
+  }
+  return media
+}
+
+/** Send an image, video, voice note or document to an exact WhatsApp chat. */
+export async function sendMediaToChat(
+  chatId: string,
+  base64Data: string,
+  filename: string,
+  mimetype: string,
+  caption?: string
+): Promise<void> {
+  if (!state.client || !state.isConnected) {
+    throw new Error('WhatsApp not connected')
+  }
+
+  const client = state.client as {
+    sendMessage: (id: string, content: unknown, options?: Record<string, unknown>) => Promise<unknown>
+    getChatById: (id: string) => Promise<{ sendSeen: () => Promise<unknown> }>
+    getNumberId: (number: string) => Promise<{ _serialized: string } | null>
+  }
+  const { MessageMedia } = await import('whatsapp-web.js')
+  const media = new MessageMedia(mimetype, base64Data, filename)
+  const options = { caption: caption?.trim() || undefined }
+
+  try {
+    await client.sendMessage(chatId, media, options)
+    console.log(`[sendMediaToChat] sent ${mimetype} to ${chatId}`)
+  } catch (error) {
+    const errMsg = error instanceof Error ? error.message : String(error)
+
+    // Direct chats can move from phone JIDs to Linked IDs. Resolve and retry
+    // exactly like the proven text-message path does.
+    if (chatId.endsWith('@c.us') && (errMsg.includes('No LID') || errMsg.toLowerCase().includes('lid'))) {
+      const phone = chatId.replace('@c.us', '')
+      const numberId = await client.getNumberId(phone)
+      const resolvedId = numberId?._serialized || chatId
+      try {
+        const chat = await client.getChatById(resolvedId)
+        await chat.sendSeen().catch(() => {})
+      } catch { /* resolving the id is the useful part */ }
+      await new Promise(resolve => setTimeout(resolve, 1000))
+      await client.sendMessage(resolvedId, media, options)
+      console.log(`[sendMediaToChat] sent ${mimetype} to ${resolvedId} after LID resolution`)
+      return
+    }
+
+    if (isDeadFrameError(errMsg)) {
+      logWaEvent('send_frame_error', errMsg)
+      state.isConnected = false
+      fullReconnect().catch(err => console.error('[sendMediaToChat] Reconnect failed:', err))
+    }
+    throw new Error(errMsg)
   }
 }
 

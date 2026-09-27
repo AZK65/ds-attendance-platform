@@ -13,7 +13,7 @@ import {
   Search, Send, ArrowLeft, Users, User, Wifi, WifiOff,
   Loader2, MessageCircle, ImageIcon, FileText, Mic, Video,
   Bot, Pause, Play, AlertCircle, CalendarClock, CalendarPlus,
-  CalendarX, RefreshCw, ExternalLink
+  CalendarX, RefreshCw, ExternalLink, Paperclip, X, Download
 } from 'lucide-react'
 
 // ── Bot state (per-conversation) ───────────────────────────────
@@ -77,9 +77,18 @@ interface Message {
   senderName: string | null
   type: string
   hasMedia: boolean
+  mediaUrl?: string
+  mimetype?: string | null
+  filename?: string | null
   isAiReply?: boolean
   isReminder?: boolean
   systemKind?: SystemMessageKind
+}
+
+interface OutgoingMessage {
+  message: string
+  file: File | null
+  previewUrl: string | null
 }
 
 type SystemMessageKind = 'reminder' | 'scheduled' | 'updated' | 'cancelled'
@@ -141,6 +150,13 @@ function mediaPlaceholder(type: string): { icon: typeof ImageIcon; label: string
     case 'sticker': return { icon: ImageIcon, label: 'Sticker' }
     default: return { icon: FileText, label: type }
   }
+}
+
+function fileMessageType(file: File): string {
+  if (file.type.startsWith('image/')) return 'image'
+  if (file.type.startsWith('video/')) return 'video'
+  if (file.type.startsWith('audio/')) return 'audio'
+  return 'document'
 }
 
 // ── Date separator ────────────────────────────────────────────
@@ -245,22 +261,132 @@ function ChatListItem({
 
 // ── Message bubble ─────────────────────────────────────────────
 
+function MessageMediaContent({
+  message,
+  onOpenImage,
+}: {
+  message: Message
+  onOpenImage: (url: string, name: string) => void
+}) {
+  const [failed, setFailed] = useState(false)
+  const [retry, setRetry] = useState(0)
+  const source = message.mediaUrl
+    ? `${message.mediaUrl}${retry ? `?retry=${retry}` : ''}`
+    : null
+  const media = mediaPlaceholder(message.type)
+  const MediaIcon = media.icon
+  const filename = message.filename || media.label
+
+  if (!source || failed) {
+    return (
+      <div className="mb-1 flex min-w-56 items-center gap-3 rounded-xl border border-black/10 bg-black/[0.04] p-2.5 dark:border-white/10 dark:bg-white/[0.06]">
+        <span className="grid h-10 w-10 shrink-0 place-items-center rounded-lg bg-white/70 text-neutral-500 shadow-sm dark:bg-black/20 dark:text-neutral-300">
+          <MediaIcon className="h-4 w-4" />
+        </span>
+        <span className="min-w-0 flex-1">
+          <span className="block truncate text-xs font-semibold">{filename}</span>
+          <span className="mt-0.5 block text-[11px] opacity-60">
+            {failed ? 'Could not load this attachment' : 'Attachment unavailable'}
+          </span>
+        </span>
+        {source && (
+          <button
+            type="button"
+            onClick={() => {
+              setFailed(false)
+              setRetry(value => value + 1)
+            }}
+            className="grid h-9 w-9 shrink-0 place-items-center rounded-lg hover:bg-black/5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-neutral-500 dark:hover:bg-white/10"
+            aria-label="Try loading attachment again"
+          >
+            <RefreshCw className="h-4 w-4" />
+          </button>
+        )}
+      </div>
+    )
+  }
+
+  if (message.type === 'image' || message.type === 'sticker' || message.mimetype?.startsWith('image/')) {
+    return (
+      <button
+        type="button"
+        onClick={() => onOpenImage(source, filename)}
+        className="mb-1 block max-w-full cursor-zoom-in overflow-hidden rounded-xl bg-black/5 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-neutral-500"
+        aria-label={`Open ${filename}`}
+      >
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img
+          src={source}
+          alt={message.type === 'sticker' ? 'WhatsApp sticker' : 'WhatsApp photo'}
+          loading="lazy"
+          decoding="async"
+          onError={() => setFailed(true)}
+          className={message.type === 'sticker'
+            ? 'h-32 w-32 object-contain'
+            : 'max-h-80 max-w-full object-contain'}
+        />
+      </button>
+    )
+  }
+
+  if (message.type === 'video' || message.mimetype?.startsWith('video/')) {
+    return (
+      <video
+        src={source}
+        controls
+        playsInline
+        preload="metadata"
+        onError={() => setFailed(true)}
+        className="mb-1 max-h-80 max-w-full rounded-xl bg-black"
+      />
+    )
+  }
+
+  if (message.type === 'audio' || message.type === 'ptt' || message.mimetype?.startsWith('audio/')) {
+    return (
+      <audio
+        src={source}
+        controls
+        preload="metadata"
+        onError={() => setFailed(true)}
+        className="mb-1 w-64 max-w-full"
+      />
+    )
+  }
+
+  return (
+    <a
+      href={`${source}${source.includes('?') ? '&' : '?'}download=1`}
+      download={filename}
+      className="mb-1 flex min-w-56 items-center gap-3 rounded-xl border border-black/10 bg-black/[0.04] p-2.5 transition-colors hover:bg-black/[0.07] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-neutral-500 dark:border-white/10 dark:bg-white/[0.06] dark:hover:bg-white/10"
+    >
+      <span className="grid h-10 w-10 shrink-0 place-items-center rounded-lg bg-white/70 text-neutral-500 shadow-sm dark:bg-black/20 dark:text-neutral-300">
+        <FileText className="h-4 w-4" />
+      </span>
+      <span className="min-w-0 flex-1">
+        <span className="block truncate text-xs font-semibold">{filename}</span>
+        <span className="mt-0.5 block text-[11px] opacity-60">Download document</span>
+      </span>
+      <Download className="h-4 w-4 shrink-0 opacity-60" />
+    </a>
+  )
+}
+
 function MessageBubble({
   message,
   isGroup,
   isFirstInRun,
   isLastInRun,
   onSystemMessageClick,
+  onOpenImage,
 }: {
   message: Message
   isGroup: boolean
   isFirstInRun: boolean
   isLastInRun: boolean
   onSystemMessageClick: (message: Message) => void
+  onOpenImage: (url: string, name: string) => void
 }) {
-  const isNonText = message.type !== 'chat' && message.type !== 'e2e_notification' && message.type !== 'notification_template'
-  const media = isNonText ? mediaPlaceholder(message.type) : null
-  const MediaIcon = media?.icon
   const mine = message.fromMe
   const systemKind = message.systemKind || (message.isReminder ? 'reminder' : undefined)
   const systemMeta = systemKind ? {
@@ -357,12 +483,8 @@ function MessageBubble({
           </p>
         )}
 
-        {/* Media placeholder */}
-        {media && MediaIcon && (
-          <div className={`flex items-center gap-1.5 text-[13px] mb-1 ${mine ? 'text-neutral-700/80 dark:text-neutral-100/80' : 'text-neutral-500 dark:text-neutral-400'}`}>
-            <MediaIcon className="h-3.5 w-3.5" />
-            <span className="italic">{media.label}</span>
-          </div>
+        {message.hasMedia && (
+          <MessageMediaContent message={message} onOpenImage={onOpenImage} />
         )}
 
         {/* Message body */}
@@ -387,12 +509,17 @@ function MessageBubble({
 export default function InboxPage() {
   const [selectedChatId, setSelectedChatId] = useState<string | null>(null)
   const [selectedSystemMessage, setSelectedSystemMessage] = useState<Message | null>(null)
+  const [openImage, setOpenImage] = useState<{ url: string; name: string } | null>(null)
   const [searchTerm, setSearchTerm] = useState('')
   const [debouncedSearch, setDebouncedSearch] = useState('')
   const [messageInput, setMessageInput] = useState('')
+  const [attachment, setAttachment] = useState<File | null>(null)
+  const [attachmentPreview, setAttachmentPreview] = useState<string | null>(null)
+  const [attachmentError, setAttachmentError] = useState<string | null>(null)
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const messagesContainerRef = useRef<HTMLDivElement>(null)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
+  const fileInputRef = useRef<HTMLInputElement>(null)
   const prevMessageCount = useRef(0)
   const queryClient = useQueryClient()
 
@@ -423,12 +550,13 @@ export default function InboxPage() {
   // more of the WA history in without loading the entire chat on selection.
   const [historyLimit, setHistoryLimit] = useState<Record<string, number>>({})
   const currentLimit = selectedChatId ? historyLimit[selectedChatId] ?? 100 : 100
+  const messageQueryKey = ['inbox-messages', selectedChatId, currentLimit] as const
 
   const {
     data: messageData,
     isLoading: messagesLoading
   } = useQuery({
-    queryKey: ['inbox-messages', selectedChatId, currentLimit],
+    queryKey: messageQueryKey,
     queryFn: async () => {
       if (!selectedChatId) return { messages: [], connected: true }
       const res = await fetch(
@@ -497,33 +625,45 @@ export default function InboxPage() {
   // ── Send mutation ──────────────────────────────────────────
 
   const sendMutation = useMutation({
-    mutationFn: async (message: string) => {
+    mutationFn: async ({ message, file }: OutgoingMessage) => {
       if (!selectedChatId) throw new Error('No chat selected')
-      const res = await fetch(`/api/inbox/chats/${encodeURIComponent(selectedChatId)}/messages`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ message })
-      })
+      let res: Response
+      if (file) {
+        const form = new FormData()
+        form.set('chatId', selectedChatId)
+        form.set('message', message)
+        form.set('file', file)
+        res = await fetch('/api/inbox/media', { method: 'POST', body: form })
+      } else {
+        res = await fetch(`/api/inbox/chats/${encodeURIComponent(selectedChatId)}/messages`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ message })
+        })
+      }
       if (!res.ok) {
         const data = await res.json()
-        throw new Error(data.error || 'Failed to send message')
+        throw new Error(data.error || 'Failed to send message or attachment')
       }
       return res.json()
     },
-    onMutate: async (message) => {
+    onMutate: async ({ message, file, previewUrl }) => {
       // Optimistic update
-      await queryClient.cancelQueries({ queryKey: ['inbox-messages', selectedChatId] })
-      const previousMessages = queryClient.getQueryData(['inbox-messages', selectedChatId])
+      await queryClient.cancelQueries({ queryKey: messageQueryKey })
+      const previousMessages = queryClient.getQueryData(messageQueryKey)
 
-      queryClient.setQueryData(['inbox-messages', selectedChatId], (old: { messages: Message[]; connected: boolean } | undefined) => {
+      queryClient.setQueryData(messageQueryKey, (old: { messages: Message[]; connected: boolean } | undefined) => {
         const optimistic: Message = {
           id: `optimistic-${Date.now()}`,
           body: message,
           timestamp: Math.floor(Date.now() / 1000),
           fromMe: true,
           senderName: null,
-          type: 'chat',
-          hasMedia: false
+          type: file ? fileMessageType(file) : 'chat',
+          hasMedia: !!file,
+          mediaUrl: previewUrl || undefined,
+          mimetype: file?.type || null,
+          filename: file?.name || null,
         }
         return {
           messages: [...(old?.messages || []), optimistic],
@@ -536,10 +676,11 @@ export default function InboxPage() {
     onError: (_err, _message, context) => {
       // Rollback on error
       if (context?.previousMessages) {
-        queryClient.setQueryData(['inbox-messages', selectedChatId], context.previousMessages)
+        queryClient.setQueryData(messageQueryKey, context.previousMessages)
       }
     },
-    onSettled: () => {
+    onSettled: (_data, _error, variables) => {
+      if (variables.previewUrl) URL.revokeObjectURL(variables.previewUrl)
       // Refetch to get server state
       queryClient.invalidateQueries({ queryKey: ['inbox-messages', selectedChatId] })
       queryClient.invalidateQueries({ queryKey: ['inbox-chats'] })
@@ -569,11 +710,40 @@ export default function InboxPage() {
 
   // ── Send handler ───────────────────────────────────────────
 
+  const chooseAttachment = (file: File | null) => {
+    setAttachmentError(null)
+    if (!file) return
+    if (file.size > 25 * 1024 * 1024) {
+      setAttachmentError('Attachment must be 25 MB or smaller')
+      return
+    }
+    if (attachmentPreview) URL.revokeObjectURL(attachmentPreview)
+    setAttachment(file)
+    setAttachmentPreview(URL.createObjectURL(file))
+  }
+
+  const clearAttachment = () => {
+    if (attachmentPreview) URL.revokeObjectURL(attachmentPreview)
+    setAttachment(null)
+    setAttachmentPreview(null)
+    setAttachmentError(null)
+    if (fileInputRef.current) fileInputRef.current.value = ''
+  }
+
+  const openChat = (chatId: string | null) => {
+    clearAttachment()
+    setSelectedChatId(chatId)
+  }
+
   const handleSend = () => {
     const text = messageInput.trim()
-    if (!text || sendMutation.isPending) return
-    sendMutation.mutate(text)
+    if ((!text && !attachment) || sendMutation.isPending) return
+    sendMutation.mutate({ message: text, file: attachment, previewUrl: attachmentPreview })
     setMessageInput('')
+    setAttachment(null)
+    setAttachmentPreview(null)
+    setAttachmentError(null)
+    if (fileInputRef.current) fileInputRef.current.value = ''
     // Reset textarea height
     if (textareaRef.current) {
       textareaRef.current.style.height = 'auto'
@@ -593,6 +763,13 @@ export default function InboxPage() {
     const ta = e.target
     ta.style.height = 'auto'
     ta.style.height = Math.min(ta.scrollHeight, 120) + 'px'
+  }
+
+  const handlePaste = (event: React.ClipboardEvent<HTMLTextAreaElement>) => {
+    const file = Array.from(event.clipboardData.files)[0]
+    if (!file) return
+    event.preventDefault()
+    chooseAttachment(file)
   }
 
   // ── Derived state ──────────────────────────────────────────
@@ -683,7 +860,7 @@ export default function InboxPage() {
                   key={chat.id}
                   chat={chat}
                   isSelected={chat.id === selectedChatId}
-                  onClick={() => setSelectedChatId(chat.id)}
+                  onClick={() => openChat(chat.id)}
                   botState={botStateForChat(chat)}
                 />
               )
@@ -712,7 +889,7 @@ export default function InboxPage() {
             {/* Chat header */}
             <div className="flex items-center gap-3 px-4 py-2.5 border-b bg-background flex-shrink-0">
               <button
-                onClick={() => setSelectedChatId(null)}
+                onClick={() => openChat(null)}
                 className="md:hidden p-1 rounded hover:bg-muted"
               >
                 <ArrowLeft className="h-5 w-5" />
@@ -832,6 +1009,7 @@ export default function InboxPage() {
                           isFirstInRun={isFirstInRun}
                           isLastInRun={isLastInRun}
                           onSystemMessageClick={setSelectedSystemMessage}
+                          onOpenImage={(url, name) => setOpenImage({ url, name })}
                         />
                       </div>
                     )
@@ -843,11 +1021,60 @@ export default function InboxPage() {
 
             {/* Message input */}
             <div className="border-t px-4 py-2.5 bg-background flex-shrink-0">
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept="image/*,video/*,audio/*,.pdf,.doc,.docx,.xls,.xlsx,.csv,.txt"
+                className="hidden"
+                onChange={event => chooseAttachment(event.target.files?.[0] || null)}
+              />
+              {attachment && (
+                <div className="mx-auto mb-2 flex max-w-3xl items-center gap-3 rounded-xl border bg-muted/40 p-2.5">
+                  {attachment.type.startsWith('image/') && attachmentPreview ? (
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <img src={attachmentPreview} alt="Attachment preview" className="h-14 w-14 rounded-lg object-cover" />
+                  ) : (
+                    <span className="grid h-14 w-14 shrink-0 place-items-center rounded-lg bg-background shadow-sm">
+                      <Paperclip className="h-5 w-5 text-muted-foreground" />
+                    </span>
+                  )}
+                  <div className="min-w-0 flex-1">
+                    <p className="truncate text-sm font-medium">{attachment.name}</p>
+                    <p className="text-xs text-muted-foreground">
+                      {(attachment.size / 1024 / 1024).toFixed(attachment.size > 1024 * 1024 ? 1 : 2)} MB · ready to send
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={clearAttachment}
+                    className="grid h-9 w-9 shrink-0 place-items-center rounded-lg text-muted-foreground hover:bg-background hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+                    aria-label="Remove attachment"
+                  >
+                    <X className="h-4 w-4" />
+                  </button>
+                </div>
+              )}
+              {attachmentError && (
+                <p className="mx-auto mb-2 max-w-3xl text-xs text-red-500">{attachmentError}</p>
+              )}
               <div className="flex items-end gap-2">
+                <Button
+                  type="button"
+                  size="icon"
+                  variant="ghost"
+                  onClick={() => fileInputRef.current?.click()}
+                  disabled={sendMutation.isPending}
+                  className="h-9 w-9 rounded-full flex-shrink-0 text-muted-foreground"
+                  aria-label="Attach a photo or file"
+                  title="Attach a photo or file"
+                >
+                  <Paperclip className="h-4 w-4" />
+                </Button>
                 <textarea
                   ref={textareaRef}
                   value={messageInput}
                   onChange={handleTextareaInput}
+                  onPaste={handlePaste}
                   onKeyDown={handleKeyDown}
                   placeholder="Type a message..."
                   rows={1}
@@ -857,7 +1084,7 @@ export default function InboxPage() {
                 <Button
                   size="icon"
                   onClick={handleSend}
-                  disabled={!messageInput.trim() || sendMutation.isPending}
+                  disabled={(!messageInput.trim() && !attachment) || sendMutation.isPending}
                   className="h-9 w-9 rounded-full flex-shrink-0"
                 >
                   {sendMutation.isPending ? (
@@ -876,6 +1103,38 @@ export default function InboxPage() {
           </>
         )}
       </div>
+
+      <Dialog open={!!openImage} onOpenChange={(open) => !open && setOpenImage(null)}>
+        <DialogContent className="max-w-5xl overflow-hidden border-neutral-800 bg-neutral-950 p-0 text-white">
+          <DialogHeader className="sr-only">
+            <DialogTitle>{openImage?.name || 'WhatsApp photo'}</DialogTitle>
+            <DialogDescription>Full-size WhatsApp attachment preview</DialogDescription>
+          </DialogHeader>
+          {openImage && (
+            <div className="flex max-h-[88vh] min-h-72 flex-col">
+              <div className="flex min-h-0 flex-1 items-center justify-center bg-black p-3 sm:p-6">
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img
+                  src={openImage.url}
+                  alt={openImage.name}
+                  className="max-h-[76vh] max-w-full object-contain"
+                />
+              </div>
+              <div className="flex items-center justify-between gap-3 border-t border-white/10 px-4 py-3">
+                <span className="min-w-0 truncate text-sm text-neutral-300">{openImage.name}</span>
+                <a
+                  href={`${openImage.url}${openImage.url.includes('?') ? '&' : '?'}download=1`}
+                  download={openImage.name}
+                  className="inline-flex shrink-0 items-center gap-2 rounded-lg bg-white px-3 py-2 text-sm font-medium text-black hover:bg-neutral-200"
+                >
+                  <Download className="h-4 w-4" />
+                  Download
+                </a>
+              </div>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
 
       <Dialog
         open={!!selectedSystemMessage}
