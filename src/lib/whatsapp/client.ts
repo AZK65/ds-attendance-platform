@@ -2400,16 +2400,42 @@ export async function getChatMessages(chatId: string, limit = 50): Promise<ChatM
             author?: string
             type: string
             hasMedia: boolean
-          }>>(`(() => {
+          }>>(`(async () => {
             const serialize = (value) => {
               if (!value) return '';
               if (typeof value === 'string') return value;
               return value._serialized || value.$1 ||
                 (value.user && value.server ? value.user + '@' + value.server : '');
             };
-            const chats = window.Store?.Chat?.getModelsArray?.() || [];
-            const chat = chats.find((candidate) => serialize(candidate?.id) === ${safeChatId});
-            const models = chat?.msgs?.getModelsArray?.() || [];
+            const chat = await window.WWebJS?.getChat?.(${safeChatId}, { getAsModel: false }) ||
+              (window.Store?.Chat?.getModelsArray?.() || [])
+                .find((candidate) => serialize(candidate?.id) === ${safeChatId});
+            let models = chat?.msgs?.getModelsArray?.() || [];
+
+            // WhatsApp changed loadEarlierMsgs from (chat, collection) to an
+            // options object. The pinned client still uses the old signature,
+            // which now throws while trying to read waitForChatLoading. Call
+            // the current WA Web API directly and merge each loaded page.
+            if (chat && models.length < ${safeLimit}) {
+              try {
+                const loader = window.require?.('WAWebChatLoadMessages')?.loadEarlierMsgs;
+                for (let page = 0; typeof loader === 'function' && page < 10 && models.length < ${safeLimit}; page++) {
+                  const loaded = await Promise.race([
+                    loader({ chat }),
+                    new Promise((resolve) => setTimeout(() => resolve([]), 5000)),
+                  ]);
+                  if (!Array.isArray(loaded) || loaded.length === 0) break;
+                  const seen = new Set(models.map((message) => serialize(message?.id)));
+                  models = [
+                    ...loaded.filter((message) => !seen.has(serialize(message?.id))),
+                    ...models,
+                  ];
+                }
+              } catch (loadErr) {
+                console.warn('[Qazi Inbox] Could not load earlier messages', loadErr);
+              }
+            }
+
             return models
               .filter((message) => !message?.isNotification)
               .sort((a, b) => Number(a?.t || a?.timestamp || 0) - Number(b?.t || b?.timestamp || 0))
