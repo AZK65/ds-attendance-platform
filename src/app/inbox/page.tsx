@@ -279,7 +279,7 @@ function MessageBubble({
           max-w-[85%] md:max-w-[70%] px-3.5 py-2 shadow-sm ${cornerCls}
           ${mine
             ? message.isReminder
-              ? 'bg-amber-50 text-neutral-900 border border-amber-300 ring-1 ring-amber-100 dark:bg-amber-950/70 dark:text-neutral-50 dark:border-amber-700 dark:ring-amber-900'
+              ? 'bg-white text-neutral-900 border border-neutral-200 dark:bg-neutral-800 dark:text-neutral-50 dark:border-neutral-700'
               : message.isAiReply
               ? 'bg-violet-50 text-neutral-900 border border-violet-300 ring-1 ring-violet-100 dark:bg-violet-950/70 dark:text-neutral-50 dark:border-violet-700 dark:ring-violet-900'
               : 'bg-[#DCF8C6] text-neutral-900 dark:bg-emerald-800 dark:text-neutral-50'
@@ -288,8 +288,8 @@ function MessageBubble({
         `}
       >
         {message.isReminder && (
-          <div className="mb-1.5 flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-[0.12em] text-amber-800 dark:text-amber-300">
-            <CalendarClock className="h-3.5 w-3.5" />
+          <div className="mb-2 inline-flex items-center gap-1.5 rounded-md bg-amber-100 px-2 py-1 text-xs font-semibold text-amber-900 dark:bg-amber-900/50 dark:text-amber-200">
+            <CalendarClock className="h-3.5 w-3.5" strokeWidth={2} />
             Class reminder
           </div>
         )}
@@ -325,7 +325,7 @@ function MessageBubble({
         {/* Timestamp — right-aligned, inline with last line via flex-end.
             Only on the last message of a run to reduce visual noise. */}
         {isLastInRun && (
-          <div className={`flex justify-end mt-1 text-[10.5px] tabular-nums ${message.isReminder ? 'text-amber-700/70 dark:text-amber-300/70' : message.isAiReply ? 'text-violet-500 dark:text-violet-300/70' : mine ? 'text-neutral-500 dark:text-neutral-300/70' : 'text-neutral-400 dark:text-neutral-400'}`}>
+          <div className={`flex justify-end mt-1 text-[10.5px] tabular-nums ${message.isAiReply ? 'text-violet-500 dark:text-violet-300/70' : mine ? 'text-neutral-500 dark:text-neutral-300/70' : 'text-neutral-400 dark:text-neutral-400'}`}>
             {formatMessageTime(message.timestamp)}
           </div>
         )}
