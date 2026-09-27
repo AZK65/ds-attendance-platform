@@ -8,7 +8,7 @@ import { Badge } from '@/components/ui/badge'
 import {
   Search, Send, ArrowLeft, Users, User, Wifi, WifiOff,
   Loader2, MessageCircle, ImageIcon, FileText, Mic, Video,
-  Bot, Pause, Play, AlertCircle
+  Bot, Pause, Play, AlertCircle, CalendarClock
 } from 'lucide-react'
 
 // ── Bot state (per-conversation) ───────────────────────────────
@@ -73,6 +73,7 @@ interface Message {
   type: string
   hasMedia: boolean
   isAiReply?: boolean
+  isReminder?: boolean
 }
 
 // ── Helpers ────────────────────────────────────────────────────
@@ -251,6 +252,9 @@ function MessageBubble({
   const media = isNonText ? mediaPlaceholder(message.type) : null
   const MediaIcon = media?.icon
   const mine = message.fromMe
+  const displayBody = message.isReminder
+    ? message.body.replace(/^\s*Reminder\s*:\s*/i, '')
+    : message.body
 
   // WhatsApp-style bubble rounding: tail (cut corner) only on the last
   // message of a same-sender run. Within a run, keep all corners rounded
@@ -274,13 +278,22 @@ function MessageBubble({
         className={`
           max-w-[85%] md:max-w-[70%] px-3.5 py-2 shadow-sm ${cornerCls}
           ${mine
-            ? message.isAiReply
+            ? message.isReminder
+              ? 'bg-amber-50 text-neutral-900 border border-amber-300 ring-1 ring-amber-100 dark:bg-amber-950/70 dark:text-neutral-50 dark:border-amber-700 dark:ring-amber-900'
+              : message.isAiReply
               ? 'bg-violet-50 text-neutral-900 border border-violet-300 ring-1 ring-violet-100 dark:bg-violet-950/70 dark:text-neutral-50 dark:border-violet-700 dark:ring-violet-900'
               : 'bg-[#DCF8C6] text-neutral-900 dark:bg-emerald-800 dark:text-neutral-50'
             : 'bg-white text-neutral-900 dark:bg-neutral-800 dark:text-neutral-100 border border-black/[0.03] dark:border-white/5'
           }
         `}
       >
+        {message.isReminder && (
+          <div className="mb-1.5 flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-[0.12em] text-amber-800 dark:text-amber-300">
+            <CalendarClock className="h-3.5 w-3.5" />
+            Class reminder
+          </div>
+        )}
+
         {message.isAiReply && (
           <div className="mb-1 flex items-center gap-1 text-[10px] font-semibold uppercase tracking-[0.12em] text-violet-700 dark:text-violet-300">
             <Bot className="h-3 w-3" />
@@ -305,14 +318,14 @@ function MessageBubble({
         )}
 
         {/* Message body */}
-        {message.body && (
-          <p className="text-[14.5px] leading-[1.4] whitespace-pre-wrap break-words">{message.body}</p>
+        {displayBody && (
+          <p className="text-[14.5px] leading-[1.4] whitespace-pre-wrap break-words">{displayBody}</p>
         )}
 
         {/* Timestamp — right-aligned, inline with last line via flex-end.
             Only on the last message of a run to reduce visual noise. */}
         {isLastInRun && (
-          <div className={`flex justify-end mt-1 text-[10.5px] tabular-nums ${message.isAiReply ? 'text-violet-500 dark:text-violet-300/70' : mine ? 'text-neutral-500 dark:text-neutral-300/70' : 'text-neutral-400 dark:text-neutral-400'}`}>
+          <div className={`flex justify-end mt-1 text-[10.5px] tabular-nums ${message.isReminder ? 'text-amber-700/70 dark:text-amber-300/70' : message.isAiReply ? 'text-violet-500 dark:text-violet-300/70' : mine ? 'text-neutral-500 dark:text-neutral-300/70' : 'text-neutral-400 dark:text-neutral-400'}`}>
             {formatMessageTime(message.timestamp)}
           </div>
         )}
@@ -736,6 +749,8 @@ export default function InboxPage() {
                     const runBreak = (a: Message | null, b: Message | null): boolean => {
                       if (!a || !b) return true
                       if (a.fromMe !== b.fromMe) return true
+                      if (!!a.isReminder !== !!b.isReminder) return true
+                      if (a.isReminder || b.isReminder) return true
                       if (!!a.isAiReply !== !!b.isAiReply) return true
                       if ((a.senderName || '') !== (b.senderName || '')) return true
                       const gap = Math.abs((b.timestamp || 0) - (a.timestamp || 0))

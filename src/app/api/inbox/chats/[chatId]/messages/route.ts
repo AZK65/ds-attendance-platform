@@ -29,7 +29,10 @@ export async function GET(
     // exact body plus a tight timestamp window as a backwards-compatible
     // fallback. Manual replies keep the normal appearance.
     const outboundTextMessages = messages.filter(message => message.fromMe && message.body)
-    let enrichedMessages = messages
+    let enrichedMessages = messages.map(message => ({
+      ...message,
+      isReminder: message.fromMe && /^\s*Reminder\s*:/i.test(message.body || ''),
+    }))
     if (!decodedChatId.endsWith('@g.us') && outboundTextMessages.length > 0) {
       const bodies = [...new Set(outboundTextMessages.map(message => message.body))]
       const timestamps = outboundTextMessages.map(message => message.timestamp).filter(Boolean)
@@ -54,6 +57,7 @@ export async function GET(
 
       enrichedMessages = messages.map(message => ({
         ...message,
+        isReminder: message.fromMe && /^\s*Reminder\s*:/i.test(message.body || ''),
         isAiReply: message.fromMe && aiMessages.some(aiMessage =>
           (!!aiMessage.waMessageId && aiMessage.waMessageId === message.id) ||
           (aiMessage.body === message.body &&

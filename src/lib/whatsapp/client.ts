@@ -199,6 +199,7 @@ export interface ChatMessage {
   type: string
   hasMedia: boolean
   isAiReply?: boolean
+  isReminder?: boolean
 }
 
 // Inbox chat cache
