@@ -906,6 +906,16 @@ export default function InboxPage() {
                 </p>
               </div>
 
+              {selectedChat?.isGroup && selectedChatId && (
+                <Button asChild size="sm" variant="outline" className="h-8 shrink-0 gap-1.5 px-2.5 text-xs">
+                  <Link href={`/groups/${encodeURIComponent(selectedChatId)}`}>
+                    <Users className="h-3.5 w-3.5" />
+                    <span className="hidden sm:inline">Open group</span>
+                    <ExternalLink className="h-3 w-3 opacity-60" />
+                  </Link>
+                </Button>
+              )}
+
               {/* Bot pause/resume — only for individual chats, only when the
                   bot has ever seen this thread (or is enabled and this
                   is a non-group chat). */}
