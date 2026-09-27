@@ -39,10 +39,13 @@ const MORE_ITEMS = [
 ]
 
 function ThemeToggle() {
-  const { theme, setTheme, resolvedTheme } = useTheme()
+  const { setTheme, resolvedTheme } = useTheme()
   const [mounted, setMounted] = useState(false)
 
-  useEffect(() => setMounted(true), [])
+  useEffect(() => {
+    const frame = window.requestAnimationFrame(() => setMounted(true))
+    return () => window.cancelAnimationFrame(frame)
+  }, [])
 
   if (!mounted) return <div className="w-9 h-9" />
 
@@ -106,25 +109,26 @@ export function Navbar() {
   return (
     <nav className="border-b bg-background sticky top-0 z-50">
       <div className="container mx-auto px-4">
-        <div className="flex items-center justify-between h-14">
+        <div className="grid h-16 grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-center gap-3">
           {/* Logo */}
-          <Link href="/" className="flex-shrink-0 mr-4">
+          <Link href="/" className="justify-self-start rounded-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2">
             <Image
               src="/qazi-logo.png"
               alt="Qazi Driving School"
               width={100}
               height={34}
-              className="h-9 w-auto"
+              className="h-10 w-auto"
             />
           </Link>
 
           {/* Nav Links */}
-          <div className="flex items-center gap-1 overflow-x-auto">
+          <div className="flex min-w-0 items-center gap-1 justify-self-center">
             {PRIMARY_ITEMS.map(({ href, label, icon: Icon }) => (
               <Link
                 key={label}
                 href={href}
-                className={`relative flex items-center gap-1.5 px-3 py-1.5 rounded-md text-sm font-medium transition-colors whitespace-nowrap ${
+                aria-current={isActive(href) ? 'page' : undefined}
+                className={`relative flex h-9 items-center gap-1.5 rounded-md px-2.5 text-sm font-medium whitespace-nowrap transition-[color,background-color] duration-200 ease-[cubic-bezier(0.2,0.8,0.2,1)] ${
                   isActive(href)
                     ? 'text-primary-foreground'
                     : 'text-muted-foreground hover:text-foreground hover:bg-muted'
@@ -139,7 +143,7 @@ export function Navbar() {
                 )}
                 <span className="relative z-10 flex items-center gap-1.5">
                   <Icon className="h-4 w-4" />
-                  <span className="hidden md:inline">{label}</span>
+                  <span className="hidden 2xl:inline">{label}</span>
                 </span>
               </Link>
             ))}
@@ -148,14 +152,14 @@ export function Navbar() {
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
                 <button
-                  className={`relative flex items-center gap-1.5 px-3 py-1.5 rounded-md text-sm font-medium transition-colors whitespace-nowrap ${
+                  className={`relative flex h-9 items-center gap-1.5 rounded-md px-2.5 text-sm font-medium whitespace-nowrap transition-[color,background-color] duration-200 ease-[cubic-bezier(0.2,0.8,0.2,1)] ${
                     moreActive
                       ? 'bg-primary text-primary-foreground'
                       : 'text-muted-foreground hover:text-foreground hover:bg-muted'
                   }`}
                 >
                   <MoreHorizontal className="h-4 w-4" />
-                  <span className="hidden md:inline">More</span>
+                  <span className="hidden 2xl:inline">More</span>
                   <ChevronDown className="h-3 w-3 opacity-70" />
                   {/* Red dot so new leads are noticeable without opening the menu */}
                   {newLeadCount > 0 && (
@@ -187,17 +191,19 @@ export function Navbar() {
           </div>
 
           {/* Theme Toggle + Notification Bell + Connection Status */}
-          <div className="ml-4 flex-shrink-0 flex items-center gap-1">
+          <div className="flex items-center gap-1 justify-self-end">
             <button
               type="button"
               onClick={() => window.dispatchEvent(new Event('qazi:open-search'))}
-              className="flex h-9 items-center gap-2 rounded-md border bg-background px-2.5 text-sm text-muted-foreground shadow-sm transition-colors hover:bg-muted hover:text-foreground"
+              className="group flex h-10 w-10 items-center justify-center gap-2 rounded-lg border bg-background px-2.5 text-sm text-muted-foreground shadow-sm transition-[width,color,background-color,border-color] duration-200 ease-[cubic-bezier(0.2,0.8,0.2,1)] hover:border-foreground/20 hover:bg-muted/70 hover:text-foreground 2xl:w-48 2xl:justify-between"
               aria-label="Search everything"
               title="Search everything (Command K)"
             >
-              <Search className="h-4 w-4" />
-              <span className="hidden xl:inline">Search</span>
-              <kbd className="hidden rounded border bg-muted px-1.5 py-0.5 font-mono text-[10px] xl:inline">⌘K</kbd>
+              <span className="flex min-w-0 items-center gap-2">
+                <Search className="h-4 w-4 shrink-0" />
+                <span className="hidden truncate 2xl:inline">Search anything</span>
+              </span>
+              <kbd className="hidden shrink-0 rounded border bg-muted px-1.5 py-0.5 font-mono text-[10px] text-muted-foreground 2xl:inline">⌘K</kbd>
             </button>
             <ThemeToggle />
             <InboxAttentionBell />

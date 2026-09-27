@@ -4,8 +4,8 @@ import { useEffect, useMemo, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { useQuery } from '@tanstack/react-query'
 import {
-  CalendarDays, FileText, GraduationCap, LayoutDashboard, Loader2,
-  Receipt, Search, Settings, Target, UserRound, Users,
+  ArrowUpRight, CalendarDays, FileText, GraduationCap, LayoutDashboard, Loader2,
+  Receipt, Search, Settings, Target, UserRound, Users, X,
 } from 'lucide-react'
 import {
   CommandDialog, CommandEmpty, CommandGroup, CommandInput, CommandItem,
@@ -118,40 +118,79 @@ export function GlobalSearch() {
       title="Search Qazi"
       description="Search students, groups, invoices, registrations and leads"
       shouldFilter={false}
-      className="max-w-2xl overflow-hidden"
+      showCloseButton={false}
+      className="top-[8vh] w-[calc(100%-1.5rem)] max-w-3xl translate-y-0 overflow-hidden rounded-2xl border-foreground/10 shadow-2xl sm:top-[12vh]"
     >
-      <div className="relative">
+      <div className="relative border-b bg-background">
         <CommandInput
           value={query}
           onValueChange={setQuery}
-          placeholder="Search a name, phone, invoice, group, licence…"
+          placeholder="Search students, phone numbers, groups, invoices…"
+          className="h-14 pr-12 text-base"
         />
-        {isFetching && <Loader2 className="absolute right-4 top-3.5 h-4 w-4 animate-spin text-muted-foreground" />}
+        {isFetching ? (
+          <Loader2 className="absolute right-4 top-4 h-5 w-5 animate-spin text-muted-foreground" />
+        ) : query ? (
+          <button
+            type="button"
+            onClick={() => setQuery('')}
+            className="absolute right-3 top-2.5 flex h-8 w-8 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+            aria-label="Clear search"
+          >
+            <X className="h-4 w-4" />
+          </button>
+        ) : null}
       </div>
       <CommandList className="max-h-[min(560px,70vh)]">
-        {query.trim().length < 2 ? (
-          <CommandGroup heading="Go to">
+        {query.trim().length === 0 ? (
+          <CommandGroup
+            heading="Quick access"
+            className="p-3 [&_[cmdk-group-heading]]:px-1 [&_[cmdk-group-heading]]:pb-2 [&_[cmdk-group-heading]]:text-[11px] [&_[cmdk-group-heading]]:font-semibold [&_[cmdk-group-heading]]:uppercase [&_[cmdk-group-heading]]:tracking-[0.16em] sm:[&_[cmdk-group-items]]:grid sm:[&_[cmdk-group-items]]:grid-cols-2 sm:[&_[cmdk-group-items]]:gap-1"
+          >
             {QUICK_LINKS.map(item => (
-              <CommandItem key={item.href} value={item.href} onSelect={() => go(item.href)} className="gap-3 py-3">
-                <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border bg-muted/50">
+              <CommandItem key={item.href} value={item.href} onSelect={() => go(item.href)} className="group gap-3 rounded-xl px-3 py-3">
+                <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg border bg-background shadow-sm">
                   <item.icon className="h-4 w-4" />
                 </span>
                 <span className="min-w-0 flex-1">
                   <span className="block font-medium">{item.title}</span>
                   <span className="block truncate text-xs text-muted-foreground">{item.subtitle}</span>
                 </span>
+                <ArrowUpRight className="h-3.5 w-3.5 text-muted-foreground opacity-0 transition-opacity group-data-[selected=true]:opacity-100" />
               </CommandItem>
             ))}
           </CommandGroup>
+        ) : query.trim().length < 2 ? (
+          <div className="flex min-h-48 flex-col items-center justify-center px-6 text-center">
+            <span className="mb-3 flex h-11 w-11 items-center justify-center rounded-xl border bg-muted/40">
+              <Search className="h-5 w-5 text-muted-foreground" />
+            </span>
+            <p className="font-medium">Keep typing</p>
+            <p className="mt-1 text-sm text-muted-foreground">Enter at least two characters to search every record.</p>
+          </div>
+        ) : isFetching && grouped.length === 0 ? (
+          <div className="flex min-h-52 flex-col items-center justify-center gap-3 text-sm text-muted-foreground">
+            <Loader2 className="h-6 w-6 animate-spin" />
+            Searching across Qazi…
+          </div>
         ) : (
           <>
             {!isFetching && grouped.length === 0 && (
-              <CommandEmpty>No records found for “{query.trim()}”.</CommandEmpty>
+              <CommandEmpty className="py-16">
+                <span className="mx-auto mb-3 flex h-11 w-11 items-center justify-center rounded-xl border bg-muted/40">
+                  <Search className="h-5 w-5 text-muted-foreground" />
+                </span>
+                <span className="block font-medium">No results for “{query.trim()}”</span>
+                <span className="mt-1 block text-xs text-muted-foreground">Try a phone number, email, invoice number, or shorter name.</span>
+              </CommandEmpty>
             )}
             {grouped.map(([label, results], groupIndex) => (
               <div key={label}>
                 {groupIndex > 0 && <CommandSeparator />}
-                <CommandGroup heading={label}>
+                <CommandGroup
+                  heading={`${label} · ${results.length}`}
+                  className="p-2 [&_[cmdk-group-heading]]:px-2 [&_[cmdk-group-heading]]:text-[11px] [&_[cmdk-group-heading]]:font-semibold [&_[cmdk-group-heading]]:uppercase [&_[cmdk-group-heading]]:tracking-[0.14em]"
+                >
                   {results.map(result => {
                     const Icon = resultIcons[result.type]
                     return (
@@ -159,9 +198,9 @@ export function GlobalSearch() {
                         key={result.id}
                         value={result.id}
                         onSelect={() => go(result.href)}
-                        className="gap-3 py-3"
+                        className="group gap-3 rounded-xl px-3 py-3"
                       >
-                        <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border bg-muted/50">
+                        <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg border bg-background shadow-sm">
                           <Icon className="h-4 w-4" />
                         </span>
                         <span className="min-w-0 flex-1">
@@ -173,6 +212,7 @@ export function GlobalSearch() {
                             {result.meta}
                           </span>
                         )}
+                        <ArrowUpRight className="hidden h-3.5 w-3.5 text-muted-foreground opacity-0 transition-opacity group-data-[selected=true]:opacity-100 sm:block" />
                       </CommandItem>
                     )
                   })}
@@ -184,7 +224,7 @@ export function GlobalSearch() {
       </CommandList>
       <div className="flex items-center justify-between border-t bg-muted/30 px-3 py-2 text-[11px] text-muted-foreground">
         <span className="flex items-center gap-1.5"><LayoutDashboard className="h-3 w-3" /> Search across Qazi</span>
-        <span className="flex items-center gap-2"><kbd className="rounded border bg-background px-1.5 py-0.5">↑↓</kbd> navigate <kbd className="rounded border bg-background px-1.5 py-0.5">↵</kbd> open</span>
+        <span className="hidden items-center gap-2 sm:flex"><kbd className="rounded border bg-background px-1.5 py-0.5">↑↓</kbd> navigate <kbd className="rounded border bg-background px-1.5 py-0.5">↵</kbd> open <kbd className="rounded border bg-background px-1.5 py-0.5">Esc</kbd> close</span>
       </div>
     </CommandDialog>
   )
