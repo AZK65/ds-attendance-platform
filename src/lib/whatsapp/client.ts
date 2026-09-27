@@ -214,8 +214,30 @@ export interface InboxMessageMedia {
 
 const INBOX_MEDIA_TYPES = new Set(['image', 'video', 'audio', 'ptt', 'document', 'sticker'])
 
+const globalForInboxMedia = globalThis as unknown as {
+  whatsappInboxMediaFallbacks?: Map<string, InboxMessageMedia>
+  whatsappInboxMediaCache?: Map<string, InboxMessageMedia>
+}
+const inboxMediaFallbacks = globalForInboxMedia.whatsappInboxMediaFallbacks ?? new Map<string, InboxMessageMedia>()
+const inboxMediaCache = globalForInboxMedia.whatsappInboxMediaCache ?? new Map<string, InboxMessageMedia>()
+globalForInboxMedia.whatsappInboxMediaFallbacks = inboxMediaFallbacks
+globalForInboxMedia.whatsappInboxMediaCache = inboxMediaCache
+
 function isInboxMediaType(type: string | null | undefined): boolean {
   return INBOX_MEDIA_TYPES.has(String(type || '').toLowerCase())
+}
+
+function encodedMediaMimetype(body: string, type: string, declared?: string | null): string {
+  if (declared) return declared
+  const compact = body.replace(/\s/g, '')
+  if (compact.startsWith('/9j/')) return 'image/jpeg'
+  if (compact.startsWith('iVBOR')) return 'image/png'
+  if (compact.startsWith('R0lGOD')) return 'image/gif'
+  if (compact.startsWith('UklGR')) return 'image/webp'
+  if (compact.startsWith('JVBER')) return 'application/pdf'
+  if (type === 'video') return 'video/mp4'
+  if (type === 'audio' || type === 'ptt') return 'audio/ogg'
+  return 'application/octet-stream'
 }
 
 function looksLikeEncodedMedia(body: string, type: string, hasMedia: boolean): boolean {
@@ -2544,21 +2566,36 @@ export async function getChatMessages(chatId: string, limit = 50): Promise<ChatM
 
     // Return in chronological order (oldest first)
     const result: ChatMessage[] = messages
-      .map(msg => ({
-        id: msg.id._serialized || msg.id.id,
-        body: inboxMessageBody(
-          msg.body,
-          msg.type || 'chat',
-          Boolean(msg.hasMedia) || isInboxMediaType(msg.type)
-        ),
-        timestamp: msg.timestamp,
-        fromMe: msg.fromMe,
-        senderName: msg.author ? (senderNames.get(msg.author) || msg.author.replace('@c.us', '')) : null,
-        type: msg.type || 'chat',
-        hasMedia: Boolean(msg.hasMedia) || isInboxMediaType(msg.type),
-        mimetype: msg.mimetype || null,
-        filename: msg.filename || null,
-      }))
+      .map(msg => {
+        const id = msg.id._serialized || msg.id.id
+        const type = msg.type || 'chat'
+        const hasMedia = Boolean(msg.hasMedia) || isInboxMediaType(type)
+        if (id && looksLikeEncodedMedia(msg.body || '', type, hasMedia)) {
+          inboxMediaFallbacks.set(id, {
+            data: String(msg.body).replace(/\s/g, ''),
+            mimetype: encodedMediaMimetype(String(msg.body), type, msg.mimetype),
+            filename: msg.filename,
+          })
+          // Keep this emergency cache bounded. It is only for the media
+          // currently visible in Inbox history, not a permanent archive.
+          while (inboxMediaFallbacks.size > 100) {
+            const oldest = inboxMediaFallbacks.keys().next().value
+            if (!oldest) break
+            inboxMediaFallbacks.delete(oldest)
+          }
+        }
+        return {
+          id,
+          body: inboxMessageBody(msg.body, type, hasMedia),
+          timestamp: msg.timestamp,
+          fromMe: msg.fromMe,
+          senderName: msg.author ? (senderNames.get(msg.author) || msg.author.replace('@c.us', '')) : null,
+          type,
+          hasMedia,
+          mimetype: msg.mimetype || null,
+          filename: msg.filename || null,
+        }
+      })
       .sort((a, b) => a.timestamp - b.timestamp)
 
     console.log(`[getChatMessages] Fetched ${result.length} messages for ${chatId}`)
@@ -2658,13 +2695,38 @@ export async function getInboxMessageMedia(messageId: string): Promise<InboxMess
     } | null>
   }
 
-  const message = await client.getMessageById(messageId)
-  if (!message) throw new Error('Message is no longer available in WhatsApp')
-  const media = await message.downloadMedia()
-  if (!media?.data || !media.mimetype) {
-    throw new Error('This attachment is no longer available to download')
+  const cached = inboxMediaCache.get(messageId)
+  if (cached) return cached
+  const fallback = inboxMediaFallbacks.get(messageId)
+
+  try {
+    const message = await Promise.race([
+      client.getMessageById(messageId),
+      new Promise<null>((_, reject) =>
+        setTimeout(() => reject(new Error('WhatsApp took too long to find the attachment')), 8_000)
+      ),
+    ])
+    if (!message) throw new Error('Message is no longer available in WhatsApp')
+    const media = await Promise.race([
+      message.downloadMedia(),
+      new Promise<undefined>((_, reject) =>
+        setTimeout(() => reject(new Error('WhatsApp took too long to download the attachment')), 15_000)
+      ),
+    ])
+    if (!media?.data || !media.mimetype) {
+      throw new Error('This attachment is no longer available to download')
+    }
+    inboxMediaCache.set(messageId, media)
+    while (inboxMediaCache.size > 50) {
+      const oldest = inboxMediaCache.keys().next().value
+      if (!oldest) break
+      inboxMediaCache.delete(oldest)
+    }
+    return media
+  } catch (error) {
+    if (fallback) return fallback
+    throw error
   }
-  return media
 }
 
 /** Send an image, video, voice note or document to an exact WhatsApp chat. */
