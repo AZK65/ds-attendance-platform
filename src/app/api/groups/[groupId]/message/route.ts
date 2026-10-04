@@ -24,11 +24,15 @@ export async function POST(
     await sendMessageToGroup(decodedGroupId, message)
 
     // Log to MessageLog
+    const group = await prisma.group.findUnique({
+      where: { id: decodedGroupId },
+      select: { name: true },
+    }).catch(() => null)
     await prisma.messageLog.create({
       data: {
         type: 'group-message',
         to: decodedGroupId,
-        toName: 'Group Chat',
+        toName: group?.name || 'Group Chat',
         message: message.slice(0, 500),
         status: 'sent',
       },

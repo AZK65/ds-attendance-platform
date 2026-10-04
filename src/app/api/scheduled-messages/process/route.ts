@@ -73,6 +73,10 @@ export async function POST() {
 
       // Check if this is a group message or individual messages
       if (scheduled.isGroupMessage) {
+        const groupName = (await prisma.group.findUnique({
+          where: { id: scheduled.groupId },
+          select: { name: true },
+        }).catch(() => null))?.name || `Group (Module ${scheduled.moduleNumber || '?'})`
         // Send to the group
         try {
           await sendMessageToGroup(scheduled.groupId, scheduled.message)
@@ -84,7 +88,7 @@ export async function POST() {
             data: {
               type: 'group-reminder',
               to: scheduled.groupId,
-              toName: `Group (Module ${scheduled.moduleNumber || '?'})`,
+              toName: groupName,
               message: scheduled.message.slice(0, 500),
               status: 'sent',
             },
@@ -100,7 +104,7 @@ export async function POST() {
             data: {
               type: 'group-reminder',
               to: scheduled.groupId,
-              toName: `Group (Module ${scheduled.moduleNumber || '?'})`,
+              toName: groupName,
               message: scheduled.message.slice(0, 500),
               status: 'failed',
               error: errMsg,

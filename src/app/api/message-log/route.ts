@@ -36,20 +36,19 @@ export async function GET(request: NextRequest) {
     const tab = searchParams.get('tab') || 'sent' // "sent" or "queue"
 
     if (tab === 'queue') {
-      // Get today's pending scheduled messages
+      // Show the complete upcoming queue. Limiting this to the current day
+      // made valid future group reminders look as though they were missing.
       const now = new Date()
-      const startOfDay = new Date(now.getFullYear(), now.getMonth(), now.getDate())
-      const endOfDay = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1)
 
       const pending = await prisma.scheduledMessage.findMany({
         where: {
           status: 'pending',
           scheduledAt: {
-            gte: startOfDay,
-            lt: endOfDay,
+            gte: now,
           },
         },
         orderBy: { scheduledAt: 'asc' },
+        take: 100,
         select: {
           id: true,
           message: true,
@@ -62,7 +61,21 @@ export async function GET(request: NextRequest) {
         },
       })
 
-      return NextResponse.json({ messages: pending })
+      const groupIds = [...new Set(pending.filter(message => message.isGroupMessage).map(message => message.groupId))]
+      const groups = groupIds.length > 0
+        ? await prisma.group.findMany({
+            where: { id: { in: groupIds } },
+            select: { id: true, name: true },
+          })
+        : []
+      const groupNames = new Map(groups.map(group => [group.id, group.name]))
+
+      return NextResponse.json({
+        messages: pending.map(message => ({
+          ...message,
+          groupName: message.isGroupMessage ? groupNames.get(message.groupId) ?? null : null,
+        })),
+      })
     }
 
     // Sent tab: recent message logs (last 50)

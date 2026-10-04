@@ -3,7 +3,7 @@
 import { useState, useRef, useEffect } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { motion, AnimatePresence } from 'motion/react'
-import { Bell, CheckCircle2, AlertCircle, Clock, Send, Loader2, CalendarPlus, Truck, Users, MessageSquare, Image, X } from 'lucide-react'
+import { Bell, CheckCircle2, AlertCircle, Clock, Send, Loader2, CalendarPlus, Truck, Users, MessageSquare, Image as ImageIcon, X } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
 
 interface MessageLog {
@@ -25,6 +25,7 @@ interface QueuedMessage {
   classTime: string | null
   isGroupMessage: boolean
   groupId: string
+  groupName: string | null
   status: string
 }
 
@@ -40,7 +41,7 @@ function getTypeIcon(type: string) {
     case 'reminder': return <Clock className="h-3.5 w-3.5 text-orange-500" />
     case 'group-notify': return <Send className="h-3.5 w-3.5 text-cyan-500" />
     case 'group-message': return <MessageSquare className="h-3.5 w-3.5 text-indigo-500" />
-    case 'certificate': return <Image className="h-3.5 w-3.5 text-pink-500" />
+    case 'certificate': return <ImageIcon className="h-3.5 w-3.5 text-pink-500" />
     default: return <Send className="h-3.5 w-3.5 text-gray-500" />
   }
 }
@@ -75,6 +76,13 @@ function formatScheduledTime(dateStr: string) {
   const ampm = h >= 12 ? 'PM' : 'AM'
   const hour12 = h === 0 ? 12 : h > 12 ? h - 12 : h
   return `${hour12}:${m.toString().padStart(2, '0')} ${ampm}`
+}
+
+function formatScheduledDate(dateStr: string) {
+  return new Intl.DateTimeFormat('en-CA', {
+    month: 'short',
+    day: 'numeric',
+  }).format(new Date(dateStr))
 }
 
 export function NotificationBell() {
@@ -289,7 +297,9 @@ export function NotificationBell() {
                                 <div className="flex items-center justify-between gap-2">
                                   <div className="flex items-center gap-1.5">
                                     {msg.isGroupMessage ? (
-                                      <Badge variant="outline" className="h-4 px-1 text-[10px]">Group</Badge>
+                                      <Badge variant="outline" className="h-4 max-w-[150px] truncate px-1 text-[10px]">
+                                        {msg.groupName || 'Group'}
+                                      </Badge>
                                     ) : (
                                       <Badge variant="outline" className="h-4 px-1 text-[10px]">Individual</Badge>
                                     )}
@@ -300,7 +310,7 @@ export function NotificationBell() {
                                   <div className="flex items-center gap-1.5">
                                     <Clock className="h-3 w-3 text-muted-foreground" />
                                     <span className="text-xs font-medium text-orange-600">
-                                      {formatScheduledTime(msg.scheduledAt)}
+                                      {formatScheduledDate(msg.scheduledAt)}, {formatScheduledTime(msg.scheduledAt)}
                                     </span>
                                     <button
                                       onClick={(e) => { e.stopPropagation(); cancelMessage(msg.id) }}
