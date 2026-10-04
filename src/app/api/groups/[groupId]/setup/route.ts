@@ -1,8 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { setGroupDescription, sendPrivateMessage, sendMessageToGroup, sendDocumentToGroup, getWhatsAppState } from '@/lib/whatsapp/client'
+import { setGroupDescription, sendMessageToGroup, sendDocumentToGroup, getWhatsAppState } from '@/lib/whatsapp/client'
 import { prisma } from '@/lib/db'
 import { createTheoryEvent, createTruckTheoryEvent } from '@/lib/teamup'
 import { syncGroupTheoryReminder } from '@/lib/group-theory-schedule'
+import { remainingCarPhaseModules } from '@/lib/car-program'
 import {
   buildTruckSessions, summarizeTruckSessions, describeTruckDay, formatTimeRange,
   DEFAULT_TRUCK_DAYS, TRUCK_THEORY_TARGET_HOURS, TRUCK_PRACTICAL_HOURS, type TruckDay,
@@ -26,7 +27,6 @@ export async function POST(
       sendPdf,
       pdfBase64,
       pdfFilename,
-      memberPhones,
       scheduleClass,
       moduleNumber,
       classDate,
@@ -43,13 +43,13 @@ export async function POST(
       subcalendarId,
       truckTheoryHours,
       truckDays,
+      sendInitialNotification = true,
     } = body as {
       setDescription?: boolean
       description?: string
       sendPdf?: boolean
       pdfBase64?: string
       pdfFilename?: string
-      memberPhones?: string[]
       scheduleClass?: boolean
       moduleNumber?: number
       classDate?: string
@@ -60,12 +60,16 @@ export async function POST(
       subcalendarId?: number | null
       truckTheoryHours?: number
       truckDays?: Array<{ day: number; start: string; end: string }>
+      sendInitialNotification?: boolean
     }
 
     const isTruck = vehicleType === 'truck'
 
     const results: Array<{ action: string; status: string }> = []
-    const totalWeeks = Math.max(1, Math.min(12, weeksToSchedule || 1))
+    // A newly created car cohort should receive the rest of its current phase,
+    // not only its first class. Explicit values still win for manual setup.
+    const defaultCarWeeks = remainingCarPhaseModules(moduleNumber || 1)
+    const totalWeeks = Math.max(1, Math.min(12, weeksToSchedule ?? defaultCarWeeks))
 
     // 1. Set group description (Zoom links etc.)
     if (setDescription && description && state.isConnected) {
@@ -129,7 +133,7 @@ export async function POST(
 
         // First session only: the upfront "your schedule is set" message.
         // No Zoom link — every Class 1 session is in person at the school.
-        if (i === 0 && state.isConnected) {
+        if (i === 0 && sendInitialNotification && state.isConnected) {
           const fmtLong = (iso: string) => {
             const [yy, mm, dd] = iso.split('-').map(Number)
             return new Date(yy, mm - 1, dd).toLocaleDateString('en-US', {
@@ -199,7 +203,7 @@ export async function POST(
     //    `totalWeeks` consecutive weekly classes starting at classDateISO.
     //    For each week: create Teamup event, send group notification, and
     //    schedule a 12 PM same-day reminder.
-    if (!isTruck && scheduleClass && moduleNumber && classDateISO && classTime && memberPhones && memberPhones.length > 0) {
+    if (!isTruck && scheduleClass && moduleNumber && classDateISO && classTime) {
       const zoomLink = 'https://us02web.zoom.us/j/4171672829?pwd=ZTlHSEdmTGRYV1QraU5MaThqaC9Rdz09'
       const group = await prisma.group.findUnique({ where: { id: decodedGroupId } })
       const groupName = group?.name || 'Unknown Group'
@@ -216,13 +220,12 @@ export async function POST(
         const weekDate = new Date(startDate)
         weekDate.setDate(startDate.getDate() + i * 7)
         const isoWeek = `${weekDate.getFullYear()}-${String(weekDate.getMonth() + 1).padStart(2, '0')}-${String(weekDate.getDate()).padStart(2, '0')}`
-        const formattedWeek = weekDate.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' })
         const weekModule = moduleNumber + i
         if (weekModule > 12) break // don't overflow past full course
         lastModuleScheduled = weekModule
 
         // First class only: send the upfront "your class is scheduled" message
-        if (i === 0 && state.isConnected) {
+        if (i === 0 && sendInitialNotification && state.isConnected) {
           const dateStr = classDate || isoWeek
           const message = totalWeeks > 1
             ? `Hey! Your phase 1 theory classes are scheduled. First class (Module ${weekModule}) is ${dateStr} from ${classTime}. The next ${totalWeeks - 1} weeks follow on the same day. You'll receive a reminder on each class day. Please make sure to put your full name when joining Zoom. Invite Link: ${zoomLink} — Password: qazi`

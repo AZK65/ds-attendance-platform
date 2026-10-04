@@ -8,6 +8,7 @@ import { Label } from '@/components/ui/label'
 import { Checkbox } from '@/components/ui/checkbox'
 import { TruckDaysEditor } from '@/components/TruckDaysEditor'
 import { DEFAULT_TRUCK_DAYS, describeTruckDay, TRUCK_THEORY_TARGET_HOURS, type TruckDay } from '@/lib/truck-schedule'
+import { carPhaseForModule, remainingCarPhaseModules } from '@/lib/car-program'
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter,
 } from '@/components/ui/dialog'
@@ -93,7 +94,10 @@ export function NewGroupWizard({ open, onOpenChange }: NewGroupWizardProps) {
     if (teachers.length === 0) return
     const want = isTruck ? 'nasar' : 'fayyaz'
     const match = teachers.find(t => t.name.toLowerCase().includes(want))
-    setSubcalendarId(String(match?.id ?? teachers[0].id))
+    const frame = window.requestAnimationFrame(() => {
+      setSubcalendarId(String(match?.id ?? teachers[0].id))
+    })
+    return () => window.cancelAnimationFrame(frame)
   }, [teachers, isTruck])
 
   // Switching program swaps in that program's standard class hours.
@@ -172,6 +176,8 @@ export function NewGroupWizard({ open, onOpenChange }: NewGroupWizardProps) {
   }
 
   const classTimeDisplay = `${formatTime12h(classTimeStart)} to ${formatTime12h(classTimeEnd)}`
+  const carPhase = carPhaseForModule(moduleNumber)
+  const carWeeksToSchedule = remainingCarPhaseModules(moduleNumber)
 
   const handlePdfUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]
@@ -336,7 +342,7 @@ export function NewGroupWizard({ open, onOpenChange }: NewGroupWizardProps) {
             subcalendarId: subcalendarId ? parseInt(subcalendarId) : undefined,
             ...(isTruck
               ? { truckTheoryHours, truckDays }
-              : { moduleNumber }),
+              : { moduleNumber, weeksToSchedule: carWeeksToSchedule }),
             classDate: new Date(classDate + 'T12:00:00').toLocaleDateString('en-US', {
               weekday: 'long', month: 'long', day: 'numeric',
             }),
@@ -610,25 +616,30 @@ export function NewGroupWizard({ open, onOpenChange }: NewGroupWizardProps) {
               {/* Car uses one time for every weekly class; truck sets hours
                   per day in the editor below. */}
               {!isTruck && (
-                <div className="grid grid-cols-2 gap-3">
-                  <div>
-                    <Label>Start Time</Label>
-                    <Input
-                      type="time"
-                      className="mt-1.5"
-                      value={classTimeStart}
-                      onChange={e => setClassTimeStart(e.target.value)}
-                    />
+                <div className="space-y-2">
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <Label>Start Time</Label>
+                      <Input
+                        type="time"
+                        className="mt-1.5"
+                        value={classTimeStart}
+                        onChange={e => setClassTimeStart(e.target.value)}
+                      />
+                    </div>
+                    <div>
+                      <Label>End Time</Label>
+                      <Input
+                        type="time"
+                        className="mt-1.5"
+                        value={classTimeEnd}
+                        onChange={e => setClassTimeEnd(e.target.value)}
+                      />
+                    </div>
                   </div>
-                  <div>
-                    <Label>End Time</Label>
-                    <Input
-                      type="time"
-                      className="mt-1.5"
-                      value={classTimeEnd}
-                      onChange={e => setClassTimeEnd(e.target.value)}
-                    />
-                  </div>
+                  <p className="rounded-md border bg-muted/40 px-3 py-2 text-xs text-muted-foreground">
+                    Phase {carPhase.number} will be added to the calendar automatically: {carWeeksToSchedule === 1 ? `Module ${moduleNumber}` : `Modules ${moduleNumber}–${carPhase.endModule}`} on the same weekday and time, with a reminder for each class.
+                  </p>
                 </div>
               )}
 

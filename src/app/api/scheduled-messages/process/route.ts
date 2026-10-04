@@ -1,11 +1,11 @@
-import { NextRequest, NextResponse } from 'next/server'
+import { NextResponse } from 'next/server'
 import { prisma } from '@/lib/db'
 import { sendPrivateMessage, sendMessageToGroup, getWhatsAppState } from '@/lib/whatsapp/client'
 import { createTheoryEvent } from '@/lib/teamup'
 
 // Process pending scheduled messages that are due
 // This endpoint should be called periodically (e.g., every minute via cron or setInterval)
-export async function POST(request: NextRequest) {
+export async function POST() {
   try {
     // Check WhatsApp connection first
     const waState = getWhatsAppState()
@@ -112,7 +112,7 @@ export async function POST(request: NextRequest) {
         let memberPhones: string[] = []
         try {
           memberPhones = JSON.parse(scheduled.memberPhones)
-        } catch (parseError) {
+        } catch {
           console.error(`[ScheduledProcessor] Failed to parse memberPhones for message ${scheduled.id}:`, scheduled.memberPhones)
           errors.push('Invalid memberPhones JSON')
           failed = 1
@@ -185,8 +185,10 @@ export async function POST(request: NextRequest) {
       })
       console.log(`[ScheduledProcessor] Message ${scheduled.id} status: ${messageStatus} (sent: ${sent}, failed: ${failed})`)
 
-      // Sync theory event to Fayyaz's Teamup calendar if message was sent successfully
-      if (messageStatus === 'sent' && scheduled.classDateISO && scheduled.moduleNumber && scheduled.classTime) {
+      // Legacy reminders created before Teamup-first scheduling may not have an
+      // event id. Modern group setup creates the Teamup event up front; creating
+      // it again after the reminder is sent produces duplicate calendar cards.
+      if (messageStatus === 'sent' && !scheduled.teamupEventId && scheduled.classDateISO && scheduled.moduleNumber && scheduled.classTime) {
         try {
           const group = await prisma.group.findUnique({ where: { id: scheduled.groupId } })
           await createTheoryEvent({
