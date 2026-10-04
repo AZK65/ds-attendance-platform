@@ -353,12 +353,19 @@ export default function GroupDetailPage() {
   const resendInvite = async (invite: PendingInvite) => {
     setInviteActionPhone(invite.phone)
     try {
-      await fetch(`/api/groups/${encodeURIComponent(groupId)}/members`, {
+      const response = await fetch(`/api/groups/${encodeURIComponent(groupId)}/invites`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ phone: invite.phone, name: invite.name || undefined }),
+        body: JSON.stringify({ phones: [invite.phone] }),
       })
+      const data = await response.json().catch(() => ({}))
+      if (!response.ok) throw new Error(data.error || 'Could not send the invite')
+      const result = data.results?.[0]
+      if (!result?.success) throw new Error(result?.error || 'The invite was not sent')
+      alert(`Invite link sent to ${invite.name || formatPhone(invite.phone)}.`)
       await refetch()
+    } catch (error) {
+      alert(error instanceof Error ? error.message : 'The invite was not sent')
     } finally {
       setInviteActionPhone(null)
     }
@@ -1213,10 +1220,10 @@ export default function GroupDetailPage() {
                       <div className="flex flex-col gap-0.5">
                         <Badge className="bg-amber-100 text-amber-800 border-amber-200 hover:bg-amber-100 gap-1 w-fit">
                           <Clock className="h-3 w-3" />
-                          Invite sent — not joined yet
+                          Waiting to join
                         </Badge>
                         <span className="text-[10px] text-muted-foreground">
-                          Invited {new Date(invite.invitedAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
+                          Added {new Date(invite.invitedAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} · use the send icon to send or resend the link
                         </span>
                       </div>
                     </TableCell>

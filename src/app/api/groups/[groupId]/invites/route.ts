@@ -16,6 +16,13 @@ export async function GET(
 ) {
   const { groupId } = await params
   const decodedGroupId = decodeURIComponent(groupId)
+  if (request.nextUrl.searchParams.get('checkLink') === 'true') {
+    if (!getWhatsAppState().isConnected) {
+      return NextResponse.json({ available: false, error: 'WhatsApp not connected' }, { status: 503 })
+    }
+    const link = await getGroupInviteLink(decodedGroupId)
+    return NextResponse.json({ available: !!link })
+  }
   const pendingInvites = await getPendingInvites(decodedGroupId)
   return NextResponse.json({ pendingInvites })
 }
@@ -65,23 +72,51 @@ export async function POST(
     const results: Array<{ phone: string; success: boolean; error?: string }> = []
 
     for (const invite of recipients) {
+      const inviteMessage = `You've been invited to join *${groupName}*\n\nTap here to join:\n${inviteLink}`
       try {
         const check = await checkWhatsAppNumber(invite.phone).catch(() => null)
         if (check && !check.registered) {
           results.push({ phone: invite.phone, success: false, error: 'No WhatsApp account' })
+          await prisma.messageLog.create({
+            data: {
+              type: 'group-invite',
+              to: invite.phone,
+              toName: invite.name,
+              message: inviteMessage.slice(0, 500),
+              status: 'failed',
+              error: 'No WhatsApp account',
+            },
+          }).catch(() => {})
         } else {
-          await sendPrivateMessage(
-            invite.phone,
-            `You've been invited to join *${groupName}*\n\nTap here to join:\n${inviteLink}`
-          )
+          await sendPrivateMessage(invite.phone, inviteMessage)
           results.push({ phone: invite.phone, success: true })
+          await prisma.messageLog.create({
+            data: {
+              type: 'group-invite',
+              to: invite.phone,
+              toName: invite.name,
+              message: inviteMessage.slice(0, 500),
+              status: 'sent',
+            },
+          }).catch(() => {})
         }
       } catch (error) {
+        const detail = error instanceof Error ? error.message : 'Invite message failed'
         results.push({
           phone: invite.phone,
           success: false,
-          error: error instanceof Error ? error.message : 'Invite message failed',
+          error: detail,
         })
+        await prisma.messageLog.create({
+          data: {
+            type: 'group-invite',
+            to: invite.phone,
+            toName: invite.name,
+            message: inviteMessage.slice(0, 500),
+            status: 'failed',
+            error: detail,
+          },
+        }).catch(() => {})
       }
       // Normal private messages are much safer than group mutations, while
       // this small spacing keeps a full class within about one minute.

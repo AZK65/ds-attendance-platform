@@ -1585,29 +1585,47 @@ export async function getGroupInviteLink(groupId: string): Promise<string | null
         await new Promise(resolve => setTimeout(resolve, 250))
 
         const inviteRowIsOpen = await page.evaluate(() =>
-          Array.from(document.querySelectorAll('[role="button"],button'))
-            .some(el => (el.textContent || '').trim() === 'Invite to group via link')
+          Array.from(document.querySelectorAll('[role="button"],button,[tabindex="0"]'))
+            .some(el => {
+              const label = `${el.getAttribute('aria-label') || ''} ${el.textContent || ''}`.toLowerCase()
+              return label.includes('invite') && label.includes('link')
+            })
         )
         if (!inviteRowIsOpen) {
-          const rect = await page.evaluate(() => {
-            const el = document.querySelector('[title="Profile details"]') as HTMLElement | null
-            if (!el) return null
-            const box = el.getBoundingClientRect()
-            return box.width && box.height
-              ? { x: box.left + box.width / 2, y: box.top + box.height / 2 }
-              : null
+          const opened = await page.evaluate(() => {
+            const selectors = [
+              '[title="Profile details"]',
+              '[data-testid="conversation-info-header"]',
+              'header [role="button"][title]',
+              'header span[title]',
+            ]
+            for (const selector of selectors) {
+              const el = document.querySelector(selector) as HTMLElement | null
+              if (!el) continue
+              const box = el.getBoundingClientRect()
+              if (box.width > 0 && box.height > 0) {
+                el.click()
+                return true
+              }
+            }
+            return false
           })
-          if (!rect) throw new Error('Could not open WhatsApp group info')
-          await page.mouse.click(rect.x, rect.y)
+          if (!opened) throw new Error('Could not open WhatsApp group info')
           await page.waitForFunction(() =>
-            Array.from(document.querySelectorAll('[role="button"],button'))
-              .some(el => (el.textContent || '').trim() === 'Invite to group via link'),
-          { timeout: 8000 })
+            Array.from(document.querySelectorAll('[role="button"],button,[tabindex="0"]'))
+              .some(el => {
+                const label = `${el.getAttribute('aria-label') || ''} ${el.textContent || ''}`.toLowerCase()
+                return label.includes('invite') && label.includes('link')
+              }),
+          { timeout: 15000 })
         }
 
         await page.evaluate(() => {
-          const row = Array.from(document.querySelectorAll('[role="button"],button'))
-            .find(el => (el.textContent || '').trim() === 'Invite to group via link') as HTMLElement | undefined
+          const row = Array.from(document.querySelectorAll('[role="button"],button,[tabindex="0"]'))
+            .find(el => {
+              const label = `${el.getAttribute('aria-label') || ''} ${el.textContent || ''}`.toLowerCase()
+              return label.includes('invite') && label.includes('link')
+            }) as HTMLElement | undefined
           row?.click()
         })
         await page.waitForFunction(() => {
@@ -1615,12 +1633,16 @@ export async function getGroupInviteLink(groupId: string): Promise<string | null
             type WindowWithRequire = Window & {
               require: (name: string) => { fetchMexGroupInviteCode?: unknown }
             }
-            return typeof (window as WindowWithRequire)
+            const moduleReady = typeof (window as WindowWithRequire)
               .require('WAWebMexFetchGroupInviteCodeJob')?.fetchMexGroupInviteCode === 'function'
+            const linkVisible = Array.from(document.querySelectorAll('a,[role="textbox"],input'))
+              .some(el => `${el.getAttribute('href') || ''} ${(el as HTMLInputElement).value || ''} ${el.textContent || ''}`
+                .includes('chat.whatsapp.com/'))
+            return moduleReady || linkVisible
           } catch {
             return false
           }
-        }, { timeout: 10000 })
+        }, { timeout: 15000 })
       })().finally(() => {
         globalForWhatsApp.whatsappInviteLoader = null
       })
@@ -1628,10 +1650,31 @@ export async function getGroupInviteLink(groupId: string): Promise<string | null
 
     try {
       await globalForWhatsApp.whatsappInviteLoader
+      const visibleLink = await client.pupPage.evaluate(() => {
+        const candidates = Array.from(document.querySelectorAll('a,[role="textbox"],input'))
+        for (const element of candidates) {
+          const text = `${element.getAttribute('href') || ''} ${(element as HTMLInputElement).value || ''} ${element.textContent || ''}`
+          const match = text.match(/https:\/\/chat\.whatsapp\.com\/[A-Za-z0-9_-]+/)
+          if (match) return match[0]
+        }
+        return null
+      }).catch(() => null)
+      if (visibleLink) {
+        await rememberLink(visibleLink)
+        return visibleLink
+      }
       const link = await fetchLink()
       if (link) await rememberLink(link)
       return link
     } catch (retryError) {
+      const visibleLink = await client.pupPage?.evaluate(() => {
+        const text = document.body?.innerText || ''
+        return text.match(/https:\/\/chat\.whatsapp\.com\/[A-Za-z0-9_-]+/)?.[0] || null
+      }).catch(() => null)
+      if (visibleLink) {
+        await rememberLink(visibleLink)
+        return visibleLink
+      }
       console.error('[getGroupInviteLink] Failed after loading invite screen:', retryError)
       return null
     }

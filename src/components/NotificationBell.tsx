@@ -41,6 +41,7 @@ function getTypeIcon(type: string) {
     case 'reminder': return <Clock className="h-3.5 w-3.5 text-orange-500" />
     case 'group-notify': return <Send className="h-3.5 w-3.5 text-cyan-500" />
     case 'group-message': return <MessageSquare className="h-3.5 w-3.5 text-indigo-500" />
+    case 'group-invite': return <Users className="h-3.5 w-3.5 text-emerald-500" />
     case 'certificate': return <ImageIcon className="h-3.5 w-3.5 text-pink-500" />
     default: return <Send className="h-3.5 w-3.5 text-gray-500" />
   }
@@ -56,6 +57,7 @@ function getTypeLabel(type: string) {
     case 'reminder': return 'Group Reminder'
     case 'group-notify': return 'Group Notified'
     case 'group-message': return 'Group Message'
+    case 'group-invite': return 'Group Invite'
     case 'certificate': return 'Certificate'
     default: return 'Message'
   }
