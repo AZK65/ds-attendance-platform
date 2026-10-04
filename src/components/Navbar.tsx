@@ -16,6 +16,7 @@ import {
 import { ConnectionStatus } from './ConnectionStatus'
 import { NotificationBell } from './NotificationBell'
 import { InboxAttentionBell } from './InboxAttentionBell'
+import { LeadAttentionBar } from './LeadAttentionBar'
 import { useEffect, useState } from 'react'
 
 // Tabs shown directly in the bar — the day-to-day ones.
@@ -89,14 +90,16 @@ export function Navbar() {
 
   // New-lead count for the badge on the Leads tab. Polls so leads coming in
   // from Google Ads surface without a refresh.
-  const { data: leadData } = useQuery<{ newCount: number }>({
+  const { data: leadData, isError: leadCountError } = useQuery<{ newCount: number }>({
     queryKey: ['leads', 'newCount'],
     queryFn: async () => {
-      const res = await fetch('/api/leads?countOnly=1')
-      if (!res.ok) return { newCount: 0 }
+      const res = await fetch('/api/leads?countOnly=1', { cache: 'no-store' })
+      if (!res.ok) throw new Error('Lead notifications unavailable')
       return res.json()
     },
-    refetchInterval: 60000,
+    refetchInterval: 15000,
+    staleTime: 10000,
+    refetchOnWindowFocus: true,
   })
   const newLeadCount = leadData?.newCount || 0
 
@@ -108,6 +111,7 @@ export function Navbar() {
 
   return (
     <nav className="border-b bg-background sticky top-0 z-50">
+      <LeadAttentionBar count={newLeadCount} unavailable={leadCountError} />
       <div className="container mx-auto px-4">
         <div className="grid h-16 grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-center gap-3">
           {/* Logo */}

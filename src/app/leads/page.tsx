@@ -1,6 +1,9 @@
 'use client'
 
-import { useState, useRef } from 'react'
+import { Suspense, useState, useRef } from 'react'
+import { useRouter, useSearchParams } from 'next/navigation'
+import { answerLabels, screeningLabels, type LeadScreening } from '@/lib/lead-screening'
+import { LeadQualification } from '@/components/LeadQualification'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { motion } from 'motion/react'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
@@ -31,9 +34,10 @@ interface Lead {
   status: string
   isRead: boolean
   isTest: boolean
+  screening?: LeadScreening
 }
 
-type Tab = 'active' | 'abandoned' | 'archived' | 'all'
+type Tab = 'new' | 'active' | 'abandoned' | 'archived' | 'all'
 
 function relativeTime(iso: string): string {
   const d = new Date(iso)
@@ -52,13 +56,29 @@ function digits(phone: string): string {
 }
 
 export default function LeadsPage() {
+  return <Suspense fallback={<p className="p-6">Loading leads…</p>}><LeadsContent /></Suspense>
+}
+
+function LeadsContent() {
   const queryClient = useQueryClient()
-  const [tab, setTab] = useState<Tab>('active')
-  const [search, setSearch] = useState(() =>
-    typeof window === 'undefined'
-      ? ''
-      : new URLSearchParams(window.location.search).get('search') || ''
-  )
+  const router = useRouter()
+  const searchParams = useSearchParams()
+  const requestedTab = searchParams.get('status')
+  const tab: Tab = (['new', 'active', 'abandoned', 'archived', 'all'] as const).find(t => t === requestedTab) || 'active'
+  const setTab = (value: Tab) => {
+    router.replace(`/leads?status=${value}`, { scroll: false })
+  }
+  const [includeTests, setIncludeTests] = useState(false)
+  const screeningFilter = searchParams.get('screening') || 'all'
+  const search = searchParams.get('search') || ''
+  const setFilter = (key: string, value: string) => {
+    const params = new URLSearchParams(searchParams.toString())
+    if (value) params.set(key, value)
+    else params.delete(key)
+    router.replace(`/leads?${params}`, { scroll: false })
+  }
+  const setSearch = (value: string) => setFilter('search', value)
+  const setScreeningFilter = (value: string) => setFilter('screening', value)
   const [showAdd, setShowAdd] = useState(false)
   const [addForm, setAddForm] = useState({ name: '', phone: '', email: '', notes: '' })
   const [importMsg, setImportMsg] = useState('')
@@ -66,8 +86,8 @@ export default function LeadsPage() {
 
   const isAbandoned = tab === 'abandoned'
 
-  const { data, isLoading } = useQuery<{ leads: Lead[]; newCount?: number }>({
-    queryKey: ['leads', tab, search],
+  const { data, isLoading, isError, refetch } = useQuery<{ leads: Lead[]; newCount?: number }>({
+    queryKey: ['leads', tab, search, includeTests],
     queryFn: async () => {
       const params = new URLSearchParams()
       if (search.trim()) params.set('q', search.trim())
@@ -79,11 +99,13 @@ export default function LeadsPage() {
         return res.json()
       }
       params.set('status', tab)
+      if (includeTests) params.set('includeTests', '1')
       const res = await fetch(`/api/leads?${params}`)
       if (!res.ok) throw new Error('Failed to fetch leads')
       return res.json()
     },
-    refetchInterval: 30000,
+    refetchInterval: 15000,
+    refetchOnWindowFocus: true,
   })
 
   // Count for the tab badge — kept independent of the selected tab so the
@@ -99,7 +121,7 @@ export default function LeadsPage() {
     refetchInterval: 60000,
   })
 
-  const leads = data?.leads || []
+  const leads = (data?.leads || []).filter(lead => isAbandoned || screeningFilter === 'all' || (lead.screening?.result || 'review') === screeningFilter)
 
   const updateMutation = useMutation({
     mutationFn: async ({ id, status }: { id: string; status: string }) => {
@@ -184,6 +206,7 @@ export default function LeadsPage() {
   }
 
   const TABS: { key: Tab; label: string; icon: typeof Inbox; count?: number }[] = [
+    { key: 'new', label: 'Not contacted', icon: Phone, count: data?.newCount },
     { key: 'active', label: 'Active', icon: Inbox },
     { key: 'abandoned', label: "Didn't finish", icon: UserX, count: abandonedCount?.count },
     { key: 'archived', label: 'Archived', icon: Archive },
@@ -203,7 +226,7 @@ export default function LeadsPage() {
             <Target className="h-6 w-6" /> Leads
           </h1>
           <p className="text-muted-foreground text-sm mt-1">
-            Leads from your Google Ads lead form, in real time.
+            Website and ad enquiries. Review their answers, call, then mark contacted.
           </p>
         </div>
         <div className="flex items-center gap-2">
@@ -238,6 +261,8 @@ export default function LeadsPage() {
         </div>
       )}
 
+      {updateMutation.isError && <p role="alert" className="rounded-lg border border-destructive p-4 text-destructive">Could not update the lead. Please try again; it has not been marked contacted.</p>}
+
       <Card>
         <CardHeader>
           <div className="flex items-center justify-between gap-4 flex-wrap">
@@ -258,7 +283,7 @@ export default function LeadsPage() {
               />
             </div>
           </div>
-          <div className="flex items-center gap-1 mt-3 border-b">
+          <div className="flex flex-wrap items-center gap-1 mt-3 border-b">
             {TABS.map(({ key, label, icon: Icon, count }) => (
               <button
                 key={key}
@@ -277,9 +302,21 @@ export default function LeadsPage() {
               </button>
             ))}
           </div>
+          {!isAbandoned && <div className="mt-4 flex flex-wrap items-center gap-4">
+            <label className="flex items-center gap-2 text-sm">Truck qualification
+              <select value={screeningFilter} onChange={e => setScreeningFilter(e.target.value)} className="min-h-10 rounded-md border bg-background px-3 text-foreground">
+                <option value="all">All answers</option>
+                {Object.entries(screeningLabels).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
+              </select>
+            </label>
+            <label className="flex min-h-10 cursor-pointer items-center gap-2 text-sm"><input type="checkbox" checked={includeTests} onChange={e => setIncludeTests(e.target.checked)} />Show test leads</label>
+            <p className="w-full text-sm text-muted-foreground">Green: both initial criteria met. Red: a criterion is not met. Amber: needs review. This is truck pre-qualification from self-reported answers, not verified SAAQ eligibility. Mark contacted after following up to clear the notification.</p>
+          </div>}
         </CardHeader>
         <CardContent>
-          {isLoading ? (
+          {isError ? (
+            <div role="alert" className="space-y-3 py-8 text-center"><p>Could not load leads. Please try again.</p><Button variant="outline" onClick={() => refetch()}>Retry</Button></div>
+          ) : isLoading ? (
             <div className="flex items-center justify-center py-10">
               <Loader2 className="h-5 w-5 animate-spin mr-2" />
               <span className="text-muted-foreground">Loading leads…</span>
@@ -288,7 +325,7 @@ export default function LeadsPage() {
             <div className="text-center py-12">
               <Target className="h-10 w-10 mx-auto text-muted-foreground/40 mb-3" />
               <p className="text-muted-foreground">
-                {search.trim() ? 'No leads match your search.' : 'No leads yet.'}
+                {search.trim() || screeningFilter !== 'all' ? 'No leads match these filters.' : tab === 'new' ? 'No new leads waiting for a call.' : 'No leads yet.'}
               </p>
             </div>
           ) : (
@@ -298,7 +335,13 @@ export default function LeadsPage() {
                   <TableRow>
                     <TableHead>Name</TableHead>
                     <TableHead>Contact</TableHead>
-                    <TableHead>Notes</TableHead>
+                    <TableHead>Truck qualification</TableHead>
+                    <TableHead>Québec licence</TableHead>
+                    <TableHead>2+ years driving</TableHead>
+                    <TableHead>Program</TableHead>
+                    <TableHead>Language</TableHead>
+                    <TableHead>Preferred call time</TableHead>
+                    <TableHead>Source</TableHead>
                     <TableHead>Received</TableHead>
                     <TableHead>Status</TableHead>
                     <TableHead className="w-[150px] text-right">Actions</TableHead>
@@ -317,14 +360,14 @@ export default function LeadsPage() {
                             <Badge variant="outline" className="text-[10px]">test</Badge>
                           )}
                         </div>
+                        {lead.notes && <details className="mt-2 text-sm font-normal"><summary className="cursor-pointer py-2 text-muted-foreground">Additional information</summary><p className="max-w-64 whitespace-pre-line break-words text-muted-foreground">{lead.notes}</p></details>}
                       </TableCell>
                       <TableCell>
                         <div className="flex flex-col gap-1 text-sm">
                           {lead.phone && (
                             <div className="flex items-center gap-2">
-                              <a href={`tel:${lead.phone}`} className="flex items-center gap-1 hover:text-primary">
-                                <Phone className="h-3.5 w-3.5" /> {lead.phone}
-                              </a>
+                              <Button asChild size="sm" variant="outline"><a href={`tel:${lead.phone.replace(/[^+\d]/g, '')}`} aria-label={`Call ${lead.name || lead.phone}`}><Phone className="h-4 w-4" /> Call</a></Button>
+                              <span>{lead.phone}</span>
                               <a
                                 href={`https://wa.me/${digits(lead.phone)}`}
                                 target="_blank"
@@ -343,13 +386,16 @@ export default function LeadsPage() {
                           )}
                         </div>
                       </TableCell>
-                      <TableCell className="max-w-[280px]">
-                        {lead.notes ? (
-                          <p className="text-sm text-muted-foreground whitespace-pre-line">{lead.notes}</p>
-                        ) : (
-                          <span className="text-muted-foreground">—</span>
-                        )}
+                      <TableCell className="min-w-52">
+                        <LeadQualification screening={lead.screening} />
+                        {lead.screening && lead.screening.quebecLicence === 'unknown' && lead.screening.drivingExperience === 'unknown' && lead.screening.combinedAnswer !== 'unknown' && <p className="mt-2 text-xs text-muted-foreground">Older combined answer: {answerLabels[lead.screening.combinedAnswer]}</p>}
                       </TableCell>
+                      <TableCell>{answerLabels[lead.screening?.quebecLicence || 'unknown']}</TableCell>
+                      <TableCell>{answerLabels[lead.screening?.drivingExperience || 'unknown']}</TableCell>
+                      <TableCell className="min-w-40 text-sm">{lead.screening?.program || 'Not provided'}</TableCell>
+                      <TableCell>{lead.screening?.language || 'Not provided'}</TableCell>
+                      <TableCell className="whitespace-nowrap">{lead.screening?.callbackTime ? ({ any: 'No preference', morning: 'Morning', afternoon: 'Afternoon', evening: 'Evening' }[lead.screening.callbackTime] || lead.screening.callbackTime) : 'Not provided'}</TableCell>
+                      <TableCell className="whitespace-nowrap">{lead.screening?.website ? 'Website · Truck promotion' : lead.source === 'google_ads' ? 'Google Ads' : lead.source === 'manual' ? 'Manually added' : lead.source}</TableCell>
                       <TableCell className="text-sm text-muted-foreground whitespace-nowrap">
                         <span className="flex items-center gap-1">
                           <Clock className="h-3.5 w-3.5" /> {relativeTime(lead.createdAt)}
@@ -360,7 +406,7 @@ export default function LeadsPage() {
                           <Badge className="bg-amber-100 text-amber-800">Didn&apos;t finish</Badge>
                         ) : (
                           <>
-                            {lead.status === 'new' && <Badge className="bg-blue-100 text-blue-700">New</Badge>}
+                            {lead.status === 'new' && <Badge className="bg-blue-100 text-blue-700">Not contacted</Badge>}
                             {lead.status === 'contacted' && <Badge className="bg-green-100 text-green-700">Contacted</Badge>}
                             {lead.status === 'archived' && <Badge variant="secondary">Archived</Badge>}
                           </>
@@ -373,17 +419,20 @@ export default function LeadsPage() {
                               you either call them or discard the draft. */}
                           {!isAbandoned && lead.status !== 'contacted' && (
                             <Button
-                              variant="ghost" size="sm" className="h-8 px-2"
+                              variant="outline" size="sm"
                               title="Mark contacted"
+                              disabled={updateMutation.isPending}
                               onClick={() => updateMutation.mutate({ id: lead.id, status: 'contacted' })}
                             >
-                              <CheckCircle className="h-4 w-4 text-green-600" />
+                              <CheckCircle className="h-4 w-4" /> Mark contacted
                             </Button>
                           )}
                           {!isAbandoned && lead.status !== 'archived' && (
                             <Button
                               variant="ghost" size="sm" className="h-8 px-2"
                               title="Archive"
+                              aria-label={`Archive ${lead.name || 'lead'}`}
+                              disabled={updateMutation.isPending}
                               onClick={() => updateMutation.mutate({ id: lead.id, status: 'archived' })}
                             >
                               <Archive className="h-4 w-4" />

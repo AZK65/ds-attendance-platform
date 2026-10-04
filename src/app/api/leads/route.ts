@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/db'
 import type { Prisma } from '@prisma/client'
+import { getLeadScreening } from '@/lib/lead-screening'
 
 // GET /api/leads
 //   ?status=new|contacted|archived|all   (default: all non-archived)
@@ -19,6 +20,7 @@ export async function GET(request: NextRequest) {
     const q = sp.get('q')?.trim() || ''
 
     const where: Prisma.LeadWhereInput = {}
+    if (sp.get('includeTests') !== '1') where.isTest = false
     if (status === 'active') where.status = { in: ['new', 'contacted'] }
     else if (status !== 'all') where.status = status
     if (q) {
@@ -35,7 +37,11 @@ export async function GET(request: NextRequest) {
       orderBy: { createdAt: 'desc' },
       take: 500,
     })
-    return NextResponse.json({ leads, newCount })
+    // Never expose the webhook payload (which includes its shared secret).
+    return NextResponse.json({ leads: leads.map(lead => {
+      const { rawData, ...safeLead } = lead
+      return { ...safeLead, screening: getLeadScreening({ ...safeLead, rawData }) }
+    }), newCount }, { headers: { 'Cache-Control': 'no-store' } })
   } catch (error) {
     console.error('Error fetching leads:', error)
     return NextResponse.json({ error: 'Failed to fetch leads' }, { status: 500 })
