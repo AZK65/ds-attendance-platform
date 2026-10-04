@@ -1535,7 +1535,10 @@ export async function getGroupInviteLink(groupId: string): Promise<string | null
   }
 
   type InvitePage = {
-    evaluate: <T>(fn: () => T) => Promise<T>
+    evaluate: {
+      <T>(fn: () => T | Promise<T>): Promise<T>
+      <T, A>(fn: (arg: A) => T | Promise<T>, arg: A): Promise<T>
+    }
     mouse: { click: (x: number, y: number) => Promise<void> }
     waitForFunction: (fn: () => unknown, options?: { timeout?: number }) => Promise<unknown>
   }
@@ -1556,11 +1559,43 @@ export async function getGroupInviteLink(groupId: string): Promise<string | null
     return link
   } catch (firstError) {
     // WhatsApp moved fetchMexGroupInviteCode into the lazy-loaded "Invite to
-    // group via link" screen. Load that official screen once, then retry the
-    // read-only API. This never changes group membership.
+    // group via link" bundle. Load the official bundle directly before
+    // falling back to driving the WhatsApp UI. This never changes group
+    // membership or resets the existing reusable invite link.
     if (!client.interface || !client.pupPage) {
       console.error('[getGroupInviteLink] Failed:', firstError)
       return null
+    }
+
+    try {
+      const lazyLink = await client.pupPage.evaluate(async (targetGroupId: string) => {
+        type InviteCodeModule = {
+          fetchMexGroupInviteCode?: (groupId: string) => Promise<string | undefined>
+        }
+        type InviteDrawerModule = {
+          requireBundle?: () => Promise<unknown>
+        }
+        type WindowWithRequire = Window & {
+          require: (name: string) => InviteCodeModule & InviteDrawerModule
+        }
+
+        const waWindow = window as WindowWithRequire
+        const drawer = waWindow.require('WAWebGroupInviteLinkDrawerLoadable')
+        if (typeof drawer.requireBundle === 'function') {
+          await drawer.requireBundle()
+        }
+
+        const job = waWindow.require('WAWebMexFetchGroupInviteCodeJob')
+        if (typeof job.fetchMexGroupInviteCode !== 'function') return null
+        const code = await job.fetchMexGroupInviteCode(targetGroupId)
+        return code ? `https://chat.whatsapp.com/${code}` : null
+      }, groupId)
+      if (lazyLink) {
+        await rememberLink(lazyLink)
+        return lazyLink
+      }
+    } catch (lazyError) {
+      console.warn('[getGroupInviteLink] Lazy invite bundle failed:', lazyError)
     }
 
     if (!globalForWhatsApp.whatsappInviteLoader) {
