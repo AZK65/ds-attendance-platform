@@ -87,7 +87,7 @@ export async function POST(
       // join. Without this, the background WhatsApp sync prunes non-joined
       // members from GroupMember and they silently vanish from the student
       // list (bulk add never adds directly — it only sends invite links).
-      await recordGroupInvite(decodedGroupId, m.phone)
+      await recordGroupInvite(decodedGroupId, m.phone, 'unsent')
     }
 
     // Send invite links ONLY to new members
@@ -112,7 +112,7 @@ export async function POST(
               continue
             }
             await sendPrivateMessage(m.phone, `You've been added to a class group!\n\nClick to join:\n${inviteLink}`)
-            await recordGroupInvite(decodedGroupId, m.phone)
+            await recordGroupInvite(decodedGroupId, m.phone, 'pending')
             results.push({ phone: m.phone, name: m.name, success: true, inviteSent: true })
           } catch (err) {
             const detail = err instanceof Error ? err.message : 'unknown error'

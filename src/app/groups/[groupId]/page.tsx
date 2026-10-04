@@ -92,6 +92,7 @@ interface Participant {
 interface PendingInvite {
   phone: string
   name: string | null
+  status: 'unsent' | 'pending'
   invitedAt: string
 }
 
@@ -834,7 +835,7 @@ export default function GroupDetailPage() {
                 <>
                   <Badge variant="outline" className="border-amber-300 bg-amber-50 text-amber-700">
                     <Clock className="h-3 w-3 mr-1" />
-                    {pendingInvites.length} invited · not joined yet
+                    {pendingInvites.length} not in group yet
                   </Badge>
                   <Button
                     type="button"
@@ -1201,7 +1202,7 @@ export default function GroupDetailPage() {
                   <MotionTableRow
                     key={`invite-${invite.phone}`}
                     variants={fadeSlideUp}
-                    className="bg-amber-50/60 hover:bg-amber-50"
+                    className={invite.status === 'unsent' ? 'bg-red-50/60 hover:bg-red-50' : 'bg-amber-50/60 hover:bg-amber-50'}
                   >
                     <TableCell className="text-muted-foreground">
                       {participants.length + index + 1}
@@ -1218,17 +1219,21 @@ export default function GroupDetailPage() {
                     </TableCell>
                     <TableCell colSpan={3}>
                       <div className="flex flex-col gap-0.5">
-                        <Badge className="bg-amber-100 text-amber-800 border-amber-200 hover:bg-amber-100 gap-1 w-fit">
-                          <Clock className="h-3 w-3" />
-                          Waiting to join
+                        <Badge className={invite.status === 'unsent'
+                          ? 'bg-red-100 text-red-800 border-red-200 hover:bg-red-100 gap-1 w-fit'
+                          : 'bg-amber-100 text-amber-800 border-amber-200 hover:bg-amber-100 gap-1 w-fit'}>
+                          {invite.status === 'unsent' ? <AlertTriangle className="h-3 w-3" /> : <Clock className="h-3 w-3" />}
+                          {invite.status === 'unsent' ? 'Invite not sent' : 'Invite sent · waiting to join'}
                         </Badge>
                         <span className="text-[10px] text-muted-foreground">
-                          Added {new Date(invite.invitedAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} · use the send icon to send or resend the link
+                          {invite.status === 'unsent' ? 'Saved' : 'Sent'} {new Date(invite.invitedAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} · use the send icon to {invite.status === 'unsent' ? 'send' : 'resend'} the link
                         </span>
                       </div>
                     </TableCell>
                     <TableCell>
-                      <span className="text-amber-700 text-sm">Pending</span>
+                      <span className={invite.status === 'unsent' ? 'text-red-700 text-sm' : 'text-amber-700 text-sm'}>
+                        {invite.status === 'unsent' ? 'Needs invite' : 'Pending'}
+                      </span>
                     </TableCell>
                     <TableCell>
                       <div className="flex items-center">

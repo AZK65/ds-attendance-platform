@@ -1372,14 +1372,15 @@ export async function getGroupInfo(groupId: string): Promise<{ name: string; par
 export interface PendingInvite {
   phone: string
   name: string | null
+  status: 'unsent' | 'pending'
   invitedAt: Date
 }
 
-// Pending invites for a group (invite link sent, not joined yet), with names
-// enriched from the Contact table when we have them.
+// Students who still need to join, including both successfully delivered
+// invites and students whose private invite message still needs sending.
 export async function getPendingInvites(groupId: string): Promise<PendingInvite[]> {
   const invites = await prisma.groupInvite.findMany({
-    where: { groupId, status: 'pending' },
+    where: { groupId, status: { in: ['unsent', 'pending'] } },
     orderBy: { invitedAt: 'desc' },
   })
   if (invites.length === 0) return []
@@ -1408,34 +1409,37 @@ export async function getPendingInvites(groupId: string): Promise<PendingInvite[
   return invites.map(i => ({
     phone: i.phone,
     name: i.name || nameByPhone.get(i.phone) || nameByPhone.get(i.phone.replace(/^1/, '')) || null,
+    status: i.status === 'unsent' ? 'unsent' : 'pending',
     invitedAt: i.invitedAt,
   }))
 }
 
-// Remember that someone was sent an invite link instead of being added
-// directly, so the UI can show them as "pending" until they actually join.
-// Exported for routes that send invite links themselves (members-bulk).
-export async function recordGroupInvite(groupId: string, phone: string): Promise<void> {
+// Track whether the student merely needs an invite or actually received it.
+export async function recordGroupInvite(
+  groupId: string,
+  phone: string,
+  status: 'unsent' | 'pending' = 'pending'
+): Promise<void> {
   const cleaned = phone.replace(/[^0-9]/g, '')
   if (!cleaned) return
   try {
     await prisma.groupInvite.upsert({
       where: { groupId_phone: { groupId, phone: cleaned } },
-      update: { status: 'pending', invitedAt: new Date(), joinedAt: null },
-      create: { groupId, phone: cleaned, status: 'pending' },
+      update: { status, invitedAt: new Date(), joinedAt: null },
+      create: { groupId, phone: cleaned, status },
     })
   } catch (e) {
     console.log('[recordGroupInvite] Failed:', e)
   }
 }
 
-// Flip pending invites to "joined" once their phone shows up in the group's
+// Flip outstanding invites to "joined" once their phone shows up in the group's
 // actual participant list. Called from getGroupParticipants, which every
 // group-detail refresh goes through.
 async function resolveJoinedInvites(groupId: string, participantPhones: string[]): Promise<void> {
   try {
     const pending = await prisma.groupInvite.findMany({
-      where: { groupId, status: 'pending' },
+      where: { groupId, status: { in: ['unsent', 'pending'] } },
     })
     if (pending.length === 0) return
 
@@ -1478,7 +1482,7 @@ export async function addParticipantToGroup(groupId: string, phone: string): Pro
   // its broken Invite V4 fallback is disabled. Existing groups therefore use
   // a normal private group-link message only. The group-creation RPC still
   // directly adds every selected student WhatsApp permits in one operation.
-  await recordGroupInvite(groupId, phone).catch(() => {})
+  await recordGroupInvite(groupId, phone, 'unsent').catch(() => {})
 
   try {
     const inviteLink = await getGroupInviteLink(groupId)
@@ -1500,6 +1504,7 @@ export async function addParticipantToGroup(groupId: string, phone: string): Pro
       phone,
       `You've been invited to join *${chat.name || 'your Qazi class group'}*!\n\nTap here to join:\n${inviteLink}`
     )
+    await recordGroupInvite(groupId, phone, 'pending').catch(() => {})
     console.log(`[addParticipant] Safe invite link sent to ${phone}`)
     return { success: true, inviteSent: true, inviteLink }
   } catch (error) {

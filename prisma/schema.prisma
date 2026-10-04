@@ -69,10 +69,10 @@ model GroupMember {
   @@index([phone])
 }
 
-// Tracks students who couldn't be added to a WhatsApp group directly and
-// were sent an invite link instead. status flips to "joined" automatically
-// when a participants fetch sees their phone in the group; until then the
-// UI shows them as pending at the bottom of the members table.
+// Tracks students who couldn't be added to a WhatsApp group directly.
+// "unsent" means the student is saved but the private invite message failed;
+// "pending" means the invite was delivered but they have not joined yet.
+// Either status flips to "joined" when the live roster sees their phone.
 // No FK to Group on purpose (same pattern as ZoomAttendance) — invites can
 // reference groups that haven't been synced into the Group table yet.
 model GroupInvite {
@@ -80,7 +80,7 @@ model GroupInvite {
   groupId   String
   phone     String
   name      String?
-  status    String    @default("pending") // pending | joined
+  status    String    @default("pending") // unsent | pending | joined
   invitedAt DateTime  @default(now())
   joinedAt  DateTime?
   createdAt DateTime  @default(now())

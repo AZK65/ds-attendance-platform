@@ -5,6 +5,7 @@ import {
   getGroupParticipants,
   getPendingInvites,
   getWhatsAppState,
+  recordGroupInvite,
   sendPrivateMessage,
 } from '@/lib/whatsapp/client'
 import { prisma } from '@/lib/db'
@@ -76,6 +77,7 @@ export async function POST(
       try {
         const check = await checkWhatsAppNumber(invite.phone).catch(() => null)
         if (check && !check.registered) {
+          await recordGroupInvite(decodedGroupId, invite.phone, 'unsent').catch(() => {})
           results.push({ phone: invite.phone, success: false, error: 'No WhatsApp account' })
           await prisma.messageLog.create({
             data: {
@@ -89,6 +91,7 @@ export async function POST(
           }).catch(() => {})
         } else {
           await sendPrivateMessage(invite.phone, inviteMessage)
+          await recordGroupInvite(decodedGroupId, invite.phone, 'pending').catch(() => {})
           results.push({ phone: invite.phone, success: true })
           await prisma.messageLog.create({
             data: {
@@ -102,6 +105,7 @@ export async function POST(
         }
       } catch (error) {
         const detail = error instanceof Error ? error.message : 'Invite message failed'
+        await recordGroupInvite(decodedGroupId, invite.phone, 'unsent').catch(() => {})
         results.push({
           phone: invite.phone,
           success: false,

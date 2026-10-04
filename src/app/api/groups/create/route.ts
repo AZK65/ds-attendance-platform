@@ -107,11 +107,12 @@ export async function POST(request: NextRequest) {
         // are what invalidated the linked device. The creation RPC already
         // directly added everyone WhatsApp allowed; only the rejected people
         // receive the normal group link here.
-        await Promise.all(initiallyMissing.map(phone => recordGroupInvite(groupId, phone).catch(() => {})))
+        await Promise.all(initiallyMissing.map(phone => recordGroupInvite(groupId, phone, 'unsent').catch(() => {})))
         for (const phone of initiallyMissing) {
           if (!inviteLink) continue
           try {
             await sendPrivateMessage(phone, `You've been invited to join *${title}*\n\nTap here to join:\n${inviteLink}`)
+            await recordGroupInvite(groupId, phone, 'pending').catch(() => {})
             invitedCount++
           } catch (err) {
             console.log(`[createGroup] Could not message invite to ${phone}:`, err)

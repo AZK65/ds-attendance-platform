@@ -62,11 +62,11 @@ export async function POST(
         console.log(`[Add Member] WhatsApp add failed for ${phoneToAdd}: ${whatsappWarning}`)
         // Not in the WhatsApp group — track as pending so the background
         // sync doesn't prune them out of the student list entirely.
-        await recordGroupInvite(decodedGroupId, phoneToAdd)
+        await recordGroupInvite(decodedGroupId, phoneToAdd, 'unsent')
       }
     } else {
       whatsappWarning = 'WhatsApp not connected — student saved to database only'
-      await recordGroupInvite(decodedGroupId, phoneToAdd)
+      await recordGroupInvite(decodedGroupId, phoneToAdd, 'unsent')
     }
 
     return NextResponse.json({
