@@ -160,7 +160,12 @@ export async function GET(
           update: {
             name: info.name,
             participantCount: waParticipants.length,
-            moduleNumber: lastMessage?.moduleNumber ?? undefined,
+            // WhatsApp history can be incomplete immediately after a reconnect.
+            // Never move a group's progress backwards just because the newest
+            // module message visible to the client is an older one.
+            moduleNumber: lastMessage?.moduleNumber != null
+              ? Math.max(group?.moduleNumber ?? 0, lastMessage.moduleNumber)
+              : undefined,
             lastMessageDate: lastMessage?.timestamp ?? undefined,
             lastSynced: new Date(),
           },
