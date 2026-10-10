@@ -94,6 +94,10 @@ export function Navbar() {
     queryKey: ['leads', 'newCount'],
     queryFn: async () => {
       const res = await fetch('/api/leads?countOnly=1', { cache: 'no-store' })
+      // An expired admin session is not a submissions connection failure.
+      // The heartbeat redirects to login; keep this query quiet in the brief
+      // interval before that navigation completes.
+      if (res.status === 401) return { newCount: 0 }
       if (!res.ok) throw new Error('Lead notifications unavailable')
       return res.json()
     },

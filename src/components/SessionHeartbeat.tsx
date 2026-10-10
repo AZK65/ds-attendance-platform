@@ -17,7 +17,15 @@ export function SessionHeartbeat() {
     const beat = async () => {
       try {
         const res = await fetch('/api/auth/heartbeat', { method: 'POST' })
-        if (!res.ok) return // 401 etc. — leave it to normal navigation/middleware
+        // API routes return 401 instead of redirecting. Previously this was
+        // ignored, leaving an expired admin page open while individual navbar
+        // requests failed and surfaced misleading "connection interrupted"
+        // banners. Send the user through the normal login flow immediately.
+        if (res.status === 401) {
+          if (!cancelled) router.replace('/login')
+          return
+        }
+        if (!res.ok) return // Transient server/network issue — fail open.
         const data = await res.json().catch(() => null)
         if (!cancelled && data && data.valid === false) {
           router.replace('/login')
