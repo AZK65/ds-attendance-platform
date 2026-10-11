@@ -5,170 +5,248 @@ import {
   getMeetingParticipantsByUUID,
   matchZoomToWhatsApp,
   type LearnedMatch,
+  type ZoomAttendanceResult,
 } from '@/lib/zoom/client'
-import { getGroupParticipants, getWhatsAppState } from '@/lib/whatsapp/client'
 
 function parseModuleFromTopic(topic: string): number | null {
-  const m = (topic || '').match(/\b(?:M(?:od(?:ule)?)?\s*)(\d{1,2})\b/i)
-  if (!m) return null
-  const n = parseInt(m[1], 10)
-  return n >= 1 && n <= 12 ? n : null
+  const match = (topic || '').match(/\b(?:M(?:od(?:ule)?)?\s*)(\d{1,2})\b/i)
+  if (!match) return null
+  const value = parseInt(match[1], 10)
+  return value >= 1 && value <= 12 ? value : null
+}
+
+function normalizePhone(value: string): string {
+  return value.replace(/\D/g, '').slice(-10)
+}
+
+function normalizeZoomName(value: string): string {
+  return value.toLowerCase().replace(/\s+/g, ' ').trim()
+}
+
+function mergeSavedMatches(
+  current: {
+    matchedRecords: string
+    absentRecords: string
+    unmatchedZoom: string
+  },
+  refreshed: ZoomAttendanceResult,
+) {
+  const savedMatched = JSON.parse(current.matchedRecords) as ZoomAttendanceResult['matched']
+  const savedPhones = new Set(savedMatched.map(item => normalizePhone(item.whatsappPhone)))
+  const savedZoomNames = new Set(savedMatched.map(item => normalizeZoomName(item.zoomName)))
+
+  const additions = refreshed.matched.filter(item => (
+    !savedPhones.has(normalizePhone(item.whatsappPhone)) &&
+    !savedZoomNames.has(normalizeZoomName(item.zoomName))
+  ))
+  const matched = [...savedMatched, ...additions]
+  const matchedPhones = new Set(matched.map(item => normalizePhone(item.whatsappPhone)))
+  const matchedZoomNames = new Set(matched.map(item => normalizeZoomName(item.zoomName)))
+
+  // Use the freshly scored roster, while preserving manual/saved matches that
+  // may no longer exist in today's cached WhatsApp membership.
+  const absent = refreshed.absent.filter(item => !matchedPhones.has(normalizePhone(item.phone)))
+  const unmatchedZoom = refreshed.unmatchedZoom.filter(
+    item => !matchedZoomNames.has(normalizeZoomName(item.name)),
+  )
+
+  return { matched, absent, unmatchedZoom, additions: additions.length }
 }
 
 // POST /api/zoom/attendance/backfill?groupId=<id>
-// (Optional) ?groupId — if provided, backfills only that group; otherwise
-// iterates every group in the DB.
 //
-// For each (group, recent-meeting) pair where no ZoomAttendance row exists,
-// fetches the meeting's Zoom participants, runs the matcher against the
-// group's WhatsApp members, and persists the result if matches > 0.
+// Rebuilds recent completed-meeting attendance from Zoom's final reports.
+// Cached GroupMember rows are deliberately used instead of the live WhatsApp
+// client so a disconnected/restarting WhatsApp session cannot block recovery.
+// Each meeting is scored against every cohort once and only the clear winner
+// is written; the previous implementation paired every meeting with every
+// group, which created false duplicate attendance rows.
 export async function POST(request: NextRequest) {
-  const url = new URL(request.url)
-  const onlyGroupId = url.searchParams.get('groupId')
-
-  const state = getWhatsAppState()
-  if (!state.isConnected) {
-    return NextResponse.json(
-      { error: 'WhatsApp is not connected — backfill requires a live connection to look up group members.' },
-      { status: 503 },
-    )
-  }
-
+  const onlyGroupId = request.nextUrl.searchParams.get('groupId')
   const summary = {
     meetingsScanned: 0,
     groupsScanned: 0,
-    pairsChecked: 0,
     rowsCreated: 0,
-    skippedExisting: 0,
-    skippedNoMatch: 0,
+    rowsRepaired: 0,
+    matchesAdded: 0,
+    weakDuplicatesRemoved: 0,
+    skippedAmbiguous: 0,
+    skippedNoImprovement: 0,
     errors: [] as Array<{ where: string; message: string }>,
-    perGroup: {} as Record<string, { created: number; skippedExisting: number; skippedNoMatch: number }>,
   }
 
-  // Resolve target groups
-  let groups: Array<{ id: string; moduleNumber: number | null }> = []
-  try {
-    if (onlyGroupId) {
-      const g = await prisma.group.findUnique({
-        where: { id: onlyGroupId },
-        select: { id: true, moduleNumber: true },
-      })
-      if (g) groups = [g]
-    } else {
-      groups = await prisma.group.findMany({ select: { id: true, moduleNumber: true } })
-    }
-  } catch (e) {
-    return NextResponse.json(
-      { error: 'Failed to load groups', details: e instanceof Error ? e.message : String(e) },
-      { status: 500 },
-    )
-  }
+  const [groups, learnedRows] = await Promise.all([
+    prisma.group.findMany({
+      where: onlyGroupId ? { id: onlyGroupId } : undefined,
+      select: {
+        id: true,
+        members: {
+          select: {
+            phone: true,
+            isAdmin: true,
+            isSuperAdmin: true,
+            contact: { select: { name: true, pushName: true } },
+          },
+        },
+      },
+    }),
+    prisma.zoomNameMatch.findMany(),
+  ])
   summary.groupsScanned = groups.length
 
-  // Learned matches (shared across groups)
-  const learned = await prisma.zoomNameMatch.findMany()
-  const learnedMatches: LearnedMatch[] = learned.map((lm) => ({
-    zoomName: lm.zoomName,
-    whatsappPhone: lm.whatsappPhone,
-    whatsappName: lm.whatsappName,
+  const learnedMatches: LearnedMatch[] = learnedRows.map(match => ({
+    zoomName: match.zoomName,
+    whatsappPhone: match.whatsappPhone,
+    whatsappName: match.whatsappName,
   }))
 
-  // Recent Zoom meetings (last 30 days)
-  let meetings: Awaited<ReturnType<typeof getRecentMeetings>> = []
+  let meetings: Awaited<ReturnType<typeof getRecentMeetings>>
   try {
     meetings = await getRecentMeetings()
-  } catch (e) {
-    return NextResponse.json(
-      { error: 'Failed to fetch recent Zoom meetings', details: e instanceof Error ? e.message : String(e) },
-      { status: 500 },
-    )
+  } catch (error) {
+    return NextResponse.json({
+      error: 'Failed to fetch recent Zoom meetings',
+      details: error instanceof Error ? error.message : String(error),
+    }, { status: 500 })
   }
   summary.meetingsScanned = meetings.length
 
-  // Cache zoom participants per UUID across groups (avoids refetching the
-  // same Zoom meeting once per group)
-  const zoomParticipantsByUUID = new Map<string, Awaited<ReturnType<typeof getMeetingParticipantsByUUID>>>()
+  const hostEmails = new Set(
+    (process.env.ZOOM_HOST_EMAILS || '')
+      .split(',')
+      .map(value => value.trim().toLowerCase())
+      .filter(Boolean),
+  )
 
-  for (const g of groups) {
-    summary.perGroup[g.id] = { created: 0, skippedExisting: 0, skippedNoMatch: 0 }
-
-    let groupMembers: Array<{ name: string | null; pushName: string | null; phone: string }> = []
+  for (const meeting of meetings) {
+    let zoomParticipants: Awaited<ReturnType<typeof getMeetingParticipantsByUUID>>
     try {
-      const participants = await getGroupParticipants(g.id)
-      groupMembers = participants.map((p) => ({
-        name: p.name ?? null,
-        pushName: p.pushName ?? null,
-        phone: p.phone,
-      }))
-    } catch (e) {
+      zoomParticipants = (await getMeetingParticipantsByUUID(meeting.uuid)).filter(participant => {
+        const email = participant.user_email?.trim().toLowerCase()
+        return !email || !hostEmails.has(email)
+      })
+    } catch (error) {
       summary.errors.push({
-        where: `participants(group:${g.id})`,
-        message: e instanceof Error ? e.message : String(e),
+        where: `participants(meeting:${meeting.uuid})`,
+        message: error instanceof Error ? error.message : String(error),
       })
       continue
     }
 
-    for (const meeting of meetings) {
-      summary.pairsChecked++
-
-      // Skip if a row already exists for this (group, meeting)
-      const existing = await prisma.zoomAttendance.findUnique({
-        where: { groupId_meetingUUID: { groupId: g.id, meetingUUID: meeting.uuid } },
-        select: { id: true },
-      })
-      if (existing) {
-        summary.skippedExisting++
-        summary.perGroup[g.id].skippedExisting++
-        continue
-      }
-
-      let zoomParticipants = zoomParticipantsByUUID.get(meeting.uuid)
-      if (!zoomParticipants) {
-        try {
-          zoomParticipants = await getMeetingParticipantsByUUID(meeting.uuid)
-          zoomParticipantsByUUID.set(meeting.uuid, zoomParticipants)
-        } catch (e) {
-          summary.errors.push({
-            where: `participants(meeting:${meeting.uuid})`,
-            message: e instanceof Error ? e.message : String(e),
-          })
-          continue
+    const scored = groups
+      .map(group => {
+        const members = group.members
+          .filter(member => !member.isAdmin && !member.isSuperAdmin)
+          .map(member => ({
+            name: member.contact.name,
+            pushName: member.contact.pushName,
+            phone: member.phone,
+          }))
+        return {
+          groupId: group.id,
+          memberCount: members.length,
+          result: matchZoomToWhatsApp(zoomParticipants, members, learnedMatches),
         }
-      }
+      })
+      .filter(score => score.memberCount > 0)
+      .sort((a, b) => b.result.matched.length - a.result.matched.length)
 
-      const result = matchZoomToWhatsApp(zoomParticipants, groupMembers, learnedMatches)
-      if (result.matched.length === 0) {
-        summary.skippedNoMatch++
-        summary.perGroup[g.id].skippedNoMatch++
-        continue
-      }
+    const best = scored[0]
+    const secondBestCount = scored[1]?.result.matched.length ?? 0
+    const bestCount = best?.result.matched.length ?? 0
+    const possibleCount = Math.min(best?.memberCount ?? 0, Math.max(zoomParticipants.length, 1))
+    const coverage = possibleCount > 0 ? bestCount / possibleCount : 0
 
-      // Only trust the topic for module assignment. Group.moduleNumber is
-      // the group's CURRENT module — using it as a fallback would wrongly tag
-      // every past class with today's module. We'd rather leave it null and
-      // let the user (or fix-modules) infer it chronologically.
-      const moduleNumber = parseModuleFromTopic(meeting.topic || '')
-      const meetingDate = new Date(meeting.start_time || Date.now())
+    // A single loose name match is not enough to assign a whole class. The
+    // winning cohort must have multiple students, useful roster coverage,
+    // and a clear lead over the next cohort.
+    const confident = Boolean(
+      best &&
+      bestCount >= 3 &&
+      coverage >= 0.25 &&
+      (onlyGroupId || bestCount - secondBestCount >= 2),
+    )
+    if (!confident || !best) {
+      summary.skippedAmbiguous++
+      continue
+    }
 
-      try {
-        await prisma.zoomAttendance.create({
+    const existingRows = await prisma.zoomAttendance.findMany({
+      where: { meetingUUID: meeting.uuid },
+    })
+    const target = existingRows.find(row => row.groupId === best.groupId)
+    const meetingDate = new Date(meeting.start_time || Date.now())
+    const moduleNumber = parseModuleFromTopic(meeting.topic || '')
+    let relocatedRowId: string | null = null
+
+    if (target) {
+      const merged = mergeSavedMatches(target, best.result)
+      if (merged.additions > 0) {
+        await prisma.zoomAttendance.update({
+          where: { id: target.id },
           data: {
-            groupId: g.id,
-            meetingUUID: meeting.uuid,
-            meetingDate,
-            moduleNumber,
-            matchedRecords: JSON.stringify(result.matched),
-            absentRecords: JSON.stringify(result.absent),
-            unmatchedZoom: JSON.stringify(result.unmatchedZoom),
+            matchedRecords: JSON.stringify(merged.matched),
+            absentRecords: JSON.stringify(merged.absent),
+            unmatchedZoom: JSON.stringify(merged.unmatchedZoom),
           },
         })
-        summary.rowsCreated++
-        summary.perGroup[g.id].created++
-      } catch (e) {
-        summary.errors.push({
-          where: `save(${g.id}/${meeting.uuid})`,
-          message: e instanceof Error ? e.message : String(e),
+        summary.rowsRepaired++
+        summary.matchesAdded += merged.additions
+      } else {
+        summary.skippedNoImprovement++
+      }
+    } else {
+      // If the meeting was previously attached to a clearly wrong cohort,
+      // move that weak row instead of creating another duplicate.
+      const weakRow = existingRows.find(row => {
+        try {
+          return (JSON.parse(row.matchedRecords) as unknown[]).length <= 1
+        } catch {
+          return true
+        }
+      })
+      const data = {
+        groupId: best.groupId,
+        meetingDate,
+        moduleNumber,
+        matchedRecords: JSON.stringify(best.result.matched),
+        absentRecords: JSON.stringify(best.result.absent),
+        unmatchedZoom: JSON.stringify(best.result.unmatchedZoom),
+      }
+
+      if (weakRow && bestCount >= 5) {
+        await prisma.zoomAttendance.update({ where: { id: weakRow.id }, data })
+        relocatedRowId = weakRow.id
+        summary.rowsRepaired++
+        summary.matchesAdded += bestCount
+      } else {
+        await prisma.zoomAttendance.create({
+          data: { meetingUUID: meeting.uuid, ...data },
         })
+        summary.rowsCreated++
+        summary.matchesAdded += bestCount
+      }
+    }
+
+    // Remove only unmistakable duplicates: same Zoom instance, wrong group,
+    // zero/one match, while the winning row has at least five matches.
+    if (bestCount >= 5) {
+      const weakDuplicateIds = existingRows
+        .filter(row => row.groupId !== best.groupId && row.id !== relocatedRowId)
+        .filter(row => {
+          try {
+            return (JSON.parse(row.matchedRecords) as unknown[]).length <= 1
+          } catch {
+            return true
+          }
+        })
+        .map(row => row.id)
+
+      if (weakDuplicateIds.length > 0) {
+        const removed = await prisma.zoomAttendance.deleteMany({
+          where: { id: { in: weakDuplicateIds } },
+        })
+        summary.weakDuplicatesRemoved += removed.count
       }
     }
   }

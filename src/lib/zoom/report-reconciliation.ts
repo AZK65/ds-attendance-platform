@@ -75,10 +75,11 @@ export async function reconcileEndedMeetingAttendance(options: ReconcileOptions)
     whatsappName: match.whatsappName,
   }))
 
-  let best: {
+  const scored: Array<{
     groupId: string
+    memberCount: number
     result: ReturnType<typeof matchZoomToWhatsApp>
-  } | null = null
+  }> = []
 
   for (const group of groups) {
     if (group.members.length === 0) continue
@@ -88,13 +89,21 @@ export async function reconcileEndedMeetingAttendance(options: ReconcileOptions)
       phone: member.phone,
     }))
     const result = matchZoomToWhatsApp(studentParticipants, members, learnedMatches)
-    if (!best || result.matched.length > best.result.matched.length) {
-      best = { groupId: group.id, result }
-    }
+    scored.push({ groupId: group.id, memberCount: members.length, result })
   }
 
-  if (!best || best.result.matched.length === 0) {
-    return { reconciled: false, reason: 'Could not match the Zoom report to a group' }
+  scored.sort((a, b) => b.result.matched.length - a.result.matched.length)
+  const best = scored[0]
+  const bestCount = best?.result.matched.length ?? 0
+  const secondBestCount = scored[1]?.result.matched.length ?? 0
+  const possibleCount = Math.min(best?.memberCount ?? 0, Math.max(studentParticipants.length, 1))
+  const coverage = possibleCount > 0 ? bestCount / possibleCount : 0
+
+  if (!best || bestCount < 3 || coverage < 0.25 || bestCount - secondBestCount < 2) {
+    return {
+      reconciled: false,
+      reason: 'Zoom report did not identify one group with enough confidence',
+    }
   }
 
   const attendanceData = {
