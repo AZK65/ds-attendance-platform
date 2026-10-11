@@ -37,8 +37,11 @@ export async function POST(request: NextRequest) {
       studentName: string
       studentPhone: string
       transmission?: 'auto' | 'manual'
+      subcalendarId?: number
       classes: TruckClassInput[]
     }
+
+    const requestedSubcalendarId = Number(body.subcalendarId)
 
     if (!studentName || !studentPhone || !classes || classes.length === 0) {
       return NextResponse.json(
@@ -67,24 +70,67 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    // Look up Nasar's subcalendar
-    const nasarId = await getNasarSubcalendarId()
-    if (!nasarId) {
+    // Use the teacher selected in the truck wizard. Older clients did not send
+    // this field, so keep Nasar as a backwards-compatible fallback.
+    const teacherSubcalendarId = Number.isFinite(requestedSubcalendarId) && requestedSubcalendarId > 0
+      ? requestedSubcalendarId
+      : await getNasarSubcalendarId()
+    if (!teacherSubcalendarId) {
       return NextResponse.json(
-        { error: 'Could not find Nasar subcalendar' },
+        { error: 'Could not find the selected truck teacher calendar' },
         { status: 500 }
       )
     }
 
-    // Fetch existing events on Nasar's calendar to check for duplicates
-    const dates = classes.map(c => c.date).sort()
+    // If this is a normal newly-added batch (1, 2, 3...), continue from the
+    // student's highest existing truck class instead of restarting at 1.
+    // Explicit custom numbering is left alone.
+    let normalizedClasses = classes
+    try {
+      const today = new Date()
+      const rangeStart = new Date(today)
+      rangeStart.setFullYear(rangeStart.getFullYear() - 2)
+      const rangeEnd = new Date(today)
+      rangeEnd.setFullYear(rangeEnd.getFullYear() + 2)
+      const iso = (date: Date) => date.toISOString().split('T')[0]
+      const studentEventsRes = await fetch(
+        `${BASE_URL}/${calendarKey}/events?startDate=${iso(rangeStart)}&endDate=${iso(rangeEnd)}&query=${encodeURIComponent(studentPhone)}`,
+        { headers: { 'Teamup-Token': apiKey } }
+      )
+      if (studentEventsRes.ok) {
+        const studentEventsData = await studentEventsRes.json()
+        const existingNumbers = (studentEventsData.events || [])
+          .map((event: { notes?: string }) => {
+            const notes = String(event.notes || '').replace(/<[^>]+>/g, '\n')
+            if (!/TruckClass:\s*yes/i.test(notes)) return 0
+            const match = notes.match(/ClassNumber:\s*(\d+)/i)
+            return match ? Number(match[1]) : 0
+          })
+          .filter((value: number) => Number.isFinite(value) && value > 0)
+        const highestExisting = existingNumbers.length > 0 ? Math.max(...existingNumbers) : 0
+        const regular = classes.filter(cls => !cls.isExam)
+        const usesDefaultSequence = regular.every((cls, index) => cls.classNumber === index + 1)
+        if (highestExisting > 0 && usesDefaultSequence) {
+          let offset = 0
+          normalizedClasses = classes.map(cls => cls.isExam
+            ? cls
+            : { ...cls, classNumber: highestExisting + (++offset) }
+          )
+        }
+      }
+    } catch (error) {
+      console.error('Failed to determine next truck class number:', error)
+    }
+
+    // Fetch existing events on the selected teacher's calendar to check for duplicates
+    const dates = normalizedClasses.map(c => c.date).sort()
     const minDate = dates[0]
     const maxDate = dates[dates.length - 1]
     let existingEvents: { title: string; start_dt: string; end_dt: string; notes?: string }[] = []
 
     try {
       const eventsRes = await fetch(
-        `${BASE_URL}/${calendarKey}/events?startDate=${minDate}&endDate=${maxDate}&subcalendarId[]=${nasarId}`,
+        `${BASE_URL}/${calendarKey}/events?startDate=${minDate}&endDate=${maxDate}&subcalendarId[]=${teacherSubcalendarId}`,
         { headers: { 'Teamup-Token': apiKey } }
       )
       if (eventsRes.ok) {
@@ -98,13 +144,13 @@ export async function POST(request: NextRequest) {
     // Check for duplicates before creating.
     //
     // Two rules:
-    //   A. TEACHER (Nasar) cannot be double-booked at the same date+time — block
+    //   A. The selected teacher cannot be double-booked at the same date+time.
     //      regardless of which student the existing event is for.
     //   B. Same student cannot already have a class at the same date+time.
     // Rule A subsumes rule B but we keep explicit detection to produce a clearer
     // error message when it's the same student.
     const duplicates: string[] = []
-    for (const cls of classes) {
+    for (const cls of normalizedClasses) {
       const dup = existingEvents.find(ev => {
         const evDate = ev.start_dt.split('T')[0]
         if (evDate !== cls.date) return false
@@ -117,14 +163,14 @@ export async function POST(request: NextRequest) {
         if (sameStudent) {
           duplicates.push(`${studentName} already has a class on ${formatDateDisplay(cls.date)} at ${formatTimeDisplay(cls.startTime)} (${dup.title})`)
         } else {
-          duplicates.push(`Nasar already has a class on ${formatDateDisplay(cls.date)} at ${formatTimeDisplay(cls.startTime)} (${dup.title})`)
+          duplicates.push(`The selected teacher already has a class on ${formatDateDisplay(cls.date)} at ${formatTimeDisplay(cls.startTime)} (${dup.title})`)
         }
       }
     }
 
     // Also check for duplicate time slots within the same request
     const timeSlots = new Set<string>()
-    for (const cls of classes) {
+    for (const cls of normalizedClasses) {
       const key = `${cls.date}-${cls.startTime}`
       if (timeSlots.has(key)) {
         duplicates.push(`Duplicate time slot: ${formatDateDisplay(cls.date)} at ${formatTimeDisplay(cls.startTime)}`)
@@ -133,6 +179,7 @@ export async function POST(request: NextRequest) {
     }
 
     if (duplicates.length > 0) {
+      activeLocks.delete(lockKey)
       return NextResponse.json(
         { error: 'Duplicate classes found', duplicates },
         { status: 409 }
@@ -144,7 +191,7 @@ export async function POST(request: NextRequest) {
     const errors: string[] = []
 
     // Create each event on Teamup (class numbers come from each row)
-    for (const cls of classes) {
+    for (const cls of normalizedClasses) {
       const classNumber = cls.classNumber
 
       const transTag = transmission === 'auto' ? ' (Auto)' : ' (Manual)'
@@ -171,50 +218,52 @@ export async function POST(request: NextRequest) {
             title,
             start_dt: `${cls.date}T${cls.startTime}:00`,
             end_dt: `${cls.date}T${cls.endTime}:00`,
-            subcalendar_ids: [nasarId],
+            subcalendar_ids: [teacherSubcalendarId],
             notes: noteLines.join('\n'),
           }),
         })
 
         if (res.ok) {
           eventsCreated++
+          const eventData = await res.json().catch(() => ({}))
+          const createdEvent = eventData.event || eventData
+          const teamupEventId = createdEvent?.id != null ? String(createdEvent.id) : null
+
+          // Schedule a reminder 6 hours before the class only after Teamup
+          // confirms that the calendar event exists.
+          try {
+            const classDateTime = new Date(`${cls.date}T${cls.startTime}:00`)
+            const reminderTime = new Date(classDateTime.getTime() - 6 * 60 * 60 * 1000)
+
+            if (reminderTime > new Date()) {
+              const timeDisplay = formatTimeDisplay(cls.startTime)
+              const reminderMessage = cls.isExam
+                ? `Reminder: You have your Truck Exam today at ${timeDisplay}${cls.examLocation ? ` in ${cls.examLocation}` : ''}. Good luck! 🍀`
+                : `Reminder: You have Truck Class ${classNumber ?? ''} today at ${timeDisplay}. See you there!`
+
+              await prisma.scheduledMessage.create({
+                data: {
+                  groupId: 'truck-classes',
+                  teamupEventId,
+                  message: reminderMessage,
+                  scheduledAt: reminderTime,
+                  memberPhones: JSON.stringify([studentPhone]),
+                  classDateISO: cls.date,
+                  classTime: `${cls.startTime}-${cls.endTime}`,
+                  status: 'pending',
+                },
+              })
+              remindersScheduled++
+            }
+          } catch (err) {
+            console.error('Failed to schedule reminder:', err)
+          }
         } else {
           const text = await res.text()
           errors.push(`Event ${title}: ${text}`)
         }
       } catch (err) {
         errors.push(`Event ${title}: ${err instanceof Error ? err.message : 'Unknown error'}`)
-      }
-
-      // Schedule a reminder 6 hours before the class
-      try {
-        const classDateTime = new Date(`${cls.date}T${cls.startTime}:00`)
-        const reminderTime = new Date(classDateTime.getTime() - 6 * 60 * 60 * 1000)
-
-        // Only schedule if reminder time is in the future
-        if (reminderTime > new Date()) {
-          const timeDisplay = formatTimeDisplay(cls.startTime)
-          let reminderMessage: string
-
-          if (cls.isExam) {
-            reminderMessage = `Reminder: You have your Truck Exam today at ${timeDisplay}${cls.examLocation ? ` in ${cls.examLocation}` : ''}. Good luck! 🍀`
-          } else {
-            reminderMessage = `Reminder: You have Truck Class ${classNumber ?? ''} today at ${timeDisplay}. See you there!`
-          }
-
-          await prisma.scheduledMessage.create({
-            data: {
-              groupId: 'truck-classes',
-              message: reminderMessage,
-              scheduledAt: reminderTime,
-              memberPhones: JSON.stringify([studentPhone]),
-              status: 'pending',
-            },
-          })
-          remindersScheduled++
-        }
-      } catch (err) {
-        console.error('Failed to schedule reminder:', err)
       }
 
       // Small delay between Teamup API calls to avoid rate limiting
@@ -225,8 +274,8 @@ export async function POST(request: NextRequest) {
     try {
       const state = getWhatsAppState()
       if (state.isConnected) {
-        const regularClasses = classes.map((cls, idx) => ({ ...cls, _origIdx: idx })).filter(c => !c.isExam)
-        const exams = classes.filter(c => c.isExam)
+        const regularClasses = normalizedClasses.map((cls, idx) => ({ ...cls, _origIdx: idx })).filter(c => !c.isExam)
+        const exams = normalizedClasses.filter(c => c.isExam)
 
         const cleanName = studentName.replace(/\s*#\d+$/, '').trim()
         let message = `Hi ${cleanName}! Here's your truck training schedule:\n\n`
@@ -270,25 +319,25 @@ export async function POST(request: NextRequest) {
       }).catch(() => {})
     }
 
-    // Notify teacher (Nasar) about the new truck classes
+    // Notify the selected teacher about the new truck classes
     try {
       const state2 = getWhatsAppState()
       if (state2.isConnected) {
         const teacherPhone = await prisma.teacherPhone.findUnique({
-          where: { subcalendarId: nasarId },
+          where: { subcalendarId: teacherSubcalendarId },
         })
         if (teacherPhone?.phone) {
           // Check if any class is within next 7 days
           const now = new Date()
           const sevenDaysFromNow = new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000)
-          const upcomingClasses = classes.filter(cls => {
+          const upcomingClasses = normalizedClasses.filter(cls => {
             const classDate = new Date(cls.date + 'T12:00:00')
             return classDate <= sevenDaysFromNow
           })
 
           if (upcomingClasses.length > 0) {
             let teacherMsg = `📅 New truck classes added for ${studentName}:\n\n`
-            for (const cls of classes) {
+            for (const cls of normalizedClasses) {
               const dateStr = formatDateDisplay(cls.date)
               const timeStr = `${formatTimeDisplay(cls.startTime)} - ${formatTimeDisplay(cls.endTime)}`
               if (cls.isExam) {
@@ -316,7 +365,8 @@ export async function POST(request: NextRequest) {
       success: true,
       eventsCreated,
       remindersScheduled,
-      totalClasses: classes.length,
+      totalClasses: normalizedClasses.length,
+      classes: normalizedClasses,
       errors: errors.length > 0 ? errors : undefined,
     })
   } catch (error) {

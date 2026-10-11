@@ -139,6 +139,7 @@ interface TruckFormData {
   studentName: string
   studentPhone: string
   transmission: 'auto' | 'manual'
+  subcalendarId: string
   classes: TruckClassRow[]
 }
 
@@ -296,6 +297,7 @@ function SchedulingPage() {
     studentName: '',
     studentPhone: '',
     transmission: 'manual',
+    subcalendarId: '',
     classes: [emptyTruckRow(1)],
   })
   const [truckCreating, setTruckCreating] = useState(false)
@@ -439,6 +441,7 @@ function SchedulingPage() {
   })
 
   const activeTeachers = subcalendars.filter(s => s.active)
+  const truckTeachers = activeTeachers.filter(teacher => /\btruck\b/i.test(teacher.name))
 
   // Fetch events for current date range
   const { data: events = [], isLoading: loadingEvents } = useQuery<TeamupEvent[]>({
@@ -1128,6 +1131,43 @@ function SchedulingPage() {
     })
   }
 
+  const prepareTruckPreview = async () => {
+    const regular = truckForm.classes.filter(cls => !cls.isExam)
+    const usesDefaultSequence = regular.every((cls, index) => cls.classNumber === index + 1)
+
+    if (usesDefaultSequence && truckForm.studentPhone) {
+      try {
+        const params = new URLSearchParams({
+          phone: truckForm.studentPhone,
+          studentName: truckForm.studentName,
+        })
+        const res = await fetch(`/api/scheduling/student-events?${params}`)
+        if (res.ok) {
+          const studentEvents: TeamupEvent[] = await res.json()
+          const highestExisting = studentEvents.reduce((highest, event) => {
+            if (!isTruckClass(event)) return highest
+            return Math.max(highest, parseTruckClassNumberFromNotes(event.notes) || 0)
+          }, 0)
+
+          if (highestExisting > 0) {
+            let offset = 0
+            setTruckForm(prev => ({
+              ...prev,
+              classes: prev.classes.map(cls => cls.isExam
+                ? cls
+                : { ...cls, classNumber: highestExisting + (++offset) }
+              ),
+            }))
+          }
+        }
+      } catch (error) {
+        console.error('Failed to determine next truck class number:', error)
+      }
+    }
+
+    setTruckStep('preview')
+  }
+
   // Bulk car class helpers
   const updateCarClass = (index: number, updates: Partial<CarClassRow>) => {
     setCarBulkForm(prev => ({
@@ -1258,6 +1298,7 @@ function SchedulingPage() {
           studentName: truckForm.studentName,
           studentPhone: truckForm.studentPhone,
           transmission: truckForm.transmission,
+          subcalendarId: Number(truckForm.subcalendarId),
           classes: truckForm.classes.map(c => ({
             date: c.date,
             startTime: c.startTime,
@@ -1274,7 +1315,7 @@ function SchedulingPage() {
         queryClient.invalidateQueries({ queryKey: ['scheduling-events'] })
         setShowTruckDialog(false)
         setTruckStep('form')
-        setTruckForm({ studentName: '', studentPhone: '', transmission: 'manual', classes: [emptyTruckRow(1)] })
+        setTruckForm({ studentName: '', studentPhone: '', transmission: 'manual', subcalendarId: '', classes: [emptyTruckRow(1)] })
         setTruckNotifyStatus('sent')
         console.log(`Truck classes created: ${result.eventsCreated}, reminders: ${result.remindersScheduled}`)
       } else if (res.status === 409) {
@@ -2524,7 +2565,10 @@ function SchedulingPage() {
             <Button size="sm" variant="outline" onClick={() => {
               // Only reset truck form if no student data entered (preserve data on accidental close)
               if (!truckForm.studentName && !truckForm.studentPhone) {
-                setTruckForm({ studentName: '', studentPhone: '', transmission: 'manual', classes: [emptyTruckRow(1)] })
+                const selectedTruckTeacher = selectedTeacher && truckTeachers.some(teacher => teacher.id === selectedTeacher)
+                  ? String(selectedTeacher)
+                  : (truckTeachers[0] ? String(truckTeachers[0].id) : '')
+                setTruckForm({ studentName: '', studentPhone: '', transmission: 'manual', subcalendarId: selectedTruckTeacher, classes: [emptyTruckRow(1)] })
               }
               setTruckStep('form')
               setShowTruckDialog(true)
@@ -3296,7 +3340,7 @@ function SchedulingPage() {
 
               <div className="space-y-4">
                 {/* Student Info */}
-                <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   <div>
                     <Label>Student Name</Label>
                     <Input
@@ -3335,6 +3379,22 @@ function SchedulingPage() {
                         Auto
                       </Button>
                     </div>
+                  </div>
+                  <div>
+                    <Label>Truck Teacher</Label>
+                    <Select
+                      value={truckForm.subcalendarId}
+                      onValueChange={(value) => setTruckForm(prev => ({ ...prev, subcalendarId: value }))}
+                    >
+                      <SelectTrigger className="mt-1">
+                        <SelectValue placeholder="Select teacher calendar" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {truckTeachers.map(teacher => (
+                          <SelectItem key={teacher.id} value={String(teacher.id)}>{teacher.name}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
                   </div>
                 </div>
 
@@ -3447,8 +3507,8 @@ function SchedulingPage() {
               <DialogFooter>
                 <Button variant="outline" onClick={() => setShowTruckDialog(false)}>Cancel</Button>
                 <Button
-                  onClick={() => setTruckStep('preview')}
-                  disabled={!truckForm.studentName || !truckForm.studentPhone || truckForm.classes.some(c => !c.date)}
+                  onClick={prepareTruckPreview}
+                  disabled={!truckForm.studentName || !truckForm.studentPhone || !truckForm.subcalendarId || truckForm.classes.some(c => !c.date)}
                   className="bg-emerald-600 hover:bg-emerald-700"
                 >
                   Review Schedule
@@ -3477,6 +3537,10 @@ function SchedulingPage() {
                   <div>
                     <p className="text-sm text-muted-foreground">Transmission</p>
                     <p className="font-medium">{truckForm.transmission === 'auto' ? 'Automatic' : 'Manual'}</p>
+                  </div>
+                  <div>
+                    <p className="text-sm text-muted-foreground">Teacher</p>
+                    <p className="font-medium">{truckTeachers.find(teacher => String(teacher.id) === truckForm.subcalendarId)?.name || 'Not selected'}</p>
                   </div>
                   <div className="ml-auto">
                     <p className="text-sm text-muted-foreground">Phone</p>
