@@ -188,6 +188,8 @@ export async function POST(request: NextRequest) {
 
     let eventsCreated = 0
     let remindersScheduled = 0
+    let studentMessageSent = false
+    let teacherMessageSent = false
     const errors: string[] = []
 
     // Create each event on Teamup (class numbers come from each row)
@@ -303,11 +305,14 @@ export async function POST(request: NextRequest) {
         message += `\nYou'll receive a reminder 6 hours before each class. Good luck! 🚛`
 
         await sendPrivateMessage(studentPhone, message)
+        studentMessageSent = true
 
         // Log the sent truck summary
         await prisma.messageLog.create({
           data: { type: 'truck-summary', to: studentPhone, toName: studentName, message: message.slice(0, 500), status: 'sent' },
         }).catch(() => {})
+      } else {
+        errors.push('Student schedule message: WhatsApp is not connected')
       }
     } catch (err) {
       console.error('Failed to send summary message:', err)
@@ -327,36 +332,32 @@ export async function POST(request: NextRequest) {
           where: { subcalendarId: teacherSubcalendarId },
         })
         if (teacherPhone?.phone) {
-          // Check if any class is within next 7 days
-          const now = new Date()
-          const sevenDaysFromNow = new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000)
-          const upcomingClasses = normalizedClasses.filter(cls => {
-            const classDate = new Date(cls.date + 'T12:00:00')
-            return classDate <= sevenDaysFromNow
-          })
-
-          if (upcomingClasses.length > 0) {
-            let teacherMsg = `📅 New truck classes added for ${studentName}:\n\n`
-            for (const cls of normalizedClasses) {
-              const dateStr = formatDateDisplay(cls.date)
-              const timeStr = `${formatTimeDisplay(cls.startTime)} - ${formatTimeDisplay(cls.endTime)}`
-              if (cls.isExam) {
-                teacherMsg += `🎯 Exam: ${dateStr} ${timeStr}${cls.examLocation ? ` (${cls.examLocation})` : ''}\n`
-              } else {
-                teacherMsg += `${cls.classNumber ?? '?'}. ${dateStr} ${timeStr}\n`
-              }
+          let teacherMsg = `📅 New truck classes added for ${studentName}:\n\n`
+          for (const cls of normalizedClasses) {
+            const dateStr = formatDateDisplay(cls.date)
+            const timeStr = `${formatTimeDisplay(cls.startTime)} - ${formatTimeDisplay(cls.endTime)}`
+            if (cls.isExam) {
+              teacherMsg += `🎯 Exam: ${dateStr} ${timeStr}${cls.examLocation ? ` (${cls.examLocation})` : ''}\n`
+            } else {
+              teacherMsg += `${cls.classNumber ?? '?'}. ${dateStr} ${timeStr}\n`
             }
-            await sendPrivateMessage(teacherPhone.phone, teacherMsg)
-
-            // Log teacher notification
-            await prisma.messageLog.create({
-              data: { type: 'teacher-notify', to: teacherPhone.phone, toName: teacherPhone.name, message: teacherMsg.slice(0, 500), status: 'sent' },
-            }).catch(() => {})
           }
+          await sendPrivateMessage(teacherPhone.phone, teacherMsg)
+          teacherMessageSent = true
+
+          // Log teacher notification
+          await prisma.messageLog.create({
+            data: { type: 'teacher-notify', to: teacherPhone.phone, toName: teacherPhone.name, message: teacherMsg.slice(0, 500), status: 'sent' },
+          }).catch(() => {})
+        } else {
+          errors.push('Teacher notification: no WhatsApp number is configured for the selected teacher')
         }
+      } else {
+        errors.push('Teacher notification: WhatsApp is not connected')
       }
     } catch (err) {
       console.error('Failed to notify teacher about truck classes:', err)
+      errors.push(`Teacher notification: ${err instanceof Error ? err.message : 'Failed to send'}`)
     }
 
     activeLocks.delete(lockKey)
@@ -367,6 +368,8 @@ export async function POST(request: NextRequest) {
       remindersScheduled,
       totalClasses: normalizedClasses.length,
       classes: normalizedClasses,
+      studentMessageSent,
+      teacherMessageSent,
       errors: errors.length > 0 ? errors : undefined,
     })
   } catch (error) {

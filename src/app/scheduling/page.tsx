@@ -301,7 +301,7 @@ function SchedulingPage() {
     classes: [emptyTruckRow(1)],
   })
   const [truckCreating, setTruckCreating] = useState(false)
-  const [truckNotifyStatus, setTruckNotifyStatus] = useState<null | 'sending' | 'sent' | 'failed'>(null)
+  const [truckNotifyStatus, setTruckNotifyStatus] = useState<null | 'sending' | 'sent' | 'partial' | 'failed'>(null)
   const [truckStep, setTruckStep] = useState<'form' | 'preview'>('form')
   const [truckDuplicateError, setTruckDuplicateError] = useState<string[] | null>(null)
 
@@ -1316,7 +1316,7 @@ function SchedulingPage() {
         setShowTruckDialog(false)
         setTruckStep('form')
         setTruckForm({ studentName: '', studentPhone: '', transmission: 'manual', subcalendarId: '', classes: [emptyTruckRow(1)] })
-        setTruckNotifyStatus('sent')
+        setTruckNotifyStatus(result.studentMessageSent && result.teacherMessageSent ? 'sent' : 'partial')
         console.log(`Truck classes created: ${result.eventsCreated}, reminders: ${result.remindersScheduled}`)
       } else if (res.status === 409) {
         const data = await res.json()
@@ -3984,15 +3984,18 @@ function SchedulingPage() {
               className={`flex items-center gap-2 px-4 py-3 rounded-lg shadow-lg text-sm font-medium ${
                 truckNotifyStatus === 'sending' ? 'bg-emerald-100 text-emerald-800' :
                 truckNotifyStatus === 'sent' ? 'bg-green-100 text-green-800' :
+                truckNotifyStatus === 'partial' ? 'bg-amber-100 text-amber-800' :
                 'bg-red-100 text-red-800'
               }`}
             >
               {truckNotifyStatus === 'sending' && <Loader2 className="h-4 w-4 animate-spin" />}
               {truckNotifyStatus === 'sent' && <CheckCircle2 className="h-4 w-4" />}
+              {truckNotifyStatus === 'partial' && <AlertCircle className="h-4 w-4" />}
               {truckNotifyStatus === 'failed' && <AlertCircle className="h-4 w-4" />}
               <Truck className="h-4 w-4" />
               {truckNotifyStatus === 'sending' && 'Creating truck classes & sending schedule...'}
               {truckNotifyStatus === 'sent' && 'Truck classes created & schedule sent!'}
+              {truckNotifyStatus === 'partial' && 'Classes created, but one or more WhatsApp messages were not sent'}
               {truckNotifyStatus === 'failed' && 'Failed to create truck classes'}
             </motion.div>
           )}
