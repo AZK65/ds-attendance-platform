@@ -87,9 +87,9 @@ export async function POST(request: NextRequest) {
       const whatsappMembers = await getGroupParticipants(groupId)
       console.log(`[Zoom] WhatsApp group has ${whatsappMembers.length} total members`)
 
-      // Filter out super admin (owner)
-      const students = whatsappMembers.filter(m => !m.isSuperAdmin)
-      console.log(`[Zoom] After filtering owner: ${students.length} students`)
+      // Filter out every school staff admin, not only the group owner.
+      const students = whatsappMembers.filter(m => !m.isAdmin && !m.isSuperAdmin)
+      console.log(`[Zoom] After filtering staff admins: ${students.length} students`)
       console.log(`[Zoom] Student names:`, students.map(s => s.name || s.pushName || s.phone))
 
       // Load learned matches from database

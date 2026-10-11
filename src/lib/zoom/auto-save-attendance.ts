@@ -71,6 +71,7 @@ export async function autoSaveAttendanceOnMeetingEnd(opts: AutoSaveOptions): Pro
       members: {
         select: {
           phone: true,
+          isAdmin: true,
           isSuperAdmin: true,
           contact: { select: { name: true, pushName: true } },
         },
@@ -98,7 +99,7 @@ export async function autoSaveAttendanceOnMeetingEnd(opts: AutoSaveOptions): Pro
 
   for (const g of groups) {
     if (g.members.length === 0) continue
-    const members = g.members.filter(m => !m.isSuperAdmin).map(m => ({
+    const members = g.members.filter(m => !m.isAdmin && !m.isSuperAdmin).map(m => ({
       name: m.contact.name,
       pushName: m.contact.pushName,
       phone: m.phone,

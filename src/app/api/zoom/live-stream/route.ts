@@ -81,7 +81,11 @@ export async function GET(request: NextRequest) {
       ])
 
       whatsappStudents = members
-        .filter(m => !m.isSuperAdmin)
+        // Group admins are school staff/teachers, not students. WhatsApp
+        // only marks the group owner as super-admin, so filtering owners
+        // alone caused ordinary staff admins (for example Fayyaz) to appear
+        // in the live attendance roster as absent students.
+        .filter(m => !m.isAdmin && !m.isSuperAdmin)
         .map(m => ({ name: m.name, pushName: m.pushName, phone: m.phone }))
       learnedMatches = matches
     } catch (error) {
