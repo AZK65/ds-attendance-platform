@@ -313,6 +313,11 @@ type DestroyableWhatsAppClient = {
 
 async function destroyClientInstance(client: DestroyableWhatsAppClient | null): Promise<void> {
   if (!client) return
+  // Capture the OS process before client.destroy(). Puppeteer clears or
+  // disconnects pupBrowser during destroy, so asking for process() afterward
+  // can return null even when Chromium is still alive. That orphan keeps the
+  // LocalAuth profile locked and every replacement browser then times out.
+  const browserProcess = client.pupBrowser?.process() || null
   try {
     await Promise.race([
       client.destroy(),
@@ -323,7 +328,7 @@ async function destroyClientInstance(client: DestroyableWhatsAppClient | null): 
     console.log('[destroyClientHard] destroy failed/hung:', e)
   }
   try {
-    client.pupBrowser?.process()?.kill('SIGKILL')
+    browserProcess?.kill('SIGKILL')
   } catch {
     // process already gone
   }
