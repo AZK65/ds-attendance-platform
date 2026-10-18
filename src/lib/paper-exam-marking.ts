@@ -58,7 +58,7 @@ export async function buildMarkedPaperExamPage(pageId: string, options?: { requi
   const wrongDetails = wrong.map(question => {
     const student = answers[String(question)] || 'blank'
     const correct = answerKey[String(question)] || '?'
-    return `Q${question}: ${student} → ${correct}`
+    return `Q${question}: ${student} → correct ${correct}`
   })
   const unclearDetails = uncertain
     .filter(question => !wrong.includes(question))
@@ -74,18 +74,20 @@ export async function buildMarkedPaperExamPage(pageId: string, options?: { requi
   if (!width || !baseHeight) throw new Error('Could not read exam photo dimensions')
 
   const scale = Math.max(0.75, Math.min(2.2, width / 1200))
-  const padding = Math.round(34 * scale)
-  const titleSize = Math.round(30 * scale)
-  const scoreSize = Math.round(54 * scale)
-  const bodySize = Math.round(20 * scale)
-  const lineHeight = Math.round(30 * scale)
-  const availableTextWidth = Math.max(20, width - padding * 2)
+  const margin = Math.round(24 * scale)
+  const padding = Math.round(24 * scale)
+  const panelWidth = Math.min(width - margin * 2, Math.round(720 * scale))
+  const titleSize = Math.round(24 * scale)
+  const scoreSize = Math.round(48 * scale)
+  const bodySize = Math.round(18 * scale)
+  const lineHeight = Math.round(27 * scale)
+  const availableTextWidth = Math.max(20, panelWidth - padding * 2)
   const approxCharacters = Math.max(22, Math.floor(availableTextWidth / (bodySize * 0.58)))
-  const detailText = details.length > 0 ? details.join('   •   ') : 'No incorrect answers'
+  const detailText = details.length > 0 ? details.join('  •  ') : 'No incorrect answers — all responses match the answer key.'
   const lines: string[] = []
   let remaining = detailText
   while (remaining.length > approxCharacters) {
-    let splitAt = remaining.lastIndexOf('   •   ', approxCharacters)
+    let splitAt = remaining.lastIndexOf('  •  ', approxCharacters)
     if (splitAt < Math.floor(approxCharacters * 0.55)) splitAt = remaining.lastIndexOf(' ', approxCharacters)
     if (splitAt <= 0) splitAt = approxCharacters
     lines.push(remaining.slice(0, splitAt).trim())
@@ -93,32 +95,36 @@ export async function buildMarkedPaperExamPage(pageId: string, options?: { requi
   }
   if (remaining.trim()) lines.push(remaining.trim())
 
-  const bannerHeight = Math.max(Math.round(190 * scale), padding * 2 + scoreSize + titleSize + Math.max(1, lines.length) * lineHeight)
+  const panelHeight = Math.max(
+    Math.round(178 * scale),
+    padding * 2 + scoreSize + titleSize + Math.max(1, lines.length) * lineHeight,
+  )
+  const panelX = width - margin - panelWidth
+  const panelY = margin
   const statusColor = submission.passed ? '#047857' : '#b91c1c'
-  const statusBg = submission.passed ? '#ecfdf5' : '#fef2f2'
   const reviewLabel = verified ? 'STAFF VERIFIED' : 'AI DRAFT — VERIFY BEFORE USE'
   const reviewColor = verified ? '#166534' : '#92400e'
   const percentage = Math.round((submission.score / submission.totalQuestions) * 100)
   const detailNodes = lines.map((line, index) => (
-    `<text x="${padding}" y="${Math.round(145 * scale) + index * lineHeight}" font-size="${bodySize}" font-family="Arial, Helvetica, sans-serif" fill="#334155">${escapeXml(line)}</text>`
+    `<text x="${panelX + padding}" y="${panelY + Math.round(132 * scale) + index * lineHeight}" font-size="${bodySize}" font-weight="600" font-family="Arial, Helvetica, sans-serif" fill="#0f172a">${escapeXml(line)}</text>`
   )).join('')
 
   const overlay = Buffer.from(`
-    <svg width="${width}" height="${bannerHeight}" xmlns="http://www.w3.org/2000/svg">
-      <rect width="100%" height="100%" fill="#ffffff"/>
-      <rect width="${Math.round(12 * scale)}" height="100%" fill="${statusColor}"/>
-      <text x="${padding}" y="${Math.round(43 * scale)}" font-size="${titleSize}" font-weight="700" font-family="Arial, Helvetica, sans-serif" fill="#0f172a">${escapeXml(submission.studentName)}</text>
-      <text x="${width - padding}" y="${Math.round(38 * scale)}" text-anchor="end" font-size="${bodySize}" font-weight="700" font-family="Arial, Helvetica, sans-serif" fill="${reviewColor}">${reviewLabel}</text>
-      <rect x="${padding}" y="${Math.round(60 * scale)}" width="${Math.round(250 * scale)}" height="${Math.round(64 * scale)}" rx="${Math.round(12 * scale)}" fill="${statusBg}"/>
-      <text x="${padding + Math.round(18 * scale)}" y="${Math.round(106 * scale)}" font-size="${scoreSize}" font-weight="800" font-family="Arial, Helvetica, sans-serif" fill="${statusColor}">${submission.score}/${submission.totalQuestions}</text>
-      <text x="${padding + Math.round(270 * scale)}" y="${Math.round(91 * scale)}" font-size="${titleSize}" font-weight="700" font-family="Arial, Helvetica, sans-serif" fill="${statusColor}">${submission.passed ? 'PASS' : 'NOT PASSED'} · ${percentage}%</text>
+    <svg width="${width}" height="${baseHeight}" xmlns="http://www.w3.org/2000/svg">
+      <rect x="${panelX + Math.round(6 * scale)}" y="${panelY + Math.round(8 * scale)}" width="${panelWidth}" height="${panelHeight}" rx="${Math.round(18 * scale)}" fill="#000000" fill-opacity="0.22"/>
+      <rect x="${panelX}" y="${panelY}" width="${panelWidth}" height="${panelHeight}" rx="${Math.round(18 * scale)}" fill="#ffffff" fill-opacity="0.95" stroke="${statusColor}" stroke-width="${Math.round(4 * scale)}"/>
+      <rect x="${panelX}" y="${panelY}" width="${Math.round(12 * scale)}" height="${panelHeight}" rx="${Math.round(6 * scale)}" fill="${statusColor}"/>
+      <text x="${panelX + padding}" y="${panelY + Math.round(34 * scale)}" font-size="${titleSize}" font-weight="800" font-family="Arial, Helvetica, sans-serif" fill="#0f172a">${escapeXml(submission.studentName)}</text>
+      <text x="${panelX + panelWidth - padding}" y="${panelY + Math.round(31 * scale)}" text-anchor="end" font-size="${Math.round(15 * scale)}" font-weight="700" font-family="Arial, Helvetica, sans-serif" fill="${reviewColor}">${reviewLabel}</text>
+      <text x="${panelX + padding}" y="${panelY + Math.round(91 * scale)}" font-size="${scoreSize}" font-weight="900" font-family="Arial, Helvetica, sans-serif" fill="${statusColor}">${submission.score}/${submission.totalQuestions}</text>
+      <text x="${panelX + padding + Math.round(180 * scale)}" y="${panelY + Math.round(76 * scale)}" font-size="${titleSize}" font-weight="800" font-family="Arial, Helvetica, sans-serif" fill="${statusColor}">${submission.passed ? 'PASS' : 'NOT PASSED'} · ${percentage}%</text>
+      <text x="${panelX + padding}" y="${panelY + Math.round(116 * scale)}" font-size="${Math.round(15 * scale)}" font-weight="800" font-family="Arial, Helvetica, sans-serif" fill="#475569">CORRECTIONS / CORRECT ANSWERS</text>
       ${detailNodes}
     </svg>
   `)
 
   const bytes = await sharp(normalized.data)
-    .extend({ bottom: bannerHeight, background: '#ffffff' })
-    .composite([{ input: overlay, top: baseHeight, left: 0 }])
+    .composite([{ input: overlay, top: 0, left: 0 }])
     .flatten({ background: '#ffffff' })
     .jpeg({ quality: 92, chromaSubsampling: '4:4:4' })
     .toBuffer()
