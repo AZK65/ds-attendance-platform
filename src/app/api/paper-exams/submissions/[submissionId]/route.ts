@@ -7,6 +7,7 @@ import { PAPER_EXAM_DIR } from '@/lib/paper-exam'
 import { gradePaperExamSubmission, saveReviewedPaperExamAnswers } from '@/lib/paper-exam-grading'
 import { buildMarkedPaperExamPage } from '@/lib/paper-exam-marking'
 import { paperExamResultIsVerified } from '@/lib/paper-exam-result'
+import { notifyPaperExamResult } from '@/lib/paper-exam-notification'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -104,9 +105,11 @@ export async function PATCH(
     const { submissionId } = await params
     const body = await request.json() as { answers?: unknown }
     const submission = await saveReviewedPaperExamAnswers(decodeURIComponent(submissionId), body.answers)
-    return NextResponse.json({ ok: true, submissionId: submission.id })
+    const notification = await notifyPaperExamResult(submission.id)
+    return NextResponse.json({ ok: true, submissionId: submission.id, notification })
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Could not save reviewed answers'
-    return NextResponse.json({ error: message }, { status: message.includes('need review') ? 400 : 500 })
+    const status = message.includes('need review') ? 400 : message.startsWith('Grade saved,') ? 502 : 500
+    return NextResponse.json({ error: message }, { status })
   }
 }

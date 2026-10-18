@@ -56,6 +56,8 @@ interface Submission {
   passed: boolean | null
   confidence: number | null
   error: string | null
+  resultNotifiedAt: string | null
+  resultNotifyError: string | null
   answers: Record<string, string | null>
   uncertain: number[]
   wrong: number[]
@@ -499,7 +501,7 @@ export default function PaperExamModePage() {
           <DialogHeader className="shrink-0 border-b px-6 py-4 pr-14">
             <DialogTitle>{review?.studentName} · Answer review</DialogTitle>
             <DialogDescription>
-              Compare the photo with every answer. Current score: {reviewScore}/{reviewTotal} · pass {data.session?.passingScore}/{reviewTotal}.
+              Compare the photo with every answer. Confirming sends the student their private WhatsApp result. Current score: {reviewScore}/{reviewTotal} · pass {data.session?.passingScore}/{reviewTotal}.
             </DialogDescription>
           </DialogHeader>
           <div className="grid min-h-0 flex-1 grid-rows-[minmax(18rem,40vh)_minmax(0,1fr)] overflow-hidden lg:grid-cols-[minmax(0,3fr)_minmax(32rem,2fr)] lg:grid-rows-1">
@@ -543,6 +545,11 @@ export default function PaperExamModePage() {
                   </div>
                 </div>
                 {review?.submission.error && <div className="mb-3 rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-800">{review.submission.error}</div>}
+                {review?.submission.resultNotifyError && !review.submission.resultNotifiedAt && (
+                  <div className="mb-3 rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">
+                    The grade is saved, but the private result has not been sent. Use <span className="font-semibold">Send private result</span> below to retry.
+                  </div>
+                )}
                 {review?.submission.notes && review.submission.notes !== 'Reviewed by staff' && <div className="mb-3 rounded-lg border bg-muted/30 p-3 text-sm"><span className="font-medium">OCR note:</span> {review.submission.notes}</div>}
                 <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">Compare each answer to the photo</p>
                 <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 xl:grid-cols-4">
@@ -571,10 +578,19 @@ export default function PaperExamModePage() {
                   {gradeSubmission.isPending ? <Loader2 className="animate-spin" /> : <RefreshCw />} Run OCR again
                 </Button>
                 {review?.submission.verified ? (
-                  <Button asChild><a href={`/api/paper-exams/submissions/${encodeURIComponent(review.submission.id)}?variant=marked`}><Download /> Download marked exam</a></Button>
+                  <>
+                    <Button variant="outline" asChild><a href={`/api/paper-exams/submissions/${encodeURIComponent(review.submission.id)}?variant=marked`}><Download /> Download marked exam</a></Button>
+                    {review.submission.resultNotifiedAt ? (
+                      <span className="inline-flex h-9 items-center gap-2 rounded-md bg-emerald-50 px-3 text-sm font-medium text-emerald-800"><Check /> Private result sent</span>
+                    ) : (
+                      <Button onClick={() => saveReview.mutate()} disabled={saveReview.isPending}>
+                        {saveReview.isPending ? <Loader2 className="animate-spin" /> : <Send />} Send private result
+                      </Button>
+                    )}
+                  </>
                 ) : (
                   <Button onClick={() => saveReview.mutate()} disabled={saveReview.isPending}>
-                    {saveReview.isPending ? <Loader2 className="animate-spin" /> : <ShieldCheck />} Confirm grade & create marked copy
+                    {saveReview.isPending ? <Loader2 className="animate-spin" /> : <Send />} Verify grade & send result
                   </Button>
                 )}
               </div>

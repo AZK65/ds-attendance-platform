@@ -147,6 +147,8 @@ function serializeSubmission(submission: {
   passed: boolean | null
   confidence: number | null
   error: string | null
+  resultNotifiedAt: Date | null
+  resultNotifyError: string | null
   extractedAnswers: string | null
   receivedAt: Date
   pages: Array<{ id: string; pageNumber: number; mimetype: string; filename: string | null; createdAt: Date }>
@@ -173,6 +175,8 @@ function serializeSubmission(submission: {
     passed: submission.passed,
     confidence: submission.confidence,
     error: submission.error,
+    resultNotifiedAt: submission.resultNotifiedAt,
+    resultNotifyError: submission.resultNotifyError,
     answers: extraction?.answers || {},
     uncertain: extraction?.uncertain || [],
     wrong: extraction?.wrong || [],
