@@ -13,6 +13,16 @@ function percentage(score: number, total: number) {
   return Math.round((score / total) * 100)
 }
 
+export function formatPaperExamStudentName(value: string) {
+  const name = value.trim()
+  if (!name) return 'there'
+  const letters = name.replace(/[^\p{L}]/gu, '')
+  if (!letters || letters !== letters.toLocaleUpperCase('en-CA')) return name
+  return name
+    .toLocaleLowerCase('en-CA')
+    .replace(/(^|[\s,'’.-])\p{L}/gu, match => match.toLocaleUpperCase('en-CA'))
+}
+
 export function buildPaperExamResultMessage(input: {
   studentName: string
   examTitle: string
@@ -20,19 +30,19 @@ export function buildPaperExamResultMessage(input: {
   totalQuestions: number
   passed: boolean
 }) {
-  const name = input.studentName.trim() || 'there'
+  const name = formatPaperExamStudentName(input.studentName)
   const grade = `${input.score}/${input.totalQuestions} (${percentage(input.score, input.totalQuestions)}%)`
 
   if (input.passed) {
     return [
       `Hi ${name}!`,
       '',
-      `✅ You passed your ${input.examTitle}.`,
+      `🎉 You passed your ${input.examTitle}!`,
       `Grade: ${grade}`,
       '',
       'Your certificate will be ready for pickup on Wednesday or any day after.',
       '',
-      'Congratulations!',
+      'Congratulations! 🎊',
     ].join('\n')
   }
 
