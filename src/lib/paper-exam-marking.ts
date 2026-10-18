@@ -3,7 +3,6 @@ import path from 'path'
 import sharp from 'sharp'
 import { prisma } from '@/lib/db'
 import { PAPER_EXAM_DIR } from '@/lib/paper-exam'
-import { parsePaperExamAnswerMap } from '@/lib/paper-exam-answer-keys'
 import { paperExamResultIsVerified, parseStoredPaperExamResult } from '@/lib/paper-exam-result'
 
 function escapeXml(value: string) {
@@ -51,19 +50,8 @@ export async function buildMarkedPaperExamPage(pageId: string, options?: { requi
     throw new Error('Staff must confirm the AI grade before downloading the marked exam')
   }
 
-  const answerKey = parsePaperExamAnswerMap(submission.session.answerKey)
-  const answers = result.answers || {}
   const wrong = Array.isArray(result.wrong) ? result.wrong : []
-  const uncertain = Array.isArray(result.uncertain) ? result.uncertain : []
-  const wrongDetails = wrong.map(question => {
-    const student = answers[String(question)] || 'blank'
-    const correct = answerKey[String(question)] || '?'
-    return `Q${question}: ${student} → correct ${correct}`
-  })
-  const unclearDetails = uncertain
-    .filter(question => !wrong.includes(question))
-    .map(question => `Q${question}: unclear`)
-  const details = [...wrongDetails, ...unclearDetails]
+  const details = wrong.map(question => `Q${question}`)
 
   const normalized = await sharp(await fs.readFile(safePath(page.filePath)), { failOn: 'none' })
     .rotate()
@@ -83,7 +71,7 @@ export async function buildMarkedPaperExamPage(pageId: string, options?: { requi
   const lineHeight = Math.round(27 * scale)
   const availableTextWidth = Math.max(20, panelWidth - padding * 2)
   const approxCharacters = Math.max(22, Math.floor(availableTextWidth / (bodySize * 0.58)))
-  const detailText = details.length > 0 ? details.join('  •  ') : 'No incorrect answers — all responses match the answer key.'
+  const detailText = details.length > 0 ? details.join('  •  ') : 'None — all answers are correct.'
   const lines: string[] = []
   let remaining = detailText
   while (remaining.length > approxCharacters) {
@@ -118,7 +106,7 @@ export async function buildMarkedPaperExamPage(pageId: string, options?: { requi
       <text x="${panelX + panelWidth - padding}" y="${panelY + Math.round(31 * scale)}" text-anchor="end" font-size="${Math.round(15 * scale)}" font-weight="700" font-family="Arial, Helvetica, sans-serif" fill="${reviewColor}">${reviewLabel}</text>
       <text x="${panelX + padding}" y="${panelY + Math.round(91 * scale)}" font-size="${scoreSize}" font-weight="900" font-family="Arial, Helvetica, sans-serif" fill="${statusColor}">${submission.score}/${submission.totalQuestions}</text>
       <text x="${panelX + padding + Math.round(180 * scale)}" y="${panelY + Math.round(76 * scale)}" font-size="${titleSize}" font-weight="800" font-family="Arial, Helvetica, sans-serif" fill="${statusColor}">${submission.passed ? 'PASS' : 'NOT PASSED'} · ${percentage}%</text>
-      <text x="${panelX + padding}" y="${panelY + Math.round(116 * scale)}" font-size="${Math.round(15 * scale)}" font-weight="800" font-family="Arial, Helvetica, sans-serif" fill="#475569">CORRECTIONS / CORRECT ANSWERS</text>
+      <text x="${panelX + padding}" y="${panelY + Math.round(116 * scale)}" font-size="${Math.round(15 * scale)}" font-weight="800" font-family="Arial, Helvetica, sans-serif" fill="#475569">INCORRECT QUESTIONS</text>
       ${detailNodes}
     </svg>
   `)
