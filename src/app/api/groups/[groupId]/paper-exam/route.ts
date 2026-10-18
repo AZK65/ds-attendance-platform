@@ -4,6 +4,8 @@ import { paperExamLast10 } from '@/lib/paper-exam'
 import { MODULE_5_PAPER_EXAM, module5AnswerKeyJson, parsePaperExamAnswerMap } from '@/lib/paper-exam-answer-keys'
 import { schedulePaperExamGrading } from '@/lib/paper-exam-grading'
 import { paperExamResultIsVerified } from '@/lib/paper-exam-result'
+import { capturePaperExamMedia } from '@/lib/paper-exam'
+import { getInboxMessageMedia } from '@/lib/whatsapp/client'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -207,7 +209,15 @@ export async function POST(
   try {
     const { groupId } = await params
     const decodedGroupId = decodeURIComponent(groupId)
-    const body = await request.json().catch(() => ({})) as { action?: string; title?: string; sessionId?: string }
+    const body = await request.json().catch(() => ({})) as {
+      action?: string
+      title?: string
+      sessionId?: string
+      messageId?: string
+      phone?: string
+      senderJid?: string
+      receivedAt?: string
+    }
     const group = await prisma.group.findUnique({ where: { id: decodedGroupId }, select: { id: true, name: true } })
     if (!group) return NextResponse.json({ error: 'Group not found' }, { status: 404 })
 
@@ -233,6 +243,64 @@ export async function POST(
       })
       submissions.forEach((submission, index) => schedulePaperExamGrading(submission.id, 500 + index * 1_000))
       return NextResponse.json({ queued: submissions.length })
+    }
+
+    if (body.action === 'create-backfill') {
+      const startedAt = body.receivedAt && !Number.isNaN(Date.parse(body.receivedAt))
+        ? new Date(body.receivedAt)
+        : new Date()
+      const session = await prisma.paperExamSession.create({
+        data: {
+          groupId: decodedGroupId,
+          groupName: group.name,
+          title: body.title?.trim().slice(0, 100) || `${MODULE_5_PAPER_EXAM.title} — Historical mock`,
+          status: 'closed',
+          startedAt,
+          closedAt: new Date(),
+          answerKey: module5AnswerKeyJson(),
+          totalQuestions: MODULE_5_PAPER_EXAM.totalQuestions,
+          passingScore: MODULE_5_PAPER_EXAM.passingScore,
+        },
+      })
+      return NextResponse.json(await buildSessionPayload(decodedGroupId, session.id), { status: 201 })
+    }
+
+    if (body.action === 'backfill') {
+      if (!body.sessionId || !body.messageId || !body.phone) {
+        return NextResponse.json({ error: 'sessionId, messageId, and phone are required' }, { status: 400 })
+      }
+      const session = await prisma.paperExamSession.findFirst({
+        where: { id: body.sessionId, groupId: decodedGroupId },
+        select: { id: true },
+      })
+      if (!session) return NextResponse.json({ error: 'Backfill session not found' }, { status: 404 })
+
+      const phone = body.phone.replace(/\D/g, '')
+      const member = await prisma.groupMember.findFirst({
+        where: {
+          groupId: decodedGroupId,
+          phone: { endsWith: phone.slice(-10) },
+          isAdmin: false,
+          isSuperAdmin: false,
+        },
+        include: { contact: { select: { id: true } } },
+      })
+      if (!member) return NextResponse.json({ error: 'Student is not a member of this group' }, { status: 404 })
+
+      const media = await getInboxMessageMedia(body.messageId, 60_000)
+      const receivedAt = body.receivedAt && !Number.isNaN(Date.parse(body.receivedAt))
+        ? new Date(body.receivedAt)
+        : new Date()
+      const capture = await capturePaperExamMedia({
+        groupId: decodedGroupId,
+        sessionId: session.id,
+        senderJid: body.senderJid || member.contact.id,
+        senderPhone: member.phone,
+        messageId: body.messageId,
+        receivedAt,
+        media,
+      })
+      return NextResponse.json({ capture })
     }
 
     if (body.action !== 'start') {

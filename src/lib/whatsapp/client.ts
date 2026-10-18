@@ -2875,7 +2875,7 @@ export async function sendToRawChatId(chatId: string, text: string): Promise<voi
 }
 
 /** Download one WhatsApp attachment on demand for the admin inbox. */
-export async function getInboxMessageMedia(messageId: string): Promise<InboxMessageMedia> {
+export async function getInboxMessageMedia(messageId: string, timeoutMs = 15_000): Promise<InboxMessageMedia> {
   if (!state.client || !state.isConnected) {
     throw new Error('WhatsApp not connected')
   }
@@ -2899,14 +2899,14 @@ export async function getInboxMessageMedia(messageId: string): Promise<InboxMess
     const message = await Promise.race([
       client.getMessageById(messageId),
       new Promise<null>((_, reject) =>
-        setTimeout(() => reject(new Error('WhatsApp took too long to find the attachment')), 8_000)
+        setTimeout(() => reject(new Error('WhatsApp took too long to find the attachment')), Math.min(timeoutMs, 15_000))
       ),
     ])
     if (!message) throw new Error('Message is no longer available in WhatsApp')
     const media = await Promise.race([
       message.downloadMedia(),
       new Promise<undefined>((_, reject) =>
-        setTimeout(() => reject(new Error('WhatsApp took too long to download the attachment')), 15_000)
+        setTimeout(() => reject(new Error('WhatsApp took too long to download the attachment')), timeoutMs)
       ),
     ])
     if (!media?.data || !media.mimetype) {

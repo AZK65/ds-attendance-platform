@@ -21,10 +21,12 @@ export type PaperExamCaptureResult =
 
 interface CaptureInput {
   groupId: string
+  sessionId?: string
   senderJid: string
   senderPhone: string
   senderName?: string | null
   messageId: string
+  receivedAt?: Date
   media: {
     data: string
     mimetype: string
@@ -94,7 +96,9 @@ function safeSegment(value: string): string {
  */
 export async function capturePaperExamMedia(input: CaptureInput): Promise<PaperExamCaptureResult> {
   const session = await prisma.paperExamSession.findFirst({
-    where: { groupId: input.groupId, status: 'active' },
+    where: input.sessionId
+      ? { id: input.sessionId, groupId: input.groupId }
+      : { groupId: input.groupId, status: 'active' },
     orderBy: { startedAt: 'desc' },
   })
   if (!session) return { captured: false, reason: 'no-active-session' }
@@ -148,7 +152,7 @@ export async function capturePaperExamMedia(input: CaptureInput): Promise<PaperE
       passed: null,
       confidence: null,
       error: null,
-      receivedAt: new Date(),
+      receivedAt: input.receivedAt || new Date(),
     },
     create: {
       sessionId: session.id,
@@ -157,6 +161,7 @@ export async function capturePaperExamMedia(input: CaptureInput): Promise<PaperE
       senderJid: input.senderJid,
       phone: normalizedPhone,
       studentName,
+      receivedAt: input.receivedAt || new Date(),
     },
   })
 
