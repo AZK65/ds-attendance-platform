@@ -69,6 +69,12 @@ const documentOptions = [
     description: 'Permit, identification, photo, and signatures',
     icon: Images,
   },
+  {
+    id: 'paper-exams',
+    label: 'Paper exams',
+    description: 'Submitted exam photos and saved grades',
+    icon: ClipboardList,
+  },
 ] as const
 
 type DocumentId = (typeof documentOptions)[number]['id']

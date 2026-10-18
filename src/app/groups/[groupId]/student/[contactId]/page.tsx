@@ -60,6 +60,7 @@ import Link from 'next/link'
 import { motion } from 'motion/react'
 import { StudentAvatar } from '@/components/StudentAvatar'
 import { StudentDocumentDownloadDialog } from '@/components/StudentDocumentDownloadDialog'
+import { PaperExamProfileCard, type PaperExamProfileRecord } from '@/components/PaperExamProfileCard'
 
 interface Participant {
   id: string
@@ -204,6 +205,7 @@ interface StudentProfileData {
     passed: boolean | null; totalQuestions: number; startedAt: string;
     submittedAt: string | null; timeExpired: boolean;
   }>
+  paperExams?: PaperExamProfileRecord[]
   summary: {
     totalInvoiced: number
     totalPaid: number
@@ -1133,11 +1135,12 @@ export default function StudentDetailPage() {
 
   // Fetch hybrid student profile (external DB match + local invoices)
   const { data: profileData, isLoading: loadingProfile } = useQuery<StudentProfileData>({
-    queryKey: ['student-profile', phone, displayName],
+    queryKey: ['student-profile', phone, displayName, contactId],
     queryFn: async () => {
       const params = new URLSearchParams()
       params.set('phone', phone)
       if (displayName && displayName !== phone) params.set('name', displayName)
+      params.set('contactId', contactId)
       const res = await fetch(`/api/students/profile?${params}`)
       if (!res.ok) throw new Error('Failed to fetch profile')
       return res.json()
@@ -2413,6 +2416,16 @@ export default function StudentDetailPage() {
               </div>
             </CardContent>
           </Card>
+        </motion.div>
+      )}
+
+      {profileData?.paperExams && profileData.paperExams.length > 0 && (
+        <motion.div
+          initial={{ opacity: 0, y: 10 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ delay: 0.32, duration: 0.25 }}
+        >
+          <PaperExamProfileCard exams={profileData.paperExams} />
         </motion.div>
       )}
 

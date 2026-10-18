@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/db'
 import { searchStudents, type StudentRecord } from '@/lib/external-db'
+import { findStudentPaperExams } from '@/lib/paper-exam-profile'
 
 // GET /api/students/profile?phone=15145551234&name=Ahmed
 // Hybrid endpoint: matches WhatsApp contact to external MySQL DB + fetches local invoices
@@ -13,6 +14,7 @@ export async function GET(request: NextRequest) {
   // When present it's authoritative — skips fuzzy name/phone matching that
   // can land on a duplicate Student row with no dates/certificates.
   const studentId = searchParams.get('studentId') || ''
+  const contactId = searchParams.get('contactId') || ''
 
   if (!phone && !name && !licenceNumber && !studentId) {
     return NextResponse.json(
@@ -35,7 +37,10 @@ export async function GET(request: NextRequest) {
     ])
 
     // Fetch exam attempts for this student
-    const examAttempts = await findExamAttempts(phone, name)
+    const [examAttempts, paperExams] = await Promise.all([
+      findExamAttempts(phone, name),
+      findStudentPaperExams({ phone, name, contactId }),
+    ])
 
     // Compute invoice summary with balance
     const totalInvoiced = invoices.reduce((sum, inv) => sum + inv.total, 0)
@@ -134,6 +139,7 @@ export async function GET(request: NextRequest) {
         submittedAt: ea.submittedAt,
         timeExpired: ea.timeExpired,
       })),
+      paperExams,
       summary: {
         totalInvoiced: Math.round(totalInvoiced * 100) / 100,
         totalPaid: Math.round(totalPaid * 100) / 100,

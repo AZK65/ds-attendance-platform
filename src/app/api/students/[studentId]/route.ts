@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/db'
 import { getStudentById } from '@/lib/external-db'
+import { findStudentPaperExams } from '@/lib/paper-exam-profile'
 
 // GET /api/students/[studentId] — Get full student profile from MySQL + SQLite
 export async function GET(
@@ -61,11 +62,14 @@ export async function GET(
     const examPhoneConditions = phoneSearch.length >= 7
       ? [{ studentPhone: { contains: phoneSearch } }]
       : []
-    const examAttempts = await prisma.examAttempt.findMany({
-      where: { OR: [...examNameConditions, ...examPhoneConditions] },
-      include: { exam: { select: { code: true, groupName: true } } },
-      orderBy: { startedAt: 'desc' },
-    })
+    const [examAttempts, paperExams] = await Promise.all([
+      prisma.examAttempt.findMany({
+        where: { OR: [...examNameConditions, ...examPhoneConditions] },
+        include: { exam: { select: { code: true, groupName: true } } },
+        orderBy: { startedAt: 'desc' },
+      }),
+      findStudentPaperExams({ phone: dbStudent.phone_number, name: dbStudent.full_name }),
+    ])
 
     // Invoice summary
     const totalInvoiced = invoices.reduce((s, inv) => s + inv.total, 0)
@@ -138,6 +142,7 @@ export async function GET(
         submittedAt: ea.submittedAt,
         timeExpired: ea.timeExpired,
       })),
+      paperExams,
       summary: {
         totalInvoiced: Math.round(totalInvoiced * 100) / 100,
         totalPaid: Math.round(totalPaid * 100) / 100,

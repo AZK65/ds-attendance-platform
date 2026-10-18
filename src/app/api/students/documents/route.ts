@@ -9,6 +9,7 @@ import { getPricing, type ClassPricing } from '@/lib/pricing'
 import { buildMedicalDeclarationPdf } from '@/lib/medical-pdf'
 import { buildRegistrationTermsPdf } from '@/lib/registration-terms-pdf'
 import { readRegistrationTermsSnapshot } from '@/lib/registration-terms'
+import { PAPER_EXAM_DIR } from '@/lib/paper-exam'
 
 export const runtime = 'nodejs'
 
@@ -320,6 +321,60 @@ export async function GET(request: NextRequest) {
         }
       } else {
         notes.push({ status: 'unavailable', label: 'Medical self-declaration', detail: 'No completed medical declaration found' })
+      }
+    }
+
+    if (wants('paper-exams')) {
+      const paperExamWhere = suffix.length >= 7
+        ? { phone: { contains: suffix } }
+        : cleanName.length >= 2
+          ? { studentName: { contains: cleanName } }
+          : null
+      const paperExams = paperExamWhere
+        ? await prisma.paperExamSubmission.findMany({
+            where: paperExamWhere,
+            include: {
+              session: { select: { title: true, groupName: true, passingScore: true } },
+              pages: { orderBy: { pageNumber: 'asc' } },
+            },
+            orderBy: { receivedAt: 'desc' },
+          })
+        : []
+
+      if (paperExams.length === 0) {
+        notes.push({ status: 'unavailable', label: 'Paper exams', detail: 'No paper exam submissions found' })
+      } else {
+        let includedPages = 0
+        const paperExamRoot = path.resolve(PAPER_EXAM_DIR)
+        for (const exam of paperExams) {
+          const folder = `Paper Exams/${exam.receivedAt.toISOString().slice(0, 10)}-${safePart(exam.session.title, 'exam')}-${exam.id.slice(-6)}`
+          const resultLines = [
+            `Student: ${resolvedName || exam.studentName}`,
+            `Exam: ${exam.session.title}`,
+            `Group: ${exam.session.groupName}`,
+            `Received: ${exam.receivedAt.toISOString()}`,
+            `Status: ${exam.status}`,
+            `Score: ${exam.score == null ? 'Pending review' : `${exam.score}/${exam.totalQuestions || '—'}`}`,
+            `Passing score: ${exam.session.passingScore || '—'}`,
+            `Result: ${exam.passed == null ? 'Pending review' : exam.passed ? 'Passed' : 'Not passed'}`,
+          ]
+          addFile(`${folder}/result.txt`, Buffer.from(resultLines.join('\n')), 'text/plain')
+          for (const page of exam.pages) {
+            const filePath = path.resolve(page.filePath)
+            if (filePath !== paperExamRoot && !filePath.startsWith(`${paperExamRoot}${path.sep}`)) continue
+            try {
+              const bytes = await fs.readFile(filePath)
+              const extension = page.mimetype.includes('pdf') ? 'pdf'
+                : page.mimetype.includes('png') ? 'png'
+                  : page.mimetype.includes('webp') ? 'webp'
+                    : page.mimetype.includes('heic') ? 'heic'
+                      : 'jpg'
+              addFile(`${folder}/page-${String(page.pageNumber).padStart(2, '0')}.${extension}`, bytes, page.mimetype)
+              includedPages += 1
+            } catch { /* one missing image should not block the remaining student documents */ }
+          }
+        }
+        notes.push({ status: 'included', label: 'Paper exams', detail: `${paperExams.length} exam(s), ${includedPages} page(s)` })
       }
     }
 

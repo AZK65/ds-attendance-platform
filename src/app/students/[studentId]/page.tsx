@@ -25,6 +25,7 @@ import { motion } from 'motion/react'
 import { StudentAvatar } from '@/components/StudentAvatar'
 import { LmsActivityPanel } from '@/components/LmsActivityPanel'
 import { StudentDocumentDownloadDialog } from '@/components/StudentDocumentDownloadDialog'
+import { PaperExamProfileCard, type PaperExamProfileRecord } from '@/components/PaperExamProfileCard'
 
 interface TeamupEvent {
   id: string
@@ -63,6 +64,7 @@ interface StudentProfile {
     passed: boolean | null; totalQuestions: number; startedAt: string;
     submittedAt: string | null; timeExpired: boolean;
   }>
+  paperExams?: PaperExamProfileRecord[]
   summary: {
     totalInvoiced: number; totalPaid: number; openBalance: number;
     invoiceCount: number; certificateCount: number; groupCount: number;
@@ -322,6 +324,7 @@ export default function StudentProfilePage() {
   const { data: profileData } = useQuery<{
     invoices: Array<{ id: string; invoiceNumber: string; invoiceDate: string; total: number; paymentStatus: string; lineItems: string; studentAddress?: string; studentCity?: string; studentPostalCode?: string; studentEmail?: string }>
     exams?: Array<{ id: string; examCode: string; groupName: string; score: number | null; passed: boolean | null; totalQuestions: number; startedAt: string; submittedAt: string | null; timeExpired: boolean }>
+    paperExams?: PaperExamProfileRecord[]
     summary: { totalInvoiced: number; totalPaid: number; openBalance: number }
   }>({
     queryKey: ['student-profile-data', phone, displayName],
@@ -406,6 +409,7 @@ export default function StudentProfilePage() {
   // Use profile data for invoices/exams if the main API didn't find them
   const mergedInvoices = invoices.length > 0 ? invoices : (profileData?.invoices || [])
   const mergedExams = (data.exams && data.exams.length > 0) ? data.exams : (profileData?.exams || [])
+  const mergedPaperExams = (data.paperExams && data.paperExams.length > 0) ? data.paperExams : (profileData?.paperExams || [])
   const mergedSummary = invoices.length > 0 ? summary : (profileData?.summary ? { ...summary, totalInvoiced: profileData.summary.totalInvoiced, totalPaid: profileData.summary.totalPaid, openBalance: profileData.summary.openBalance } : summary)
 
   const renderEventCard = (event: TeamupEvent) => {
@@ -916,6 +920,12 @@ export default function StudentProfilePage() {
               </div>
             </CardContent>
           </Card>
+        </motion.div>
+      )}
+
+      {mergedPaperExams.length > 0 && (
+        <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.52, duration: 0.25 }}>
+          <PaperExamProfileCard exams={mergedPaperExams} />
         </motion.div>
       )}
 
