@@ -100,7 +100,7 @@ interface ExamModeData {
   }>
   students: StudentRow[]
   unmatched: Submission[]
-  stats: { total: number; submitted: number; missing: number; pages: number; graded: number; review: number; processing: number }
+  stats: { total: number; submitted: number; missing: number; pages: number; graded: number; passed: number; failed: number; review: number; processing: number }
 }
 
 const SUBMISSION_MESSAGE = `📄 *Exam submission is open*
@@ -124,6 +124,16 @@ function receivedTime(value: string) {
     hour: 'numeric',
     minute: '2-digit',
   })
+}
+
+function isToday(value: string) {
+  return new Date(value).toLocaleDateString('en-CA') === new Date().toLocaleDateString('en-CA')
+}
+
+function examPageDownloadUrl(page: ExamPage, marked: boolean) {
+  return marked && page.mimetype.startsWith('image/')
+    ? `${page.markedUrl}&download=1`
+    : `${page.url}?download=1`
 }
 
 export default function PaperExamModePage() {
@@ -289,10 +299,17 @@ export default function PaperExamModePage() {
             >
               {data.history.map(item => (
                 <option key={item.id} value={item.id}>
-                  {item.title} · {new Date(item.startedAt).toLocaleDateString()} · {item._count.submissions} sent
+                  {isToday(item.startedAt) ? "Today's exam · " : ''}{item.title} · {new Date(item.startedAt).toLocaleDateString()} · {item._count.submissions} sent
                 </option>
               ))}
             </select>
+          )}
+          {data.session && data.stats.submitted > 0 && (
+            <Button variant="outline" asChild>
+              <a href={`/api/groups/${encodeURIComponent(groupId)}/paper-exam/download?sessionId=${encodeURIComponent(data.session.id)}`}>
+                <Download /> Download all
+              </a>
+            </Button>
           )}
           {active && (
             <Button variant="outline" onClick={() => sendInstructions.mutate()} disabled={sendInstructions.isPending}>
@@ -337,11 +354,13 @@ export default function PaperExamModePage() {
         </section>
       ) : (
         <>
-          <section className="grid grid-cols-2 gap-3 lg:grid-cols-5">
+          <section className="grid grid-cols-2 gap-3 md:grid-cols-4 xl:grid-cols-7">
             {[
               { label: 'Students', value: data.stats.total, icon: Users, tone: 'text-slate-700 bg-slate-50' },
               { label: 'Submitted', value: data.stats.submitted, icon: CheckCircle2, tone: 'text-emerald-700 bg-emerald-50' },
               { label: 'Missing', value: data.stats.missing, icon: Clock3, tone: 'text-amber-700 bg-amber-50' },
+              { label: 'Passed', value: data.stats.passed, icon: Award, tone: 'text-emerald-700 bg-emerald-50' },
+              { label: 'Failed', value: data.stats.failed, icon: AlertTriangle, tone: 'text-red-700 bg-red-50' },
               { label: 'Photos', value: data.stats.pages, icon: ImageIcon, tone: 'text-blue-700 bg-blue-50' },
               { label: 'Graded', value: data.stats.graded, icon: Bot, tone: 'text-violet-700 bg-violet-50' },
             ].map(stat => (
@@ -460,14 +479,9 @@ export default function PaperExamModePage() {
                           {student.submission.verified ? <Eye /> : <ShieldCheck />}
                           {student.submission.verified ? 'Preview' : 'Review & verify'}
                         </Button>
-                        <Button size="icon" variant="outline" asChild title="Download original exam">
-                          <a href={`/api/paper-exams/submissions/${encodeURIComponent(student.submission.id)}?variant=original`}><Download /></a>
+                        <Button size="icon" variant="outline" asChild title={student.submission.verified ? 'Download marked exam image' : 'Download original exam'}>
+                          <a href={examPageDownloadUrl(student.submission.pages[0], student.submission.verified)}><Download /></a>
                         </Button>
-                        {student.submission.verified && (
-                          <Button size="icon" variant="outline" asChild title="Download marked exam">
-                            <a href={`/api/paper-exams/submissions/${encodeURIComponent(student.submission.id)}?variant=marked`}><Award /></a>
-                          </Button>
-                        )}
                       </>
                     ) : (
                       <span className="text-sm text-muted-foreground">No exam received</span>
@@ -529,7 +543,7 @@ export default function PaperExamModePage() {
                     </button>
                   ))}
                 </div>
-                {review && <Button className="shrink-0" size="sm" variant="secondary" asChild><a href={`/api/paper-exams/submissions/${encodeURIComponent(review.submission.id)}?variant=${review.submission.verified ? 'marked' : 'original'}`}><Download /> Download</a></Button>}
+                {review && reviewPage && <Button className="shrink-0" size="sm" variant="secondary" asChild><a href={examPageDownloadUrl(reviewPage, review.submission.verified)}><Download /> Download image</a></Button>}
               </div>
             </div>
 
@@ -579,7 +593,7 @@ export default function PaperExamModePage() {
                 </Button>
                 {review?.submission.verified ? (
                   <>
-                    <Button variant="outline" asChild><a href={`/api/paper-exams/submissions/${encodeURIComponent(review.submission.id)}?variant=marked`}><Download /> Download marked exam</a></Button>
+                    {reviewPage && <Button variant="outline" asChild><a href={examPageDownloadUrl(reviewPage, true)}><Download /> Download marked image</a></Button>}
                     {review.submission.resultNotifiedAt ? (
                       <span className="inline-flex h-9 items-center gap-2 rounded-md bg-emerald-50 px-3 text-sm font-medium text-emerald-800"><Check /> Private result sent</span>
                     ) : (

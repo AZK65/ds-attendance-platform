@@ -77,7 +77,7 @@ async function buildSessionPayload(groupId: string, requestedSessionId?: string 
         submission: null,
       })),
       unmatched: [],
-      stats: { total: members.length, submitted: 0, missing: members.length, pages: 0, graded: 0 },
+      stats: { total: members.length, submitted: 0, missing: members.length, pages: 0, graded: 0, passed: 0, failed: 0 },
     }
   }
 
@@ -130,6 +130,8 @@ async function buildSessionPayload(groupId: string, requestedSessionId?: string 
       missing: Math.max(0, members.length - submitted),
       pages,
       graded: session.submissions.filter(item => item.status === 'graded').length,
+      passed: session.submissions.filter(item => item.passed === true).length,
+      failed: session.submissions.filter(item => item.passed === false).length,
       review: session.submissions.filter(item => item.status === 'review' || item.status === 'failed').length,
       processing: session.submissions.filter(item => item.status === 'processing' || item.status === 'received').length,
     },
