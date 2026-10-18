@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/db'
 import { paperExamLast10 } from '@/lib/paper-exam'
+import { MODULE_5_PAPER_EXAM, module5AnswerKeyJson, parsePaperExamAnswerMap } from '@/lib/paper-exam-answer-keys'
+import { schedulePaperExamGrading } from '@/lib/paper-exam-grading'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -12,7 +14,7 @@ async function buildSessionPayload(groupId: string, requestedSessionId?: string 
   })
   if (!group) return null
 
-  const session = await prisma.paperExamSession.findFirst({
+  let session = await prisma.paperExamSession.findFirst({
     where: requestedSessionId ? { id: requestedSessionId, groupId } : { groupId },
     include: {
       submissions: {
@@ -22,6 +24,23 @@ async function buildSessionPayload(groupId: string, requestedSessionId?: string 
     },
     orderBy: [{ status: 'asc' }, { startedAt: 'desc' }],
   })
+
+  if (session && (!session.answerKey || !session.totalQuestions || !session.passingScore)) {
+    session = await prisma.paperExamSession.update({
+      where: { id: session.id },
+      data: {
+        answerKey: module5AnswerKeyJson(),
+        totalQuestions: MODULE_5_PAPER_EXAM.totalQuestions,
+        passingScore: MODULE_5_PAPER_EXAM.passingScore,
+      },
+      include: {
+        submissions: {
+          include: { pages: { orderBy: { pageNumber: 'asc' } } },
+          orderBy: { receivedAt: 'desc' },
+        },
+      },
+    })
+  }
 
   const members = await prisma.groupMember.findMany({
     where: { groupId, isAdmin: false, isSuperAdmin: false },
@@ -93,6 +112,9 @@ async function buildSessionPayload(groupId: string, requestedSessionId?: string 
       startedAt: session.startedAt,
       closedAt: session.closedAt,
       hasAnswerKey: Boolean(session.answerKey),
+      answerKey: parsePaperExamAnswerMap(session.answerKey),
+      examName: MODULE_5_PAPER_EXAM.title,
+      testNumber: MODULE_5_PAPER_EXAM.testNumber,
       totalQuestions: session.totalQuestions,
       passingScore: session.passingScore,
     },
@@ -105,6 +127,8 @@ async function buildSessionPayload(groupId: string, requestedSessionId?: string 
       missing: Math.max(0, members.length - submitted),
       pages,
       graded: session.submissions.filter(item => item.status === 'graded').length,
+      review: session.submissions.filter(item => item.status === 'review' || item.status === 'failed').length,
+      processing: session.submissions.filter(item => item.status === 'processing' || item.status === 'received').length,
     },
   }
 }
@@ -120,9 +144,21 @@ function serializeSubmission(submission: {
   passed: boolean | null
   confidence: number | null
   error: string | null
+  extractedAnswers: string | null
   receivedAt: Date
   pages: Array<{ id: string; pageNumber: number; mimetype: string; filename: string | null; createdAt: Date }>
 }) {
+  let extraction: {
+    answers?: Record<string, string | null>
+    uncertain?: number[]
+    wrong?: number[]
+    notes?: string
+  } | null = null
+  if (submission.extractedAnswers) {
+    try {
+      extraction = JSON.parse(submission.extractedAnswers)
+    } catch { /* keep malformed legacy data hidden */ }
+  }
   return {
     id: submission.id,
     studentName: submission.studentName,
@@ -134,6 +170,10 @@ function serializeSubmission(submission: {
     passed: submission.passed,
     confidence: submission.confidence,
     error: submission.error,
+    answers: extraction?.answers || {},
+    uncertain: extraction?.uncertain || [],
+    wrong: extraction?.wrong || [],
+    notes: extraction?.notes || '',
     receivedAt: submission.receivedAt,
     pages: submission.pages.map(page => ({
       id: page.id,
@@ -177,6 +217,21 @@ export async function POST(
       return NextResponse.json(await buildSessionPayload(decodedGroupId, body.sessionId))
     }
 
+    if (body.action === 'grade-all') {
+      if (!body.sessionId) return NextResponse.json({ error: 'sessionId is required' }, { status: 400 })
+      const submissions = await prisma.paperExamSubmission.findMany({
+        where: {
+          sessionId: body.sessionId,
+          session: { groupId: decodedGroupId },
+          status: { in: ['received', 'review', 'failed'] },
+        },
+        select: { id: true },
+        orderBy: { receivedAt: 'asc' },
+      })
+      submissions.forEach((submission, index) => schedulePaperExamGrading(submission.id, 500 + index * 1_000))
+      return NextResponse.json({ queued: submissions.length })
+    }
+
     if (body.action !== 'start') {
       return NextResponse.json({ error: 'Unknown action' }, { status: 400 })
     }
@@ -193,7 +248,10 @@ export async function POST(
       data: {
         groupId: decodedGroupId,
         groupName: group.name,
-        title: body.title?.trim().slice(0, 100) || 'Paper exam',
+        title: body.title?.trim().slice(0, 100) || MODULE_5_PAPER_EXAM.title,
+        answerKey: module5AnswerKeyJson(),
+        totalQuestions: MODULE_5_PAPER_EXAM.totalQuestions,
+        passingScore: MODULE_5_PAPER_EXAM.passingScore,
       },
     })
     return NextResponse.json(await buildSessionPayload(decodedGroupId, session.id), { status: 201 })

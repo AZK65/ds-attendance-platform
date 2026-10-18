@@ -845,7 +845,7 @@ export async function connectWhatsApp(): Promise<void> {
             .update(`${msg.from}|${rawAuthor}|${msg.timestamp || msg._data?.t || Date.now()}|${media.data.slice(0, 256)}`)
             .digest('hex')
 
-          await capturePaperExamMedia({
+          const capture = await capturePaperExamMedia({
             groupId: msg.from,
             senderJid: rawAuthor,
             senderPhone,
@@ -853,6 +853,10 @@ export async function connectWhatsApp(): Promise<void> {
             messageId,
             media,
           })
+          if (capture.captured) {
+            const { schedulePaperExamGrading } = await import('@/lib/paper-exam-grading')
+            schedulePaperExamGrading(capture.submissionId)
+          }
           return
         }
         if (msg.isStatus) return
@@ -925,7 +929,7 @@ export async function connectWhatsApp(): Promise<void> {
                 const messageId = rawEventId || createHash('sha256')
                   .update(`${fromJid}|${rawTimestamp || Date.now()}|${media.data.slice(0, 256)}`)
                   .digest('hex')
-                await capturePaperExamMedia({
+                const capture = await capturePaperExamMedia({
                   groupId: examGroupId,
                   senderJid: fromJid,
                   senderPhone: phone,
@@ -933,6 +937,10 @@ export async function connectWhatsApp(): Promise<void> {
                   messageId,
                   media,
                 })
+                if (capture.captured) {
+                  const { schedulePaperExamGrading } = await import('@/lib/paper-exam-grading')
+                  schedulePaperExamGrading(capture.submissionId)
+                }
               }
             }
           }

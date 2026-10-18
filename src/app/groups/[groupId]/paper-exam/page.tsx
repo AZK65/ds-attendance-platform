@@ -7,6 +7,8 @@ import { useMemo, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import {
   ArrowLeft,
+  AlertTriangle,
+  Award,
   Bot,
   Check,
   CheckCircle2,
@@ -16,6 +18,7 @@ import {
   Loader2,
   MessageCircle,
   MoreHorizontal,
+  RefreshCw,
   ScanLine,
   Send,
   Square,
@@ -47,6 +50,10 @@ interface Submission {
   passed: boolean | null
   confidence: number | null
   error: string | null
+  answers: Record<string, string | null>
+  uncertain: number[]
+  wrong: number[]
+  notes: string
   receivedAt: string
   pages: ExamPage[]
 }
@@ -68,6 +75,9 @@ interface ExamModeData {
     startedAt: string
     closedAt: string | null
     hasAnswerKey: boolean
+    answerKey: Record<string, string>
+    examName: string
+    testNumber: string
     totalQuestions: number | null
     passingScore: number | null
   } | null
@@ -81,7 +91,7 @@ interface ExamModeData {
   }>
   students: StudentRow[]
   unmatched: Submission[]
-  stats: { total: number; submitted: number; missing: number; pages: number; graded: number }
+  stats: { total: number; submitted: number; missing: number; pages: number; graded: number; review: number; processing: number }
 }
 
 const SUBMISSION_MESSAGE = `📄 *Exam submission is open*
@@ -112,9 +122,11 @@ export default function PaperExamModePage() {
   const groupId = decodeURIComponent(params.groupId as string)
   const queryClient = useQueryClient()
   const [selectedSessionId, setSelectedSessionId] = useState<string | null>(null)
-  const [title, setTitle] = useState('Paper exam')
+  const [title, setTitle] = useState('Module 5')
   const [filter, setFilter] = useState<'all' | 'submitted' | 'missing'>('all')
   const [preview, setPreview] = useState<{ studentName: string; page: ExamPage } | null>(null)
+  const [review, setReview] = useState<{ studentName: string; submission: Submission } | null>(null)
+  const [reviewAnswers, setReviewAnswers] = useState<Record<string, string | null>>({})
   const [instructionsSent, setInstructionsSent] = useState(false)
 
   const { data, isLoading, isFetching } = useQuery<ExamModeData>({
@@ -125,7 +137,7 @@ export default function PaperExamModePage() {
       if (!response.ok) throw new Error('Could not load Exam Mode')
       return response.json()
     },
-    refetchInterval: query => query.state.data?.session?.status === 'active' ? 4000 : false,
+    refetchInterval: query => query.state.data?.session?.status === 'active' || (query.state.data?.stats.processing || 0) > 0 ? 4000 : false,
   })
 
   const examAction = useMutation({
@@ -161,6 +173,54 @@ export default function PaperExamModePage() {
     },
   })
 
+  const gradeSubmission = useMutation({
+    mutationFn: async (submissionId: string) => {
+      const response = await fetch(`/api/paper-exams/submissions/${encodeURIComponent(submissionId)}`, { method: 'POST' })
+      const payload = await response.json().catch(() => ({}))
+      if (!response.ok) throw new Error(payload.error || 'Could not grade this exam')
+    },
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['paper-exam', groupId] }),
+  })
+
+  const gradeAll = useMutation({
+    mutationFn: async () => {
+      if (!data?.session) return
+      const response = await fetch(`/api/groups/${encodeURIComponent(groupId)}/paper-exam`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'grade-all', sessionId: data.session.id }),
+      })
+      const payload = await response.json().catch(() => ({}))
+      if (!response.ok) throw new Error(payload.error || 'Could not queue exams for grading')
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['paper-exam', groupId] })
+      setTimeout(() => queryClient.invalidateQueries({ queryKey: ['paper-exam', groupId] }), 3000)
+    },
+  })
+
+  const saveReview = useMutation({
+    mutationFn: async () => {
+      if (!review) return
+      const response = await fetch(`/api/paper-exams/submissions/${encodeURIComponent(review.submission.id)}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ answers: reviewAnswers }),
+      })
+      const payload = await response.json().catch(() => ({}))
+      if (!response.ok) throw new Error(payload.error || 'Could not save reviewed answers')
+    },
+    onSuccess: () => {
+      setReview(null)
+      queryClient.invalidateQueries({ queryKey: ['paper-exam', groupId] })
+    },
+  })
+
+  function openReview(studentName: string, submission: Submission) {
+    setReviewAnswers({ ...submission.answers })
+    setReview({ studentName, submission })
+  }
+
   const visibleStudents = useMemo(() => {
     const students = data?.students || []
     if (filter === 'submitted') return students.filter(student => student.submitted)
@@ -177,6 +237,11 @@ export default function PaperExamModePage() {
   }
 
   const active = data.session?.status === 'active'
+  const reviewTotal = data.session?.totalQuestions || 0
+  const reviewScore = data.session
+    ? Array.from({ length: reviewTotal }, (_, index) => String(index + 1))
+      .filter(question => reviewAnswers[question] === data.session!.answerKey[question]).length
+    : 0
 
   return (
     <main className="mx-auto max-w-7xl space-y-6 px-4 py-6 sm:px-6 lg:px-8">
@@ -275,14 +340,21 @@ export default function PaperExamModePage() {
           </section>
 
           <section className="rounded-xl border border-violet-200 bg-violet-50/60 p-4">
-            <div className="flex items-start gap-3">
-              <Bot className="mt-0.5 h-5 w-5 text-violet-700" />
-              <div>
-                <p className="font-medium text-violet-950">OCR grading is ready for the answer-key step</p>
-                <p className="mt-1 text-sm text-violet-800">
-                  Submissions are being collected now. Once the answer sheet is added, this screen will extract each student&apos;s choices, calculate the score, and flag uncertain answers for review.
-                </p>
+            <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+              <div className="flex items-start gap-3">
+                <Bot className="mt-0.5 h-5 w-5 text-violet-700" />
+                <div>
+                  <p className="font-medium text-violet-950">Automatic OCR grading is on</p>
+                  <p className="mt-1 text-sm text-violet-800">
+                    {data.session.examName} · Test {data.session.testNumber} · {data.session.totalQuestions} questions · pass {data.session.passingScore}/{data.session.totalQuestions}. New photos are graded about 25 seconds after the student stops sending pages.
+                  </p>
+                  {gradeAll.error && <p className="mt-2 text-sm font-medium text-red-700">{gradeAll.error.message}</p>}
+                </div>
               </div>
+              <Button variant="outline" className="shrink-0 border-violet-300 bg-white" onClick={() => gradeAll.mutate()} disabled={gradeAll.isPending || data.stats.submitted === 0}>
+                {gradeAll.isPending ? <Loader2 className="animate-spin" /> : <RefreshCw />}
+                Grade all now
+              </Button>
             </div>
           </section>
 
@@ -308,7 +380,7 @@ export default function PaperExamModePage() {
 
             <div className="divide-y">
               {visibleStudents.map(student => (
-                <div key={student.contactId} className="grid gap-4 p-4 sm:grid-cols-[minmax(220px,1fr)_140px_minmax(260px,1.2fr)] sm:items-center">
+                <div key={student.contactId} className="grid gap-4 p-4 sm:grid-cols-[minmax(220px,1fr)_150px_150px_minmax(230px,1fr)] sm:items-center">
                   <div className="flex min-w-0 items-center gap-3">
                     <div className={`grid h-10 w-10 shrink-0 place-items-center rounded-full ${student.submitted ? 'bg-emerald-100 text-emerald-700' : 'bg-muted text-muted-foreground'}`}>
                       {student.submitted ? <CheckCircle2 className="h-5 w-5" /> : <Clock3 className="h-5 w-5" />}
@@ -319,11 +391,32 @@ export default function PaperExamModePage() {
                     </div>
                   </div>
                   <div>
-                    {student.submitted ? (
-                      <Badge className="bg-emerald-600"><CheckCircle2 /> Submitted</Badge>
+                    {student.submission?.status === 'graded' ? (
+                      <Badge className={student.submission.passed ? 'bg-emerald-600' : 'bg-red-600'}>
+                        {student.submission.passed ? <CheckCircle2 /> : <AlertTriangle />}
+                        {student.submission.passed ? 'Passed' : 'Not passed'}
+                      </Badge>
+                    ) : student.submission?.status === 'review' || student.submission?.status === 'failed' ? (
+                      <Badge className="bg-amber-500 text-amber-950"><AlertTriangle /> Review</Badge>
+                    ) : student.submission?.status === 'processing' ? (
+                      <Badge variant="secondary"><Loader2 className="animate-spin" /> Grading</Badge>
+                    ) : student.submitted ? (
+                      <Badge className="bg-blue-600"><CheckCircle2 /> Received</Badge>
                     ) : (
                       <Badge variant="outline" className="text-amber-700"><Clock3 /> Waiting</Badge>
                     )}
+                  </div>
+                  <div>
+                    {student.submission?.score !== null && student.submission?.score !== undefined ? (
+                      <div>
+                        <p className="flex items-center gap-1.5 font-semibold tabular-nums"><Award className="h-4 w-4" /> {student.submission.score}/{student.submission.totalQuestions}</p>
+                        <Button variant="link" className="h-auto p-0 text-xs" onClick={() => openReview(student.name, student.submission!)}>Review answers</Button>
+                      </div>
+                    ) : student.submission ? (
+                      <Button size="sm" variant="outline" onClick={() => gradeSubmission.mutate(student.submission!.id)} disabled={gradeSubmission.isPending || student.submission.status === 'processing'}>
+                        {gradeSubmission.isPending ? <Loader2 className="animate-spin" /> : <Bot />} Grade now
+                      </Button>
+                    ) : <span className="text-sm text-muted-foreground">—</span>}
                   </div>
                   <div className="flex min-h-14 items-center justify-start gap-2 sm:justify-end">
                     {student.submission ? (
@@ -348,6 +441,9 @@ export default function PaperExamModePage() {
                           </button>
                         ))}
                         {student.submission.pages.length > 4 && <Badge variant="secondary">+{student.submission.pages.length - 4}</Badge>}
+                        {(student.submission.status === 'review' || student.submission.status === 'failed') && (
+                          <Button size="sm" onClick={() => openReview(student.name, student.submission!)}>Review</Button>
+                        )}
                       </>
                     ) : (
                       <span className="text-sm text-muted-foreground">No exam received</span>
@@ -375,6 +471,72 @@ export default function PaperExamModePage() {
           )}
         </>
       )}
+
+      <Dialog open={Boolean(review)} onOpenChange={open => !open && setReview(null)}>
+        <DialogContent className="max-h-[92vh] max-w-4xl overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>{review?.studentName} · Answer review</DialogTitle>
+            <DialogDescription>
+              OCR reads the marks, then staff confirms anything unclear. Current score: {reviewScore}/{reviewTotal} · pass {data.session?.passingScore}/{reviewTotal}.
+            </DialogDescription>
+          </DialogHeader>
+          {review?.submission.error && (
+            <div className="rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-800">{review.submission.error}</div>
+          )}
+          {review?.submission.notes && (
+            <div className="rounded-lg border bg-muted/30 p-3 text-sm"><span className="font-medium">OCR note:</span> {review.submission.notes}</div>
+          )}
+          <div className="grid grid-cols-2 gap-2 sm:grid-cols-4 lg:grid-cols-6">
+            {Array.from({ length: reviewTotal }, (_, index) => {
+              const question = String(index + 1)
+              const answer = reviewAnswers[question] || ''
+              const correct = data.session?.answerKey[question]
+              const uncertain = review?.submission.uncertain.includes(index + 1)
+              const tone = !answer
+                ? 'border-amber-300 bg-amber-50'
+                : answer === correct
+                  ? 'border-emerald-200 bg-emerald-50'
+                  : 'border-red-200 bg-red-50'
+              return (
+                <label key={question} className={`rounded-lg border p-2 ${tone}`}>
+                  <span className="mb-1 flex items-center justify-between text-xs font-medium">
+                    Q{question}
+                    <span className="text-muted-foreground">Key {correct}</span>
+                  </span>
+                  <select
+                    value={answer}
+                    onChange={event => setReviewAnswers(current => ({ ...current, [question]: event.target.value || null }))}
+                    className="h-9 w-full rounded-md border bg-white px-2 text-sm font-semibold"
+                    aria-label={`Answer for question ${question}`}
+                  >
+                    <option value="">Unclear</option>
+                    {['A', 'B', 'C', 'D'].map(choice => <option key={choice} value={choice}>{choice}</option>)}
+                  </select>
+                  {uncertain && <span className="mt-1 block text-[10px] font-medium text-amber-700">OCR unsure</span>}
+                </label>
+              )
+            })}
+          </div>
+          {saveReview.error && <p className="text-sm font-medium text-red-700">{saveReview.error.message}</p>}
+          <div className="flex flex-col-reverse gap-2 border-t pt-4 sm:flex-row sm:items-center sm:justify-between">
+            <div className="flex gap-2 overflow-x-auto">
+              {review?.submission.pages.map(page => (
+                <button key={page.id} onClick={() => setPreview({ studentName: review.studentName, page })} className="relative h-14 w-11 shrink-0 overflow-hidden rounded border bg-muted">
+                  {page.mimetype.startsWith('image/') ? <Image src={page.url} alt={`Page ${page.pageNumber}`} fill unoptimized className="object-cover" sizes="44px" /> : <FileText className="m-3 h-5 w-5" />}
+                </button>
+              ))}
+            </div>
+            <div className="flex gap-2">
+              <Button variant="outline" onClick={() => review && gradeSubmission.mutate(review.submission.id)} disabled={gradeSubmission.isPending}>
+                {gradeSubmission.isPending ? <Loader2 className="animate-spin" /> : <RefreshCw />} Run OCR again
+              </Button>
+              <Button onClick={() => saveReview.mutate()} disabled={saveReview.isPending}>
+                {saveReview.isPending ? <Loader2 className="animate-spin" /> : <Check />} Confirm grade
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
 
       <Dialog open={Boolean(preview)} onOpenChange={open => !open && setPreview(null)}>
         <DialogContent className="max-h-[92vh] max-w-5xl overflow-hidden p-0">
