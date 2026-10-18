@@ -167,6 +167,7 @@ export async function gradePaperExamSubmission(submissionId: string) {
       uncertain,
       notes: extracted.notes,
       wrong: grade.wrong,
+      reviewed: false,
     }
     return await prisma.paperExamSubmission.update({
       where: { id: submission.id },
@@ -207,7 +208,14 @@ export async function saveReviewedPaperExamAnswers(submissionId: string, value: 
     where: { id: submission.id },
     data: {
       status: 'graded',
-      extractedAnswers: JSON.stringify({ answers, uncertain: [], notes: 'Reviewed by staff', wrong: grade.wrong }),
+      extractedAnswers: JSON.stringify({
+        answers,
+        uncertain: [],
+        notes: 'Reviewed by staff',
+        wrong: grade.wrong,
+        reviewed: true,
+        reviewedAt: new Date().toISOString(),
+      }),
       score: grade.score,
       totalQuestions,
       passed: grade.passed,

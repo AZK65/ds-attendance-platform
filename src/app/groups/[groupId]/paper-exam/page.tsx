@@ -12,7 +12,11 @@ import {
   Bot,
   Check,
   CheckCircle2,
+  ChevronLeft,
+  ChevronRight,
   Clock3,
+  Download,
+  Eye,
   FileText,
   ImageIcon,
   Loader2,
@@ -21,6 +25,7 @@ import {
   RefreshCw,
   ScanLine,
   Send,
+  ShieldCheck,
   Square,
   Users,
 } from 'lucide-react'
@@ -37,6 +42,7 @@ interface ExamPage {
   filename: string | null
   createdAt: string
   url: string
+  markedUrl: string
 }
 
 interface Submission {
@@ -54,6 +60,7 @@ interface Submission {
   uncertain: number[]
   wrong: number[]
   notes: string
+  verified: boolean
   receivedAt: string
   pages: ExamPage[]
 }
@@ -127,6 +134,7 @@ export default function PaperExamModePage() {
   const [preview, setPreview] = useState<{ studentName: string; page: ExamPage } | null>(null)
   const [review, setReview] = useState<{ studentName: string; submission: Submission } | null>(null)
   const [reviewAnswers, setReviewAnswers] = useState<Record<string, string | null>>({})
+  const [reviewPageIndex, setReviewPageIndex] = useState(0)
   const [instructionsSent, setInstructionsSent] = useState(false)
 
   const { data, isLoading, isFetching } = useQuery<ExamModeData>({
@@ -179,7 +187,10 @@ export default function PaperExamModePage() {
       const payload = await response.json().catch(() => ({}))
       if (!response.ok) throw new Error(payload.error || 'Could not grade this exam')
     },
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['paper-exam', groupId] }),
+    onSuccess: () => {
+      setReview(null)
+      queryClient.invalidateQueries({ queryKey: ['paper-exam', groupId] })
+    },
   })
 
   const gradeAll = useMutation({
@@ -218,6 +229,7 @@ export default function PaperExamModePage() {
 
   function openReview(studentName: string, submission: Submission) {
     setReviewAnswers({ ...submission.answers })
+    setReviewPageIndex(0)
     setReview({ studentName, submission })
   }
 
@@ -242,6 +254,7 @@ export default function PaperExamModePage() {
     ? Array.from({ length: reviewTotal }, (_, index) => String(index + 1))
       .filter(question => reviewAnswers[question] === data.session!.answerKey[question]).length
     : 0
+  const reviewPage = review?.submission.pages[reviewPageIndex] || null
 
   return (
     <main className="mx-auto max-w-7xl space-y-6 px-4 py-6 sm:px-6 lg:px-8">
@@ -380,7 +393,7 @@ export default function PaperExamModePage() {
 
             <div className="divide-y">
               {visibleStudents.map(student => (
-                <div key={student.contactId} className="grid gap-4 p-4 sm:grid-cols-[minmax(220px,1fr)_150px_150px_minmax(230px,1fr)] sm:items-center">
+                <div key={student.contactId} className="grid gap-4 p-4 sm:grid-cols-[minmax(220px,1fr)_140px_140px_minmax(330px,1fr)] sm:items-center">
                   <div className="flex min-w-0 items-center gap-3">
                     <div className={`grid h-10 w-10 shrink-0 place-items-center rounded-full ${student.submitted ? 'bg-emerald-100 text-emerald-700' : 'bg-muted text-muted-foreground'}`}>
                       {student.submitted ? <CheckCircle2 className="h-5 w-5" /> : <Clock3 className="h-5 w-5" />}
@@ -410,7 +423,7 @@ export default function PaperExamModePage() {
                     {student.submission?.score !== null && student.submission?.score !== undefined ? (
                       <div>
                         <p className="flex items-center gap-1.5 font-semibold tabular-nums"><Award className="h-4 w-4" /> {student.submission.score}/{student.submission.totalQuestions}</p>
-                        <Button variant="link" className="h-auto p-0 text-xs" onClick={() => openReview(student.name, student.submission!)}>Review answers</Button>
+                        <Button variant="link" className="h-auto p-0 text-xs" onClick={() => openReview(student.name, student.submission!)}>{student.submission.verified ? 'View verified grade' : 'Verify AI grade'}</Button>
                       </div>
                     ) : student.submission ? (
                       <Button size="sm" variant="outline" onClick={() => gradeSubmission.mutate(student.submission!.id)} disabled={gradeSubmission.isPending || student.submission.status === 'processing'}>
@@ -425,7 +438,7 @@ export default function PaperExamModePage() {
                           <p className="text-sm font-medium">{student.submission.pages.length} page{student.submission.pages.length === 1 ? '' : 's'}</p>
                           <p className="text-xs text-muted-foreground">{receivedTime(student.submission.receivedAt)}</p>
                         </div>
-                        {student.submission.pages.slice(0, 4).map(page => (
+                        {student.submission.pages.slice(0, 2).map(page => (
                           <button
                             key={page.id}
                             onClick={() => setPreview({ studentName: student.name, page })}
@@ -440,9 +453,18 @@ export default function PaperExamModePage() {
                             <span className="absolute bottom-0 right-0 rounded-tl bg-black/70 px-1 text-[9px] text-white">{page.pageNumber}</span>
                           </button>
                         ))}
-                        {student.submission.pages.length > 4 && <Badge variant="secondary">+{student.submission.pages.length - 4}</Badge>}
-                        {(student.submission.status === 'review' || student.submission.status === 'failed') && (
-                          <Button size="sm" onClick={() => openReview(student.name, student.submission!)}>Review</Button>
+                        {student.submission.pages.length > 2 && <Badge variant="secondary">+{student.submission.pages.length - 2}</Badge>}
+                        <Button size="sm" variant={student.submission.verified ? 'outline' : 'default'} onClick={() => openReview(student.name, student.submission!)}>
+                          {student.submission.verified ? <Eye /> : <ShieldCheck />}
+                          {student.submission.verified ? 'Preview' : 'Review & verify'}
+                        </Button>
+                        <Button size="icon" variant="outline" asChild title="Download original exam">
+                          <a href={`/api/paper-exams/submissions/${encodeURIComponent(student.submission.id)}?variant=original`}><Download /></a>
+                        </Button>
+                        {student.submission.verified && (
+                          <Button size="icon" variant="outline" asChild title="Download marked exam">
+                            <a href={`/api/paper-exams/submissions/${encodeURIComponent(student.submission.id)}?variant=marked`}><Award /></a>
+                          </Button>
                         )}
                       </>
                     ) : (
@@ -473,66 +495,87 @@ export default function PaperExamModePage() {
       )}
 
       <Dialog open={Boolean(review)} onOpenChange={open => !open && setReview(null)}>
-        <DialogContent className="max-h-[92vh] max-w-4xl overflow-y-auto">
-          <DialogHeader>
+        <DialogContent className="max-h-[94vh] max-w-[1500px] overflow-hidden p-0">
+          <DialogHeader className="border-b px-6 py-4">
             <DialogTitle>{review?.studentName} · Answer review</DialogTitle>
             <DialogDescription>
-              OCR reads the marks, then staff confirms anything unclear. Current score: {reviewScore}/{reviewTotal} · pass {data.session?.passingScore}/{reviewTotal}.
+              Compare the photo with every answer. Current score: {reviewScore}/{reviewTotal} · pass {data.session?.passingScore}/{reviewTotal}.
             </DialogDescription>
           </DialogHeader>
-          {review?.submission.error && (
-            <div className="rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-800">{review.submission.error}</div>
-          )}
-          {review?.submission.notes && (
-            <div className="rounded-lg border bg-muted/30 p-3 text-sm"><span className="font-medium">OCR note:</span> {review.submission.notes}</div>
-          )}
-          <div className="grid grid-cols-2 gap-2 sm:grid-cols-4 lg:grid-cols-6">
-            {Array.from({ length: reviewTotal }, (_, index) => {
-              const question = String(index + 1)
-              const answer = reviewAnswers[question] || ''
-              const correct = data.session?.answerKey[question]
-              const uncertain = review?.submission.uncertain.includes(index + 1)
-              const tone = !answer
-                ? 'border-amber-300 bg-amber-50'
-                : answer === correct
-                  ? 'border-emerald-200 bg-emerald-50'
-                  : 'border-red-200 bg-red-50'
-              return (
-                <label key={question} className={`rounded-lg border p-2 ${tone}`}>
-                  <span className="mb-1 flex items-center justify-between text-xs font-medium">
-                    Q{question}
-                    <span className="text-muted-foreground">Key {correct}</span>
-                  </span>
-                  <select
-                    value={answer}
-                    onChange={event => setReviewAnswers(current => ({ ...current, [question]: event.target.value || null }))}
-                    className="h-9 w-full rounded-md border bg-white px-2 text-sm font-semibold"
-                    aria-label={`Answer for question ${question}`}
-                  >
-                    <option value="">Unclear</option>
-                    {['A', 'B', 'C', 'D'].map(choice => <option key={choice} value={choice}>{choice}</option>)}
-                  </select>
-                  {uncertain && <span className="mt-1 block text-[10px] font-medium text-amber-700">OCR unsure</span>}
-                </label>
-              )
-            })}
-          </div>
-          {saveReview.error && <p className="text-sm font-medium text-red-700">{saveReview.error.message}</p>}
-          <div className="flex flex-col-reverse gap-2 border-t pt-4 sm:flex-row sm:items-center sm:justify-between">
-            <div className="flex gap-2 overflow-x-auto">
-              {review?.submission.pages.map(page => (
-                <button key={page.id} onClick={() => setPreview({ studentName: review.studentName, page })} className="relative h-14 w-11 shrink-0 overflow-hidden rounded border bg-muted">
-                  {page.mimetype.startsWith('image/') ? <Image src={page.url} alt={`Page ${page.pageNumber}`} fill unoptimized className="object-cover" sizes="44px" /> : <FileText className="m-3 h-5 w-5" />}
-                </button>
-              ))}
+          <div className="grid min-h-0 flex-1 lg:grid-cols-[minmax(0,1.35fr)_minmax(420px,.65fr)]">
+            <div className="flex min-h-[460px] flex-col bg-neutral-950 lg:min-h-[72vh]">
+              <div className="flex items-center justify-between border-b border-white/10 px-4 py-2 text-white">
+                <span className="text-sm font-medium">{review?.submission.verified ? 'Marked, staff-verified copy' : 'Original student photo'}</span>
+                <div className="flex items-center gap-2">
+                  <Button size="icon" variant="secondary" disabled={reviewPageIndex === 0} onClick={() => setReviewPageIndex(index => Math.max(0, index - 1))}><ChevronLeft /></Button>
+                  <span className="min-w-16 text-center text-sm">{reviewPageIndex + 1} / {review?.submission.pages.length || 0}</span>
+                  <Button size="icon" variant="secondary" disabled={!review || reviewPageIndex >= review.submission.pages.length - 1} onClick={() => setReviewPageIndex(index => Math.min((review?.submission.pages.length || 1) - 1, index + 1))}><ChevronRight /></Button>
+                </div>
+              </div>
+              <div className="grid min-h-0 flex-1 place-items-center overflow-auto p-4">
+                {reviewPage?.mimetype.startsWith('image/') ? (
+                  <Image src={review?.submission.verified ? reviewPage.markedUrl : reviewPage.url} alt={`Exam page ${reviewPage.pageNumber}`} width={1800} height={2400} unoptimized className="h-auto max-h-[67vh] w-auto max-w-full object-contain" />
+                ) : reviewPage ? (
+                  <iframe src={reviewPage.url} title={`Exam page ${reviewPage.pageNumber}`} className="h-[65vh] w-full rounded bg-white" />
+                ) : <p className="text-sm text-white/60">No exam page received.</p>}
+              </div>
+              <div className="flex items-center justify-between border-t border-white/10 px-4 py-3">
+                <div className="flex gap-2 overflow-x-auto">
+                  {review?.submission.pages.map((page, index) => (
+                    <button key={page.id} onClick={() => setReviewPageIndex(index)} className={`relative h-14 w-11 shrink-0 overflow-hidden rounded border ${reviewPageIndex === index ? 'ring-2 ring-white' : 'border-white/20'}`}>
+                      {page.mimetype.startsWith('image/') ? <Image src={page.url} alt={`Page ${page.pageNumber}`} fill unoptimized className="object-cover" sizes="44px" /> : <FileText className="m-3 h-5 w-5 text-white" />}
+                    </button>
+                  ))}
+                </div>
+                {review && <Button size="sm" variant="secondary" asChild><a href={`/api/paper-exams/submissions/${encodeURIComponent(review.submission.id)}?variant=${review.submission.verified ? 'marked' : 'original'}`}><Download /> Download</a></Button>}
+              </div>
             </div>
-            <div className="flex gap-2">
-              <Button variant="outline" onClick={() => review && gradeSubmission.mutate(review.submission.id)} disabled={gradeSubmission.isPending}>
-                {gradeSubmission.isPending ? <Loader2 className="animate-spin" /> : <RefreshCw />} Run OCR again
-              </Button>
-              <Button onClick={() => saveReview.mutate()} disabled={saveReview.isPending}>
-                {saveReview.isPending ? <Loader2 className="animate-spin" /> : <Check />} Confirm grade
-              </Button>
+
+            <div className="max-h-[72vh] overflow-y-auto p-5">
+              <div className={`mb-4 rounded-xl border p-4 ${review?.submission.verified ? 'border-emerald-200 bg-emerald-50' : 'border-amber-200 bg-amber-50'}`}>
+                <div className="flex items-center justify-between gap-3">
+                  <div>
+                    <p className="flex items-center gap-2 font-semibold">{review?.submission.verified ? <ShieldCheck className="text-emerald-700" /> : <Bot className="text-amber-700" />}{review?.submission.verified ? 'Staff verified' : 'AI result — needs staff confirmation'}</p>
+                    <p className="mt-1 text-sm text-muted-foreground">AI confidence {Math.round((review?.submission.confidence || 0) * 100)}%</p>
+                  </div>
+                  <div className="text-right"><p className="text-3xl font-bold tabular-nums">{reviewScore}/{reviewTotal}</p><p className="text-xs text-muted-foreground">Pass {data.session?.passingScore}</p></div>
+                </div>
+              </div>
+              {review?.submission.error && <div className="mb-3 rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-800">{review.submission.error}</div>}
+              {review?.submission.notes && review.submission.notes !== 'Reviewed by staff' && <div className="mb-3 rounded-lg border bg-muted/30 p-3 text-sm"><span className="font-medium">OCR note:</span> {review.submission.notes}</div>}
+              <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">Compare each answer to the photo</p>
+              <div className="grid grid-cols-3 gap-2 sm:grid-cols-4 lg:grid-cols-3 xl:grid-cols-4">
+                {Array.from({ length: reviewTotal }, (_, index) => {
+                  const question = String(index + 1)
+                  const answer = reviewAnswers[question] || ''
+                  const correct = data.session?.answerKey[question]
+                  const uncertain = review?.submission.uncertain.includes(index + 1)
+                  const tone = !answer ? 'border-amber-300 bg-amber-50' : answer === correct ? 'border-emerald-200 bg-emerald-50' : 'border-red-300 bg-red-50'
+                  return (
+                    <label key={question} className={`rounded-lg border p-2 ${tone}`}>
+                      <span className="mb-1 flex items-center justify-between text-xs font-medium"><span>Q{question}</span><span className="text-muted-foreground">Key {correct}</span></span>
+                      <select value={answer} onChange={event => setReviewAnswers(current => ({ ...current, [question]: event.target.value || null }))} className="h-9 w-full rounded-md border bg-white px-2 text-sm font-semibold" aria-label={`Answer for question ${question}`}>
+                        <option value="">Unclear</option>
+                        {['A', 'B', 'C', 'D'].map(choice => <option key={choice} value={choice}>{choice}</option>)}
+                      </select>
+                      {uncertain && <span className="mt-1 block text-[10px] font-medium text-amber-700">OCR unsure</span>}
+                    </label>
+                  )
+                })}
+              </div>
+              {saveReview.error && <p className="mt-3 text-sm font-medium text-red-700">{saveReview.error.message}</p>}
+              <div className="sticky bottom-0 mt-5 flex flex-wrap justify-end gap-2 border-t bg-background pt-4">
+                <Button variant="outline" onClick={() => review && gradeSubmission.mutate(review.submission.id)} disabled={gradeSubmission.isPending}>
+                  {gradeSubmission.isPending ? <Loader2 className="animate-spin" /> : <RefreshCw />} Run OCR again
+                </Button>
+                {review?.submission.verified ? (
+                  <Button asChild><a href={`/api/paper-exams/submissions/${encodeURIComponent(review.submission.id)}?variant=marked`}><Download /> Download marked exam</a></Button>
+                ) : (
+                  <Button onClick={() => saveReview.mutate()} disabled={saveReview.isPending}>
+                    {saveReview.isPending ? <Loader2 className="animate-spin" /> : <ShieldCheck />} Confirm grade & create marked copy
+                  </Button>
+                )}
+              </div>
             </div>
           </div>
         </DialogContent>

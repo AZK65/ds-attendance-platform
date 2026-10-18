@@ -3,7 +3,7 @@
 import Image from 'next/image'
 import Link from 'next/link'
 import { useState } from 'react'
-import { AlertTriangle, CheckCircle2, ClipboardCheck, Clock3, FileText, ImageIcon, XCircle } from 'lucide-react'
+import { AlertTriangle, CheckCircle2, ClipboardCheck, Clock3, Download, FileText, ImageIcon, ShieldCheck, XCircle } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
@@ -21,13 +21,17 @@ export interface PaperExamProfileRecord {
   passed: boolean | null
   confidence: number | null
   error: string | null
+  verified: boolean
   receivedAt: string
+  originalDownloadUrl: string
+  markedDownloadUrl: string
   pages: Array<{
     id: string
     pageNumber: number
     mimetype: string
     filename: string | null
     url: string
+    markedUrl: string
   }>
 }
 
@@ -65,6 +69,7 @@ export function PaperExamProfileCard({ exams }: { exams: PaperExamProfileRecord[
                   <div className="flex flex-wrap items-center gap-2">
                     <p className="font-semibold">{exam.title}</p>
                     <ResultBadge exam={exam} />
+                    {exam.verified && <Badge variant="outline" className="border-emerald-200 text-emerald-700"><ShieldCheck /> Staff verified</Badge>}
                   </div>
                   <p className="mt-1 text-sm text-muted-foreground">
                     {exam.groupName} · {new Date(exam.receivedAt).toLocaleDateString('en-CA', { month: 'short', day: 'numeric', year: 'numeric' })}
@@ -81,6 +86,9 @@ export function PaperExamProfileCard({ exams }: { exams: PaperExamProfileRecord[
                   <Button size="sm" variant="outline" asChild>
                     <Link href={`/groups/${encodeURIComponent(exam.groupId)}/paper-exam`}>Open exam</Link>
                   </Button>
+                  <Button size="sm" variant="outline" asChild>
+                    <a href={exam.verified ? exam.markedDownloadUrl : exam.originalDownloadUrl}><Download /> {exam.verified ? 'Marked exam' : 'Original'}</a>
+                  </Button>
                 </div>
               </div>
 
@@ -95,7 +103,7 @@ export function PaperExamProfileCard({ exams }: { exams: PaperExamProfileRecord[
                     title={`Open exam page ${page.pageNumber}`}
                   >
                     {page.mimetype.startsWith('image/') ? (
-                      <Image src={page.url} alt={`${exam.title} page ${page.pageNumber}`} fill unoptimized className="object-cover" sizes="48px" />
+                      <Image src={exam.verified ? page.markedUrl : page.url} alt={`${exam.title} page ${page.pageNumber}`} fill unoptimized className="object-cover" sizes="48px" />
                     ) : (
                       <FileText className="h-5 w-5 text-red-600" />
                     )}
@@ -116,11 +124,17 @@ export function PaperExamProfileCard({ exams }: { exams: PaperExamProfileRecord[
           </DialogHeader>
           <div className="grid max-h-[75vh] min-h-[50vh] place-items-center overflow-auto bg-neutral-950 p-4">
             {preview?.page.mimetype.startsWith('image/') ? (
-              <Image src={preview.page.url} alt="Submitted paper exam" width={1600} height={2200} unoptimized className="h-auto max-h-[70vh] w-auto max-w-full object-contain" />
+              <Image src={preview.exam.verified ? preview.page.markedUrl : preview.page.url} alt="Submitted paper exam" width={1600} height={2200} unoptimized className="h-auto max-h-[70vh] w-auto max-w-full object-contain" />
             ) : preview ? (
               <iframe src={preview.page.url} title="Submitted paper exam PDF" className="h-[70vh] w-full rounded bg-white" />
             ) : null}
           </div>
+          {preview && (
+            <div className="flex items-center justify-between border-t px-6 py-3">
+              <span className="text-xs text-muted-foreground">{preview.exam.verified ? 'Staff-verified marked copy' : 'Original submission'}</span>
+              <Button size="sm" variant="outline" asChild><a href={preview.exam.verified ? preview.exam.markedDownloadUrl : preview.exam.originalDownloadUrl}><Download /> Download</a></Button>
+            </div>
+          )}
         </DialogContent>
       </Dialog>
     </>

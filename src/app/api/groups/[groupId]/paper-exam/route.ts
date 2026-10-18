@@ -3,6 +3,7 @@ import { prisma } from '@/lib/db'
 import { paperExamLast10 } from '@/lib/paper-exam'
 import { MODULE_5_PAPER_EXAM, module5AnswerKeyJson, parsePaperExamAnswerMap } from '@/lib/paper-exam-answer-keys'
 import { schedulePaperExamGrading } from '@/lib/paper-exam-grading'
+import { paperExamResultIsVerified } from '@/lib/paper-exam-result'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -174,6 +175,7 @@ function serializeSubmission(submission: {
     uncertain: extraction?.uncertain || [],
     wrong: extraction?.wrong || [],
     notes: extraction?.notes || '',
+    verified: paperExamResultIsVerified(submission.extractedAnswers),
     receivedAt: submission.receivedAt,
     pages: submission.pages.map(page => ({
       id: page.id,
@@ -182,6 +184,7 @@ function serializeSubmission(submission: {
       filename: page.filename,
       createdAt: page.createdAt,
       url: `/api/paper-exams/pages/${encodeURIComponent(page.id)}`,
+      markedUrl: `/api/paper-exams/pages/${encodeURIComponent(page.id)}?annotated=1`,
     })),
   }
 }

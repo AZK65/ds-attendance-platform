@@ -1,4 +1,5 @@
 import { prisma } from '@/lib/db'
+import { paperExamResultIsVerified } from '@/lib/paper-exam-result'
 
 function phoneSuffix(value: string | null | undefined) {
   return (value || '').replace(/\D/g, '').slice(-10)
@@ -41,13 +42,17 @@ export async function findStudentPaperExams(input: {
     passed: submission.passed,
     confidence: submission.confidence,
     error: submission.error,
+    verified: paperExamResultIsVerified(submission.extractedAnswers),
     receivedAt: submission.receivedAt,
+    originalDownloadUrl: `/api/paper-exams/submissions/${encodeURIComponent(submission.id)}?variant=original`,
+    markedDownloadUrl: `/api/paper-exams/submissions/${encodeURIComponent(submission.id)}?variant=marked`,
     pages: submission.pages.map(page => ({
       id: page.id,
       pageNumber: page.pageNumber,
       mimetype: page.mimetype,
       filename: page.filename,
       url: `/api/paper-exams/pages/${encodeURIComponent(page.id)}`,
+      markedUrl: `/api/paper-exams/pages/${encodeURIComponent(page.id)}?annotated=1`,
     })),
   }))
 }
