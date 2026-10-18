@@ -558,6 +558,67 @@ model ExamAttempt {
   @@unique([examId, studentName])
 }
 
+// Paper exams collected through WhatsApp private messages. While a session is
+// active, each image/PDF from a student in that group is saved persistently
+// and matched back to the group's roster by phone number.
+model PaperExamSession {
+  id             String                @id @default(cuid())
+  groupId        String
+  groupName      String
+  title          String                @default("Paper exam")
+  status         String                @default("active") // active | closed
+  answerKey      String?               // JSON: { "1": "A", "2": "C", ... }
+  totalQuestions Int?
+  passingScore   Int?
+  startedAt      DateTime              @default(now())
+  closedAt       DateTime?
+  createdAt      DateTime              @default(now())
+  updatedAt      DateTime              @updatedAt
+  submissions    PaperExamSubmission[]
+
+  @@index([groupId, status])
+  @@index([createdAt])
+}
+
+model PaperExamSubmission {
+  id               String           @id @default(cuid())
+  sessionId        String
+  studentKey       String
+  contactId        String?
+  senderJid        String
+  phone            String
+  studentName      String
+  status           String           @default("received") // received | processing | graded | review | failed
+  extractedAnswers String?
+  score            Int?
+  totalQuestions   Int?
+  passed           Boolean?
+  confidence       Float?
+  error             String?
+  receivedAt       DateTime         @default(now())
+  updatedAt        DateTime         @updatedAt
+  session          PaperExamSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  pages             PaperExamPage[]
+
+  @@unique([sessionId, studentKey])
+  @@index([sessionId])
+  @@index([phone])
+}
+
+model PaperExamPage {
+  id           String              @id @default(cuid())
+  submissionId String
+  messageId    String              @unique
+  filePath     String
+  mimetype     String
+  filename     String?
+  pageNumber   Int
+  createdAt    DateTime            @default(now())
+  submission   PaperExamSubmission @relation(fields: [submissionId], references: [id], onDelete: Cascade)
+
+  @@index([submissionId])
+}
+
 model AppPreference {
   key       String   @id
   value     String

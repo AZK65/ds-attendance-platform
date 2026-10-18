@@ -2,6 +2,7 @@ import path from 'path'
 import { createHash } from 'crypto'
 import { prisma } from '@/lib/db'
 import { handleInboundMessage, pauseForAdminReply, logAdminMessage, logBotSendSuccess, logBotSendFailure } from '@/lib/bot/handle-message'
+import { capturePaperExamMedia, findActivePaperExamGroupForSender, hasActivePaperExamSession } from '@/lib/paper-exam'
 
 // Set of (JID + '|' + text) pairs the bot just sent. Populated by
 // sendBotReply immediately before sendMessage runs, drained by the
@@ -767,6 +768,7 @@ export async function connectWhatsApp(): Promise<void> {
     type IncomingMsg = {
       body: string
       from: string        // e.g. '15145551234@c.us' or '...@g.us' for groups
+      author?: string     // actual sender for an inbound group message
       id?: { _serialized?: string; id?: string }
       timestamp?: number
       isStatus?: boolean
@@ -776,18 +778,84 @@ export async function connectWhatsApp(): Promise<void> {
         notifyName?: string
         t?: number
         id?: { _serialized?: string; id?: string }
+        author?: { _serialized?: string } | string
       }
       getContact?: () => Promise<{ number?: string; pushname?: string; name?: string }>
+      downloadMedia?: () => Promise<{
+        data: string
+        mimetype: string
+        filename?: string
+        filesize?: number
+      } | undefined>
     }
     client.on('message', async (msg: IncomingMsg) => {
       try {
         if (!isCurrentClient()) return
-        // Group and status messages: never respond.
-        if (msg.from?.endsWith('@g.us')) return
+        // Paper Exam Mode is the one group-message workflow we listen to.
+        // It never replies in the group; it only persists student images/PDFs
+        // while an admin-opened collection session is active.
+        if (msg.from?.endsWith('@g.us')) {
+          if (!msg.hasMedia || !msg.downloadMedia) return
+          if (!await hasActivePaperExamSession(msg.from)) return
+
+          const rawAuthor = msg.author || (
+            typeof msg._data?.author === 'string'
+              ? msg._data.author
+              : msg._data?.author?._serialized
+          ) || ''
+          if (!rawAuthor) {
+            console.warn(`[PaperExam] Ignored media in ${msg.from}: WhatsApp omitted the sender`)
+            return
+          }
+
+          let senderPhone = rawAuthor.split('@')[0]?.replace(/\D/g, '') || ''
+          let senderName = msg._data?.notifyName || null
+          if (rawAuthor.endsWith('@lid')) {
+            try {
+              const mappings = await (client as unknown as {
+                getContactLidAndPhone: (ids: string[]) => Promise<Array<{ lid: string; pn: string }>>
+              }).getContactLidAndPhone([rawAuthor])
+              const mapped = mappings[0]?.pn?.split('@')[0]?.replace(/\D/g, '')
+              if (mapped) senderPhone = mapped
+            } catch (error) {
+              console.warn('[PaperExam] Could not resolve sender LID:', error)
+            }
+          }
+          if (msg.getContact) {
+            try {
+              const contact = await msg.getContact()
+              const contactPhone = contact.number?.replace(/\D/g, '')
+              if (contactPhone && contactPhone.length >= 10 && contactPhone.length <= 15) senderPhone = contactPhone
+              senderName = senderName || contact.pushname || contact.name || null
+            } catch { /* keep the author-derived identity */ }
+          }
+
+          const media = await Promise.race([
+            msg.downloadMedia(),
+            new Promise<undefined>((_, reject) =>
+              setTimeout(() => reject(new Error('WhatsApp exam image download timed out')), 20_000)
+            ),
+          ])
+          if (!media?.data || !media.mimetype) {
+            console.warn(`[PaperExam] WhatsApp returned no media for ${msg.from}`)
+            return
+          }
+          const rawMessageId = msg.id?._serialized || msg._data?.id?._serialized || msg.id?.id || msg._data?.id?.id
+          const messageId = rawMessageId || createHash('sha256')
+            .update(`${msg.from}|${rawAuthor}|${msg.timestamp || msg._data?.t || Date.now()}|${media.data.slice(0, 256)}`)
+            .digest('hex')
+
+          await capturePaperExamMedia({
+            groupId: msg.from,
+            senderJid: rawAuthor,
+            senderPhone,
+            senderName,
+            messageId,
+            media,
+          })
+          return
+        }
         if (msg.isStatus) return
-        // Only plain text for now. Skipping media doesn't lose context
-        // because a follow-up text will usually explain it.
-        if (msg.type && msg.type !== 'chat') return
         const rawEventId = msg.id?._serialized || msg._data?.id?._serialized || msg.id?.id || msg._data?.id?.id
         const rawTimestamp = msg.timestamp || msg._data?.t
         // The installed WhatsApp Web build currently delivers some inbound
@@ -837,6 +905,38 @@ export async function connectWhatsApp(): Promise<void> {
               resolvedName = resolvedName || contact.pushname || contact.name
             } catch { /* keep the LID; no student context will be exposed */ }
           }
+        }
+
+        // Students submit paper exams privately to the school's WhatsApp
+        // number. Match the sender to the newest active Exam Mode among their
+        // groups, then store the attachment under that group. Other private
+        // media remains available in Inbox and is not sent to the AI bot.
+        if (msg.hasMedia || (msg.type && msg.type !== 'chat')) {
+          if (msg.hasMedia && msg.downloadMedia) {
+            const examGroupId = await findActivePaperExamGroupForSender(phone, fromJid)
+            if (examGroupId) {
+              const media = await Promise.race([
+                msg.downloadMedia(),
+                new Promise<undefined>((_, reject) =>
+                  setTimeout(() => reject(new Error('WhatsApp exam image download timed out')), 20_000)
+                ),
+              ])
+              if (media?.data && media.mimetype) {
+                const messageId = rawEventId || createHash('sha256')
+                  .update(`${fromJid}|${rawTimestamp || Date.now()}|${media.data.slice(0, 256)}`)
+                  .digest('hex')
+                await capturePaperExamMedia({
+                  groupId: examGroupId,
+                  senderJid: fromJid,
+                  senderPhone: phone,
+                  senderName: resolvedName,
+                  messageId,
+                  media,
+                })
+              }
+            }
+          }
+          return
         }
 
         const result = await handleInboundMessage({

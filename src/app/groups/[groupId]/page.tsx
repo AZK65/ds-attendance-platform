@@ -61,6 +61,7 @@ import {
   ClipboardList,
   Copy,
   MoreHorizontal,
+  ScanLine,
 } from 'lucide-react'
 import { Input } from '@/components/ui/input'
 import Link from 'next/link'
@@ -993,10 +994,15 @@ export default function GroupDetailPage() {
                     </DropdownMenuTrigger>
                     <DropdownMenuContent align="end" className="w-56">
                       <DropdownMenuLabel>More actions</DropdownMenuLabel>
+                      <DropdownMenuItem asChild>
+                        <Link href={`/groups/${encodeURIComponent(groupId)}/paper-exam`}>
+                          <ScanLine /> Paper exam mode
+                        </Link>
+                      </DropdownMenuItem>
                       {!examCode && (
                         <DropdownMenuItem onSelect={generateExam} disabled={examGenerating}>
                           {examGenerating ? <Loader2 className="animate-spin" /> : <ClipboardList />}
-                          Generate exam
+                          Generate online exam
                         </DropdownMenuItem>
                       )}
                       <DropdownMenuSeparator />
