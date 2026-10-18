@@ -1,0 +1,94 @@
+# Push to main (including a merge) updates the droplet. The job SSHes in and
+# runs scripts/deploy.sh, which pulls main and rebuilds only the Compose
+# "app" service. Caddy and MySQL are not recreated.
+name: Deploy
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+# A second push waits. Cancelling an in-progress SSH session would kill
+# the image build halfway. The waiting run pulls latest main when it starts.
+concurrency:
+  group: deploy-production
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  deploy:
+    name: Deploy app on droplet
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - name: Deploy over SSH
+        env:
+          DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
+          DEPLOY_USER: ${{ secrets.DEPLOY_USER }}
+          DEPLOY_PORT: ${{ secrets.DEPLOY_PORT }}
+          DEPLOY_SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
+        run: |
+          set -euo pipefail
+
+          if [[ -z "${DEPLOY_HOST:-}" || -z "${DEPLOY_USER:-}" || -z "${DEPLOY_SSH_KEY:-}" ]]; then
+            echo "ERROR: Set Actions secrets DEPLOY_HOST, DEPLOY_USER, and DEPLOY_SSH_KEY. See DEPLOY.md." >&2
+            exit 1
+          fi
+
+          port="${DEPLOY_PORT:-22}"
+          key_file="$(mktemp)"
+          known_hosts="$(mktemp)"
+          trap 'rm -f "$key_file" "$known_hosts"' EXIT
+
+          printf '%s\n' "$DEPLOY_SSH_KEY" | tr -d '\r' > "$key_file"
+          chmod 600 "$key_file"
+          if ! grep -q "PRIVATE KEY" "$key_file"; then
+            echo "ERROR: DEPLOY_SSH_KEY does not contain a private key header. Paste the full key, including the BEGIN and END lines." >&2
+            exit 1
+          fi
+
+          echo "Recording SSH host key"
+          scanned=0
+          for _attempt in 1 2 3; do
+            if ssh-keyscan -p "$port" -T 15 -H "$DEPLOY_HOST" > "$known_hosts" && [[ -s "$known_hosts" ]]; then
+              scanned=1
+              break
+            fi
+            sleep 2
+          done
+          if [[ "$scanned" -ne 1 ]]; then
+            echo "ERROR: ssh-keyscan returned no host keys. Check DEPLOY_HOST, DEPLOY_PORT, and that port ${port} accepts connections from GitHub-hosted runners." >&2
+            exit 1
+          fi
+          chmod 644 "$known_hosts"
+
+          ssh \
+            -i "$key_file" \
+            -p "$port" \
+            -o IdentitiesOnly=yes \
+            -o BatchMode=yes \
+            -o StrictHostKeyChecking=yes \
+            -o UserKnownHostsFile="$known_hosts" \
+            -o GlobalKnownHostsFile=/dev/null \
+            -o ConnectTimeout=20 \
+            -o ServerAliveInterval=30 \
+            -o ServerAliveCountMax=180 \
+            "${DEPLOY_USER}@${DEPLOY_HOST}" \
+            bash -s <<'EOF'
+          set -euo pipefail
+          cd /root/ds-attendance-platform
+          export GIT_TERMINAL_PROMPT=0
+          # First deploy after this workflow lands: the script is not on the
+          # server until main is pulled. Later deploys re-exec from the script
+          # itself after pulling, so the commands that run match that commit.
+          if [[ ! -f scripts/deploy.sh ]]; then
+            echo "==> scripts/deploy.sh is not on the server yet; pulling main"
+            git fetch origin main
+            git checkout main
+            git pull --ff-only origin main
+          fi
+          bash scripts/deploy.sh
+          EOF
