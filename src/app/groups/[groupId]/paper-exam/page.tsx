@@ -6,6 +6,7 @@ import { useParams } from 'next/navigation'
 import { useMemo, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import {
+  Archive,
   ArrowLeft,
   AlertTriangle,
   Award,
@@ -75,6 +76,22 @@ interface StudentRow {
   submission: Submission | null
 }
 
+interface MissingStudent {
+  contactId: string
+  name: string
+  phone: string
+}
+
+interface RecheckStudent {
+  contactId: string
+  name: string
+  phone: string
+  submissionId: string
+  reason: string
+  score: number | null
+  totalQuestions: number | null
+}
+
 interface ExamModeData {
   group: { id: string; name: string }
   session: {
@@ -100,7 +117,9 @@ interface ExamModeData {
   }>
   students: StudentRow[]
   unmatched: Submission[]
-  stats: { total: number; submitted: number; missing: number; pages: number; graded: number; review: number; processing: number }
+  missingStudents: MissingStudent[]
+  needsRecheck: RecheckStudent[]
+  stats: { total: number; submitted: number; missing: number; pages: number; graded: number; review: number; processing: number; needsRecheck: number }
 }
 
 const SUBMISSION_MESSAGE = `📄 *Exam submission is open*
@@ -115,6 +134,13 @@ function formatPhone(phone: string) {
   const digits = phone.replace(/\D/g, '').slice(-10)
   if (digits.length !== 10) return phone ? `+${phone.replace(/\D/g, '')}` : 'Unknown number'
   return `(${digits.slice(0, 3)}) ${digits.slice(3, 6)}-${digits.slice(6)}`
+}
+
+function formatQuestionList(questions: number[]) {
+  const labels = questions.map(question => `Q${question}`)
+  if (labels.length <= 1) return labels[0] || ''
+  if (labels.length === 2) return `${labels[0]} and ${labels[1]}`
+  return `${labels.slice(0, -1).join(', ')} and ${labels[labels.length - 1]}`
 }
 
 function receivedTime(value: string) {
@@ -138,6 +164,7 @@ export default function PaperExamModePage() {
   const [reviewAnswers, setReviewAnswers] = useState<Record<string, string | null>>({})
   const [reviewPageIndex, setReviewPageIndex] = useState(0)
   const [instructionsSent, setInstructionsSent] = useState(false)
+  const [downloadAllOpen, setDownloadAllOpen] = useState(false)
 
   const { data, isLoading, isFetching } = useQuery<ExamModeData>({
     queryKey: ['paper-exam', groupId, selectedSessionId],
@@ -229,6 +256,41 @@ export default function PaperExamModePage() {
     },
   })
 
+  const downloadAll = useMutation({
+    mutationFn: async () => {
+      if (!data?.session) return
+      const response = await fetch(`/api/groups/${encodeURIComponent(groupId)}/paper-exam/download?sessionId=${encodeURIComponent(data.session.id)}`)
+      if (!response.ok) {
+        const payload = await response.json().catch(() => ({}))
+        throw new Error(payload.error || 'Could not download exams')
+      }
+      const blob = await response.blob()
+      const disposition = response.headers.get('Content-Disposition') || ''
+      const match = disposition.match(/filename="([^"]+)"/)
+      const filename = match?.[1] || 'paper-exams.zip'
+      const url = URL.createObjectURL(blob)
+      const link = document.createElement('a')
+      link.href = url
+      link.download = filename
+      document.body.appendChild(link)
+      link.click()
+      link.remove()
+      setTimeout(() => URL.revokeObjectURL(url), 1500)
+    },
+    onSuccess: () => setDownloadAllOpen(false),
+  })
+
+  function requestDownloadAll() {
+    const recheckIds = new Set((data?.needsRecheck || []).map(item => item.submissionId))
+    const unverified = (data?.students || []).filter(student => {
+      const submission = student.submission
+      return Boolean(submission && !submission.verified && submission.score !== null && !recheckIds.has(submission.id))
+    }).length
+    const attention = (data?.missingStudents.length || 0) + (data?.needsRecheck.length || 0) + (data?.unmatched.length || 0) + unverified
+    if (attention > 0) setDownloadAllOpen(true)
+    else downloadAll.mutate()
+  }
+
   function openReview(studentName: string, submission: Submission) {
     setReviewAnswers({ ...submission.answers })
     setReviewPageIndex(0)
@@ -257,6 +319,16 @@ export default function PaperExamModePage() {
       .filter(question => reviewAnswers[question] === data.session!.answerKey[question]).length
     : 0
   const reviewPage = review?.submission.pages[reviewPageIndex] || null
+  const missingStudents = data.missingStudents || []
+  const needsRecheck = data.needsRecheck || []
+  const unverifiedGrades = (data.students || []).filter(student => {
+    const submission = student.submission
+    if (!submission || submission.verified || submission.score === null) return false
+    return !needsRecheck.some(item => item.submissionId === submission.id)
+  })
+  const unanswered = reviewTotal > 0
+    ? Array.from({ length: reviewTotal }, (_, index) => index + 1).filter(question => !reviewAnswers[String(question)])
+    : []
 
   return (
     <main className="mx-auto max-w-7xl space-y-6 px-4 py-6 sm:px-6 lg:px-8">
@@ -373,6 +445,30 @@ export default function PaperExamModePage() {
             </div>
           </section>
 
+          {(missingStudents.length > 0 || needsRecheck.length > 0 || data.unmatched.length > 0) && (
+            <section className="rounded-xl border border-amber-200 bg-amber-50 p-4">
+              <h2 className="flex items-center gap-2 font-semibold text-amber-950"><AlertTriangle className="h-5 w-5" /> Re-check before using these results</h2>
+              <p className="mt-1 text-sm text-amber-900">
+                Missing counts students on this group roster with no matched exam photo. Group admins and the school WhatsApp number (514-274-6948) are not included.
+                {data.unmatched.length > 0 && ` ${data.unmatched.length} saved photo${data.unmatched.length === 1 ? '' : 's'} did not match a roster phone or name, so re-check them against the missing list.`}
+              </p>
+              {missingStudents.length > 0 && (
+                <div className="mt-3">
+                  <p className="text-sm font-semibold text-amber-950">{missingStudents.length} missing {missingStudents.length === 1 ? 'exam' : 'exams'}</p>
+                  <p className="mt-1 text-sm text-amber-900">{missingStudents.map(student => student.name).join(', ')}</p>
+                </div>
+              )}
+              {needsRecheck.length > 0 && (
+                <div className="mt-3">
+                  <p className="text-sm font-semibold text-amber-950">{needsRecheck.length} {needsRecheck.length === 1 ? 'exam needs' : 'exams need'} a grade re-check</p>
+                  <ul className="mt-1 space-y-1 text-sm text-amber-900">
+                    {needsRecheck.map(student => <li key={student.submissionId}>{student.name} — {student.reason}</li>)}
+                  </ul>
+                </div>
+              )}
+            </section>
+          )}
+
           <section className="overflow-hidden rounded-xl border">
             <div className="flex flex-col gap-3 border-b bg-muted/20 p-4 sm:flex-row sm:items-center sm:justify-between">
               <div>
@@ -382,7 +478,12 @@ export default function PaperExamModePage() {
                   {isFetching && <Loader2 className="ml-2 inline h-3.5 w-3.5 animate-spin" />}
                 </p>
               </div>
-              <div className="flex rounded-lg border bg-background p-1">
+              <div className="flex flex-wrap items-center gap-2">
+                {downloadAll.error && !downloadAllOpen && <p className="text-sm font-medium text-red-700">{downloadAll.error.message}</p>}
+                <Button variant="outline" onClick={requestDownloadAll} disabled={downloadAll.isPending}>
+                  {downloadAll.isPending ? <Loader2 className="animate-spin" /> : <Archive />} Download all
+                </Button>
+                <div className="flex rounded-lg border bg-background p-1">
                 {(['all', 'submitted', 'missing'] as const).map(value => (
                   <Button key={value} size="sm" variant={filter === value ? 'secondary' : 'ghost'} onClick={() => setFilter(value)} className="capitalize">
                     {value}
@@ -390,6 +491,7 @@ export default function PaperExamModePage() {
                     {value === 'missing' && <span className="ml-1 text-xs">{data.stats.missing}</span>}
                   </Button>
                 ))}
+                </div>
               </div>
             </div>
 
@@ -433,7 +535,7 @@ export default function PaperExamModePage() {
                       </Button>
                     ) : <span className="text-sm text-muted-foreground">—</span>}
                   </div>
-                  <div className="flex min-h-14 items-center justify-start gap-2 sm:justify-end">
+                  <div className="flex min-h-14 flex-wrap items-center justify-start gap-2 sm:justify-end">
                     {student.submission ? (
                       <>
                         <div className="mr-2 hidden text-right lg:block">
@@ -460,14 +562,9 @@ export default function PaperExamModePage() {
                           {student.submission.verified ? <Eye /> : <ShieldCheck />}
                           {student.submission.verified ? 'Preview' : 'Review & verify'}
                         </Button>
-                        <Button size="icon" variant="outline" asChild title="Download original exam">
-                          <a href={`/api/paper-exams/submissions/${encodeURIComponent(student.submission.id)}?variant=original`}><Download /></a>
+                        <Button size="sm" variant="outline" asChild title="Download the exam photo and grade overview as one PDF">
+                          <a href={`/api/paper-exams/submissions/${encodeURIComponent(student.submission.id)}?variant=${student.submission.verified ? 'marked' : 'original'}`}><Download /> Download</a>
                         </Button>
-                        {student.submission.verified && (
-                          <Button size="icon" variant="outline" asChild title="Download marked exam">
-                            <a href={`/api/paper-exams/submissions/${encodeURIComponent(student.submission.id)}?variant=marked`}><Award /></a>
-                          </Button>
-                        )}
                       </>
                     ) : (
                       <span className="text-sm text-muted-foreground">No exam received</span>
@@ -529,7 +626,7 @@ export default function PaperExamModePage() {
                     </button>
                   ))}
                 </div>
-                {review && <Button className="shrink-0" size="sm" variant="secondary" asChild><a href={`/api/paper-exams/submissions/${encodeURIComponent(review.submission.id)}?variant=${review.submission.verified ? 'marked' : 'original'}`}><Download /> Download</a></Button>}
+                {review && <Button className="shrink-0" size="sm" variant="secondary" asChild title="Download the exam photo and grade overview as one PDF"><a href={`/api/paper-exams/submissions/${encodeURIComponent(review.submission.id)}?variant=${review.submission.verified ? 'marked' : 'original'}`}><Download /> Download</a></Button>}
               </div>
             </div>
 
@@ -540,6 +637,11 @@ export default function PaperExamModePage() {
                     <div>
                       <p className="flex items-center gap-2 font-semibold">{review?.submission.verified ? <ShieldCheck className="text-emerald-700" /> : <Bot className="text-amber-700" />}{review?.submission.verified ? 'Staff verified' : 'AI result — needs staff confirmation'}</p>
                       <p className="mt-1 text-sm text-muted-foreground">AI confidence {Math.round((review?.submission.confidence || 0) * 100)}%</p>
+                      {unanswered.length > 0 && (
+                        <p className="mt-2 text-sm font-medium text-amber-800">
+                          {unanswered.length} {unanswered.length === 1 ? 'answer is' : 'answers are'} missing on this exam. Re-check {formatQuestionList(unanswered)} against the photo.
+                        </p>
+                      )}
                     </div>
                     <div className="text-right"><p className="text-3xl font-bold tabular-nums">{reviewScore}/{reviewTotal}</p><p className="text-xs text-muted-foreground">Pass {data.session?.passingScore}</p></div>
                   </div>
@@ -579,7 +681,7 @@ export default function PaperExamModePage() {
                 </Button>
                 {review?.submission.verified ? (
                   <>
-                    <Button variant="outline" asChild><a href={`/api/paper-exams/submissions/${encodeURIComponent(review.submission.id)}?variant=marked`}><Download /> Download marked exam</a></Button>
+                    <Button variant="outline" asChild><a href={`/api/paper-exams/submissions/${encodeURIComponent(review.submission.id)}?variant=marked`}><Download /> Download exam</a></Button>
                     {review.submission.resultNotifiedAt ? (
                       <span className="inline-flex h-9 items-center gap-2 rounded-md bg-emerald-50 px-3 text-sm font-medium text-emerald-800"><Check /> Private result sent</span>
                     ) : (
@@ -595,6 +697,46 @@ export default function PaperExamModePage() {
                 )}
               </div>
             </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={downloadAllOpen} onOpenChange={open => !downloadAll.isPending && setDownloadAllOpen(open)}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Download all exams</DialogTitle>
+            <DialogDescription>
+              One zip with each student&apos;s exam PDF (overview page plus exam photo), grades.csv, and recheck.txt.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="max-h-[50vh] space-y-3 overflow-y-auto text-sm">
+            {missingStudents.length > 0 && (
+              <div>
+                <p className="font-semibold">{missingStudents.length} missing {missingStudents.length === 1 ? 'exam' : 'exams'}</p>
+                <p className="mt-1 text-muted-foreground">{missingStudents.map(student => student.name).join(', ')}</p>
+              </div>
+            )}
+            {needsRecheck.length > 0 && (
+              <div>
+                <p className="font-semibold">{needsRecheck.length} {needsRecheck.length === 1 ? 'exam needs' : 'exams need'} a grade re-check</p>
+                <ul className="mt-1 space-y-1 text-muted-foreground">
+                  {needsRecheck.map(student => <li key={student.submissionId}>{student.name} — {student.reason}</li>)}
+                </ul>
+              </div>
+            )}
+            {data.unmatched.length > 0 && (
+              <p className="text-muted-foreground">{data.unmatched.length} saved photo{data.unmatched.length === 1 ? '' : 's'} did not match the roster. {data.unmatched.length === 1 ? 'It is' : 'They are'} included in an unmatched folder.</p>
+            )}
+            {unverifiedGrades.length > 0 && (
+              <p className="text-muted-foreground">{unverifiedGrades.length} AI {unverifiedGrades.length === 1 ? 'grade has' : 'grades have'} not been staff-verified. {unverifiedGrades.length === 1 ? 'That PDF is' : 'Those PDFs are'} labeled unverified.</p>
+            )}
+            {downloadAll.error && <p className="font-medium text-red-700">{downloadAll.error.message}</p>}
+          </div>
+          <div className="flex justify-end gap-2">
+            <Button variant="outline" onClick={() => setDownloadAllOpen(false)} disabled={downloadAll.isPending}>Cancel</Button>
+            <Button onClick={() => downloadAll.mutate()} disabled={downloadAll.isPending}>
+              {downloadAll.isPending ? <Loader2 className="animate-spin" /> : <Download />} Download zip
+            </Button>
           </div>
         </DialogContent>
       </Dialog>

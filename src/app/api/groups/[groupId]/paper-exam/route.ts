@@ -1,10 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/db'
-import { paperExamLast10 } from '@/lib/paper-exam'
+import { capturePaperExamMedia } from '@/lib/paper-exam'
 import { MODULE_5_PAPER_EXAM, module5AnswerKeyJson, parsePaperExamAnswerMap } from '@/lib/paper-exam-answer-keys'
 import { schedulePaperExamGrading } from '@/lib/paper-exam-grading'
 import { paperExamResultIsVerified } from '@/lib/paper-exam-result'
-import { capturePaperExamMedia } from '@/lib/paper-exam'
+import { matchPaperExamRoster, paperExamRecheckReason } from '@/lib/paper-exam-roster'
 import { getInboxMessageMedia } from '@/lib/whatsapp/client'
 
 export const runtime = 'nodejs'
@@ -46,7 +46,7 @@ async function buildSessionPayload(groupId: string, requestedSessionId?: string 
   }
 
   const members = await prisma.groupMember.findMany({
-    where: { groupId, isAdmin: false, isSuperAdmin: false },
+    where: { groupId },
     include: { contact: { select: { name: true, pushName: true } } },
     orderBy: { createdAt: 'asc' },
   })
@@ -64,45 +64,60 @@ async function buildSessionPayload(groupId: string, requestedSessionId?: string 
     take: 25,
   })
 
+  const roster = matchPaperExamRoster(members, session?.submissions || [])
+  const students = roster.students.map(student => ({
+    contactId: student.contactId,
+    name: student.name,
+    phone: student.phone,
+    submitted: Boolean(student.submission),
+    submission: student.submission ? serializeSubmission(student.submission) : null,
+  }))
+  const missingStudents = students
+    .filter(student => !student.submitted)
+    .map(student => ({ contactId: student.contactId, name: student.name, phone: student.phone }))
+  const needsRecheck = students.flatMap(student => {
+    if (!student.submission) return []
+    const reason = paperExamRecheckReason({
+      status: student.submission.status,
+      verified: student.submission.verified,
+      uncertain: student.submission.uncertain,
+      error: student.submission.error,
+    })
+    if (!reason) return []
+    return [{
+      contactId: student.contactId,
+      name: student.name,
+      phone: student.phone,
+      submissionId: student.submission.id,
+      reason,
+      score: student.submission.score,
+      totalQuestions: student.submission.totalQuestions,
+    }]
+  })
+
   if (!session) {
     return {
       group,
       session: null,
       history,
-      students: members.map(member => ({
-        contactId: member.contactId,
-        name: member.contact.name || member.contact.pushName || member.phone,
-        phone: member.phone,
-        submitted: false,
-        submission: null,
-      })),
+      students,
       unmatched: [],
-      stats: { total: members.length, submitted: 0, missing: members.length, pages: 0, graded: 0 },
+      missingStudents,
+      needsRecheck,
+      stats: {
+        total: students.length,
+        submitted: 0,
+        missing: missingStudents.length,
+        pages: 0,
+        graded: 0,
+        review: 0,
+        processing: 0,
+        needsRecheck: 0,
+      },
     }
   }
 
-  const submissionByContact = new Map(session.submissions.filter(item => item.contactId).map(item => [item.contactId!, item]))
-  const submissionByPhone = new Map(
-    session.submissions
-      .map(item => [paperExamLast10(item.phone), item] as const)
-      .filter(([phone]) => phone.length === 10)
-  )
-  const matchedSubmissionIds = new Set<string>()
-
-  const students = members.map(member => {
-    const submission = submissionByContact.get(member.contactId) || submissionByPhone.get(paperExamLast10(member.phone)) || null
-    if (submission) matchedSubmissionIds.add(submission.id)
-    return {
-      contactId: member.contactId,
-      name: member.contact.name || member.contact.pushName || member.phone,
-      phone: member.phone,
-      submitted: Boolean(submission),
-      submission: submission ? serializeSubmission(submission) : null,
-    }
-  })
-  const unmatched = session.submissions
-    .filter(item => !matchedSubmissionIds.has(item.id))
-    .map(serializeSubmission)
+  const unmatched = roster.unmatched.map(serializeSubmission)
   const pages = session.submissions.reduce((sum, item) => sum + item.pages.length, 0)
   const submitted = students.filter(student => student.submitted).length
 
@@ -124,14 +139,17 @@ async function buildSessionPayload(groupId: string, requestedSessionId?: string 
     history,
     students,
     unmatched,
+    missingStudents,
+    needsRecheck,
     stats: {
-      total: members.length,
+      total: students.length,
       submitted,
-      missing: Math.max(0, members.length - submitted),
+      missing: missingStudents.length,
       pages,
       graded: session.submissions.filter(item => item.status === 'graded').length,
       review: session.submissions.filter(item => item.status === 'review' || item.status === 'failed').length,
       processing: session.submissions.filter(item => item.status === 'processing' || item.status === 'received').length,
+      needsRecheck: needsRecheck.length,
     },
   }
 }

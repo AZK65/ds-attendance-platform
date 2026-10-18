@@ -87,7 +87,7 @@ export function PaperExamProfileCard({ exams }: { exams: PaperExamProfileRecord[
                     <Link href={`/groups/${encodeURIComponent(exam.groupId)}/paper-exam`}>Open exam</Link>
                   </Button>
                   <Button size="sm" variant="outline" asChild>
-                    <a href={exam.verified ? exam.markedDownloadUrl : exam.originalDownloadUrl}><Download /> {exam.verified ? 'Marked exam' : 'Original'}</a>
+                    <a href={exam.verified ? exam.markedDownloadUrl : exam.originalDownloadUrl}><Download /> Download</a>
                   </Button>
                 </div>
               </div>
@@ -132,7 +132,7 @@ export function PaperExamProfileCard({ exams }: { exams: PaperExamProfileRecord[
           {preview && (
             <div className="flex items-center justify-between border-t px-6 py-3">
               <span className="text-xs text-muted-foreground">{preview.exam.verified ? 'Staff-verified marked copy' : 'Original submission'}</span>
-              <Button size="sm" variant="outline" asChild><a href={preview.exam.verified ? preview.exam.markedDownloadUrl : preview.exam.originalDownloadUrl}><Download /> Download</a></Button>
+              <Button size="sm" variant="outline" asChild title="Download the exam photo and grade overview as one PDF"><a href={preview.exam.verified ? preview.exam.markedDownloadUrl : preview.exam.originalDownloadUrl}><Download /> Download</a></Button>
             </div>
           )}
         </DialogContent>
