@@ -43,6 +43,9 @@ services:
       - ZOOM_CLIENT_SECRET=${ZOOM_CLIENT_SECRET}
       - ZOOM_WEBHOOK_SECRET_TOKEN=${ZOOM_WEBHOOK_SECRET_TOKEN:-}
       - AUTH_PASSWORD=${AUTH_PASSWORD}
+      # Read-only /api/assistant routes. Empty disables them (HTTP 503).
+      # Set the value in the server .env; it is not baked into the image.
+      - ASSISTANT_API_TOKEN=${ASSISTANT_API_TOKEN:-}
       - OPENROUTER_API_KEY=${OPENROUTER_API_KEY}
       # WhatsApp AI bot. Set BOT_ENABLED=false to silence the bot without
       # a code deploy. BOT_MODEL overrides the default (anthropic/claude-haiku-4.5)
