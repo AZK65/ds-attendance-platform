@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/db'
+import { findBestLocalStudent } from '@/lib/local-student-lookup'
+import { canOverwriteStudent } from '@/lib/student-match'
 
 export async function POST(request: NextRequest) {
   try {
@@ -85,30 +87,33 @@ export async function POST(request: NextRequest) {
     // Previously, adding a licence to a phone-matched student used an upsert
     // by licence and created a second Student row, so dates/numbers disappeared
     // when the original profile was reopened.
+    // A row whose phone is present and different is a different person, even
+    // if an earlier fuzzy match handed us their id. Licence still identifies
+    // the same person. Same-phone duplicates keep the certificate/date ranking.
     const cleanLicence = licenceNumber?.trim() || null
-    const phoneDigits = (phone || '').replace(/\D/g, '')
-    const phoneSuffix = phoneDigits.length >= 10 ? phoneDigits.slice(-10) : phoneDigits
+    const saveIdentity = { phone, phoneAlt, licenceNumber: cleanLicence }
     let existing = null as Awaited<ReturnType<typeof prisma.student.findFirst>>
 
     if (typeof localStudentId === 'string' && localStudentId) {
       existing = await prisma.student.findUnique({ where: { id: localStudentId } })
     }
+    if (existing && !canOverwriteStudent(existing, saveIdentity)) {
+      console.warn(
+        `[students POST] refusing to overwrite ${existing.name} (${existing.id}); phone conflicts with ${phone || phoneAlt || ''}`,
+      )
+      existing = null
+    }
     if (!existing && cleanLicence) {
       existing = await prisma.student.findFirst({ where: { licenceNumber: cleanLicence } })
     }
-    if (!existing && phoneSuffix.length >= 7) {
-      const candidates = await prisma.student.findMany({
-        where: { phone: { contains: phoneSuffix } },
-        include: { certificates: true },
-        orderBy: { updatedAt: 'desc' },
-      })
-      existing = candidates[0] || null
-    }
     if (!existing) {
-      existing = await prisma.student.findFirst({
-        where: { name, ...(phone ? { phone } : {}) },
-        orderBy: { updatedAt: 'desc' },
-      })
+      existing = await findBestLocalStudent({ phone, phoneAlt, name })
+      if (existing && !canOverwriteStudent(existing, saveIdentity)) {
+        console.warn(
+          `[students POST] refusing to overwrite ${existing.name} (${existing.id}); phone conflicts with ${phone || phoneAlt || ''}`,
+        )
+        existing = null
+      }
     }
 
     // Regenerating one student's certificate may reuse their own numbers,
@@ -123,7 +128,7 @@ export async function POST(request: NextRequest) {
       })
       if (conflictingCertificate) {
         return NextResponse.json(
-          { error: `Certificate numbers are already assigned to ${conflictingCertificate.student.name}. Please assign fresh numbers.` },
+          { error: `Certificate numbers are already assigned to ${conflictingCertificate.student.name}. A different phone cannot reuse or overwrite that record. Please assign fresh numbers.` },
           { status: 409 }
         )
       }
