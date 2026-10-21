@@ -66,3 +66,35 @@ git pull --ff-only origin main
 ```
 
 `.env` in that directory is not in git. Deploys do not create or overwrite it. It has to already be there; Compose reads the app's runtime secrets from it.
+
+## Assistant API token
+
+The read-only assistant API (`GET /api/assistant/...` on `https://qazidrivingschool.ca`) checks `Authorization: Bearer <token>` against `ASSISTANT_API_TOKEN`. Until that variable is set, every assistant route returns 503. The token is not accepted in the query string.
+
+On the server, add it to the existing env file. Do not commit the value.
+
+```bash
+cd /root/ds-attendance-platform
+openssl rand -hex 32
+```
+
+Open `.env` and add one line, using the hex string you just generated:
+
+```bash
+ASSISTANT_API_TOKEN=paste-the-hex-string-here
+```
+
+Then rebuild only the `app` service so Compose passes the variable into the container:
+
+```bash
+cd /root/ds-attendance-platform
+docker compose up -d --no-deps --build app
+```
+
+A normal deploy does the same rebuild after `git pull`. If the token is added after that deploy has already finished, run the `docker compose` command above once so the running container picks it up. Check with:
+
+```bash
+curl -sS -o /dev/null -w '%{http_code}\n' https://qazidrivingschool.ca/api/assistant/summary
+```
+
+That request has no token, so the answer is `401` once the variable is set and `503` while it is still empty.
