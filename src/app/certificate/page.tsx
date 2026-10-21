@@ -17,6 +17,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { PhoneCameraUpload } from '@/components/PhoneCameraUpload'
 import { StudentSearchAutocomplete, DBStudent } from '@/components/StudentSearchAutocomplete'
 import { AddressAutocomplete } from '@/components/AddressAutocomplete'
+import { phonesConflict, shouldAdoptLocalStudent } from '@/lib/student-match'
 
 // ─── Shared Types ────────────────────────────────────────────────────────────
 
@@ -178,6 +179,20 @@ function compressImage(file: File, maxWidth: number = 2000, quality: number = 0.
     reader.onerror = () => reject(new Error('Failed to read file'))
     reader.readAsDataURL(file)
   })
+}
+
+function adoptLocalStudent<T extends { id?: string; name?: string; phone?: string | null; phoneAlt?: string | null; licenceNumber?: string | null }>(
+  local: T | null | undefined,
+  form: { phone?: string | null; phoneAlt?: string | null; licenceNumber?: string | null },
+  explicitStudentId?: string | null,
+): T | null {
+  if (!local || !shouldAdoptLocalStudent(local, form, explicitStudentId)) {
+    if (local && phonesConflict(local, form.phone, form.phoneAlt)) {
+      console.warn(`[certificate] skipped ${local.name || 'a student'} (${local.id || 'unknown id'}) because the phone does not match`)
+    }
+    return null
+  }
+  return local
 }
 
 // ─── Review Form Component (shared by single + bulk) ────────────────────────
@@ -811,8 +826,12 @@ function CertificatePageInner() {
       // First: load saved dates from local SQLite (lowest priority — will be overridden by Teamup/Zoom)
       if (profileRes?.ok) {
         const profile = await profileRes.json()
-        if (profile.localStudent) {
-          const s = profile.localStudent
+        const s = adoptLocalStudent(
+          profile.localStudent,
+          { phone, phoneAlt: baseData.phoneAlt, licenceNumber: baseData.licenceNumber },
+          searchParams.get('studentId'),
+        )
+        if (s) {
           certOverrides.localStudentId = s.id
           if (s.licenceNumber) certOverrides.licenceNumber = s.licenceNumber
           if (s.address) certOverrides.address = s.address
@@ -948,13 +967,16 @@ function CertificatePageInner() {
       if (finalFormData.phone) profileParams.set('phone', finalFormData.phone)
       if (finalFormData.name) profileParams.set('studentName', finalFormData.name)
       if (finalFormData.licenceNumber) profileParams.set('licenceNumber', finalFormData.licenceNumber)
+      const editStudentId = searchParams.get('studentId') || ''
+      if (editStudentId) profileParams.set('studentId', editStudentId)
       if (profileParams.toString()) {
         const profileRes = await fetch(`/api/students/profile?${profileParams}`)
         if (profileRes.ok) {
           const profile = await profileRes.json()
-          if (profile.localStudent?.certificates?.length > 0) {
+          const localStudent = adoptLocalStudent(profile.localStudent, finalFormData, editStudentId)
+          if (localStudent?.certificates?.length > 0) {
             // certificates are ordered desc by generatedAt, so index 0 is the latest
-            const latestCert = profile.localStudent.certificates[0]
+            const latestCert = localStudent.certificates[0]
             if (latestCert.contractNumber) {
               finalFormData.contractNumber = String(latestCert.contractNumber)
             }
@@ -1121,7 +1143,11 @@ function CertificatePageInner() {
       // previous cert generation — MySQL often doesn't have these.
       if (profileRes?.ok) {
         const profile = await profileRes.json()
-        const ls = profile.localStudent
+        const ls = adoptLocalStudent(
+          profile.localStudent,
+          { phone, phoneAlt: baseData.phoneAlt, licenceNumber: baseData.licenceNumber },
+          searchParams.get('studentId'),
+        )
         if (ls) {
           certOverrides.localStudentId = ls.id
           if (ls.licenceNumber) certOverrides.licenceNumber = ls.licenceNumber
@@ -1131,17 +1157,15 @@ function CertificatePageInner() {
           if (ls.province) certOverrides.province = ls.province
           if (ls.postalCode) certOverrides.postalCode = ls.postalCode
           if (ls.phoneAlt) certOverrides.phoneAlt = ls.phoneAlt
-        }
-        if (profile.localStudent?.certificates?.length > 0) {
           // Profile API returns certs sorted desc by generatedAt — index 0
           // is the latest. Picking the last item gave us the very first
           // ever cert (oldest), causing reused-cert reuse to use stale
           // numbers. Match the single-mode behaviour: use the latest.
-          const latestCert = profile.localStudent.certificates[0]
-          if (latestCert.contractNumber) {
+          const latestCert = ls.certificates?.[0]
+          if (latestCert?.contractNumber) {
             certOverrides.contractNumber = String(latestCert.contractNumber)
           }
-          if (latestCert.attestationNumber) {
+          if (latestCert?.attestationNumber) {
             const attNum = String(latestCert.attestationNumber)
             certOverrides.attestationNumber = attNum.includes('  ') ? attNum : attNum.split('').join('  ')
           }
@@ -1720,8 +1744,12 @@ function CertificatePageInner() {
       // First: load saved dates + certificate numbers from local SQLite
       if (profileRes?.ok) {
         const profile = await profileRes.json()
-        if (profile.localStudent) {
-          const s = profile.localStudent
+        const s = adoptLocalStudent(
+          profile.localStudent,
+          { phone, phoneAlt: baseData.phoneAlt, licenceNumber: baseData.licenceNumber },
+          editStudentId,
+        )
+        if (s) {
           certOverrides.localStudentId = s.id
           if (s.licenceNumber) certOverrides.licenceNumber = s.licenceNumber
           if (s.address) certOverrides.address = s.address
@@ -1835,6 +1863,9 @@ function CertificatePageInner() {
       const profileParams = new URLSearchParams()
       if (originalPhone) profileParams.set('phone', originalPhone)
       if (originalName) profileParams.set('studentName', originalName)
+      if (finalFormData.licenceNumber) profileParams.set('licenceNumber', finalFormData.licenceNumber)
+      const editStudentId = searchParams.get('studentId') || ''
+      if (editStudentId) profileParams.set('studentId', editStudentId)
       console.log('[handleDbGeneratePDF] Looking up profile with phone:', originalPhone, 'name:', originalName)
       // Only look up SQLite certs if the form doesn't already have numbers (from MySQL)
       const alreadyHasContract = finalFormData.contractNumber.replace(/\s/g, '').length > 0
@@ -1845,8 +1876,9 @@ function CertificatePageInner() {
           const profileRes = await fetch(`/api/students/profile?${profileParams}`)
           if (profileRes.ok) {
             const profile = await profileRes.json()
-            if (profile.localStudent?.certificates?.length > 0) {
-              const latestCert = profile.localStudent.certificates[0]
+            const localStudent = adoptLocalStudent(profile.localStudent, finalFormData, editStudentId)
+            if (localStudent?.certificates?.length > 0) {
+              const latestCert = localStudent.certificates[0]
               if (!alreadyHasContract && latestCert.contractNumber) {
                 finalFormData.contractNumber = String(latestCert.contractNumber)
               }

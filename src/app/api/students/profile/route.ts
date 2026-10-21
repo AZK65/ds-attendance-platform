@@ -1,7 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/db'
 import { searchStudents, type StudentRecord } from '@/lib/external-db'
+import { findBestLocalStudent } from '@/lib/local-student-lookup'
 import { findStudentPaperExams } from '@/lib/paper-exam-profile'
+import { filledDateCount, nameSearchVariants, namesEqual, phoneLast10 } from '@/lib/student-match'
 
 // GET /api/students/profile?phone=15145551234&name=Ahmed
 // Hybrid endpoint: matches WhatsApp contact to external MySQL DB + fetches local invoices
@@ -157,49 +159,45 @@ export async function GET(request: NextRequest) {
   }
 }
 
-// Try to find a matching student in the external MySQL database
+// Try to find a matching student in the external MySQL database.
+// A usable phone matches only that last-10. It never falls through to a
+// name, because the search itself is a substring and the first hit can be
+// a different person. With no phone, only the exact full name matches.
 async function findExternalStudent(phone: string, name: string): Promise<StudentRecord | null> {
   try {
-    // Strip #number suffix from WhatsApp names (e.g. "Naseer Jasba #1114" → "Naseer Jasba")
-    const cleanName = name.replace(/\s*#\d+\s*/g, ' ').replace(/\s+/g, ' ').trim()
-
-    // Try phone first (most reliable match)
-    if (phone) {
-      // Strip common prefixes/formatting — search with last 10 digits
-      const phoneDigits = phone.replace(/\D/g, '')
-      const searchPhone = phoneDigits.length > 10 ? phoneDigits.slice(-10) : phoneDigits
-
-      if (searchPhone.length >= 7) {
-        const results = await searchStudents(searchPhone)
-        if (results.length > 0) {
-          // Find the best match — phone number should contain our search digits
-          const match = results.find(r => {
-            const dbPhone = (r.phone_number || '').replace(/\D/g, '')
-            return dbPhone.includes(searchPhone) || searchPhone.includes(dbPhone.slice(-10))
-          })
-          if (match) return match
-          // If no exact phone match, just return first result since it matched the search
-          return results[0]
-        }
-      }
-    }
-
-    // Fallback: try name (cleaned of #number suffix)
-    if (cleanName && cleanName.length >= 2) {
-      const results = await searchStudents(cleanName)
-      if (results.length > 0) {
-        // Try to find an exact-ish name match (case insensitive)
-        const nameLower = cleanName.toLowerCase()
-        const exactMatch = results.find(r =>
-          r.full_name.toLowerCase() === nameLower ||
-          r.full_name.toLowerCase().includes(nameLower) ||
-          nameLower.includes(r.full_name.toLowerCase())
+    const phoneKey = phoneLast10(phone)
+    if (phoneKey) {
+      const results = await searchStudents(phoneKey)
+      const matches = results.filter((student) => phoneLast10(student.phone_number) === phoneKey)
+      if (matches.length > 1) {
+        console.log(
+          '[findExternalStudent] multiple phone matches',
+          phoneKey,
+          matches.map((student) => student.full_name).join('; '),
         )
-        return exactMatch || null // Only return if name is a good match
       }
+      return matches[0] || null
     }
 
-    return null
+    if (!namesEqual(name, name)) return null
+    const seen = new Set<number>()
+    const matches: StudentRecord[] = []
+    for (const variant of nameSearchVariants(name)) {
+      const results = await searchStudents(variant)
+      for (const student of results) {
+        if (seen.has(student.student_id) || !namesEqual(student.full_name, name)) continue
+        seen.add(student.student_id)
+        matches.push(student)
+      }
+    }
+    if (matches.length > 1) {
+      console.log(
+        '[findExternalStudent] multiple name matches',
+        name,
+        matches.map((student) => student.full_name).join('; '),
+      )
+    }
+    return matches[0] || null
   } catch (error) {
     // External DB may be unavailable — don't fail the whole request
     console.error('[Student Profile] External DB error:', error)
@@ -256,18 +254,9 @@ async function findLocalStudent(phone: string, name: string, licenceNumber?: str
     }
   }
 
-  // Strip "#1234" tags wherever they appear (used as student-number tags
-  // in WhatsApp display names, e.g. "Gaurav #1122 Singh").
-  const cleanName = name
-    .replace(/\s*#\d+\s*/g, ' ')
-    .replace(/,/g, '')
-    .replace(/\s+/g, ' ')
-    .trim()
-
   // 1. Licence number is the strongest identifier — try it first and
-  //    short-circuit if found. Matters when bulk-saved data has a
-  //    formatted phone ("(514) 123-4567") that the substring search
-  //    on raw OCR digits can't find.
+  //    short-circuit if found. A formatted phone still resolves here when
+  //    the licence is the one stored on the local row.
   const cleanLicence = (licenceNumber || '').trim()
   if (cleanLicence) {
     const byLicence = await prisma.student.findFirst({
@@ -280,65 +269,14 @@ async function findLocalStudent(phone: string, name: string, licenceNumber?: str
     }
   }
 
-  const conditions = []
+  // Phone last-10 (or phoneAlt) is the only soft key once id and licence
+  // missed. A shared word such as "Shah" inside "Shaheer" must not win.
+  // With no usable phone, only the exact full name matches.
+  if (!phoneLast10(phone) && !namesEqual(name, name)) return null
 
-  if (phone) {
-    const phoneDigits = phone.replace(/\D/g, '')
-    if (phoneDigits.length >= 7) {
-      conditions.push({ phone: { contains: phoneDigits.slice(-10) } })
-    }
-  }
-
-  if (cleanName && cleanName.length >= 2) {
-    // Also try individual name parts for better matching (e.g. "MAVIS, OLANSEY" → search "MAVIS" and "OLANSEY")
-    const nameParts = cleanName.split(/\s+/).filter(p => p.length >= 2)
-    for (const part of nameParts) {
-      conditions.push({ name: { contains: part } })
-    }
-  }
-
-  if (conditions.length === 0) return null
-
-  console.log('[findLocalStudent] phone:', phone, 'name:', name, 'conditions:', JSON.stringify(conditions))
-
-  // Fetch candidates broadly, then if we have a phone, post-filter by
-  // stripped-digits comparison so formatted DB phones still match raw
-  // OCR digits and vice versa.
-  const candidates = await prisma.student.findMany({
-    where: { OR: conditions },
-    include: { certificates: { orderBy: { generatedAt: 'desc' } } },
-    orderBy: { updatedAt: 'desc' },
-  })
-
-  // Rank candidates so duplicates don't cost us the real record. A person
-  // often has several Student rows (OCR, registration, manual add); only one
-  // carries the certificate + module dates. Prefer, in order: phone match,
-  // owns certificates, most populated date fields. This is why cert Edit
-  // used to load a blank duplicate while download (by id) had every date.
-  const phoneSuffix = phone.replace(/\D/g, '').slice(-10)
-  const phoneMatches = (c: { phone: string | null }) => {
-    if (!phoneSuffix || phoneSuffix.length < 7 || !c.phone) return false
-    const dbDigits = c.phone.replace(/\D/g, '')
-    return dbDigits.includes(phoneSuffix) || phoneSuffix.includes(dbDigits.slice(-10))
-  }
-  const DATE_FIELDS = [
-    'registrationDate', 'expiryDate',
-    ...Array.from({ length: 12 }, (_, i) => `module${i + 1}Date`),
-    ...Array.from({ length: 15 }, (_, i) => `sortie${i + 1}Date`),
-  ] as const
-  const filledDates = (c: Record<string, unknown>) => DATE_FIELDS.reduce((n, f) => n + (c[f] ? 1 : 0), 0)
-  const score = (c: (typeof candidates)[number]) =>
-    (phoneMatches(c) ? 1_000_000 : 0) +
-    (c.certificates.length > 0 ? 100_000 : 0) +
-    (c.licenceNumber ? 10_000 : 0) +
-    (c.address ? 1_000 : 0) +
-    filledDates(c as unknown as Record<string, unknown>)
-
-  const result = candidates.length > 0
-    ? candidates.reduce((best, c) => (score(c) > score(best) ? c : best), candidates[0])
-    : null
-
-  console.log('[findLocalStudent] result:', result ? `${result.name} (${result.certificates.length} certs, ${filledDates(result as unknown as Record<string, unknown>)} dates)` : 'null')
+  console.log('[findLocalStudent] phone:', phone, 'name:', name)
+  const result = await findBestLocalStudent({ phone, name })
+  console.log('[findLocalStudent] result:', result ? `${result.name} (${result.certificates.length} certs, ${filledDateCount(result)} dates)` : 'null')
   return result
 }
 
