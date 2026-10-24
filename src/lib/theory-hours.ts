@@ -419,12 +419,10 @@ export function formatReportHoursLine(args: {
 }): string {
   const requiredNet = args.requiredNetMinutes ?? CLASS1_THEORY_REQUIRED_NET_MINUTES
   const requiredSessions = args.requiredSessions ?? CLASS1_THEORY_REQUIRED_SESSIONS
-  const weeknight = args.weeknightNetMinutes ?? WEEKNIGHT_NET_MINUTES
-  const saturday = args.saturdayNetMinutes ?? SATURDAY_NET_MINUTES
   if (args.lang === 'fr') {
-    return `Heures nettes : ${formatNetFr(weeknight)} (mardi/jeudi), ${formatNetFr(saturday)} (samedi), pauses et dîner exclus. Total : ${formatReportAmount(args.attendedNetMinutes, 'fr')} / ${formatReportAmount(requiredNet, 'fr')} — ${args.attendedCount} / ${requiredSessions} cours.`
+    return `Total : ${formatReportAmount(args.attendedNetMinutes, 'fr')} / ${formatReportAmount(requiredNet, 'fr')} — ${args.attendedCount} / ${requiredSessions} cours.`
   }
-  return `Net hours: ${formatNet(weeknight)} (Tue/Thu), ${formatNet(saturday)} (Sat), breaks and lunch excluded. Total: ${formatReportAmount(args.attendedNetMinutes, 'en')} / ${formatReportAmount(requiredNet, 'en')} — ${args.attendedCount} / ${requiredSessions} classes.`
+  return `Total: ${formatReportAmount(args.attendedNetMinutes, 'en')} / ${formatReportAmount(requiredNet, 'en')} — ${args.attendedCount} / ${requiredSessions} classes.`
 }
 
 export function formatInstructorLine(

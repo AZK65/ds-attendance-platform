@@ -175,7 +175,7 @@ const TheorySessionTable = ({ sessions }: { sessions: TheoryBookletSession[] }) 
       : session.date
     return React.createElement(View, { key: `theory-${session.sessionNumber}`, style: styles.row, wrap: false },
       React.createElement(Text, { style: styles.cellLabel }, `Theory class ${session.sessionNumber}`),
-      React.createElement(Text, { style: styles.cellDate }, `${when}\n${session.startTime}–${session.endTime} · ${session.netLabel}`),
+      React.createElement(Text, { style: styles.cellDate }, `${when}\n${session.startTime}–${session.endTime}`),
       React.createElement(View, { style: styles.cellSig }, theoryCell(session)),
     )
   }),
