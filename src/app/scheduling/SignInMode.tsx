@@ -8,6 +8,7 @@ import { Card, CardContent } from '@/components/ui/card'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog'
 import { CheckCircle2, Loader2, RotateCcw, Download, X, Pencil, Users, ArrowLeft, ChevronRight } from 'lucide-react'
 import { SignaturePad as SignatureCanvas, type SignaturePadHandle } from '@/components/SignaturePad'
+import { CLASS1_THEORY_REQUIRED_SESSIONS, signInTheoryLabel } from '@/lib/theory-hours'
 
 interface TeamupEvent {
   id: string
@@ -40,6 +41,8 @@ interface GroupClass {
   group: GroupSummary
   eventId: string
   moduleNumber: number | null
+  sessionNumber: number | null
+  isTruck: boolean
   startDt: string
 }
 
@@ -75,6 +78,16 @@ function theoryGroupName(ev: TeamupEvent): string {
 function theoryModule(ev: TeamupEvent): number | null {
   const m = (ev.title || '').match(/^Module\s+(\d+)\s+-/)
   return m ? parseInt(m[1]) : null
+}
+
+function theorySessionNumber(ev: TeamupEvent): number | null {
+  const match = (ev.title || '').match(/^Class 1 Theory\s+(\d+)/i)
+  return match ? parseInt(match[1], 10) : null
+}
+
+function isTruckTheoryEvent(ev: TeamupEvent): boolean {
+  if (/^Class 1 Theory/i.test(ev.title || '')) return true
+  return ev.notes ? /class 1\s*\(truck\)/i.test(stripHtml(ev.notes)) : false
 }
 
 // Mirror of /scheduling parseModuleFromTitle but stripped to what Sign-In needs.
@@ -230,7 +243,14 @@ export default function SignInMode({ onExit }: { onExit: () => void }) {
       }
       if (!wa) continue // can't resolve to a group we can load a roster for
       if (!out.has(wa.id)) {
-        out.set(wa.id, { group: wa, eventId: ev.id, moduleNumber: theoryModule(ev), startDt: ev.start_dt })
+        out.set(wa.id, {
+          group: wa,
+          eventId: ev.id,
+          moduleNumber: theoryModule(ev),
+          sessionNumber: theorySessionNumber(ev),
+          isTruck: isTruckTheoryEvent(ev),
+          startDt: ev.start_dt,
+        })
       }
     }
     return [...out.values()].sort((a, b) => new Date(a.startDt).getTime() - new Date(b.startDt).getTime())
@@ -251,7 +271,9 @@ export default function SignInMode({ onExit }: { onExit: () => void }) {
 
   const memberToTarget = (gc: GroupClass, member: Participant): SignTarget => {
     const name = member.name || member.pushName || member.phone
-    const label = gc.moduleNumber ? `${gc.group.name} — Module ${gc.moduleNumber}` : gc.group.name
+    const label = gc.isTruck
+      ? (gc.sessionNumber ? signInTheoryLabel(gc.sessionNumber, gc.group.name) : gc.group.name)
+      : gc.moduleNumber ? `${gc.group.name} — Module ${gc.moduleNumber}` : gc.group.name
     return {
       eventId: gc.eventId,
       studentName: name,
@@ -298,7 +320,9 @@ export default function SignInMode({ onExit }: { onExit: () => void }) {
           <>
             <h1 className="text-2xl font-bold truncate">{selectedClass.group.name}</h1>
             <p className="text-sm text-muted-foreground">
-              {selectedClass.moduleNumber ? `Module ${selectedClass.moduleNumber} · ` : ''}
+              {selectedClass.isTruck
+                ? (selectedClass.sessionNumber ? `Theory class ${selectedClass.sessionNumber} of ${CLASS1_THEORY_REQUIRED_SESSIONS} · ` : '')
+                : (selectedClass.moduleNumber ? `Module ${selectedClass.moduleNumber} · ` : '')}
               {fmtTime(selectedClass.startDt)} · Tap a name to sign in.
             </p>
           </>

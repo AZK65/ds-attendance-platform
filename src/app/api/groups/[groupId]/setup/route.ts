@@ -5,9 +5,18 @@ import { createTheoryEvent, createTruckTheoryEvent } from '@/lib/teamup'
 import { syncGroupTheoryReminder } from '@/lib/group-theory-schedule'
 import { remainingCarPhaseModules } from '@/lib/car-program'
 import {
-  buildTruckSessions, summarizeTruckSessions, describeTruckDay, formatTimeRange,
-  DEFAULT_TRUCK_DAYS, TRUCK_THEORY_TARGET_HOURS, TRUCK_PRACTICAL_HOURS, type TruckDay,
+  describeTruckDay, formatTimeRange,
+  DEFAULT_TRUCK_DAYS, TRUCK_PRACTICAL_HOURS,
 } from '@/lib/truck-schedule'
+import { ensureTheoryProgram } from '@/lib/theory-seed'
+import {
+  CLASS1_THEORY_REQUIRED_NET_MINUTES,
+  buildTheorySessions,
+  formatNet,
+  standardBreaksFor,
+  type TheoryBreak,
+  type TheoryDay,
+} from '@/lib/theory-hours'
 
 // POST /api/groups/[groupId]/setup — Post-creation group setup
 // Handles: set description with Zoom links, send book PDF, schedule first class
@@ -59,7 +68,7 @@ export async function POST(
       vehicleType?: 'car' | 'truck'
       subcalendarId?: number | null
       truckTheoryHours?: number
-      truckDays?: Array<{ day: number; start: string; end: string }>
+      truckDays?: Array<{ day: number; start: string; end: string; breaks?: TheoryBreak[] }>
       sendInitialNotification?: boolean
     }
 
@@ -105,24 +114,37 @@ export async function POST(
       const group = await prisma.group.findUnique({ where: { id: decodedGroupId } })
       const groupName = group?.name || 'Unknown Group'
 
-      // Each class day carries its own hours — Tue/Thu evenings are 4 h,
-      // Saturday is a 9 h day. All classroom, all in person at the school.
-      // The 50 h of in-cab driving is booked per student, not here.
-      const days: TruckDay[] =
+      // Tue/Thu are 3h45 net and Saturday is 7h30 net. The 75 h requirement
+      // is fixed. Staff can still change the days and clock times. The 50 h
+      // of in-cab driving is booked per student, not here. truckTheoryHours
+      // is ignored so a cohort cannot be generated short of 75 net hours.
+      void truckTheoryHours
+      const days: TheoryDay[] =
         Array.isArray(truckDays) && truckDays.length > 0
           ? truckDays
               .filter(d => d && typeof d.day === 'number' && d.day >= 0 && d.day <= 6 && d.start && d.end)
-              .map(d => ({
-                day: d.day,
-                start: String(d.start).slice(0, 5),
-                end: String(d.end).slice(0, 5),
-              }))
-          : DEFAULT_TRUCK_DAYS
+              .map(d => {
+                const start = String(d.start).slice(0, 5)
+                const end = String(d.end).slice(0, 5)
+                const breaks = Array.isArray(d.breaks) && d.breaks.length > 0
+                  ? d.breaks
+                  : standardBreaksFor(d.day, start, end)
+                return { day: d.day, start, end, breaks }
+              })
+          : DEFAULT_TRUCK_DAYS.map(day => ({
+            day: day.day,
+            start: day.start,
+            end: day.end,
+            breaks: day.breaks && day.breaks.length > 0 ? day.breaks : standardBreaksFor(day.day, day.start, day.end),
+          }))
 
-      const targetHours = Math.max(1, Math.min(200, truckTheoryHours || TRUCK_THEORY_TARGET_HOURS))
-      const sessions = buildTruckSessions(classDateISO, days, targetHours)
-      const summary = summarizeTruckSessions(sessions)
+      const built = buildTheorySessions(classDateISO, days, CLASS1_THEORY_REQUIRED_NET_MINUTES)
+      const sessions = built.sessions
+      const seeded = await ensureTheoryProgram()
       const scheduleLines = days.map(d => `• ${describeTruckDay(d)}`).join('\n')
+      if (built.warning) {
+        results.push({ action: 'Theory hours', status: built.warning })
+      }
 
       let teamupCreated = 0
       let remindersScheduled = 0
@@ -141,8 +163,9 @@ export async function POST(
             })
           }
           const dateStr = fmtLong(s.date)
-          const lastDateStr = summary.lastDate ? fmtLong(summary.lastDate) : dateStr
-          const message = `Hey! Your Class 1 theory schedule is set — all classes are IN PERSON at the school.\n\nFirst class: ${dateStr}, ${timeLabel}.\n\nYour weekly schedule:\n${scheduleLines}\n\n${sessions.length} classes covering the ${summary.totalHours} h of theory, finishing around ${lastDateStr}. You'll get a reminder on each class day.\n\nYour ${TRUCK_PRACTICAL_HOURS} h of driving are booked separately once theory is done.`
+          const lastDate = sessions[sessions.length - 1]?.date
+          const lastDateStr = lastDate ? fmtLong(lastDate) : dateStr
+          const message = `Hey! Your Class 1 theory schedule is set — all classes are IN PERSON at the school.\n\nFirst class: ${dateStr}, ${timeLabel}.\n\nYour weekly schedule:\n${scheduleLines}\n\n${sessions.length} classes covering the ${formatNet(built.totalNetMinutes)} net of theory, finishing around ${lastDateStr}. You'll get a reminder on each class day.\n\nYour ${TRUCK_PRACTICAL_HOURS} h of driving are booked separately once theory is done.`
           try {
             await sendMessageToGroup(decodedGroupId, message)
             results.push({ action: 'Class notification', status: 'Sent to group' })
@@ -166,6 +189,38 @@ export async function POST(
           })
           if (ev.success) {
             teamupCreated++
+            if (ev.eventId) {
+              await prisma.theorySession.upsert({
+                where: { groupId_sessionNumber: { groupId: decodedGroupId, sessionNumber: s.sessionNumber } },
+                create: {
+                  groupId: decodedGroupId,
+                  programId: seeded.program.id,
+                  templateVersionId: seeded.templateV2.id,
+                  sessionNumber: s.sessionNumber,
+                  teamupEventId: ev.eventId,
+                  date: s.date,
+                  startTime: s.start,
+                  endTime: s.end,
+                  breaksJson: JSON.stringify(s.breaks),
+                  netMinutes: s.netMinutes,
+                  status: 'scheduled',
+                  source: 'generated',
+                  instructorId: subcalendarId && subcalendarId === seeded.instructor.teamupSubcalendarId
+                    ? seeded.instructor.id
+                    : null,
+                },
+                update: {
+                  teamupEventId: ev.eventId,
+                  date: s.date,
+                  startTime: s.start,
+                  endTime: s.end,
+                  breaksJson: JSON.stringify(s.breaks),
+                  netMinutes: s.netMinutes,
+                },
+              }).catch(err => {
+                if (i === 0) results.push({ action: 'Theory session', status: `Failed: ${err instanceof Error ? err.message : 'unknown'}` })
+              })
+            }
             const reminderEvent = ev.event || (ev.eventId ? {
               id: ev.eventId,
               title: `Class 1 Theory ${s.sessionNumber}/${sessions.length} - ${groupName}`,
@@ -187,7 +242,7 @@ export async function POST(
 
       results.push({
         action: 'Theory classes created',
-        status: `${teamupCreated} on calendar — ${summary.totalHours} h over ~${summary.weeks} weeks`,
+        status: `${teamupCreated} on calendar — ${formatNet(built.totalNetMinutes)} net across ${sessions.length} classes`,
       })
       results.push({ action: 'Day-of reminders', status: `${remindersScheduled} scheduled` })
 

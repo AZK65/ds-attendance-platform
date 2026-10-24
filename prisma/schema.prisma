@@ -960,3 +960,99 @@ model BotPause {
   reason      String? // 'admin-reply' | 'admin-manual' | 'user-request'
   updatedAt   DateTime @updatedAt
 }
+
+// Class 1 theory schedule. Additive tables only: nothing here alters an
+// existing model. Teamup stays the calendar and is linked by teamupEventId.
+// The 4,500 net-minute requirement is fixed.
+
+model TheoryProgram {
+  id                 String @id @default(cuid())
+  code               String @unique
+  requiredNetMinutes Int
+  requiredSessions   Int
+}
+
+model TheoryTemplateVersion {
+  id                     String  @id @default(cuid())
+  programId              String
+  version                Int
+  effectiveFrom          String
+  daysJson               String
+  approximateBreakTimes  Boolean @default(false)
+  note                   String?
+
+  @@unique([programId, version])
+}
+
+model Instructor {
+  id                  String  @id @default(cuid())
+  legalName           String
+  displayName         String
+  saaqInstructorNo    String?
+  teamupSubcalendarId Int?    @unique
+}
+
+model TheorySession {
+  id                String   @id @default(cuid())
+  groupId           String
+  programId         String
+  templateVersionId String?
+  sessionNumber     Int
+  teamupEventId     String?  @unique
+  date              String
+  startTime         String
+  endTime           String
+  breaksJson        String
+  netMinutes        Int
+  status            String   @default("scheduled")
+  source            String
+  instructorId      String?
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  @@unique([groupId, sessionNumber])
+  @@index([groupId])
+}
+
+model TheoryAttendance {
+  id           String   @id @default(cuid())
+  sessionId    String
+  studentPhone String
+  status       String
+  basis        String
+  signatureId  String?
+  confirmedBy  String?
+  confirmedAt  String?
+  evidenceRef  String?
+  recordedAt   DateTime @default(now())
+
+  @@unique([sessionId, studentPhone])
+  @@index([studentPhone])
+}
+
+model TheoryCorrection {
+  id           String   @id @default(cuid())
+  entityType   String
+  entityId     String
+  kind         String
+  beforeJson   String?
+  afterJson    String?
+  reason       String
+  approvedBy   String?
+  internalOnly Boolean  @default(true)
+  createdAt    DateTime @default(now())
+
+  @@index([entityType, entityId])
+}
+
+// One-shot skip for the automatic WhatsApp "Schedule update" that
+// poll-changes sends when a theory event moves. Additive only.
+model ScheduleNotifySuppression {
+  id            String    @id @default(cuid())
+  teamupEventId String
+  createdAt     DateTime  @default(now())
+  expiresAt     DateTime
+  consumedAt    DateTime?
+
+  @@index([teamupEventId])
+}

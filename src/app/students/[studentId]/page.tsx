@@ -25,6 +25,7 @@ import { motion } from 'motion/react'
 import { StudentAvatar } from '@/components/StudentAvatar'
 import { LmsActivityPanel } from '@/components/LmsActivityPanel'
 import { StudentDocumentDownloadDialog } from '@/components/StudentDocumentDownloadDialog'
+import { formatTime12h as formatClock } from '@/lib/theory-hours'
 import { PaperExamProfileCard, type PaperExamProfileRecord } from '@/components/PaperExamProfileCard'
 
 interface TeamupEvent {
@@ -339,6 +340,30 @@ export default function StudentProfilePage() {
     enabled: !!phone,
   })
 
+  const truckGroupId = data?.vehicleType === 'truck'
+    ? (data.groups.find(group => /truck/i.test(group.groupName || ''))?.groupId || data.groups[0]?.groupId || '')
+    : ''
+  const { data: theoryProgress } = useQuery<{
+    attendedCount: number
+    requiredSessions: number
+    sessions: Array<{
+      teamupEventId: string | null
+      label: string
+      date: string
+      startTime: string
+      endTime: string
+      attendance: { displayEn: string; staffNote: string | null } | null
+    }>
+  } | null>({
+    queryKey: ['profile-theory-progress', truckGroupId, phone],
+    queryFn: async () => {
+      const res = await fetch(`/api/theory/progress?groupId=${encodeURIComponent(truckGroupId)}&phone=${encodeURIComponent(phone)}`)
+      if (!res.ok) return null
+      return res.json()
+    },
+    enabled: !!truckGroupId && !!phone,
+  })
+
   // Fetch attendance
   const eventIds = studentEvents.map(e => e.id).join(',')
   const { data: attendanceMap = {} } = useQuery<Record<string, boolean>>({
@@ -412,17 +437,29 @@ export default function StudentProfilePage() {
   const mergedPaperExams = (data.paperExams && data.paperExams.length > 0) ? data.paperExams : (profileData?.paperExams || [])
   const mergedSummary = invoices.length > 0 ? summary : (profileData?.summary ? { ...summary, totalInvoiced: profileData.summary.totalInvoiced, totalPaid: profileData.summary.totalPaid, openBalance: profileData.summary.openBalance } : summary)
 
+  const theoryByEventId = new Map(
+    (theoryProgress?.sessions || [])
+      .filter(session => session.teamupEventId)
+      .map(session => [String(session.teamupEventId), session]),
+  )
+
   const renderEventCard = (event: TeamupEvent) => {
-    const module = parseModuleFromTitle(event.title)
+    const theorySession = theoryByEventId.get(String(event.id))
+    const moduleNumber = theorySession ? null : parseModuleFromTitle(event.title)
     const teacher = getTeacherName(event.subcalendar_ids)
     const startDt = new Date(event.start_dt)
     const endDt = new Date(event.end_dt)
-    const dateStr = startDt.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })
-    const startTime = startDt.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true })
-    const endTime = endDt.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true })
+    const theoryDate = theorySession
+      ? new Date(`${theorySession.date}T12:00:00Z`).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric', timeZone: 'America/Toronto' })
+      : null
+    const dateStr = theoryDate || startDt.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })
+    const startTime = theorySession ? formatClock(theorySession.startTime) : startDt.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true })
+    const endTime = theorySession ? formatClock(theorySession.endTime) : endDt.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true })
     const isPast = startDt < new Date()
     const hasAttendance = event.id in attendanceMap
     const isPresent = attendanceMap[event.id]
+    const theoryLabel = theorySession?.attendance?.displayEn
+    const title = theorySession?.label || event.title
 
     return (
       <div key={event.id} className={`flex items-center justify-between p-3 rounded-lg border ${
@@ -433,13 +470,17 @@ export default function StudentProfilePage() {
             isPresent ? <CheckCircle className="h-4 w-4 text-green-600 shrink-0" /> : <XCircle className="h-4 w-4 text-red-500 shrink-0" />
           ) : isPast ? <div className="w-4 h-4 rounded-full border border-muted-foreground/30 shrink-0" /> : <CalendarDays className="h-4 w-4 text-blue-600 shrink-0" />}
           <div className="min-w-0">
-            <p className="text-sm font-medium truncate">{event.title}</p>
+            <p className="text-sm font-medium truncate">{title}</p>
             <p className="text-xs text-muted-foreground">{dateStr} {startTime} - {endTime}{teacher ? ` with ${teacher}` : ''}</p>
           </div>
         </div>
         <div className="flex items-center gap-2 shrink-0">
-          {hasAttendance && <Badge variant={isPresent ? 'default' : 'destructive'} className="text-xs">{isPresent ? 'Present' : 'Absent'}</Badge>}
-          {module && <Badge variant="outline" className="text-xs">M{module}</Badge>}
+          {theoryLabel ? (
+            <Badge variant="outline" className="text-xs" title={theorySession?.attendance?.staffNote || undefined}>{theoryLabel}</Badge>
+          ) : (
+            hasAttendance && <Badge variant={isPresent ? 'default' : 'destructive'} className="text-xs">{isPresent ? 'Present' : 'Absent'}</Badge>
+          )}
+          {moduleNumber && <Badge variant="outline" className="text-xs">M{moduleNumber}</Badge>}
         </div>
       </div>
     )
@@ -594,6 +635,9 @@ export default function StudentProfilePage() {
           <CalendarDays className="mb-2 h-4 w-4 text-muted-foreground" />
           <p className="text-xs text-muted-foreground">Classes</p>
           <p className="text-sm font-semibold tabular-nums">{studentEvents.length}</p>
+          {theoryProgress && theoryProgress.sessions.length > 0 && (
+            <p className="text-xs text-muted-foreground tabular-nums">{theoryProgress.attendedCount}/{theoryProgress.requiredSessions} theory</p>
+          )}
         </div>
         <div className="rounded-lg p-3">
           <GraduationCap className="mb-2 h-4 w-4 text-muted-foreground" />

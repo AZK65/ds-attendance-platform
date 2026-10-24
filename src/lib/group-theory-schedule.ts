@@ -108,13 +108,41 @@ function reminderTimeFor(event: GroupTheoryEvent): Date {
   return new Date(`${eventDate(event.start_dt)}T12:00:00${offsetSuffix(event.start_dt)}`)
 }
 
-function reminderCopy(event: GroupTheoryEvent): { message: string; classTime: string; moduleNumber: number | null } {
+async function truckReminderCount(event: GroupTheoryEvent): Promise<string> {
+  const sequence = extractTheorySequence(event)
+  if (!sequence.isTruck) return ''
+  // Prefer the theory record when one exists, so a new or rescheduled class
+  // says "k of 15". Events with no TheorySession keep the numbers already
+  // written on the Teamup title. This does not run on deploy by itself, and
+  // it never rewrites a reminder that nobody is regenerating.
+  try {
+    const session = await prisma.theorySession.findUnique({
+      where: { teamupEventId: String(event.id) },
+      select: { sessionNumber: true, programId: true },
+    })
+    if (session) {
+      const program = await prisma.theoryProgram.findUnique({
+        where: { id: session.programId },
+        select: { requiredSessions: true },
+      })
+      return ` (${session.sessionNumber} of ${program?.requiredSessions ?? 15})`
+    }
+  } catch {
+    // Theory tables are not readable. Fall through to the title.
+  }
+  if (sequence.sessionNumber && sequence.totalSessions) {
+    return ` (${sequence.sessionNumber} of ${sequence.totalSessions})`
+  }
+  return ''
+}
+
+function reminderCopy(event: GroupTheoryEvent, truckCount = ''): { message: string; classTime: string; moduleNumber: number | null } {
   const sequence = extractTheorySequence(event)
   const classTime = `${formatTime12h(event.start_dt)} to ${formatTime12h(event.end_dt)}`
   if (sequence.isTruck) {
-    const count = sequence.sessionNumber && sequence.totalSessions
+    const count = truckCount || (sequence.sessionNumber && sequence.totalSessions
       ? ` (${sequence.sessionNumber} of ${sequence.totalSessions})`
-      : ''
+      : '')
     return {
       message: `Reminder: Your Class 1 theory class${count} is TODAY, ${classTime}, in person at the school. See you there!`,
       classTime,
@@ -171,7 +199,7 @@ export async function syncGroupTheoryReminder(
     return { matched: true, groupId: group.id, cancelled, scheduled: false }
   }
 
-  const copy = reminderCopy(event)
+  const copy = reminderCopy(event, await truckReminderCount(event))
   await prisma.scheduledMessage.create({
     data: {
       groupId: group.id,

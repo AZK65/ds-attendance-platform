@@ -1,4 +1,9 @@
 import type { Pricing } from '@/lib/pricing'
+import {
+  CLASS1_THEORY_PROGRAM,
+  TEMPLATE_V2,
+  formatTheoryScheduleForBot,
+} from '@/lib/theory-hours'
 
 // Knowledge base for the WhatsApp bot. Bundled into the system prompt on
 // every request. Program and contact details mirror the marketing site;
@@ -22,7 +27,10 @@ const paymentPlan = (pricing: Pricing['car'] | Pricing['truck']) => pricing.sche
   .map(item => `${item.label}${item.sub ? ` (${item.sub})` : ''}: ${dollars(item.amount)}`)
   .join('; ')
 
-export function buildKnowledge(pricing: Pricing): string {
+export function buildKnowledge(
+  pricing: Pricing,
+  theorySchedule: { en: string; fr: string } = formatTheoryScheduleForBot(CLASS1_THEORY_PROGRAM, TEMPLATE_V2),
+): string {
   return `
 # Qazi Driving School — reference facts
 
@@ -60,10 +68,10 @@ We do NOT currently offer: motorcycle (Class 6), bus (Class 2 or 4), scooter, AT
 
 ## Class 1 (Semi-trailer) — details
 - SAAQ-mandated PESR — Class 1 program (required since December 15, 2025).
-- Total: 125 hours (75 hours classroom theory + 50 hours in-cab practical with a licensed instructor).
-- Theory schedule: 17 hours per week, in-class, Tuesday evenings 17h30–21h30, Thursday evenings 17h30–21h30, Saturday 9h00–18h00. All three days are theory.
-- Practical (50 h in-cab): scheduled separately, arranged around the student's and instructor's availability. NOT on the fixed weekly grid.
-- Roughly 4.5 to 5 weeks to complete the 75 theory hours at 17 h/week.
+${theorySchedule.en}
+
+French phrasing for the Class 1 theory schedule:
+${theorySchedule.fr}
 - Total price: ${dollars(pricing.truck.total)} before taxes.
 - Payment plan: ${pricing.truck.schedule.length} installments — ${paymentPlan(pricing.truck)}.
 - Deposit authorized at registration: ${dollars(pricing.truck.depositCents / 100)} (hold on card — nothing charged until the school approves).

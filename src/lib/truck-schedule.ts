@@ -1,25 +1,32 @@
 /**
- * Class 1 (PESR) cohort timetable — the THEORY block only.
+ * Class 1 cohort timetable — the THEORY block only.
  *
- * The program is 125 h: 75 h of classroom theory followed by 50 h of in-cab
- * driving. Only the theory block is a cohort timetable — everyone sits in the
- * same room on the same days:
- *   Tue 5:30–9:30 PM   (4 h)
- *   Thu 5:30–9:30 PM   (4 h)
- *   Sat 9:00 AM–6:00 PM (9 h)
- * → 17 h/week, so 75 h lands in about 4.5 weeks.
+ * The program is 125 h: 75 net hours of classroom theory (15 classes) and
+ * 50 h of in-cab driving. Breaks and lunch are not counted. The net-hour
+ * rules live in theory-hours.ts. This file keeps the day-editor types the
+ * admin screens already import.
  *
- * The 50 h of in-cab driving is booked per student afterwards (one student per
- * cab), through the existing Truck Class scheduler — it is deliberately NOT
+ * Default week (template v2), America/Toronto local time:
+ *   Tue 5:30–9:30 PM   3h45 net
+ *   Thu 5:30–9:30 PM   3h45 net
+ *   Sat 8:30 AM–5:30 PM 7h30 net
+ * → 15 net hours a week, so 75 h is 15 classes over about 5 weeks.
+ *
+ * The 50 h of in-cab driving is booked per student afterwards and is not
  * generated here.
- *
- * Sessions are generated until the hour target is met rather than from a
- * session count, because 75 h is the number that actually matters (it's the
- * SAAQ contract obligation) and the class days don't have equal lengths.
- *
- * Shared by the API route that creates the events and by the two admin UIs
- * that preview them, so the dates on screen are exactly the dates created.
  */
+
+import {
+  CLASS1_THEORY_REQUIRED_NET_MINUTES,
+  TEMPLATE_V2,
+  buildTheorySessions,
+  formatNet,
+  formatTime12h as formatTheoryTime12h,
+  netMinutes,
+  standardBreaksFor,
+  type TheoryBreak,
+  type TheoryDay,
+} from '@/lib/theory-hours'
 
 export interface TruckDay {
   /** 0 = Sunday … 6 = Saturday */
@@ -27,48 +34,34 @@ export interface TruckDay {
   /** "HH:MM" 24h */
   start: string
   end: string
+  breaks?: TheoryBreak[]
 }
 
-export const DEFAULT_TRUCK_DAYS: TruckDay[] = [
-  { day: 2, start: '17:30', end: '21:30' }, // Tuesday
-  { day: 4, start: '17:30', end: '21:30' }, // Thursday
-  { day: 6, start: '09:00', end: '18:00' }, // Saturday
-]
+export const DEFAULT_TRUCK_DAYS: TruckDay[] = TEMPLATE_V2.days.map(day => ({
+  day: day.day,
+  start: day.start,
+  end: day.end,
+  breaks: day.breaks.map(entry => ({ ...entry })),
+}))
 
 export const DAY_NAMES = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday']
 export const DAY_SHORT = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
 
-/** Classroom hours required by the Class 1 contract. */
-export const TRUCK_THEORY_TARGET_HOURS = 75
+/** Classroom net hours required by the Class 1 contract. Not editable. */
+export const TRUCK_THEORY_TARGET_HOURS = CLASS1_THEORY_REQUIRED_NET_MINUTES / 60
 /** In-cab hours — booked per student, not part of this timetable. */
 export const TRUCK_PRACTICAL_HOURS = 50
 
-/** Safety cap so a tiny/zero-length day config can't generate forever. */
-const MAX_SESSIONS = 100
-
 export interface TruckSession {
-  /** ISO date, e.g. "2026-08-04" */
   date: string
   start: string
   end: string
   sessionNumber: number
+  /** Net hours, not the clock length. */
   hours: number
-  /** Cumulative theory hours through this session. */
   cumulativeHours: number
-  /**
-   * True when this class was shortened to land the block exactly on the hour
-   * target — i.e. the final class finishes early rather than overshooting.
-   */
+  /** Always false. Classes are not shortened to force a gross total. */
   partial: boolean
-}
-
-/** "17:30" + 210 min → "21:00" */
-function addMinutes(hhmm: string, minutes: number): string {
-  const [h, m] = hhmm.split(':').map(Number)
-  const total = h * 60 + m + Math.round(minutes)
-  const hh = Math.floor(total / 60) % 24
-  const mm = total % 60
-  return `${String(hh).padStart(2, '0')}:${String(mm).padStart(2, '0')}`
 }
 
 export function hoursBetween(start: string, end: string): number {
@@ -78,63 +71,36 @@ export function hoursBetween(start: string, end: string): number {
   return mins > 0 ? mins / 60 : 0
 }
 
-const isoOf = (d: Date) =>
-  `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
-
-const round1 = (n: number) => Math.round(n * 10) / 10
+function asTheoryDay(day: TruckDay): TheoryDay {
+  return {
+    day: day.day,
+    start: day.start,
+    end: day.end,
+    breaks: day.breaks && day.breaks.length > 0 ? day.breaks : standardBreaksFor(day.day, day.start, day.end),
+  }
+}
 
 /**
- * Walk forward from `startISO`, adding a class on each configured day, until
- * `targetHours` of classroom time is covered EXACTLY.
- *
- * The last class is shortened to finish early rather than overshooting — 75 h
- * is a contract obligation, so a cohort should not be scheduled for 76 h. With
- * the standard Tue/Thu/Sat week that makes the final Thursday a 3 h class
- * (5:30–8:30 PM) instead of 4 h.
+ * Build the theory block from net hours. The 75 h requirement is fixed.
+ * `targetHours` is accepted so older callers still compile, and it is not
+ * used to trim a class.
  */
 export function buildTruckSessions(
   startISO: string,
   days: TruckDay[],
-  targetHours: number = TRUCK_THEORY_TARGET_HOURS,
+  _targetHours: number = TRUCK_THEORY_TARGET_HOURS,
 ): TruckSession[] {
-  if (!startISO || days.length === 0 || targetHours <= 0) return []
-
-  const byDay = new Map<number, TruckDay>()
-  for (const d of days) byDay.set(d.day, d)
-  // A config where every day is zero-length would never reach the target.
-  if ([...byDay.values()].every(d => hoursBetween(d.start, d.end) <= 0)) return []
-
-  const [y, m, d] = startISO.split('-').map(Number)
-  if (!y || !m || !d) return []
-  const cursor = new Date(y, m - 1, d)
-
-  const out: TruckSession[] = []
-  let total = 0
-
-  for (let guard = 0; guard < MAX_SESSIONS * 14 && total < targetHours && out.length < MAX_SESSIONS; guard++) {
-    const cfg = byDay.get(cursor.getDay())
-    if (cfg) {
-      const fullHours = hoursBetween(cfg.start, cfg.end)
-      if (fullHours > 0) {
-        const remaining = targetHours - total
-        // Trim the final class so the block totals exactly `targetHours`.
-        const partial = fullHours > remaining
-        const hours = partial ? remaining : fullHours
-        total += hours
-        out.push({
-          date: isoOf(cursor),
-          start: cfg.start,
-          end: partial ? addMinutes(cfg.start, hours * 60) : cfg.end,
-          sessionNumber: out.length + 1,
-          hours: round1(hours),
-          cumulativeHours: round1(total),
-          partial,
-        })
-      }
-    }
-    cursor.setDate(cursor.getDate() + 1)
-  }
-  return out
+  const built = buildTheorySessions(startISO, days.map(asTheoryDay), CLASS1_THEORY_REQUIRED_NET_MINUTES)
+  const round2 = (minutes: number) => Math.round((minutes / 60) * 100) / 100
+  return built.sessions.map(session => ({
+    date: session.date,
+    start: session.start,
+    end: session.end,
+    sessionNumber: session.sessionNumber,
+    hours: round2(session.netMinutes),
+    cumulativeHours: round2(session.cumulativeNetMinutes),
+    partial: false,
+  }))
 }
 
 export interface TruckSummary {
@@ -142,41 +108,42 @@ export interface TruckSummary {
   totalHours: number
   firstDate: string | null
   lastDate: string | null
-  /** Whole weeks the theory block spans, for a sanity read. */
   weeks: number
 }
 
 export function summarizeTruckSessions(sessions: TruckSession[]): TruckSummary {
-  const totalHours = round1(sessions.reduce((n, s) => n + s.hours, 0))
+  const totalHours = Math.round(sessions.reduce((n, session) => n + session.hours, 0) * 100) / 100
   const firstDate = sessions[0]?.date ?? null
   const lastDate = sessions[sessions.length - 1]?.date ?? null
   let weeks = 0
   if (firstDate && lastDate) {
     const [fy, fm, fd] = firstDate.split('-').map(Number)
     const [ly, lm, ld] = lastDate.split('-').map(Number)
-    const ms = new Date(ly, lm - 1, ld).getTime() - new Date(fy, fm - 1, fd).getTime()
-    weeks = round1(ms / (7 * 24 * 60 * 60 * 1000))
+    const ms = Date.UTC(ly, lm - 1, ld) - Date.UTC(fy, fm - 1, fd)
+    weeks = Math.round((ms / (7 * 24 * 60 * 60 * 1000)) * 10) / 10
   }
   return { sessions: sessions.length, totalHours, firstDate, lastDate, weeks }
 }
 
-/** Hours of classroom time per week for a given day config. */
+/** Net classroom hours per week for a day config. */
 export function weeklyHours(days: TruckDay[]): number {
-  return round1(days.reduce((n, d) => n + hoursBetween(d.start, d.end), 0))
+  const minutes = days.reduce((sum, day) => sum + netMinutes(day.start, day.end, asTheoryDay(day).breaks), 0)
+  return Math.round((minutes / 60) * 100) / 100
 }
 
-/** "5:30 PM" from "17:30" — for messages and calendar copy. */
-export function formatTime12h(hhmm: string): string {
-  const [h, m] = hhmm.split(':').map(Number)
-  const period = h >= 12 ? 'PM' : 'AM'
-  const hour12 = h === 0 ? 12 : h > 12 ? h - 12 : h
-  return `${hour12}:${String(m).padStart(2, '0')} ${period}`
+export function weeklyNetLabel(days: TruckDay[]): string {
+  const minutes = days.reduce((sum, day) => sum + netMinutes(day.start, day.end, asTheoryDay(day).breaks), 0)
+  return formatNet(minutes)
 }
+
+export const formatTime12h = formatTheoryTime12h
 
 export const formatTimeRange = (start: string, end: string) =>
   `${formatTime12h(start)} to ${formatTime12h(end)}`
 
-/** e.g. "Saturday 9:00 AM to 6:00 PM (9 h)" */
-export function describeTruckDay(d: TruckDay): string {
-  return `${DAY_NAMES[d.day]} ${formatTimeRange(d.start, d.end)} (${round1(hoursBetween(d.start, d.end))} h)`
+/** e.g. "Saturday 8:30 AM to 5:30 PM (7h30 net)" */
+export function describeTruckDay(day: TruckDay): string {
+  const breaks = asTheoryDay(day).breaks
+  const net = netMinutes(day.start, day.end, breaks)
+  return `${DAY_NAMES[day.day]} ${formatTimeRange(day.start, day.end)} (${formatNet(net)} net)`
 }

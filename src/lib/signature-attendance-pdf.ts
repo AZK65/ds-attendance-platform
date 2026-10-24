@@ -11,11 +11,35 @@ export interface AttendanceSignatureInput {
   signedAt: Date
 }
 
+export interface TheoryBookletSession {
+  sessionNumber: number
+  date: string
+  startTime: string
+  endTime: string
+  netLabel: string
+  displayEn: string
+  displayFr: string
+  basis: string
+  signatureDataUrl: string | null
+  signedAt: string | null
+}
+
+export interface TheoryBooklet {
+  hoursLineEn: string
+  hoursLineFr: string
+  instructorLineEn: string
+  instructorLineFr: string
+  sessions: TheoryBookletSession[]
+  attendedCount: number
+  requiredSessions: number
+}
+
 interface AttendancePdfInput {
   signatures: AttendanceSignatureInput[]
   studentName: string
   phone: string
   isTruck: boolean
+  theory?: TheoryBooklet | null
 }
 
 type CarRow = {
@@ -38,6 +62,15 @@ const dateText = (value: Date) => value.toLocaleDateString('en-CA', {
   year: 'numeric',
   month: 'short',
   day: 'numeric',
+})
+
+const dateTimeText = (value: Date) => value.toLocaleString('en-CA', {
+  timeZone: 'America/Toronto',
+  year: 'numeric',
+  month: 'short',
+  day: 'numeric',
+  hour: 'numeric',
+  minute: '2-digit',
 })
 
 const styles = StyleSheet.create({
@@ -120,8 +153,57 @@ function truckRows(signatures: AttendanceSignatureInput[]) {
   return { theory, practical, other }
 }
 
-const TruckDocument = ({ signatures, studentName, phone }: Omit<AttendancePdfInput, 'isTruck'>) => {
+const theoryCell = (session: TheoryBookletSession) => {
+  if (session.basis === 'signature' && session.signatureDataUrl) {
+    return React.createElement(Image, { src: session.signatureDataUrl, style: styles.sigImage })
+  }
+  if (session.basis === 'admin_confirmed') {
+    return React.createElement(Text, null, `${session.displayEn} / ${session.displayFr}`)
+  }
+  return React.createElement(Text, null, session.displayEn)
+}
+
+const TheorySessionTable = ({ sessions }: { sessions: TheoryBookletSession[] }) => React.createElement(View, { style: styles.table },
+  React.createElement(View, { style: [styles.row, styles.headerRowTable], fixed: true },
+    React.createElement(Text, { style: [styles.cellLabel, styles.headerCell] }, 'Class'),
+    React.createElement(Text, { style: [styles.cellDate, styles.headerCell] }, 'Date'),
+    React.createElement(Text, { style: [styles.cellSig, styles.headerCell] }, 'Attendance'),
+  ),
+  ...sessions.map(session => {
+    const when = session.basis === 'signature' && session.signedAt
+      ? dateTimeText(new Date(session.signedAt))
+      : session.date
+    return React.createElement(View, { key: `theory-${session.sessionNumber}`, style: styles.row, wrap: false },
+      React.createElement(Text, { style: styles.cellLabel }, `Theory class ${session.sessionNumber}`),
+      React.createElement(Text, { style: styles.cellDate }, `${when}\n${session.startTime}–${session.endTime} · ${session.netLabel}`),
+      React.createElement(View, { style: styles.cellSig }, theoryCell(session)),
+    )
+  }),
+)
+
+const TruckDocument = ({ signatures, studentName, phone, theory }: Omit<AttendancePdfInput, 'isTruck'>) => {
   const rows = truckRows(signatures)
+  const theorySection = theory && theory.sessions.length > 0
+    ? React.createElement(View, { style: styles.section },
+      React.createElement(View, { style: styles.sectionHeader },
+        React.createElement(Text, { style: styles.sectionTitle }, 'Theory training'),
+        React.createElement(Text, { style: styles.sectionMeta }, `${theory.attendedCount} of ${theory.requiredSessions} classes`),
+      ),
+      React.createElement(Text, { style: styles.sectionMeta }, theory.hoursLineEn),
+      React.createElement(Text, { style: styles.sectionMeta }, theory.hoursLineFr),
+      theory.instructorLineEn ? React.createElement(Text, { style: styles.sectionMeta }, theory.instructorLineEn) : null,
+      theory.instructorLineFr ? React.createElement(Text, { style: styles.sectionMeta }, theory.instructorLineFr) : null,
+      React.createElement(TheorySessionTable, { sessions: theory.sessions }),
+    )
+    : React.createElement(View, { style: styles.section },
+      React.createElement(View, { style: styles.sectionHeader },
+        React.createElement(Text, { style: styles.sectionTitle }, 'Theory training'),
+        React.createElement(Text, { style: styles.sectionMeta }, `${rows.theory.length} classes signed - 75 hours required`),
+      ),
+      rows.theory.length
+        ? React.createElement(SignatureTable, { rows: rows.theory })
+        : React.createElement(Text, { style: styles.empty }, 'No theory signatures recorded.'),
+    )
   return React.createElement(Document, null,
     React.createElement(Page, { size: 'LETTER', style: styles.page, wrap: true },
       React.createElement(View, { style: styles.topRule, fixed: true }),
@@ -150,15 +232,7 @@ const TruckDocument = ({ signatures, studentName, phone }: Omit<AttendancePdfInp
           React.createElement(Text, { style: styles.metricValue }, '125 hours'),
         ),
       ),
-      React.createElement(View, { style: styles.section },
-        React.createElement(View, { style: styles.sectionHeader },
-          React.createElement(Text, { style: styles.sectionTitle }, 'Theory training'),
-          React.createElement(Text, { style: styles.sectionMeta }, `${rows.theory.length} classes signed - 75 hours required`),
-        ),
-        rows.theory.length
-          ? React.createElement(SignatureTable, { rows: rows.theory })
-          : React.createElement(Text, { style: styles.empty }, 'No theory signatures recorded.'),
-      ),
+      theorySection,
       React.createElement(View, { style: styles.section },
         React.createElement(View, { style: styles.sectionHeader },
           React.createElement(Text, { style: styles.sectionTitle }, 'Practical training'),
@@ -247,6 +321,6 @@ const CarDocument = ({ signatures, studentName, phone }: Omit<AttendancePdfInput
 export async function buildSignatureAttendancePdf(input: AttendancePdfInput) {
   const document = input.isTruck
     ? TruckDocument(input)
-    : CarDocument(input)
+    : CarDocument({ signatures: input.signatures, studentName: input.studentName, phone: input.phone })
   return renderToBuffer(document)
 }

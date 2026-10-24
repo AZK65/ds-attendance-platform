@@ -9,6 +9,12 @@ import {
   resolveTheoryGroup,
   syncGroupTheoryReminder,
 } from '@/lib/group-theory-schedule'
+import { applyGroupTheoryTimeChange } from '@/lib/schedule-notify-plan'
+import {
+  consumeScheduleSuppression,
+  findActiveScheduleSuppression,
+} from '@/lib/schedule-notify-suppression'
+import { recordTheorySessionTimeChange } from '@/lib/theory-session-sync'
 
 const BASE_URL = 'https://api.teamup.com'
 
@@ -286,6 +292,18 @@ export async function POST() {
           const groupTheory = isGroupTheoryEvent(event)
           changes.push({ type: 'modified', eventId, studentName })
 
+          // An active suppression means staff asked for this move to stay
+          // quiet. It is written before the Teamup update, so this poll
+          // cannot post in the gap.
+          let activeSuppression: { id: string } | null = null
+          if (timeChanged && groupTheory) {
+            try {
+              activeSuppression = await findActiveScheduleSuppression(eventId)
+            } catch (err) {
+              console.error(`[poll-changes] suppression lookup failed:`, err)
+            }
+          }
+
           // ── Cancel old reminders tied to the previous date/time ────
           if (timeChanged) {
             try {
@@ -307,10 +325,26 @@ export async function POST() {
           // ── Schedule a fresh reminder for the new date/time ────────
           //    Truck classes: 6 hours before start, addressed to the student.
           //    Theory classes: 12 PM same-day group message (no phone in notes).
+          //    A suppressed theory move keeps the reminder that is already stored.
           if (timeChanged) {
             try {
               const newStart = new Date(event.start_dt)
-              if (newStart > now) {
+              const suppression = activeSuppression
+              if (groupTheory && suppression) {
+                await applyGroupTheoryTimeChange(true, {
+                  syncReminder: async () => {},
+                  notifyGroup: async () => {},
+                  updateTheorySession: () => recordTheorySessionTimeChange({
+                    teamupEventId: eventId,
+                    date: event.start_dt.slice(0, 10),
+                    startTime: event.start_dt.slice(11, 16),
+                    endTime: event.end_dt.slice(11, 16),
+                    reason: 'Teamup time change observed by poll; group notice suppressed',
+                  }),
+                  consumeSuppression: () => consumeScheduleSuppression(suppression.id),
+                  log: message => console.log(`[poll-changes] ${message} (event ${eventId})`),
+                })
+              } else if (newStart > now) {
                 const moduleNumber = extractModule(event.notes || '', event.title || '')
                 if (groupTheory) {
                   const synced = await syncGroupTheoryReminder(event, existing.startDt)
@@ -343,7 +377,7 @@ export async function POST() {
 
           // ── Notify the affected student/group about the change ─────
           try {
-            if (timeChanged && state.isConnected) {
+            if (timeChanged && state.isConnected && !(groupTheory && activeSuppression)) {
               const newDateStr = formatDateDisplay(event.start_dt)
               const newTimeStr = `${formatTime12h(event.start_dt)} to ${formatTime12h(event.end_dt)}`
               if (groupTheory) {

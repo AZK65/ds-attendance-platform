@@ -7,7 +7,7 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Checkbox } from '@/components/ui/checkbox'
 import { TruckDaysEditor } from '@/components/TruckDaysEditor'
-import { DEFAULT_TRUCK_DAYS, describeTruckDay, TRUCK_THEORY_TARGET_HOURS, type TruckDay } from '@/lib/truck-schedule'
+import { DEFAULT_TRUCK_DAYS, describeTruckDay, type TruckDay } from '@/lib/truck-schedule'
 import { carPhaseForModule, remainingCarPhaseModules } from '@/lib/car-program'
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter,
@@ -64,9 +64,7 @@ export function NewGroupWizard({ open, onOpenChange }: NewGroupWizardProps) {
   const [pdfFile, setPdfFile] = useState<{ base64: string; filename: string } | null>(null)
   const pdfInputRef = useRef<HTMLInputElement>(null)
 
-  // Truck cohort: Tue/Thu evening theory + a full Saturday yard + road day,
-  // 17 h/week, all in person. 24 classes ≈ the program's 125 h.
-  const [truckTheoryHours, setTruckTheoryHours] = useState(TRUCK_THEORY_TARGET_HOURS)
+  // Truck cohort: Tue/Thu 3h45 net and Saturday 7h30 net, 15 classes, in person.
   const [truckDays, setTruckDays] = useState<TruckDay[]>(DEFAULT_TRUCK_DAYS)
 
   // Teacher (Teamup subcalendar) the classes get written to.
@@ -341,7 +339,7 @@ export function NewGroupWizard({ open, onOpenChange }: NewGroupWizardProps) {
             vehicleType,
             subcalendarId: subcalendarId ? parseInt(subcalendarId) : undefined,
             ...(isTruck
-              ? { truckTheoryHours, truckDays }
+              ? { truckDays }
               : { moduleNumber, weeksToSchedule: carWeeksToSchedule }),
             classDate: new Date(classDate + 'T12:00:00').toLocaleDateString('en-US', {
               weekday: 'long', month: 'long', day: 'numeric',
@@ -379,7 +377,6 @@ export function NewGroupWizard({ open, onOpenChange }: NewGroupWizardProps) {
     setGroupName('')
     setVehicleType('car')
     setModuleNumber(1)
-    setTruckTheoryHours(TRUCK_THEORY_TARGET_HOURS)
     setTruckDays(DEFAULT_TRUCK_DAYS)
     setClassDate('')
     setClassTimeStart('17:00')
@@ -520,7 +517,7 @@ export function NewGroupWizard({ open, onOpenChange }: NewGroupWizardProps) {
                     className={`text-left rounded-lg border-2 p-3 transition-all ${isTruck ? 'border-primary bg-primary/5' : 'border-muted hover:border-primary/40'}`}
                   >
                     <p className="text-sm font-medium">Class 1 — Truck</p>
-                    <p className="text-xs text-muted-foreground mt-0.5">75 h theory in class</p>
+                    <p className="text-xs text-muted-foreground mt-0.5">75 net hours, 15 theory classes</p>
                   </button>
                 </div>
               </div>
@@ -607,8 +604,6 @@ export function NewGroupWizard({ open, onOpenChange }: NewGroupWizardProps) {
                 <TruckDaysEditor
                   value={truckDays}
                   onChange={setTruckDays}
-                  targetHours={truckTheoryHours}
-                  onTargetHoursChange={setTruckTheoryHours}
                   startDate={classDate}
                 />
               )}

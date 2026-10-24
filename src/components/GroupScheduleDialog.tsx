@@ -5,6 +5,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { CalendarDays, CheckCircle2, Clock, Layers3, Loader2, RefreshCw, Save } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
+import { Checkbox } from '@/components/ui/checkbox'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import {
@@ -81,6 +82,7 @@ function WeekdayBulkEditor({
   const [startTime, setStartTime] = useState(firstEvent ? timeValue(firstEvent.start_dt) : '17:30')
   const [endTime, setEndTime] = useState(firstEvent ? timeValue(firstEvent.end_dt) : '21:30')
   const [subcalendarId, setSubcalendarId] = useState('')
+  const [skipNotify, setSkipNotify] = useState(false)
   const [saving, setSaving] = useState(false)
   const [result, setResult] = useState('')
   const [error, setError] = useState('')
@@ -118,7 +120,7 @@ function WeekdayBulkEditor({
           startTime,
           endTime,
           subcalendarId: subcalendarId ? Number(subcalendarId) : undefined,
-          notifyGroup: true,
+          notifyGroup: !skipNotify,
         }),
       })
       const data = await response.json().catch(() => ({}))
@@ -193,9 +195,16 @@ function WeekdayBulkEditor({
         </div>
       </div>
 
+      <div className="flex items-center gap-2">
+        <Checkbox id="bulk-skip-notify" checked={skipNotify} onCheckedChange={value => setSkipNotify(value === true)} />
+        <Label htmlFor="bulk-skip-notify" className="text-sm font-normal">Don't notify the group</Label>
+      </div>
+
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
         <p className="text-xs text-muted-foreground">
-          This will update {matchingEvents.length} {selectedOption.label} {matchingEvents.length === 1 ? 'class' : 'classes'} in Teamup and replace their reminders. If the time changes, the group receives one update.
+          {skipNotify
+            ? `This will update ${matchingEvents.length} ${selectedOption.label} ${matchingEvents.length === 1 ? 'class' : 'classes'} in Teamup. The group is not told, and the existing reminders stay as they are.`
+            : `This will update ${matchingEvents.length} ${selectedOption.label} ${matchingEvents.length === 1 ? 'class' : 'classes'} in Teamup and replace their reminders. If the time changes, the group receives one update.`}
         </p>
         <Button onClick={applyToWeekday} disabled={!hasChanges || saving} className="shrink-0">
           {saving ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Layers3 className="h-4 w-4 mr-2" />}
@@ -224,6 +233,7 @@ function ScheduleRow({
   const [startTime, setStartTime] = useState(timeValue(event.start_dt))
   const [endTime, setEndTime] = useState(timeValue(event.end_dt))
   const [subcalendarId, setSubcalendarId] = useState(String(event.subcalendar_ids?.[0] || ''))
+  const [skipNotify, setSkipNotify] = useState(false)
   const [saving, setSaving] = useState(false)
   const [saved, setSaved] = useState(false)
   const [error, setError] = useState('')
@@ -251,7 +261,7 @@ function ScheduleRow({
           startTime,
           endTime,
           subcalendarId: subcalendarId ? Number(subcalendarId) : undefined,
-          notifyGroup: true,
+          notifyGroup: !skipNotify,
         }),
       })
       const data = await response.json().catch(() => ({}))
@@ -325,9 +335,16 @@ function ScheduleRow({
         </div>
       </div>
 
+      <div className="flex items-center gap-2">
+        <Checkbox id={`skip-notify-${event.id}`} checked={skipNotify} onCheckedChange={value => setSkipNotify(value === true)} />
+        <Label htmlFor={`skip-notify-${event.id}`} className="text-sm font-normal">Don't notify the group</Label>
+      </div>
+
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
         <p className="text-xs text-muted-foreground">
-          Saving updates Teamup, replaces the WhatsApp reminder, and tells the group about the new schedule.
+          {skipNotify
+            ? 'Saving updates Teamup and the theory record. The group is not told, and the existing reminder is left as it is.'
+            : 'Saving updates Teamup, replaces the WhatsApp reminder, and tells the group about the new schedule.'}
         </p>
         <Button onClick={save} disabled={!changed || saving} className="shrink-0">
           {saving ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : saved ? <CheckCircle2 className="h-4 w-4 mr-2" /> : <Save className="h-4 w-4 mr-2" />}
