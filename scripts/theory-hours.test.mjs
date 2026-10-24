@@ -261,11 +261,10 @@ test('attendance and instructor lines use the approved wording', () => {
   const studentPage = readFileSync(path.join(root, 'src/app/groups/[groupId]/student/[contactId]/page.tsx'), 'utf8')
   const attendancePdf = readFileSync(path.join(root, 'src/lib/signature-attendance-pdf.ts'), 'utf8')
   assert.match(studentPage, /hoursLineEn/)
+  assert.equal(/\{session\.netLabel\}|\{openTheory\.breaksLabel\}|Net time/.test(studentPage), false)
   assert.match(attendancePdf, /hoursLineEn/)
   assert.match(attendancePdf, /hoursLineFr/)
-  for (const source of [studentPage, attendancePdf]) {
-    assert.equal(/Net hours:|breaks and lunch|Heures nettes|pauses et dîner|Net time/.test(source), false)
-  }
+  assert.equal(/session\.netLabel|Net hours:|breaks and lunch|Heures nettes|pauses et dîner/.test(attendancePdf), false)
 })
 
 test('seed and import cannot rewrite Teamup, reminders, or signatures', () => {

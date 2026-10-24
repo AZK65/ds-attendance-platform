@@ -702,7 +702,7 @@ function TruckJourneyCard({
                         className={`rounded-lg border p-3 text-left transition-all duration-700 ease-[cubic-bezier(0.32,0.72,0,1)] hover:-translate-y-0.5 hover:border-foreground/30 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring ${theoryTone(session.attendance?.basis || '', session.attendance?.status || '')}`}
                       >
                         <span className="block text-sm font-semibold tabular-nums">{session.label}</span>
-                        <span className="mt-1 block text-xs opacity-80">{session.date.slice(5)} · {session.netLabel}</span>
+                        <span className="mt-1 block text-xs opacity-80">{session.date.slice(5)}</span>
                         <span className="mt-2 block text-xs font-medium">{session.attendance?.displayEn || 'Scheduled'}</span>
                       </button>
                     ))}
