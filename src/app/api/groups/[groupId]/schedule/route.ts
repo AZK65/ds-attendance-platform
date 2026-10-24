@@ -12,6 +12,12 @@ import {
 } from '@/lib/group-theory-schedule'
 import { recordTheorySessionTimeChange } from '@/lib/theory-session-sync'
 import { CLASS1_THEORY_REQUIRED_SESSIONS } from '@/lib/theory-hours'
+import { staffTheorySavePlan } from '@/lib/schedule-notify-plan'
+import {
+  consumeScheduleSuppression,
+  createScheduleSuppression,
+  releaseScheduleSuppression,
+} from '@/lib/schedule-notify-suppression'
 
 const BASE_URL = 'https://api.teamup.com'
 
@@ -134,6 +140,8 @@ export async function PUT(
   request: NextRequest,
   { params }: { params: Promise<{ groupId: string }> },
 ) {
+  let suppressionId: string | null = null
+  let teamupUpdated = false
   try {
     const { apiKey, calendarKey } = teamupConfig()
     if (!apiKey || !calendarKey) {
@@ -180,6 +188,11 @@ export async function PUT(
     const subcalendarIds = Number.isInteger(body.subcalendarId)
       ? [Number(body.subcalendarId)]
       : previous.subcalendar_ids || []
+    const savePlan = staffTheorySavePlan(body.notifyGroup === false)
+    const expectTimeChange = previous.start_dt.slice(0, 19) !== startDt || previous.end_dt.slice(0, 19) !== endDt
+    if (savePlan.armSuppression && expectTimeChange) {
+      suppressionId = (await createScheduleSuppression(body.eventId)).id
+    }
     const response = await fetch(`${BASE_URL}/${calendarKey}/events/${encodeURIComponent(body.eventId)}`, {
       method: 'PUT',
       headers: {
@@ -197,8 +210,11 @@ export async function PUT(
     })
     if (!response.ok) {
       const detail = await response.text()
+      if (suppressionId) await releaseScheduleSuppression(suppressionId)
+      suppressionId = null
       return NextResponse.json({ error: `Teamup API error: ${response.status} ${detail}` }, { status: response.status })
     }
+    teamupUpdated = true
 
     const responseData = await response.json() as { event?: GroupTheoryEvent }
     const updated: GroupTheoryEvent = responseData.event || {
@@ -208,16 +224,20 @@ export async function PUT(
       subcalendar_ids: subcalendarIds,
     }
     const timeChanged = previous.start_dt !== updated.start_dt || previous.end_dt !== updated.end_dt
-    const reminder = await syncGroupTheoryReminder(updated, previous.start_dt)
-    await recordTheorySessionTimeChange({
-      teamupEventId: String(updated.id),
-      date: updated.start_dt.slice(0, 10),
-      startTime: updated.start_dt.slice(11, 16),
-      endTime: updated.end_dt.slice(11, 16),
-      reason: 'Staff rescheduled the class in the schedule dialog',
-    }).catch(() => {})
+    const reminder = savePlan.regenerateReminder
+      ? await syncGroupTheoryReminder(updated, previous.start_dt)
+      : { matched: false, cancelled: 0, scheduled: false }
+    if (savePlan.updateTheorySession) {
+      await recordTheorySessionTimeChange({
+        teamupEventId: String(updated.id),
+        date: updated.start_dt.slice(0, 10),
+        startTime: updated.start_dt.slice(11, 16),
+        endTime: updated.end_dt.slice(11, 16),
+        reason: 'Staff rescheduled the class in the schedule dialog',
+      }).catch(() => {})
+    }
     let notified = false
-    if (timeChanged && body.notifyGroup !== false) {
+    if (timeChanged && savePlan.postToGroup) {
       notified = await notifyGroupTheoryScheduleChange(updated)
     }
 
@@ -239,8 +259,16 @@ export async function PUT(
       },
     })
 
+    if (suppressionId) {
+      const consumed = await consumeScheduleSuppression(suppressionId)
+      if (consumed) {
+        console.log(`[group-schedule] Schedule update suppressed; reminder left unchanged (event ${updated.id})`)
+      }
+    }
+
     return NextResponse.json({ success: true, event: updated, reminder, notified })
   } catch (error) {
+    if (suppressionId && !teamupUpdated) await releaseScheduleSuppression(suppressionId).catch(() => {})
     console.error('[Group schedule PUT] Error:', error)
     return NextResponse.json(
       { error: error instanceof Error ? error.message : 'Failed to update group schedule' },
@@ -315,6 +343,7 @@ export async function PATCH(
     const updatedEvents: GroupTheoryEvent[] = []
     const failures: { eventId: string; title: string; error: string }[] = []
     let timeChanges = 0
+    const savePlan = staffTheorySavePlan(body.notifyGroup === false)
 
     for (const previous of matchingEvents) {
       const date = previous.start_dt.slice(0, 10)
@@ -324,6 +353,11 @@ export async function PATCH(
         ? [Number(body.subcalendarId)]
         : previous.subcalendar_ids || []
       const timeChanged = previous.start_dt.slice(0, 19) !== startDt || previous.end_dt.slice(0, 19) !== endDt
+      let suppressionId: string | null = null
+      let teamupUpdated = false
+      if (savePlan.armSuppression && timeChanged) {
+        suppressionId = (await createScheduleSuppression(String(previous.id))).id
+      }
 
       try {
         const response = await fetch(`${BASE_URL}/${calendarKey}/events/${encodeURIComponent(String(previous.id))}`, {
@@ -343,9 +377,12 @@ export async function PATCH(
         })
         if (!response.ok) {
           const detail = await response.text()
+          if (suppressionId) await releaseScheduleSuppression(suppressionId)
+          suppressionId = null
           failures.push({ eventId: String(previous.id), title: previous.title, error: `${response.status} ${detail}` })
           continue
         }
+        teamupUpdated = true
 
         const responseData = await response.json() as { event?: GroupTheoryEvent }
         const updated = responseData.event || {
@@ -356,14 +393,18 @@ export async function PATCH(
         }
         updatedEvents.push(updated)
         if (timeChanged) timeChanges++
-        await syncGroupTheoryReminder(updated, previous.start_dt)
-        await recordTheorySessionTimeChange({
-          teamupEventId: String(updated.id),
-          date,
-          startTime: body.startTime,
-          endTime: body.endTime,
-          reason: 'Staff changed this weekday in the schedule dialog',
-        }).catch(() => {})
+        if (savePlan.regenerateReminder) {
+          await syncGroupTheoryReminder(updated, previous.start_dt)
+        }
+        if (savePlan.updateTheorySession) {
+          await recordTheorySessionTimeChange({
+            teamupEventId: String(updated.id),
+            date,
+            startTime: body.startTime!,
+            endTime: body.endTime!,
+            reason: 'Staff changed this weekday in the schedule dialog',
+          }).catch(() => {})
+        }
         await prisma.teamupEventSnapshot.upsert({
           where: { eventId: String(updated.id) },
           update: {
@@ -381,7 +422,14 @@ export async function PATCH(
             notes: updated.notes || '',
           },
         })
+        if (suppressionId) {
+          const consumed = await consumeScheduleSuppression(suppressionId)
+          if (consumed) {
+            console.log(`[group-schedule] Schedule update suppressed; reminder left unchanged (event ${updated.id})`)
+          }
+        }
       } catch (error) {
+        if (suppressionId && !teamupUpdated) await releaseScheduleSuppression(suppressionId).catch(() => {})
         failures.push({
           eventId: String(previous.id),
           title: previous.title,
@@ -391,7 +439,7 @@ export async function PATCH(
     }
 
     let notified = false
-    if (timeChanges > 0 && updatedEvents.length > 0 && body.notifyGroup !== false) {
+    if (timeChanges > 0 && updatedEvents.length > 0 && savePlan.postToGroup) {
       notified = await notifyGroupTheoryWeekdayScheduleChange(
         updatedEvents[0],
         WEEKDAYS[Number(body.weekday)],

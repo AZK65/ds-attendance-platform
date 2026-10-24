@@ -337,3 +337,55 @@ export async function lookupModuleNumberForDate(meetingDate: Date): Promise<numb
     return null
   }
 }
+
+/**
+ * Move an existing event's start and end. Title, notes, and calendar stay
+ * as they are. Used by the silent-move script.
+ */
+export async function updateTeamupEventTime(args: {
+  eventId: string
+  startDt: string
+  endDt: string
+}): Promise<{ success: boolean; event?: CreatedTeamupEvent; error?: string }> {
+  const apiKey = process.env.TEAMUP_API_KEY || ''
+  const calendarKey = process.env.TEAMUP_CALENDAR_KEY || ''
+  if (!apiKey || !calendarKey) return { success: false, error: 'Teamup not configured' }
+
+  try {
+    const current = await fetch(`${BASE_URL}/${calendarKey}/events/${encodeURIComponent(args.eventId)}`, {
+      headers: { 'Teamup-Token': apiKey },
+      cache: 'no-store',
+    })
+    if (!current.ok) {
+      const text = await current.text()
+      return { success: false, error: `Teamup API error: ${current.status} ${text}` }
+    }
+    const currentData = await current.json() as { event?: CreatedTeamupEvent }
+    const existing = currentData.event
+    if (!existing) return { success: false, error: 'Teamup event not found' }
+
+    const res = await fetch(`${BASE_URL}/${calendarKey}/events/${encodeURIComponent(args.eventId)}`, {
+      method: 'PUT',
+      headers: {
+        'Teamup-Token': apiKey,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        id: args.eventId,
+        title: existing.title,
+        start_dt: args.startDt,
+        end_dt: args.endDt,
+        subcalendar_ids: existing.subcalendar_ids || [],
+        notes: existing.notes || '',
+      }),
+    })
+    if (!res.ok) {
+      const text = await res.text()
+      return { success: false, error: `Teamup API error: ${res.status} ${text}` }
+    }
+    const data = await res.json() as { event?: CreatedTeamupEvent }
+    return { success: true, event: data.event }
+  } catch (error) {
+    return { success: false, error: error instanceof Error ? error.message : 'Unknown error' }
+  }
+}

@@ -1044,3 +1044,15 @@ model TheoryCorrection {
 
   @@index([entityType, entityId])
 }
+
+// One-shot skip for the automatic WhatsApp "Schedule update" that
+// poll-changes sends when a theory event moves. Additive only.
+model ScheduleNotifySuppression {
+  id            String    @id @default(cuid())
+  teamupEventId String
+  createdAt     DateTime  @default(now())
+  expiresAt     DateTime
+  consumedAt    DateTime?
+
+  @@index([teamupEventId])
+}
