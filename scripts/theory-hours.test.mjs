@@ -112,31 +112,30 @@ test('the generator keeps every class whole and survives the November DST change
   assert.match(over.warning, /not shortened/)
 })
 
-const EN = `- Total: 125 hours (75 net hours of in-class theory in 15 classes + 50 hours in-cab practical with a licensed instructor).
-- Theory schedule (in person at the school): 15 classes, 75 net hours in total. Breaks and lunch are not counted.
-  - Tuesday and Thursday evenings, 5:30 PM–9:30 PM: 3h45 net (break 7:15–7:30 PM).
-  - Saturday, 8:30 AM–5:30 PM: 7h30 net (breaks 10:30–10:45 AM and 3:30–3:45 PM; lunch 12:30–1:30 PM).
-  - All three days are theory. The school sets each group's exact dates; the total is always 75 net hours.
-- Practical (50 h in-cab): scheduled separately, arranged around the student's and instructor's availability. NOT on the fixed weekly grid.
-- About 5 weeks to complete the 15 theory classes (15 net hours per week: two weeknights + one Saturday).
-- If the verified student context lists the student's own class times, quote those; they take priority over the standard schedule.`
+const EN = `- 15 theory classes, in person at the school.
+  - Tuesday and Thursday, 5:30 PM–9:30 PM.
+  - Saturday, 8:30 AM–5:30 PM.
+- About 5 weeks.
+- The 50-hour practical part is scheduled separately.
+- If the verified student context lists the student's own class times, quote those first; they take priority over this standard schedule.`
 
-const FR = `- Total : 125 heures (75 heures nettes de théorie en classe, en 15 cours, + 50 heures de pratique en camion avec un instructeur).
-- Horaire de la théorie (en personne, à l'école) : 15 cours, 75 heures nettes au total, pauses et dîner non comptés.
-  - Mardi et jeudi soir, de 17 h 30 à 21 h 30 : 3 h 45 nettes (pause de 19 h 15 à 19 h 30).
-  - Samedi, de 8 h 30 à 17 h 30 : 7 h 30 nettes (pauses de 10 h 30 à 10 h 45 et de 15 h 30 à 15 h 45; dîner de 12 h 30 à 13 h 30).
-  - Les trois jours sont de la théorie. L'école fixe les dates exactes de chaque groupe; le total est toujours de 75 heures nettes.
-- Pratique (50 h en camion) : planifiée séparément, selon les disponibilités de l'élève et de l'instructeur.
-- Environ 5 semaines pour compléter les 15 cours de théorie (15 heures nettes par semaine).`
+const FR = `- 15 cours de théorie, en personne à l'école.
+  - Mardi et jeudi, de 17 h 30 à 21 h 30.
+  - Samedi, de 8 h 30 à 17 h 30.
+- Environ 5 semaines.
+- La partie pratique de 50 heures est planifiée séparément.`
 
-test('the bot schedule is rendered from template v2', () => {
+test('the bot schedule is class times and basic info only', () => {
   const text = formatTheoryScheduleForBot()
   assert.equal(text.en, EN)
   assert.equal(text.fr, FR)
-  assert.equal(text.en.includes('17 h/week'), false)
-  assert.equal(text.en.includes('17 hours per week'), false)
-  assert.equal(text.en.includes('9h00'), false)
-  assert.equal(text.fr.includes('9h00'), false)
+  for (const block of [text.en, text.fr]) {
+    assert.equal(/break|lunch|dîner|pause|net/i.test(block), false)
+    assert.equal(block.includes('75'), false)
+    assert.equal(block.includes('125'), false)
+    assert.equal(block.includes('3h45'), false)
+    assert.equal(block.includes('7h30'), false)
+  }
 })
 
 test('Class 5 and Class 3 knowledge text stays in place', () => {
@@ -167,7 +166,10 @@ test('Class 5 and Class 3 knowledge text stays in place', () => {
   assert.match(class3, /Extra hours: \$90 \/ hour/)
   assert.equal(class3.includes('8:30 AM'), false)
   assert.match(knowledge, /Missed theory hours \(Class 1\): \$30\/hour make-up fee/)
-  assert.match(knowledge, /Practical \(50 h in-cab\): scheduled separately/)
+  assert.match(knowledge, /The 50-hour practical part is scheduled separately/)
+  assert.match(knowledge, /La partie pratique de 50 heures est planifiée séparément/)
+  const class1 = knowledge.slice(knowledge.indexOf('## Class 1'), knowledge.indexOf('## Class 3'))
+  assert.equal(/break|lunch|net hours|75 net|3h45|7h30/i.test(class1.slice(class1.indexOf('15 theory classes'), class1.indexOf('French phrasing') + 400)), false)
   const rendered = formatTheoryScheduleForBot()
   assert.ok(knowledge.includes(rendered.en))
   assert.ok(knowledge.includes(rendered.fr))

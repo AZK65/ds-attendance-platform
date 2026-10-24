@@ -261,18 +261,6 @@ function breakWindow(entry: TheoryBreak): { start: string; end: string } | null 
   return null
 }
 
-function samePeriodRange(start: string, end: string): string {
-  const startPeriod = parseMinutes(start) >= 12 * 60 ? 'PM' : 'AM'
-  const endPeriod = parseMinutes(end) >= 12 * 60 ? 'PM' : 'AM'
-  const clock = (hhmm: string) => {
-    const [h, minute] = hhmm.split(':').map(Number)
-    const hour12 = h === 0 ? 12 : h > 12 ? h - 12 : h
-    return `${hour12}:${String(minute).padStart(2, '0')}`
-  }
-  if (startPeriod === endPeriod) return `${clock(start)}–${clock(end)} ${endPeriod}`
-  return `${formatTime12h(start)}–${formatTime12h(end)}`
-}
-
 export function formatBreaksLabel(breaks: TheoryBreak[], approximate = false): string {
   if (breaks.length === 0) return approximate ? 'none (approx.)' : 'none'
   const parts = breaks.map(entry => {
@@ -472,59 +460,22 @@ const FR_DAY: Record<number, string> = {
   6: 'samedi',
 }
 
-function breakPhraseEn(breaks: TheoryBreak[]): string {
-  const pauses = breaks.filter(entry => entry.kind === 'break')
-  const lunches = breaks.filter(entry => entry.kind === 'lunch')
-  const pauseText = pauses
-    .map(entry => {
-      const window = breakWindow(entry)
-      return window ? samePeriodRange(window.start, window.end) : `${entry.minutes} min`
-    })
-  const lunchText = lunches.map(entry => {
-    const window = breakWindow(entry)
-    return window ? samePeriodRange(window.start, window.end) : `${entry.minutes} min`
-  })
-  const pauseLabel = pauseText.length === 1 ? `break ${pauseText[0]}` : `breaks ${pauseText.join(' and ')}`
-  if (lunchText.length === 0) return pauseLabel
-  if (pauseText.length === 0) return `lunch ${lunchText.join(' and ')}`
-  return `${pauseLabel}; lunch ${lunchText.join(' and ')}`
-}
-
-function breakPhraseFr(breaks: TheoryBreak[]): string {
-  const pauses = breaks.filter(entry => entry.kind === 'break')
-  const lunches = breaks.filter(entry => entry.kind === 'lunch')
-  const span = (entry: TheoryBreak) => {
-    const window = breakWindow(entry)
-    return window
-      ? `de ${formatClockFr(window.start)} à ${formatClockFr(window.end)}`
-      : `de ${entry.minutes} min`
-  }
-  const pauseText = pauses.map(span)
-  const lunchText = lunches.map(span)
-  const pauseLabel = pauseText.length === 1
-    ? `pause ${pauseText[0]}`
-    : `pauses ${pauseText.join(' et ')}`
-  if (lunchText.length === 0) return pauseLabel
-  if (pauseText.length === 0) return `dîner ${lunchText.join(' et ')}`
-  return `${pauseLabel}; dîner ${lunchText.join(' et ')}`
-}
-
 function weeklyNet(template: TheoryTemplate): number {
   return template.days.reduce((sum, day) => sum + netMinutes(day.start, day.end, day.breaks), 0)
 }
 
 /**
- * Class 1 schedule block for the WhatsApp bot. Rendered from the program
- * and a template. The v2 seed is the fallback when the database is empty.
+ * Class 1 schedule the WhatsApp bot may quote. Class clock times, the
+ * number of classes, the rough length in weeks, and that practical is
+ * booked separately. Breaks, lunch, and net-hour totals stay out of this
+ * text. The v2 seed is the fallback when the database is empty.
  */
 export function formatTheoryScheduleForBot(
   program: TheoryProgramShape = CLASS1_THEORY_PROGRAM,
   template: TheoryTemplate = TEMPLATE_V2,
 ): { en: string; fr: string } {
-  const theoryHours = program.requiredNetMinutes / 60
-  const practicalHours = CLASS1_PRACTICAL_MINUTES / 60
-  const totalHours = theoryHours + practicalHours
   const sessions = program.requiredSessions
+  const practicalHours = CLASS1_PRACTICAL_MINUTES / 60
   const perWeek = weeklyNet(template)
   const weeks = perWeek > 0 ? Math.round(program.requiredNetMinutes / perWeek) : 0
   const weeknightDays = template.days.filter(day => day.day === 2 || day.day === 4)
@@ -532,52 +483,32 @@ export function formatTheoryScheduleForBot(
   const sameWeeknights = weeknightDays.length === 2
     && weeknightDays[0].start === weeknightDays[1].start
     && weeknightDays[0].end === weeknightDays[1].end
-    && JSON.stringify(weeknightDays[0].breaks) === JSON.stringify(weeknightDays[1].breaks)
 
-  const enLines: string[] = [
-    `- Total: ${totalHours} hours (${theoryHours} net hours of in-class theory in ${sessions} classes + ${practicalHours} hours in-cab practical with a licensed instructor).`,
-    `- Theory schedule (in person at the school): ${sessions} classes, ${theoryHours} net hours in total. Breaks and lunch are not counted.`,
-  ]
-  const frLines: string[] = [
-    `- Total : ${totalHours} heures (${theoryHours} heures nettes de théorie en classe, en ${sessions} cours, + ${practicalHours} heures de pratique en camion avec un instructeur).`,
-    `- Horaire de la théorie (en personne, à l'école) : ${sessions} cours, ${theoryHours} heures nettes au total, pauses et dîner non comptés.`,
-  ]
+  const enLines = [`- ${sessions} theory classes, in person at the school.`]
+  const frLines = [`- ${sessions} cours de théorie, en personne à l'école.`]
 
   if (sameWeeknights) {
     const day = weeknightDays[0]
-    const net = netMinutes(day.start, day.end, day.breaks)
-    const evening = parseMinutes(day.start) >= 17 * 60
-    enLines.push(`  - Tuesday and Thursday${evening ? ' evenings' : ''}, ${formatTime12h(day.start)}–${formatTime12h(day.end)}: ${formatNet(net)} net (${breakPhraseEn(day.breaks)}).`)
-    frLines.push(`  - Mardi et jeudi${evening ? ' soir' : ''}, de ${formatClockFr(day.start)} à ${formatClockFr(day.end)} : ${formatNetFr(net)} nettes (${breakPhraseFr(day.breaks)}).`)
+    enLines.push(`  - Tuesday and Thursday, ${formatTime12h(day.start)}–${formatTime12h(day.end)}.`)
+    frLines.push(`  - Mardi et jeudi, de ${formatClockFr(day.start)} à ${formatClockFr(day.end)}.`)
   } else {
     for (const day of weeknightDays) {
-      const net = netMinutes(day.start, day.end, day.breaks)
-      enLines.push(`  - ${EN_DAY[day.day]}, ${formatTime12h(day.start)}–${formatTime12h(day.end)}: ${formatNet(net)} net (${breakPhraseEn(day.breaks)}).`)
+      enLines.push(`  - ${EN_DAY[day.day]}, ${formatTime12h(day.start)}–${formatTime12h(day.end)}.`)
       const frName = FR_DAY[day.day]
-      frLines.push(`  - ${frName.charAt(0).toUpperCase()}${frName.slice(1)}, de ${formatClockFr(day.start)} à ${formatClockFr(day.end)} : ${formatNetFr(net)} nettes (${breakPhraseFr(day.breaks)}).`)
+      frLines.push(`  - ${frName.charAt(0).toUpperCase()}${frName.slice(1)}, de ${formatClockFr(day.start)} à ${formatClockFr(day.end)}.`)
     }
   }
 
   if (saturday) {
-    const net = netMinutes(saturday.start, saturday.end, saturday.breaks)
-    enLines.push(`  - Saturday, ${formatTime12h(saturday.start)}–${formatTime12h(saturday.end)}: ${formatNet(net)} net (${breakPhraseEn(saturday.breaks)}).`)
-    frLines.push(`  - Samedi, de ${formatClockFr(saturday.start)} à ${formatClockFr(saturday.end)} : ${formatNetFr(net)} nettes (${breakPhraseFr(saturday.breaks)}).`)
+    enLines.push(`  - Saturday, ${formatTime12h(saturday.start)}–${formatTime12h(saturday.end)}.`)
+    frLines.push(`  - Samedi, de ${formatClockFr(saturday.start)} à ${formatClockFr(saturday.end)}.`)
   }
 
-  const dayCount = template.days.length
-  const always = theoryHours
-  enLines.push(`  - All ${dayCount === 3 ? 'three' : dayCount} days are theory. The school sets each group's exact dates; the total is always ${always} net hours.`)
-  frLines.push(`  - Les ${dayCount === 3 ? 'trois' : dayCount} jours sont de la théorie. L'école fixe les dates exactes de chaque groupe; le total est toujours de ${always} heures nettes.`)
-  enLines.push(`- Practical (${practicalHours} h in-cab): scheduled separately, arranged around the student's and instructor's availability. NOT on the fixed weekly grid.`)
-  frLines.push(`- Pratique (${practicalHours} h en camion) : planifiée séparément, selon les disponibilités de l'élève et de l'instructeur.`)
-
-  const weeknightCount = weeknightDays.length
-  const weeknightPhrase = weeknightCount === 2 ? 'two weeknights' : `${weeknightCount} weeknights`
-  const saturdayPhrase = saturday ? ' + one Saturday' : ''
-  const weeklyHoursLabel = perWeek % 60 === 0 ? String(perWeek / 60) : formatNet(perWeek)
-  enLines.push(`- About ${weeks} weeks to complete the ${sessions} theory classes (${weeklyHoursLabel} net hours per week: ${weeknightPhrase}${saturdayPhrase}).`)
-  frLines.push(`- Environ ${weeks} semaines pour compléter les ${sessions} cours de théorie (${weeklyHoursLabel} heures nettes par semaine).`)
-  enLines.push(`- If the verified student context lists the student's own class times, quote those; they take priority over the standard schedule.`)
+  enLines.push(`- About ${weeks} weeks.`)
+  frLines.push(`- Environ ${weeks} semaines.`)
+  enLines.push(`- The ${practicalHours}-hour practical part is scheduled separately.`)
+  frLines.push(`- La partie pratique de ${practicalHours} heures est planifiée séparément.`)
+  enLines.push(`- If the verified student context lists the student's own class times, quote those first; they take priority over this standard schedule.`)
 
   return { en: enLines.join('\n'), fr: frLines.join('\n') }
 }

@@ -1,5 +1,5 @@
 import { prisma } from '@/lib/db'
-import { formatNet, formatTime12h, theoryClassLabel, torontoToday } from '@/lib/theory-hours'
+import { formatTime12h, theoryClassLabel, torontoToday } from '@/lib/theory-hours'
 import { getTheoryProgress } from '@/lib/theory-progress'
 
 const TEAMUP_BASE = 'https://api.teamup.com'
@@ -209,7 +209,7 @@ export async function buildBotStudentContext(phone: string): Promise<BotStudentC
     groupNames.length ? `Current group(s): ${groupNames.join(', ')}` : 'Current group: none found',
     student && vehicleType === 'car' ? `Recorded progress: ${modulesCompleted}/12 theory modules and ${roadCompleted}/15 road classes completed.` : '',
     vehicleType === 'truck' && theoryProgress && theoryProgress.sessions.length > 0
-      ? `Recorded theory progress: ${theoryProgress.attendedCount}/${theoryProgress.requiredSessions} classes, ${formatNet(theoryProgress.attendedNetMinutes)}/${formatNet(theoryProgress.requiredNetMinutes)} net hours.`
+      ? `Recorded theory progress: ${theoryProgress.attendedCount}/${theoryProgress.requiredSessions} classes.`
       : '',
     upcomingLines.length ? `Upcoming scheduled classes:\n${upcomingLines.map((line, i) => `${i + 1}. ${line}`).join('\n')}` : 'Upcoming scheduled classes: none found in Teamup for the next 6 months.',
     vehicleType === 'car'
