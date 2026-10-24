@@ -10,6 +10,8 @@ import {
   syncGroupTheoryReminder,
   type GroupTheoryEvent,
 } from '@/lib/group-theory-schedule'
+import { recordTheorySessionTimeChange } from '@/lib/theory-session-sync'
+import { CLASS1_THEORY_REQUIRED_SESSIONS } from '@/lib/theory-hours'
 
 const BASE_URL = 'https://api.teamup.com'
 
@@ -93,6 +95,24 @@ export async function GET(
       .filter(event => new Date(event.end_dt).getTime() >= Date.now())
       .sort((a, b) => new Date(a.start_dt).getTime() - new Date(b.start_dt).getTime())
       .map(event => ({ ...event, ...extractTheorySequence(event) }))
+
+    const theoryRows = await prisma.theorySession.findMany({
+      where: { groupId: group.id },
+      select: { teamupEventId: true, sessionNumber: true, netMinutes: true },
+    }).catch(() => [])
+    const theoryByEvent = new Map(theoryRows.map(row => [row.teamupEventId, row]))
+    const program = await prisma.theoryProgram.findUnique({
+      where: { code: 'CLASS1_THEORY' },
+      select: { requiredSessions: true },
+    }).catch(() => null)
+    const requiredSessions = program?.requiredSessions ?? CLASS1_THEORY_REQUIRED_SESSIONS
+    for (const event of events) {
+      const theory = theoryByEvent.get(String(event.id))
+      if (!theory) continue
+      event.sessionNumber = theory.sessionNumber
+      event.totalSessions = requiredSessions
+      event.isTruck = true
+    }
 
     const reminderRows = await prisma.scheduledMessage.findMany({
       where: { groupId: group.id, status: 'pending', isGroupMessage: true },
@@ -189,6 +209,13 @@ export async function PUT(
     }
     const timeChanged = previous.start_dt !== updated.start_dt || previous.end_dt !== updated.end_dt
     const reminder = await syncGroupTheoryReminder(updated, previous.start_dt)
+    await recordTheorySessionTimeChange({
+      teamupEventId: String(updated.id),
+      date: updated.start_dt.slice(0, 10),
+      startTime: updated.start_dt.slice(11, 16),
+      endTime: updated.end_dt.slice(11, 16),
+      reason: 'Staff rescheduled the class in the schedule dialog',
+    }).catch(() => {})
     let notified = false
     if (timeChanged && body.notifyGroup !== false) {
       notified = await notifyGroupTheoryScheduleChange(updated)
@@ -330,6 +357,13 @@ export async function PATCH(
         updatedEvents.push(updated)
         if (timeChanged) timeChanges++
         await syncGroupTheoryReminder(updated, previous.start_dt)
+        await recordTheorySessionTimeChange({
+          teamupEventId: String(updated.id),
+          date,
+          startTime: body.startTime,
+          endTime: body.endTime,
+          reason: 'Staff changed this weekday in the schedule dialog',
+        }).catch(() => {})
         await prisma.teamupEventSnapshot.upsert({
           where: { eventId: String(updated.id) },
           update: {

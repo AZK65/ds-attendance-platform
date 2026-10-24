@@ -1,5 +1,7 @@
 import { getPricing } from '@/lib/pricing'
 import { buildKnowledge } from './kb'
+import { CLASS1_THEORY_PROGRAM, TEMPLATE_V2, formatTheoryScheduleForBot, type TheoryTemplate } from '@/lib/theory-hours'
+import { loadDefaultTheoryTemplate } from '@/lib/theory-seed'
 
 // The system prompt. This is the single most important file in the bot —
 // it's what determines whether replies feel like a real Qazi staff member
@@ -19,9 +21,35 @@ import { buildKnowledge } from './kb'
 // handle-message.ts checks for that and skips sending — admin sees the
 // unanswered inbound in WhatsApp and picks it up. This is the safety valve.
 
+async function theoryScheduleForPrompt(): Promise<{ en: string; fr: string }> {
+  try {
+    const loaded = await loadDefaultTheoryTemplate()
+    if (loaded) {
+      const days = JSON.parse(loaded.template.daysJson) as TheoryTemplate['days']
+      return formatTheoryScheduleForBot(
+        {
+          code: loaded.program.code,
+          requiredNetMinutes: loaded.program.requiredNetMinutes,
+          requiredSessions: loaded.program.requiredSessions,
+        },
+        {
+          version: loaded.template.version,
+          effectiveFrom: loaded.template.effectiveFrom,
+          approximateBreakTimes: loaded.template.approximateBreakTimes,
+          note: loaded.template.note || '',
+          days,
+        },
+      )
+    }
+  } catch {
+    // Database unread. The v2 seed constant is the same schedule.
+  }
+  return formatTheoryScheduleForBot(CLASS1_THEORY_PROGRAM, TEMPLATE_V2)
+}
+
 export async function buildSystemPrompt(studentContext?: string): Promise<string> {
   const pricing = await getPricing()
-  const knowledge = buildKnowledge(pricing)
+  const knowledge = buildKnowledge(pricing, await theoryScheduleForPrompt())
   const now = new Date()
   const montrealNow = new Intl.DateTimeFormat('en-CA', {
     timeZone: 'America/Toronto',

@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/db'
+import { signInTheoryLabel } from '@/lib/theory-hours'
 
 // POST /api/scheduling/signature
 // Body: { eventId, studentPhone, studentName, signatureDataUrl,
@@ -50,26 +51,63 @@ export async function POST(request: NextRequest) {
 
     const cleanedPhone = studentPhone.replace(/\D/g, '')
 
+    let resolvedLabel = sessionLabel || null
+    try {
+      const theory = await prisma.theorySession.findUnique({ where: { teamupEventId: eventId } })
+      if (theory) {
+        const group = await prisma.group.findUnique({
+          where: { id: theory.groupId },
+          select: { name: true },
+        })
+        if (group?.name) resolvedLabel = signInTheoryLabel(theory.sessionNumber, group.name)
+      }
+    } catch {
+      // Theory tables are not available. Keep the label the client sent.
+    }
+
     const signature = await prisma.classSignature.upsert({
       where: { eventId_studentPhone: { eventId, studentPhone: cleanedPhone } },
       create: {
         eventId,
         studentPhone: cleanedPhone,
         studentName,
-        sessionLabel: sessionLabel || null,
+        sessionLabel: resolvedLabel,
         moduleNumber: moduleNumber ?? null,
         sortieNumber: sortieNumber ?? null,
         signatureDataUrl,
       },
       update: {
         studentName,
-        sessionLabel: sessionLabel || null,
+        sessionLabel: resolvedLabel,
         moduleNumber: moduleNumber ?? null,
         sortieNumber: sortieNumber ?? null,
         signatureDataUrl,
         signedAt: new Date(),
       },
     })
+
+    try {
+      const theory = await prisma.theorySession.findUnique({ where: { teamupEventId: eventId } })
+      if (theory) {
+        await prisma.theoryAttendance.upsert({
+          where: { sessionId_studentPhone: { sessionId: theory.id, studentPhone: cleanedPhone } },
+          create: {
+            sessionId: theory.id,
+            studentPhone: cleanedPhone,
+            status: 'present',
+            basis: 'signature',
+            signatureId: signature.id,
+          },
+          update: {
+            status: 'present',
+            basis: 'signature',
+            signatureId: signature.id,
+          },
+        })
+      }
+    } catch (err) {
+      console.warn('[signature] theory attendance not recorded:', err)
+    }
 
     // Auto-mark attendance present (best-effort)
     try {

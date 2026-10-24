@@ -6,6 +6,7 @@ import { useState, useMemo } from 'react'
 import { ContactSearchModal } from '@/components/ContactSearchModal'
 import { ConnectionStatus } from '@/components/ConnectionStatus'
 import { TruckSignInPanel } from '@/components/TruckSignInPanel'
+import { TruckTheorySummary } from '@/components/TruckTheorySummary'
 import { GroupScheduleDialog } from '@/components/GroupScheduleDialog'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
@@ -107,9 +108,8 @@ export default function GroupDetailPage() {
   const [showSchedule, setShowSchedule] = useState(false)
 
   // Class 5 cohorts do "Module N" (SAAQ PESR — 12 numbered modules).
-  // Class 1 (truck) cohorts don't share that structure — 75 h of theory
-  // over ~7-8 weeks with no fixed module boundaries. Present as "Session N"
-  // so admin copy stays accurate for what students actually see on paper.
+  // Class 1 (truck) cohorts don't share that structure — 75 net hours
+  // across 15 classes. Present as "Session N" so admin copy stays accurate.
   const isTruck = () => (typeof group === 'object' && group?.vehicleType === 'truck')
   const classLabel = (n: number | null | undefined) => {
     if (n == null) return isTruck() ? 'Session' : 'Module'
@@ -1029,8 +1029,9 @@ export default function GroupDetailPage() {
 
         {/* Truck cohorts: physical sign-in sheet for today's class */}
         {group?.vehicleType === 'truck' && (
-          <div className="mt-6">
+          <div className="mt-6 space-y-4">
             <TruckSignInPanel groupId={groupId} />
+            <TruckTheorySummary groupId={groupId} />
           </div>
         )}
 

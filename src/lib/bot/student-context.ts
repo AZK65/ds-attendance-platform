@@ -1,4 +1,6 @@
 import { prisma } from '@/lib/db'
+import { formatNet, formatTime12h, theoryClassLabel, torontoToday } from '@/lib/theory-hours'
+import { getTheoryProgress } from '@/lib/theory-progress'
 
 const TEAMUP_BASE = 'https://api.teamup.com'
 const BOOKING_BASE = 'https://qazidriving.ca/book'
@@ -166,6 +168,30 @@ export async function buildBotStudentContext(phone: string): Promise<BotStudentC
     .sort((a, b) => new Date(a.start_dt).getTime() - new Date(b.start_dt).getTime())
     .slice(0, 8)
 
+  const truckGroup = groups.find(group => group.vehicleType === 'truck')
+  const theoryProgress = vehicleType === 'truck' && truckGroup
+    ? await getTheoryProgress(truckGroup.id, phone).catch(() => null)
+    : null
+  const today = torontoToday()
+  const theoryUpcoming = (theoryProgress?.sessions || [])
+    .filter(session => session.date >= today && session.status !== 'cancelled')
+    .map(session => {
+      const [year, month, day] = session.date.split('-').map(Number)
+      const date = new Intl.DateTimeFormat('en-CA', {
+        timeZone: 'UTC',
+        weekday: 'long',
+        month: 'short',
+        day: 'numeric',
+        year: 'numeric',
+      }).format(new Date(Date.UTC(year, month - 1, day)))
+      return `${theoryClassLabel(session.sessionNumber, theoryProgress?.requiredSessions)} — ${date}, ${formatTime12h(session.startTime)} to ${formatTime12h(session.endTime)}`
+    })
+  const upcomingEvents = upcoming.filter(event => !(theoryProgress && theoryProgress.sessions.length > 0 && /^class\s*1\s+theory/i.test(event.title || '')))
+  const upcomingLines = [
+    ...theoryUpcoming,
+    ...upcomingEvents.map(formatEvent),
+  ].slice(0, 8)
+
   const modulesCompleted = student
     ? Array.from({ length: 12 }, (_, i) => student[`module${i + 1}Date` as keyof typeof student]).filter(Boolean).length
     : 0
@@ -182,7 +208,10 @@ export async function buildBotStudentContext(phone: string): Promise<BotStudentC
     `Program: ${vehicleType === 'truck' ? 'Class 1 truck' : 'Class 5 car'}`,
     groupNames.length ? `Current group(s): ${groupNames.join(', ')}` : 'Current group: none found',
     student && vehicleType === 'car' ? `Recorded progress: ${modulesCompleted}/12 theory modules and ${roadCompleted}/15 road classes completed.` : '',
-    upcoming.length ? `Upcoming scheduled classes:\n${upcoming.map((event, i) => `${i + 1}. ${formatEvent(event)}`).join('\n')}` : 'Upcoming scheduled classes: none found in Teamup for the next 6 months.',
+    vehicleType === 'truck' && theoryProgress && theoryProgress.sessions.length > 0
+      ? `Recorded theory progress: ${theoryProgress.attendedCount}/${theoryProgress.requiredSessions} classes, ${formatNet(theoryProgress.attendedNetMinutes)}/${formatNet(theoryProgress.requiredNetMinutes)} net hours.`
+      : '',
+    upcomingLines.length ? `Upcoming scheduled classes:\n${upcomingLines.map((line, i) => `${i + 1}. ${line}`).join('\n')}` : 'Upcoming scheduled classes: none found in Teamup for the next 6 months.',
     vehicleType === 'car'
       ? `Secure road-class booking page for this student: ${bookingUrl.toString()}`
       : 'Truck practical classes must currently be arranged with the school; do not send the Class 5 booking page.',

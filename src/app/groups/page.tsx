@@ -29,7 +29,7 @@ import Image from 'next/image'
 import { useRouter } from 'next/navigation'
 import { useState, useMemo, useEffect, useCallback } from 'react'
 import { TruckDaysEditor } from '@/components/TruckDaysEditor'
-import { DEFAULT_TRUCK_DAYS, describeTruckDay, TRUCK_THEORY_TARGET_HOURS, type TruckDay } from '@/lib/truck-schedule'
+import { DEFAULT_TRUCK_DAYS, describeTruckDay, type TruckDay } from '@/lib/truck-schedule'
 
 const staggerContainer = {
   hidden: {},
@@ -109,9 +109,7 @@ export default function GroupsPage() {
   // created rather than read from `activeTab`, so switching tabs while the
   // setup dialog is open can't retarget the schedule.
   const [classSetupVehicle, setClassSetupVehicle] = useState<'car' | 'truck'>('car')
-  // Class 1 timetable: Tue/Thu evening theory + a full Saturday yard + road
-  // day, 17 h/week in person. 24 classes ≈ the program's 125 h.
-  const [classSetupTheoryHours, setClassSetupTheoryHours] = useState(TRUCK_THEORY_TARGET_HOURS)
+  // Class 1 timetable: Tue/Thu 3h45 net and Saturday 7h30 net, 15 classes, in person.
   const [classSetupDays, setClassSetupDays] = useState<TruckDay[]>(DEFAULT_TRUCK_DAYS)
   const [classSetupTeacher, setClassSetupTeacher] = useState('')
   const [teacherOptions, setTeacherOptions] = useState<Array<{ id: number; name: string }>>([])
@@ -1146,8 +1144,6 @@ export default function GroupsPage() {
                     <TruckDaysEditor
                       value={classSetupDays}
                       onChange={setClassSetupDays}
-                      targetHours={classSetupTheoryHours}
-                      onTargetHoursChange={setClassSetupTheoryHours}
                       startDate={classSetupDate}
                     />
                   )}
@@ -1189,7 +1185,7 @@ export default function GroupsPage() {
                             vehicleType: classSetupVehicle,
                             subcalendarId: classSetupTeacher ? parseInt(classSetupTeacher) : undefined,
                             ...(isTruckSetup
-                              ? { truckTheoryHours: classSetupTheoryHours, truckDays: classSetupDays }
+                              ? { truckDays: classSetupDays }
                               : { moduleNumber: classSetupModule, weeksToSchedule: classSetupWeeks }),
                             classDate: classDateFormatted, classDateISO: classSetupDate, classTime: classSetupTime,
                           }),

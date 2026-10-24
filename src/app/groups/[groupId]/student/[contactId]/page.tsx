@@ -1,6 +1,7 @@
 'use client'
 
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
+import { formatNet } from '@/lib/theory-hours'
 import { useParams, useRouter } from 'next/navigation'
 import { useState, useMemo, type ReactNode } from 'react'
 import { Button } from '@/components/ui/button'
@@ -422,6 +423,7 @@ interface JourneyCardProps {
   studentName: string
   studentPhone: string
   vehicleType?: string | null
+  groupId?: string
 }
 
 interface SessionDetail {
@@ -472,14 +474,56 @@ const truckPracticalNumber = (event: TeamupEvent) => {
   return match ? Number(match[1]) : null
 }
 
+interface TheoryProgressResponse {
+  requiredNetMinutes: number
+  requiredSessions: number
+  attendedNetMinutes: number
+  attendedCount: number
+  hoursLineEn: string
+  sessions: Array<{
+    id: string
+    sessionNumber: number
+    date: string
+    startTime: string
+    endTime: string
+    netMinutes: number
+    netLabel: string
+    label: string
+    breaksLabel: string
+    approximateBreaks: boolean
+    teamupEventId: string | null
+    attendance: {
+      status: string
+      basis: string
+      displayEn: string
+      staffNote: string | null
+      signatureId: string | null
+      signedAt: string | null
+    } | null
+  }>
+}
+
 function TruckJourneyCard({
   studentEvents,
   classAttendanceMap,
   loadingEvents,
   studentName,
   studentPhone,
+  groupId,
 }: JourneyCardProps) {
   const [openEvent, setOpenEvent] = useState<TruckProgressEvent | null>(null)
+  const [openTheoryId, setOpenTheoryId] = useState<string | null>(null)
+  const { data: theoryProgress } = useQuery<TheoryProgressResponse | null>({
+    queryKey: ['theory-progress', groupId, studentPhone],
+    queryFn: async () => {
+      const res = await fetch(`/api/theory/progress?groupId=${encodeURIComponent(groupId || '')}&phone=${encodeURIComponent(studentPhone)}`)
+      if (!res.ok) return null
+      return res.json()
+    },
+    enabled: !!groupId && !!studentPhone,
+    staleTime: 30_000,
+  })
+  const usingTheory = (theoryProgress?.sessions.length ?? 0) > 0
   const { data: signatureData, isLoading: loadingSignatures } = useQuery<{ signatures: JourneySignature[] }>({
     queryKey: ['truck-journey-signatures', studentPhone],
     queryFn: async () => {
@@ -582,6 +626,26 @@ function TruckJourneyCard({
     ) : <>{empty}</>
   )
 
+  const theoryHoursNumeric = usingTheory ? theoryProgress!.attendedNetMinutes / 60 : progress.theoryHours
+  const shownTotal = Math.min(125, theoryHoursNumeric + progress.practicalHours)
+  const shownPercent = Math.round((shownTotal / 125) * 100)
+  const openTheory = theoryProgress?.sessions.find(session => session.id === openTheoryId) || null
+  const { data: openSignature } = useQuery<{ signatures: Array<{ signatureDataUrl?: string; signedAt: string }> }>({
+    queryKey: ['theory-signature-image', openTheory?.teamupEventId, studentPhone],
+    queryFn: async () => {
+      const res = await fetch(`/api/scheduling/signature?eventId=${encodeURIComponent(openTheory?.teamupEventId || '')}&phone=${encodeURIComponent(studentPhone)}`)
+      if (!res.ok) return { signatures: [] }
+      return res.json()
+    },
+    enabled: !!openTheory?.teamupEventId && openTheory.attendance?.basis === 'signature',
+  })
+  const theoryTone = (basis: string, status: string) => {
+    if (status === 'present' && basis === 'admin_confirmed') return 'border-amber-200 bg-amber-50 text-amber-900'
+    if (status === 'present') return statusClasses.present
+    if (status === 'absent') return statusClasses.absent
+    return statusClasses.scheduled
+  }
+
   return (
     <Card>
       <CardHeader className="space-y-4">
@@ -591,15 +655,14 @@ function TruckJourneyCard({
             <CardTitle className="mt-1 flex items-center gap-2 text-xl">
               <Truck className="h-5 w-5" /> Truck journey
             </CardTitle>
-            <p className="mt-1 text-sm text-muted-foreground">75 hours of classroom theory, then 50 hours of practical training.</p>
           </div>
           <div className="text-left sm:text-right">
-            <p className="text-2xl font-semibold tabular-nums">{fmtHours(progress.totalHours)} <span className="text-sm font-normal text-muted-foreground">of 125 h</span></p>
-            <p className="text-xs text-muted-foreground">{progress.overallPercent}% of the program recorded</p>
+            <p className="text-2xl font-semibold tabular-nums">{fmtHours(shownTotal)} <span className="text-sm font-normal text-muted-foreground">of 125 h</span></p>
+            <p className="text-xs text-muted-foreground">{shownPercent}% of the program recorded</p>
           </div>
         </div>
-        <div className="h-2 overflow-hidden rounded-full bg-muted" aria-label={`${progress.overallPercent}% complete`}>
-          <div className="h-full rounded-full bg-red-600 transition-all duration-700 ease-[cubic-bezier(0.32,0.72,0,1)]" style={{ width: `${progress.overallPercent}%` }} />
+        <div className="h-2 overflow-hidden rounded-full bg-muted" aria-label={`${shownPercent}% complete`}>
+          <div className="h-full rounded-full bg-red-600 transition-all duration-700 ease-[cubic-bezier(0.32,0.72,0,1)]" style={{ width: `${shownPercent}%` }} />
         </div>
       </CardHeader>
       <CardContent>
@@ -617,14 +680,40 @@ function TruckJourneyCard({
                   <p className="text-sm text-muted-foreground">In-person cohort classes at the school</p>
                 </div>
                 <div className="text-right">
-                  <p className="font-semibold tabular-nums">{fmtHours(progress.theoryHours)} / 75 h</p>
-                  <p className="text-xs text-muted-foreground">{progress.theorySigned} of {progress.theory.length} classes signed</p>
+                  <p className="font-semibold tabular-nums">
+                    {usingTheory ? `${formatNet(theoryProgress!.attendedNetMinutes)} / 75 h` : `${fmtHours(progress.theoryHours)} / 75 h`}
+                  </p>
+                  <p className="text-xs text-muted-foreground">
+                    {usingTheory
+                      ? `${theoryProgress!.attendedCount} / ${theoryProgress!.requiredSessions} classes`
+                      : `${progress.theorySigned} of ${progress.theory.length} classes signed`}
+                  </p>
                 </div>
               </div>
-              <SessionGrid
-                items={progress.theory}
-                empty={<div className="rounded-lg border border-dashed p-6 text-sm text-muted-foreground">No Class 1 theory schedule found for this group.</div>}
-              />
+              {usingTheory ? (
+                <div className="space-y-3">
+                  <p className="text-sm text-muted-foreground">{theoryProgress!.hoursLineEn}</p>
+                  <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-5">
+                    {theoryProgress!.sessions.map(session => (
+                      <button
+                        key={session.id}
+                        type="button"
+                        onClick={() => setOpenTheoryId(session.id)}
+                        className={`rounded-lg border p-3 text-left transition-all duration-700 ease-[cubic-bezier(0.32,0.72,0,1)] hover:-translate-y-0.5 hover:border-foreground/30 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring ${theoryTone(session.attendance?.basis || '', session.attendance?.status || '')}`}
+                      >
+                        <span className="block text-sm font-semibold tabular-nums">{session.label}</span>
+                        <span className="mt-1 block text-xs opacity-80">{session.date.slice(5)} · {session.netLabel}</span>
+                        <span className="mt-2 block text-xs font-medium">{session.attendance?.displayEn || 'Scheduled'}</span>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              ) : (
+                <SessionGrid
+                  items={progress.theory}
+                  empty={<div className="rounded-lg border border-dashed p-6 text-sm text-muted-foreground">No Class 1 theory schedule found for this group.</div>}
+                />
+              )}
             </section>
 
             <section aria-labelledby="truck-practical-progress" className="border-t pt-6">
@@ -678,13 +767,57 @@ function TruckJourneyCard({
         )}
       </CardContent>
 
-      <Dialog open={!!openEvent} onOpenChange={open => { if (!open) setOpenEvent(null) }}>
+      <Dialog open={!!openEvent || !!openTheory} onOpenChange={open => { if (!open) { setOpenEvent(null); setOpenTheoryId(null) } }}>
         <DialogContent className="sm:max-w-md">
           <DialogHeader>
-            <DialogTitle>{openEvent?.label || 'Class 1 training'}</DialogTitle>
+            <DialogTitle>{openTheory?.label || openEvent?.label || 'Class 1 training'}</DialogTitle>
             <DialogDescription>Class 1 truck program attendance</DialogDescription>
           </DialogHeader>
-          {openEvent && (
+          {openTheory && (
+            <div className="grid grid-cols-2 gap-4 text-sm">
+              <div>
+                <p className="text-xs text-muted-foreground">Date</p>
+                <p className="font-medium">{openTheory.date}</p>
+              </div>
+              <div>
+                <p className="text-xs text-muted-foreground">Time</p>
+                <p className="font-medium">{openTheory.startTime}–{openTheory.endTime}</p>
+              </div>
+              <div>
+                <p className="text-xs text-muted-foreground">Breaks</p>
+                <p className="font-medium">{openTheory.breaksLabel}{openTheory.approximateBreaks ? ' (approx.)' : ''}</p>
+              </div>
+              <div>
+                <p className="text-xs text-muted-foreground">Net time</p>
+                <p className="font-medium tabular-nums">{openTheory.netLabel}</p>
+              </div>
+              <div className="col-span-2">
+                <p className="text-xs text-muted-foreground">Attendance</p>
+                <p className="font-medium">{openTheory.attendance?.displayEn || 'Scheduled'}</p>
+                {openTheory.attendance?.staffNote && (
+                  <p className="mt-1 text-xs text-muted-foreground">{openTheory.attendance.staffNote}</p>
+                )}
+              </div>
+              {openTheory.attendance?.basis === 'signature' && openSignature?.signatures?.[0]?.signatureDataUrl && (
+                <div className="col-span-2">
+                  <p className="text-xs text-muted-foreground">Signature</p>
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img src={openSignature.signatures[0].signatureDataUrl} alt="Student signature" className="mt-1 h-16 object-contain" />
+                  {openTheory.attendance.signedAt && (
+                    <p className="text-xs text-muted-foreground">{new Date(openTheory.attendance.signedAt).toLocaleString('en-CA', { timeZone: 'America/Toronto' })}</p>
+                  )}
+                </div>
+              )}
+              {openTheory.teamupEventId && (
+                <div className="col-span-2 pt-2">
+                  <Button variant="outline" size="sm" asChild>
+                    <Link href={`/scheduling?eventId=${encodeURIComponent(openTheory.teamupEventId)}`}>View in scheduler</Link>
+                  </Button>
+                </div>
+              )}
+            </div>
+          )}
+          {openEvent && !openTheory && (
             <div className="grid grid-cols-2 gap-4 text-sm">
               <div>
                 <p className="text-xs text-muted-foreground">Date</p>
@@ -2053,6 +2186,7 @@ export default function StudentDetailPage() {
           studentName={displayName}
           studentPhone={phone}
           vehicleType={groupData?.group?.vehicleType || profileData?.vehicleType}
+          groupId={groupId}
         />
       </motion.div>
 
