@@ -234,13 +234,38 @@ test('attendance and instructor lines use the approved wording', () => {
     'Formateur : Abdul Rahman Ahmed Qazi — No de formateur SAAQ : en attente (non encore attribué)',
   )
   assert.equal(
+    formatReportHoursLine({ attendedNetMinutes: 1350, attendedCount: 5, lang: 'en' }),
+    'Total: 22h30 / 75 h — 5 / 15 classes.',
+  )
+  assert.equal(
+    formatReportHoursLine({ attendedNetMinutes: 1350, attendedCount: 5, lang: 'fr' }),
+    'Total : 22 h 30 / 75 h — 5 / 15 cours.',
+  )
+  assert.equal(
     formatReportHoursLine({ attendedNetMinutes: 4500, attendedCount: 15, lang: 'en' }),
-    'Net hours: 3h45 (Tue/Thu), 7h30 (Sat), breaks and lunch excluded. Total: 75 h / 75 h — 15 / 15 classes.',
+    'Total: 75 h / 75 h — 15 / 15 classes.',
   )
   assert.equal(
     formatReportHoursLine({ attendedNetMinutes: 4500, attendedCount: 15, lang: 'fr' }),
-    'Heures nettes : 3 h 45 (mardi/jeudi), 7 h 30 (samedi), pauses et dîner exclus. Total : 75 h / 75 h — 15 / 15 cours.',
+    'Total : 75 h / 75 h — 15 / 15 cours.',
   )
+  for (const line of [
+    formatReportHoursLine({ attendedNetMinutes: 1350, attendedCount: 5, lang: 'en' }),
+    formatReportHoursLine({ attendedNetMinutes: 1350, attendedCount: 5, lang: 'fr' }),
+    formatReportHoursLine({ attendedNetMinutes: 4500, attendedCount: 15, lang: 'en' }),
+    formatReportHoursLine({ attendedNetMinutes: 4500, attendedCount: 15, lang: 'fr' }),
+  ]) {
+    assert.equal(/net hours|heures nettes|break|lunch|pause|dîner|3h45|7h30|7 h 30/i.test(line), false, line)
+  }
+
+  const studentPage = readFileSync(path.join(root, 'src/app/groups/[groupId]/student/[contactId]/page.tsx'), 'utf8')
+  const attendancePdf = readFileSync(path.join(root, 'src/lib/signature-attendance-pdf.ts'), 'utf8')
+  assert.match(studentPage, /hoursLineEn/)
+  assert.match(attendancePdf, /hoursLineEn/)
+  assert.match(attendancePdf, /hoursLineFr/)
+  for (const source of [studentPage, attendancePdf]) {
+    assert.equal(/Net hours:|breaks and lunch|Heures nettes|pauses et dîner|Net time/.test(source), false)
+  }
 })
 
 test('seed and import cannot rewrite Teamup, reminders, or signatures', () => {

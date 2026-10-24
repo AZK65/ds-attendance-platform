@@ -783,14 +783,6 @@ function TruckJourneyCard({
                 <p className="text-xs text-muted-foreground">Time</p>
                 <p className="font-medium">{openTheory.startTime}–{openTheory.endTime}</p>
               </div>
-              <div>
-                <p className="text-xs text-muted-foreground">Breaks</p>
-                <p className="font-medium">{openTheory.breaksLabel}{openTheory.approximateBreaks ? ' (approx.)' : ''}</p>
-              </div>
-              <div>
-                <p className="text-xs text-muted-foreground">Net time</p>
-                <p className="font-medium tabular-nums">{openTheory.netLabel}</p>
-              </div>
               <div className="col-span-2">
                 <p className="text-xs text-muted-foreground">Attendance</p>
                 <p className="font-medium">{openTheory.attendance?.displayEn || 'Scheduled'}</p>
