@@ -53,7 +53,7 @@ export async function GET(
       findStudentPaperExams(identity),
     ])
 
-    // Invoice summary — only this student's invoices, including a negative credit.
+    // Invoice summary — only this student's invoices. A negative stored balance is owed as $0.
     const totalInvoiced = invoices.reduce((s, inv) => s + inv.total, 0)
     const totalPaid = invoices.filter(inv => inv.paymentStatus === 'paid').reduce((s, inv) => s + inv.total, 0)
     const openBalance = openBalanceFromInvoices(invoices)

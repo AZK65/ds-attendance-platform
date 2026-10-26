@@ -52,8 +52,8 @@ export async function GET(request: NextRequest) {
     ])
 
     // Invoices are newest-created first. The stored remainingBalance on the
-    // newest invoice that has one is the open balance, including 0 and a
-    // negative credit. Fall back to unpaid totals only when none was stored.
+    // newest invoice that has one is the open balance. A negative stored
+    // value is owed as $0. Fall back to unpaid totals only when none was stored.
     const totalInvoiced = invoices.reduce((sum, inv) => sum + inv.total, 0)
     const totalPaid = invoices
       .filter(inv => inv.paymentStatus === 'paid')

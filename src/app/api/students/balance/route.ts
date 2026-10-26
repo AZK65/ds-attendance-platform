@@ -7,7 +7,7 @@ import { parseExternalStudentId } from '@/lib/invoice-student-id'
 // GET /api/students/balance?phone=15145551234
 // Lightweight endpoint returning invoice balance + group link for a student.
 // Invoices match by MySQL student id, then phone last-10, then exact name
-// only when there is no phone. A newer negative remainingBalance is kept.
+// only when there is no phone. A negative stored remainingBalance is owed as $0.
 export async function GET(request: NextRequest) {
   const phone = request.nextUrl.searchParams.get('phone') || ''
   const name = request.nextUrl.searchParams.get('name') || ''
