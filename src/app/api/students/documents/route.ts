@@ -10,6 +10,10 @@ import { buildMedicalDeclarationPdf } from '@/lib/medical-pdf'
 import { buildRegistrationTermsPdf } from '@/lib/registration-terms-pdf'
 import { readRegistrationTermsSnapshot } from '@/lib/registration-terms'
 import { PAPER_EXAM_DIR } from '@/lib/paper-exam'
+import { findInvoicesForStudent } from '@/lib/invoice-lookup'
+import { invoiceBelongsToStudent } from '@/lib/invoice-match'
+import { findBestLocalStudent } from '@/lib/local-student-lookup'
+import { namesEqual, phoneLast10 } from '@/lib/student-match'
 
 export const runtime = 'nodejs'
 
@@ -146,23 +150,15 @@ async function buildClass5AgreementPdf(registration: {
 async function findExternalStudent(externalId: number | null, phone: string, name: string) {
   if (externalId) return getStudentById(externalId)
 
-  const suffix = phoneSuffix(phone)
-  if (suffix.length >= 7) {
+  const suffix = phoneLast10(phone)
+  if (suffix) {
     const results = await searchStudents(suffix)
-    const exact = results.find(student => {
-      const candidate = phoneSuffix(student.phone_number)
-      return candidate === suffix || candidate.endsWith(suffix) || suffix.endsWith(candidate)
-    })
-    if (exact) return exact
+    return results.find((student) => phoneLast10(student.phone_number) === suffix) || null
   }
 
-  const cleanName = name.replace(/\s*#\d+\s*/g, ' ').replace(/\s+/g, ' ').trim()
-  if (cleanName.length >= 2) {
-    const results = await searchStudents(cleanName)
-    const wanted = cleanName.toLowerCase()
-    return results.find(student => student.full_name.trim().toLowerCase() === wanted) || null
-  }
-  return null
+  if (!namesEqual(name, name)) return null
+  const results = await searchStudents(name)
+  return results.find((student) => namesEqual(student.full_name, name)) || null
 }
 
 export async function GET(request: NextRequest) {
@@ -206,17 +202,7 @@ export async function GET(request: NextRequest) {
           where: { id: localStudentId },
           include: { certificates: { orderBy: { generatedAt: 'desc' } } },
         })
-      : suffix.length >= 7
-        ? await prisma.student.findFirst({
-            where: { phone: { contains: suffix } },
-            include: { certificates: { orderBy: { generatedAt: 'desc' } } },
-          })
-        : cleanName.length >= 2
-          ? await prisma.student.findFirst({
-              where: { name: cleanName },
-              include: { certificates: { orderBy: { generatedAt: 'desc' } } },
-            })
-          : null
+      : await findBestLocalStudent({ phone, name })
 
     const registration = externalStudent
       ? await prisma.studentRegistration.findFirst({
@@ -241,11 +227,11 @@ export async function GET(request: NextRequest) {
             })
           : null
 
-    const invoices = suffix.length >= 7
-      ? await prisma.invoice.findMany({ where: { studentPhone: { contains: suffix } }, orderBy: { createdAt: 'desc' } })
-      : cleanName.length >= 2
-        ? await prisma.invoice.findMany({ where: { studentName: cleanName }, orderBy: { createdAt: 'desc' } })
-        : []
+    const invoices = await findInvoicesForStudent({
+      externalStudentId: externalStudent?.student_id ?? externalId,
+      phone,
+      name,
+    })
 
     const resolvedName = externalStudent?.full_name || localStudent?.name || registration?.fullName || cleanName
     const resolvedPhone = externalStudent?.phone_number || localStudent?.phone || registration?.phoneNumber || phone
@@ -325,21 +311,22 @@ export async function GET(request: NextRequest) {
     }
 
     if (wants('paper-exams')) {
-      const paperExamWhere = suffix.length >= 7
-        ? { phone: { contains: suffix } }
-        : cleanName.length >= 2
-          ? { studentName: { contains: cleanName } }
-          : null
-      const paperExams = paperExamWhere
-        ? await prisma.paperExamSubmission.findMany({
-            where: paperExamWhere,
-            include: {
-              session: { select: { title: true, groupName: true, passingScore: true } },
-              pages: { orderBy: { pageNumber: 'asc' } },
-            },
-            orderBy: { receivedAt: 'desc' },
-          })
-        : []
+      const paperExamIdentity = {
+        externalStudentId: externalStudent?.student_id ?? externalId,
+        phone,
+        name,
+      }
+      const paperExamRows = await prisma.paperExamSubmission.findMany({
+        include: {
+          session: { select: { title: true, groupName: true, passingScore: true } },
+          pages: { orderBy: { pageNumber: 'asc' } },
+        },
+        orderBy: { receivedAt: 'desc' },
+      })
+      const paperExams = paperExamRows.filter((exam) => invoiceBelongsToStudent(
+        { studentPhone: exam.phone, studentName: exam.studentName },
+        paperExamIdentity,
+      ))
 
       if (paperExams.length === 0) {
         notes.push({ status: 'unavailable', label: 'Paper exams', detail: 'No paper exam submissions found' })

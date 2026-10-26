@@ -1,36 +1,32 @@
 import { prisma } from '@/lib/db'
+import { invoiceBelongsToStudent } from '@/lib/invoice-match'
 import { paperExamResultIsVerified } from '@/lib/paper-exam-result'
-
-function phoneSuffix(value: string | null | undefined) {
-  return (value || '').replace(/\D/g, '').slice(-10)
-}
 
 export async function findStudentPaperExams(input: {
   phone?: string | null
   name?: string | null
   contactId?: string | null
+  externalStudentId?: number | null
 }) {
-  const phone = phoneSuffix(input.phone)
-  const cleanName = (input.name || '').replace(/\s*#\d+\s*/g, ' ').replace(/\s+/g, ' ').trim()
-  const conditions = [
-    ...(input.contactId ? [{ contactId: input.contactId }] : []),
-    ...(phone.length >= 7 ? [{ phone: { contains: phone } }] : []),
-    ...(!input.contactId && phone.length < 7 && cleanName.length >= 2
-      ? [{ studentName: { contains: cleanName } }]
-      : []),
-  ]
-  if (conditions.length === 0) return []
-
+  // Phones are stored formatted, so last-10 equality is applied in memory.
+  // A contact id is an exact WhatsApp identity. Name matches only when no
+  // phone is present, and never as a substring.
   const submissions = await prisma.paperExamSubmission.findMany({
-    where: { OR: conditions },
     include: {
       session: { select: { title: true, groupId: true, groupName: true, passingScore: true } },
       pages: { orderBy: { pageNumber: 'asc' } },
     },
     orderBy: { receivedAt: 'desc' },
   })
+  const matched = submissions.filter((submission) => {
+    if (input.contactId && submission.contactId === input.contactId) return true
+    return invoiceBelongsToStudent(
+      { studentPhone: submission.phone, studentName: submission.studentName },
+      input,
+    )
+  })
 
-  return submissions.map(submission => ({
+  return matched.map(submission => ({
     id: submission.id,
     title: submission.session.title,
     groupId: submission.session.groupId,

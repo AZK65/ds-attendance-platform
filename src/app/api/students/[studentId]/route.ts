@@ -1,6 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/db'
 import { getStudentById } from '@/lib/external-db'
+import { findExamAttemptsForStudent, findInvoicesForStudent } from '@/lib/invoice-lookup'
+import { openBalanceFromInvoices } from '@/lib/invoice-match'
+import { findBestLocalStudent } from '@/lib/local-student-lookup'
 import { findStudentPaperExams } from '@/lib/paper-exam-profile'
 
 // GET /api/students/[studentId] — Get full student profile from MySQL + SQLite
@@ -25,22 +28,17 @@ export async function GET(
     // Fetch local data (invoices, certificates, group memberships)
     const phone = dbStudent.phone_number?.replace(/\D/g, '') || ''
     const phoneSearch = phone.length > 10 ? phone.slice(-10) : phone
+    const identity = {
+      externalStudentId: id,
+      phone: dbStudent.phone_number,
+      name: dbStudent.full_name,
+    }
 
-    const [localStudent, invoices, groupMemberships] = await Promise.all([
-      // SQLite Student record (has certificates)
-      phoneSearch.length >= 7
-        ? prisma.student.findFirst({
-            where: { OR: [{ phone: { contains: phoneSearch } }, { name: { contains: dbStudent.full_name } }] },
-            include: { certificates: { orderBy: { generatedAt: 'desc' } } },
-          })
-        : null,
-      // Invoices
-      phoneSearch.length >= 7
-        ? prisma.invoice.findMany({
-            where: { OR: [{ studentPhone: { contains: phoneSearch } }, { studentName: { contains: dbStudent.full_name } }] },
-            orderBy: { createdAt: 'desc' },
-          })
-        : [],
+    const [localStudent, invoices, groupMemberships, examAttempts, paperExams] = await Promise.all([
+      // Local Student row (certificates). Same identity rule as invoices:
+      // phone last-10, or exact name only when there is no phone.
+      findBestLocalStudent({ phone: dbStudent.phone_number, name: dbStudent.full_name }),
+      findInvoicesForStudent(identity),
       // Group memberships
       phoneSearch.length >= 7
         ? prisma.groupMember.findMany({
@@ -51,29 +49,14 @@ export async function GET(
             },
           })
         : [],
+      findExamAttemptsForStudent(identity),
+      findStudentPaperExams(identity),
     ])
 
-    // Fetch exam attempts by student name or phone
-    const nameParts = dbStudent.full_name.trim().split(/\s+/).filter((p: string) => p.length >= 2)
-    const examNameConditions = [
-      { studentName: { contains: dbStudent.full_name } },
-      ...nameParts.map((part: string) => ({ studentName: { contains: part } })),
-    ]
-    const examPhoneConditions = phoneSearch.length >= 7
-      ? [{ studentPhone: { contains: phoneSearch } }]
-      : []
-    const [examAttempts, paperExams] = await Promise.all([
-      prisma.examAttempt.findMany({
-        where: { OR: [...examNameConditions, ...examPhoneConditions] },
-        include: { exam: { select: { code: true, groupName: true } } },
-        orderBy: { startedAt: 'desc' },
-      }),
-      findStudentPaperExams({ phone: dbStudent.phone_number, name: dbStudent.full_name }),
-    ])
-
-    // Invoice summary
+    // Invoice summary — only this student's invoices, including a negative credit.
     const totalInvoiced = invoices.reduce((s, inv) => s + inv.total, 0)
     const totalPaid = invoices.filter(inv => inv.paymentStatus === 'paid').reduce((s, inv) => s + inv.total, 0)
+    const openBalance = openBalanceFromInvoices(invoices)
 
     // Pull the original StudentRegistration (online registration source) so we can
     // surface the SAAQ 6224A medical declaration + signature on the profile.
@@ -125,6 +108,10 @@ export async function GET(
         total: inv.total,
         paymentStatus: inv.paymentStatus,
         lineItems: inv.lineItems,
+        studentName: inv.studentName,
+        studentPhone: inv.studentPhone,
+        externalStudentId: inv.externalStudentId,
+        createdAt: inv.createdAt,
       })),
       groups: groupMemberships.map(gm => ({
         groupId: gm.groupId,
@@ -146,7 +133,7 @@ export async function GET(
       summary: {
         totalInvoiced: Math.round(totalInvoiced * 100) / 100,
         totalPaid: Math.round(totalPaid * 100) / 100,
-        openBalance: Math.round((totalInvoiced - totalPaid) * 100) / 100,
+        openBalance,
         invoiceCount: invoices.length,
         certificateCount: localStudent?.certificates.length || 0,
         groupCount: groupMemberships.length,

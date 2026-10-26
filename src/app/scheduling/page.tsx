@@ -3192,7 +3192,9 @@ function SchedulingPage() {
                                   ? 'N/A'
                                   : studentBalance.openBalance > 0
                                     ? `$${studentBalance.openBalance.toFixed(2)} owing`
-                                    : 'Paid up'}
+                                    : studentBalance.openBalance < 0
+                                      ? `$${studentBalance.openBalance.toFixed(2)} credit`
+                                      : 'Paid up'}
                               </p>
                             </div>
                           </div>

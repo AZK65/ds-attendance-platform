@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/db'
+import { parseExternalStudentId, resolveExternalStudentId } from '@/lib/invoice-student-id'
+import { phoneLast10 } from '@/lib/student-match'
 
 // PUT — Edit invoice details (line items, amounts, student info)
 export async function PUT(request: NextRequest) {
@@ -32,6 +34,19 @@ export async function PUT(request: NextRequest) {
     if (studentPhone !== undefined) updateData.studentPhone = studentPhone
     if (studentEmail !== undefined) updateData.studentEmail = studentEmail
     if (dueDate !== undefined) updateData.dueDate = dueDate
+
+    const explicitId = parseExternalStudentId(body.externalStudentId)
+    const identityTouched = studentName !== undefined || studentPhone !== undefined || body.externalStudentId !== undefined
+    if (explicitId != null) {
+      updateData.externalStudentId = explicitId
+    } else if (identityTouched || invoice.externalStudentId == null) {
+      const nextPhone = studentPhone !== undefined ? studentPhone : invoice.studentPhone
+      const nextName = studentName !== undefined ? studentName : invoice.studentName
+      const resolved = await resolveExternalStudentId({ phone: nextPhone, name: nextName })
+      const phoneChanged = studentPhone !== undefined && phoneLast10(studentPhone) !== phoneLast10(invoice.studentPhone)
+      if (resolved != null) updateData.externalStudentId = resolved
+      else if (phoneChanged) updateData.externalStudentId = null
+    }
 
     const updated = await prisma.invoice.update({
       where: { id: invoiceId },

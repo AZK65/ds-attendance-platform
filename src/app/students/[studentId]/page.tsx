@@ -27,6 +27,7 @@ import { LmsActivityPanel } from '@/components/LmsActivityPanel'
 import { StudentDocumentDownloadDialog } from '@/components/StudentDocumentDownloadDialog'
 import { formatTime12h as formatClock } from '@/lib/theory-hours'
 import { PaperExamProfileCard, type PaperExamProfileRecord } from '@/components/PaperExamProfileCard'
+import { selectInvoiceForBalanceEdit } from '@/lib/invoice-match'
 
 interface TeamupEvent {
   id: string
@@ -57,6 +58,8 @@ interface StudentProfile {
   invoices: Array<{
     id: string; invoiceNumber: string; invoiceDate: string; total: number;
     paymentStatus: string; lineItems: string;
+    studentName?: string; studentPhone?: string | null;
+    externalStudentId?: number | null; createdAt?: string;
   }>
   vehicleType?: string | null
   groups: Array<{ groupId: string; groupName: string; moduleNumber: number | null }>
@@ -323,16 +326,17 @@ export default function StudentProfilePage() {
 
   // Also fetch profile data for more reliable invoice/exam matching
   const { data: profileData } = useQuery<{
-    invoices: Array<{ id: string; invoiceNumber: string; invoiceDate: string; total: number; paymentStatus: string; lineItems: string; studentAddress?: string; studentCity?: string; studentPostalCode?: string; studentEmail?: string }>
+    invoices: Array<{ id: string; invoiceNumber: string; invoiceDate: string; total: number; paymentStatus: string; lineItems: string; studentAddress?: string; studentCity?: string; studentPostalCode?: string; studentEmail?: string; studentName?: string; studentPhone?: string | null; externalStudentId?: number | null; createdAt?: string }>
     exams?: Array<{ id: string; examCode: string; groupName: string; score: number | null; passed: boolean | null; totalQuestions: number; startedAt: string; submittedAt: string | null; timeExpired: boolean }>
     paperExams?: PaperExamProfileRecord[]
     summary: { totalInvoiced: number; totalPaid: number; openBalance: number }
   }>({
-    queryKey: ['student-profile-data', phone, displayName],
+    queryKey: ['student-profile-data', phone, displayName, studentId],
     queryFn: async () => {
       const params = new URLSearchParams()
       if (phone) params.set('phone', phone)
       if (displayName && displayName !== phone) params.set('name', displayName)
+      if (studentId) params.set('externalStudentId', studentId)
       const res = await fetch(`/api/students/profile?${params}`)
       if (!res.ok) return null
       return res.json()
@@ -542,7 +546,7 @@ export default function StudentProfilePage() {
               <Award className="h-4 w-4" /> Certificate
             </Button>
             <Button variant="ghost" size="sm" asChild className="text-muted-foreground hover:text-foreground">
-              <Link href={`/invoice?studentName=${encodeURIComponent(student.full_name)}&studentPhone=${encodeURIComponent(student.phone_number)}&studentAddress=${encodeURIComponent(student.full_address || '')}&studentCity=${encodeURIComponent(student.city || '')}&studentPostalCode=${encodeURIComponent(student.postal_code || '')}&studentEmail=${encodeURIComponent(data.localStudent?.email || student.email || "")}`}>
+              <Link href={`/invoice?studentName=${encodeURIComponent(student.full_name)}&studentPhone=${encodeURIComponent(student.phone_number)}&studentAddress=${encodeURIComponent(student.full_address || '')}&studentCity=${encodeURIComponent(student.city || '')}&studentPostalCode=${encodeURIComponent(student.postal_code || '')}&studentEmail=${encodeURIComponent(data.localStudent?.email || student.email || "")}&studentId=${encodeURIComponent(String(student.student_id))}`}>
                 <Receipt className="h-4 w-4" /> Invoice
               </Link>
             </Button>
@@ -653,7 +657,7 @@ export default function StudentProfilePage() {
           <CreditCard className={`mb-2 h-4 w-4 ${mergedSummary.openBalance > 0 ? 'text-amber-600' : 'text-green-600'}`} />
           <p className="text-xs text-muted-foreground">Balance</p>
           <p className={`text-sm font-semibold tabular-nums ${mergedSummary.openBalance > 0 ? 'text-amber-700' : 'text-green-700'}`}>
-            {mergedSummary.openBalance > 0 ? `$${mergedSummary.openBalance.toFixed(2)}` : 'Paid up'}
+            {mergedSummary.openBalance !== 0 ? `$${mergedSummary.openBalance.toFixed(2)}` : 'Paid up'}
           </p>
         </div>
       </motion.section>
@@ -909,7 +913,7 @@ export default function StudentProfilePage() {
                 })}
                 <div className="flex justify-center">
                   <Button variant="outline" size="sm" asChild>
-                    <Link href={`/invoice?studentName=${encodeURIComponent(student.full_name)}&studentPhone=${encodeURIComponent(student.phone_number)}&studentAddress=${encodeURIComponent(student.full_address || '')}&studentCity=${encodeURIComponent(student.city || '')}&studentPostalCode=${encodeURIComponent(student.postal_code || '')}&studentEmail=${encodeURIComponent(data.localStudent?.email || student.email || "")}`}>
+                    <Link href={`/invoice?studentName=${encodeURIComponent(student.full_name)}&studentPhone=${encodeURIComponent(student.phone_number)}&studentAddress=${encodeURIComponent(student.full_address || '')}&studentCity=${encodeURIComponent(student.city || '')}&studentPostalCode=${encodeURIComponent(student.postal_code || '')}&studentEmail=${encodeURIComponent(data.localStudent?.email || student.email || "")}&studentId=${encodeURIComponent(String(student.student_id))}`}>
                       <Plus className="h-4 w-4 mr-1" /> Create Invoice
                     </Link>
                   </Button>
@@ -1009,7 +1013,11 @@ export default function StudentProfilePage() {
                 disabled={balanceSaving || newBalanceInput === '' || isNaN(parseFloat(newBalanceInput)) || parseFloat(newBalanceInput) < 0}
                 onClick={async () => {
                   const value = parseFloat(newBalanceInput)
-                  const latest = mergedInvoices[0]
+                  const latest = selectInvoiceForBalanceEdit(mergedInvoices, {
+                    externalStudentId: student.student_id,
+                    phone: student.phone_number,
+                    name: student.full_name,
+                  })
                   if (!latest) {
                     setBalanceError('No invoice found for this student to update')
                     return

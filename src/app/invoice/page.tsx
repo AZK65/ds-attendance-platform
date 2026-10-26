@@ -152,11 +152,12 @@ function InvoicePage() {
   const [step, setStep] = useState<Step>('student')
   const [vehicleType, setVehicleType] = useState<'car' | 'truck' | null>(null)
   const [selectedStudent, setSelectedStudent] = useState(false)
+  const [externalStudentId, setExternalStudentId] = useState<number | null>(null)
   const [selectedPackage, setSelectedPackage] = useState<{ name: string; totalPrice: number } | null>(null)
   const [manualBalance, setManualBalance] = useState<number | null>(null)
 
   // PDF blob for sending after generation + preview
-  const computedBalanceRef = useRef<number>(0)
+  const computedBalanceRef = useRef<number | null>(null)
   const pdfBase64Ref = useRef<string | null>(null)
   const [pdfPreviewUrl, setPdfPreviewUrl] = useState<string | null>(null)
   const [emailSent, setEmailSent] = useState(false)
@@ -189,9 +190,10 @@ function InvoicePage() {
     }, 300)
   }
 
-  const selectStudent = async (student: { full_name: string; phone_number: string; full_address: string; city: string; postal_code: string; email: string }) => {
+  const selectStudent = async (student: { student_id?: number; full_name: string; phone_number: string; full_address: string; city: string; postal_code: string; email: string }) => {
     setShowStudentDropdown(false)
     setStudentSearchResults([])
+    setExternalStudentId(student.student_id ?? null)
 
     // Pre-fill from MySQL student
     setFormData(prev => ({
@@ -271,6 +273,7 @@ function InvoicePage() {
     setKioskInfoReceived(true)
     setKioskRequest(null)
     setShowKioskInfo(false)
+    setExternalStudentId(null)
   }, [])
 
   const loadInvoiceKiosks = useCallback(async () => {
@@ -418,6 +421,8 @@ function InvoicePage() {
         studentPostalCode: searchParams.get('studentPostalCode') || prev.studentPostalCode,
         studentEmail: searchParams.get('studentEmail') || prev.studentEmail,
       }))
+      const externalFromUrl = searchParams.get('studentId') || searchParams.get('externalStudentId')
+      setExternalStudentId(externalFromUrl && /^\d+$/.test(externalFromUrl) ? Number(externalFromUrl) : null)
       setSelectedStudent(true)
       setUrlPrefilled(true)
     }
@@ -458,11 +463,12 @@ function InvoicePage() {
 
   // Load student balance when student is selected
   const { data: balanceData } = useQuery({
-    queryKey: ['student-balance', formData.studentPhone, formData.studentName],
+    queryKey: ['student-balance', formData.studentPhone, formData.studentName, externalStudentId],
     queryFn: async () => {
       const params = new URLSearchParams()
       if (formData.studentPhone) params.set('phone', formData.studentPhone)
       if (formData.studentName) params.set('name', formData.studentName)
+      if (externalStudentId != null) params.set('externalStudentId', String(externalStudentId))
       const res = await fetch(`/api/students/balance?${params}`)
       if (!res.ok) return null
       return res.json() as Promise<{ totalInvoiced: number; totalPaid: number; openBalance: number; groupId: string | null; contactId: string | null }>
@@ -472,9 +478,13 @@ function InvoicePage() {
 
   // Load student invoice history when on review step
   const { data: invoiceHistoryData } = useQuery({
-    queryKey: ['student-invoice-history', formData.studentName],
+    queryKey: ['student-invoice-history', formData.studentPhone, formData.studentName, externalStudentId],
     queryFn: async () => {
-      const res = await fetch(`/api/invoice/list?search=${encodeURIComponent(formData.studentName)}`)
+      const params = new URLSearchParams()
+      if (formData.studentPhone) params.set('phone', formData.studentPhone)
+      if (formData.studentName) params.set('name', formData.studentName)
+      if (externalStudentId != null) params.set('externalStudentId', String(externalStudentId))
+      const res = await fetch(`/api/students/profile?${params}`)
       if (!res.ok) return { invoices: [] }
       return res.json() as Promise<{ invoices: { id: string; invoiceNumber: string; invoiceDate: string; total: number; paymentStatus: string; paymentMethod: string | null }[] }>
     },
@@ -562,39 +572,47 @@ function InvoicePage() {
     mutationFn: async () => {
       // Fetch existing balance so we can show remaining balance on PDF
       let remainingBalance = 0
+      let hasBalanceContext = false
       try {
         const balanceParams = new URLSearchParams()
         if (formData.studentPhone) balanceParams.set('phone', formData.studentPhone)
         if (formData.studentName) balanceParams.set('name', formData.studentName)
+        if (externalStudentId != null) balanceParams.set('externalStudentId', String(externalStudentId))
         let previousBalance = 0
         if (balanceParams.toString()) {
           const balRes = await fetch(`/api/students/balance?${balanceParams}`)
           if (balRes.ok) {
             const balData = await balRes.json()
-            previousBalance = balData.openBalance || 0
+            previousBalance = typeof balData.openBalance === 'number' ? balData.openBalance : 0
           }
         }
         if (selectedPackage) {
           // If the student already carries a balance from a previous invoice
           // for this package, this is a CONTINUATION — just subtract the
-          // current payment. Otherwise it's a NEW package, so seed the
-          // remaining balance with the full package total.
-          if (previousBalance > 0) {
+          // current payment. A negative balance is a credit and still
+          // continues. Otherwise it's a NEW package, so seed the remaining
+          // balance with the full package total.
+          hasBalanceContext = true
+          if (previousBalance !== 0) {
             remainingBalance = previousBalance - total
           } else {
             remainingBalance = selectedPackage.totalPrice - total
           }
         } else if (manualBalance !== null && manualBalance > 0) {
           // Manual balance entered: remaining = manualBalance - this invoice
+          hasBalanceContext = true
           remainingBalance = manualBalance - total
-        } else if (previousBalance > 0) {
-          // Existing balance from prior invoices — subtract this invoice
+        } else if (previousBalance !== 0) {
+          // Existing balance from prior invoices — subtract this invoice.
+          // Includes a negative credit, which must not be treated as zero.
+          hasBalanceContext = true
           remainingBalance = previousBalance - total
         }
       } catch { /* non-fatal */ }
 
-      // Store for save payload
-      computedBalanceRef.current = remainingBalance
+      // Store for save payload. Zero and negative are real balances; a
+      // missing package context stays null so it does not wipe the fallback.
+      computedBalanceRef.current = hasBalanceContext ? Math.round(remainingBalance * 100) / 100 : null
 
       const payload = {
         schoolName: settings?.schoolName || 'École de Conduite Qazi',
@@ -688,7 +706,8 @@ function InvoicePage() {
           qstAmount,
           total,
           notes: formData.notes,
-          remainingBalance: computedBalanceRef.current || null,
+          remainingBalance: computedBalanceRef.current,
+          externalStudentId,
         }),
       })
       if (!res.ok) throw new Error('Failed to save invoice')
@@ -788,10 +807,12 @@ function InvoicePage() {
 
   // Handlers
   const handleFieldChange = (field: keyof InvoiceFormData, value: string) => {
+    if (field === 'studentName' || field === 'studentPhone') setExternalStudentId(null)
     setFormData(prev => ({ ...prev, [field]: value }))
   }
 
   const handleStudentSelect = (student: StudentResult) => {
+    setExternalStudentId(null)
     setFormData(prev => ({
       ...prev,
       studentName: student.name || '',
@@ -806,6 +827,7 @@ function InvoicePage() {
   }
 
   const handleDBStudentSelect = (student: DBStudent) => {
+    setExternalStudentId(student.student_id)
     setFormData(prev => ({
       ...prev,
       studentName: student.full_name || '',
@@ -820,6 +842,7 @@ function InvoicePage() {
   }
 
   const handleWAContactSelect = (contact: WhatsAppContact) => {
+    setExternalStudentId(null)
     setFormData(prev => ({
       ...prev,
       studentName: contact.name || contact.pushName || '',
@@ -918,6 +941,7 @@ function InvoicePage() {
     setSelectedStudent(false)
     setSelectedPackage(null)
     setManualBalance(null)
+    setExternalStudentId(null)
     setVehicleType(null)
     pdfBase64Ref.current = null
     if (pdfPreviewUrl) URL.revokeObjectURL(pdfPreviewUrl)
@@ -1379,18 +1403,19 @@ function InvoicePage() {
               {/* Balance Card — shows for packages, existing balance, or manual balance */}
               {(() => {
                 const packageTotal = selectedPackage?.totalPrice || 0
-                const previousBalance = balanceData?.openBalance || 0
+                const previousBalance = typeof balanceData?.openBalance === 'number' ? balanceData.openBalance : 0
                 let effectiveBalance: number
                 if (selectedPackage) {
                   // Continuation invoice: prior balance already represents
                   // outstanding package — just subtract the current invoice.
+                  // A negative prior balance is a credit and still continues.
                   // Fresh package: seed with the full package total.
-                  effectiveBalance = previousBalance > 0
+                  effectiveBalance = previousBalance !== 0
                     ? previousBalance - total
                     : packageTotal - total
                 } else if (manualBalance !== null && manualBalance > 0) {
                   effectiveBalance = manualBalance - total
-                } else if (previousBalance > 0) {
+                } else if (previousBalance !== 0) {
                   effectiveBalance = previousBalance - total
                 } else {
                   return null // No balance to show

@@ -1,6 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/db'
 import { searchStudents, type StudentRecord } from '@/lib/external-db'
+import { findExamAttemptsForStudent, findInvoicesForStudent } from '@/lib/invoice-lookup'
+import { openBalanceFromInvoices } from '@/lib/invoice-match'
+import { parseExternalStudentId } from '@/lib/invoice-student-id'
 import { findBestLocalStudent } from '@/lib/local-student-lookup'
 import { findStudentPaperExams } from '@/lib/paper-exam-profile'
 import { filledDateCount, nameSearchVariants, namesEqual, phoneLast10 } from '@/lib/student-match'
@@ -17,8 +20,9 @@ export async function GET(request: NextRequest) {
   // can land on a duplicate Student row with no dates/certificates.
   const studentId = searchParams.get('studentId') || ''
   const contactId = searchParams.get('contactId') || ''
+  const requestedExternalId = parseExternalStudentId(searchParams.get('externalStudentId'))
 
-  if (!phone && !name && !licenceNumber && !studentId) {
+  if (!phone && !name && !licenceNumber && !studentId && requestedExternalId == null) {
     return NextResponse.json(
       { error: 'Phone, name, licenceNumber or studentId is required' },
       { status: 400 }
@@ -26,40 +30,36 @@ export async function GET(request: NextRequest) {
   }
 
   try {
-    // Fetch from all sources in parallel
-    const [dbStudent, invoices, localStudent, vehicleType] = await Promise.all([
-      // 1. External MySQL: try to find student by phone, then by name
+    const [dbStudent, localStudent, vehicleType] = await Promise.all([
+      // External MySQL: a usable phone matches only that last-10. With no
+      // phone, only the exact full name matches.
       findExternalStudent(phone, name),
-      // 2. Local SQLite: find invoices for this student
-      findStudentInvoices(phone, name),
-      // 3. Local SQLite: find student record with certificates
       findLocalStudent(phone, name, licenceNumber, studentId),
-      // 4. Car vs truck — from online registration or group membership
       findVehicleType(phone, name),
     ])
 
-    // Fetch exam attempts for this student
-    const [examAttempts, paperExams] = await Promise.all([
-      findExamAttempts(phone, name),
-      findStudentPaperExams({ phone, name, contactId }),
+    // Id first, then this student's phone. The caller's phone wins so a
+    // name-only MySQL hit cannot replace a phone the page already has.
+    const identity = {
+      externalStudentId: requestedExternalId ?? dbStudent?.student_id ?? null,
+      phone: phone || dbStudent?.phone_number || '',
+      name: name || dbStudent?.full_name || '',
+    }
+    const [invoices, examAttempts, paperExams] = await Promise.all([
+      findInvoicesForStudent(identity),
+      findExamAttemptsForStudent(identity),
+      findStudentPaperExams({ ...identity, contactId }),
     ])
 
-    // Compute invoice summary with balance
+    // Invoices are newest-created first. The stored remainingBalance on the
+    // newest invoice that has one is the open balance, including 0 and a
+    // negative credit. Fall back to unpaid totals only when none was stored.
     const totalInvoiced = invoices.reduce((sum, inv) => sum + inv.total, 0)
     const totalPaid = invoices
       .filter(inv => inv.paymentStatus === 'paid')
       .reduce((sum, inv) => sum + inv.total, 0)
-    const lastInvoice = invoices[0] || null // Already sorted desc
-
-    // For the open balance, use remainingBalance from the most recent invoice if available.
-    // This is package-aware: it captures the full package total minus what's been invoiced,
-    // so even when all current invoices are paid, it still shows what the student owes
-    // for future installments. Fall back to simple unpaid total if no remainingBalance.
-    const latestRemainingBalance = lastInvoice?.remainingBalance
-    const simpleBalance = totalInvoiced - totalPaid
-    const openBalance = (latestRemainingBalance != null && latestRemainingBalance > 0)
-      ? latestRemainingBalance
-      : simpleBalance
+    const lastInvoice = invoices[0] || null
+    const openBalance = openBalanceFromInvoices(invoices)
 
     return NextResponse.json({
       dbStudent,
@@ -128,6 +128,8 @@ export async function GET(request: NextRequest) {
         notes: inv.notes,
         paymentStatus: inv.paymentStatus,
         paymentMethod: inv.paymentMethod,
+        studentPhone: inv.studentPhone,
+        externalStudentId: inv.externalStudentId,
         createdAt: inv.createdAt,
       })),
       exams: examAttempts.map(ea => ({
@@ -280,56 +282,3 @@ async function findLocalStudent(phone: string, name: string, licenceNumber?: str
   return result
 }
 
-// Find invoices for a student by phone or name
-async function findStudentInvoices(phone: string, name: string) {
-  const conditions = []
-  const cleanName = name.replace(/\s*#\d+$/, '').trim()
-
-  if (phone) {
-    // Match phone digits — strip formatting for comparison
-    const phoneDigits = phone.replace(/\D/g, '')
-    if (phoneDigits.length >= 7) {
-      conditions.push({ studentPhone: { contains: phoneDigits.slice(-10) } })
-    }
-  }
-
-  if (cleanName && cleanName.length >= 2) {
-    conditions.push({ studentName: { contains: cleanName } })
-  }
-
-  if (conditions.length === 0) return []
-
-  return prisma.invoice.findMany({
-    where: { OR: conditions },
-    orderBy: { invoiceDate: 'desc' },
-  })
-}
-
-// Find exam attempts for a student by name parts or phone
-async function findExamAttempts(phone: string, name: string) {
-  const cleanName = name.replace(/\s*#\d+\s*/g, ' ').replace(/,/g, '').replace(/\s+/g, ' ').trim()
-  const nameParts = cleanName.split(/\s+/).filter(p => p.length >= 2)
-  const conditions: Array<{ studentName?: { contains: string }; studentPhone?: { contains: string } }> = []
-
-  for (const part of nameParts) {
-    conditions.push({ studentName: { contains: part } })
-  }
-  if (cleanName.length >= 2) {
-    conditions.push({ studentName: { contains: cleanName } })
-  }
-
-  if (phone) {
-    const phoneDigits = phone.replace(/\D/g, '')
-    if (phoneDigits.length >= 7) {
-      conditions.push({ studentPhone: { contains: phoneDigits.slice(-10) } })
-    }
-  }
-
-  if (conditions.length === 0) return []
-
-  return prisma.examAttempt.findMany({
-    where: { OR: conditions },
-    include: { exam: { select: { code: true, groupName: true } } },
-    orderBy: { startedAt: 'desc' },
-  })
-}
