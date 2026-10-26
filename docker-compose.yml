@@ -44,6 +44,10 @@ services:
       - ZOOM_WEBHOOK_SECRET_TOKEN=${ZOOM_WEBHOOK_SECRET_TOKEN:-}
       - AUTH_PASSWORD=${AUTH_PASSWORD}
       - OPENROUTER_API_KEY=${OPENROUTER_API_KEY}
+      # Optional. Analytics account credits use OpenRouter GET /api/v1/credits,
+      # which requires a management key. When unset, the page shows this
+      # inference key's remaining limit from GET /api/v1/key instead.
+      - OPENROUTER_MANAGEMENT_KEY=${OPENROUTER_MANAGEMENT_KEY:-}
       # WhatsApp AI bot. Set BOT_ENABLED=false to silence the bot without
       # a code deploy. BOT_MODEL overrides the default (anthropic/claude-haiku-4.5)
       # with any OpenRouter-compatible model id.

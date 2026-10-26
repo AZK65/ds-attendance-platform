@@ -1,6 +1,7 @@
 import { NextRequest } from 'next/server'
 import { prisma } from '@/lib/db'
 import { buildDataContext, SYSTEM_PROMPT } from '@/lib/analytics-context'
+import { resolveAnalyticsModel } from '@/lib/analytics-models'
 
 const OPENROUTER_API_KEY = process.env.OPENROUTER_API_KEY
 
@@ -10,10 +11,15 @@ export async function POST(
   { params }: { params: Promise<{ chatId: string }> }
 ) {
   const { chatId } = await params
-  const { message } = await request.json()
+  const body = await request.json()
+  const message = body?.message
+  const selectedModel = resolveAnalyticsModel(body?.model)
 
-  if (!message?.trim()) {
+  if (typeof message !== 'string' || !message.trim()) {
     return new Response(JSON.stringify({ error: 'Message is required' }), { status: 400 })
+  }
+  if (!selectedModel) {
+    return new Response(JSON.stringify({ error: 'Model is not allowed' }), { status: 400 })
   }
 
   // Save user message
@@ -66,7 +72,7 @@ export async function POST(
             'X-Title': 'DS Attendance Platform - Analytics',
           },
           body: JSON.stringify({
-            model: 'anthropic/claude-sonnet-4',
+            model: selectedModel,
             messages: apiMessages,
             stream: true,
           }),
