@@ -94,10 +94,9 @@ export function selectInvoiceForBalanceEdit<T extends BalanceInvoice>(
 }
 
 /**
- * The newest stored remainingBalance, including 0 and negative credits.
+ * The newest stored remainingBalance, including 0 and negatives.
  * Null means that invoice never recorded one, so an older stored value
- * still counts. A newer negative must not be skipped in favor of an
- * older positive balance.
+ * still counts. A newer negative is not skipped for an older positive one.
  */
 export function newestRemainingBalance(invoices: readonly BalanceInvoice[]): number | null {
   const ordered = [...invoices].sort((a, b) => createdAtMs(b.createdAt) - createdAtMs(a.createdAt))
@@ -105,9 +104,16 @@ export function newestRemainingBalance(invoices: readonly BalanceInvoice[]): num
   return withBalance?.remainingBalance ?? null
 }
 
+/**
+ * Owed amount for a student. A stored negative remainingBalance is shown
+ * as $0. Those values were left behind by the old name-match bug and are
+ * not a credit. Positive and zero stored values are kept. When every
+ * remainingBalance is null, the balance is still total invoiced minus paid.
+ * This does not write the stored number.
+ */
 export function openBalanceFromInvoices(invoices: readonly BalanceInvoice[]): number {
   const stored = newestRemainingBalance(invoices)
-  if (stored != null) return roundMoney(stored)
+  if (stored != null) return roundMoney(Math.max(0, stored))
   const totalInvoiced = invoices.reduce((sum, invoice) => sum + invoice.total, 0)
   const totalPaid = invoices
     .filter((invoice) => invoice.paymentStatus === 'paid')

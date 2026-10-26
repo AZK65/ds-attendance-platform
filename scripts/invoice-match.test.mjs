@@ -218,11 +218,15 @@ test('edit balance targets only this student\'s newest invoice', () => {
   assert.equal(selectInvoiceForBalanceEdit(invoices, { name: 'Nobody Else', phone: '5145550000' }), null)
 })
 
-test('open balance keeps a newer negative or zero remainingBalance', () => {
+test('a negative saved balance is shown as 0 and a positive one stays', () => {
   assert.equal(openBalanceFromInvoices([
     invoice({ id: 'old', createdAt: '2026-01-01T00:00:00.000Z', remainingBalance: 500, total: 500 }),
-    invoice({ id: 'new', createdAt: '2026-06-01T00:00:00.000Z', remainingBalance: -40, total: 100, paymentStatus: 'paid' }),
-  ]), -40)
+    invoice({ id: 'qazi-3777', createdAt: '2026-06-01T00:00:00.000Z', remainingBalance: -1649.05, total: 100, paymentStatus: 'paid' }),
+  ]), 0)
+  assert.equal(openBalanceFromInvoices([
+    invoice({ id: 'old', createdAt: '2026-01-01T00:00:00.000Z', remainingBalance: -40, total: 100, paymentStatus: 'paid' }),
+    invoice({ id: 'new', createdAt: '2026-06-01T00:00:00.000Z', remainingBalance: 250.5, total: 250, paymentStatus: 'unpaid' }),
+  ]), 250.5)
   assert.equal(openBalanceFromInvoices([
     invoice({ id: 'old', createdAt: '2026-01-01T00:00:00.000Z', remainingBalance: 500, total: 500 }),
     invoice({ id: 'new', createdAt: '2026-06-01T00:00:00.000Z', remainingBalance: 0, total: 100, paymentStatus: 'paid' }),
@@ -231,11 +235,18 @@ test('open balance keeps a newer negative or zero remainingBalance', () => {
     invoice({ id: 'oldest', createdAt: '2026-01-01T00:00:00.000Z', remainingBalance: 500, total: 500 }),
     invoice({ id: 'middle', createdAt: '2026-03-01T00:00:00.000Z', remainingBalance: -15, total: 20, paymentStatus: 'paid' }),
     invoice({ id: 'newest', createdAt: '2026-06-01T00:00:00.000Z', remainingBalance: null, total: 10, paymentStatus: 'paid' }),
-  ]), -15)
+  ]), 0)
+})
+
+test('a null remainingBalance falls back to invoiced minus paid', () => {
   assert.equal(openBalanceFromInvoices([
     invoice({ id: 'a', createdAt: '2026-06-01T00:00:00.000Z', remainingBalance: null, total: 100 }),
     invoice({ id: 'b', createdAt: '2026-01-01T00:00:00.000Z', remainingBalance: null, total: 50, paymentStatus: 'paid' }),
   ]), 100)
+  assert.equal(openBalanceFromInvoices([
+    invoice({ id: 'credit', createdAt: '2026-06-01T00:00:00.000Z', remainingBalance: null, total: -25, paymentStatus: 'refunded' }),
+    invoice({ id: 'paid', createdAt: '2026-01-01T00:00:00.000Z', remainingBalance: null, total: 100, paymentStatus: 'paid' }),
+  ]), -25)
 })
 
 test('delete recalculation rewrites only the same student\'s newest invoice', () => {

@@ -604,7 +604,7 @@ function InvoicePage() {
           remainingBalance = manualBalance - total
         } else if (previousBalance !== 0) {
           // Existing balance from prior invoices — subtract this invoice.
-          // Includes a negative credit, which must not be treated as zero.
+          // The balance API already reports a negative stored balance as $0.
           hasBalanceContext = true
           remainingBalance = previousBalance - total
         }
