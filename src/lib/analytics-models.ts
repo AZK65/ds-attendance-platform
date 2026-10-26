@@ -1,9 +1,9 @@
 // Models the analytics chat is allowed to call. The server rejects anything else.
-// The default is the model the analytics route already sent before the chooser
-// existed. OpenRouter's public model list is used to hide entries it no longer
-// serves; this list is the fallback when that request fails.
+// Claude Sonnet 4.6 is the default for an omitted choice, the dropdown's first
+// selection, and the catalog fallback. OpenRouter's public model list hides
+// entries it no longer serves; this list is the fallback when that request fails.
 
-export const DEFAULT_ANALYTICS_MODEL = 'anthropic/claude-sonnet-4'
+export const DEFAULT_ANALYTICS_MODEL = 'anthropic/claude-sonnet-4.6'
 
 export const ANALYTICS_MODELS = [
   { id: 'anthropic/claude-sonnet-4', label: 'Claude Sonnet 4' },
@@ -23,7 +23,7 @@ export function isAllowedAnalyticsModel(model: unknown): model is AnalyticsModel
   return typeof model === 'string' && ALLOWED.has(model)
 }
 
-// An omitted model keeps today's behavior. A present value must match the
+// An omitted model uses Claude Sonnet 4.6. A present value must match the
 // allowlist exactly — no trimming, prefixes, or silent substitution.
 export function resolveAnalyticsModel(model: unknown): AnalyticsModelId | null {
   if (model == null || model === '') return DEFAULT_ANALYTICS_MODEL

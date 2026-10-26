@@ -15,10 +15,11 @@ import {
 
 const SECRET = 'sk-or-v1-supersecret-do-not-leak'
 
-test('omitted model stays on the current analytics model', () => {
-  assert.equal(resolveAnalyticsModel(undefined), DEFAULT_ANALYTICS_MODEL)
-  assert.equal(resolveAnalyticsModel(null), DEFAULT_ANALYTICS_MODEL)
-  assert.equal(resolveAnalyticsModel(''), DEFAULT_ANALYTICS_MODEL)
+test('omitted model stays on Claude Sonnet 4.6', () => {
+  assert.equal(DEFAULT_ANALYTICS_MODEL, 'anthropic/claude-sonnet-4.6')
+  assert.equal(resolveAnalyticsModel(undefined), 'anthropic/claude-sonnet-4.6')
+  assert.equal(resolveAnalyticsModel(null), 'anthropic/claude-sonnet-4.6')
+  assert.equal(resolveAnalyticsModel(''), 'anthropic/claude-sonnet-4.6')
 })
 
 test('allowlisted models pass through and everything else is rejected', () => {
@@ -44,8 +45,13 @@ test('a live catalog narrows the chooser and keeps the current model', () => {
   assert.deepEqual(filterLiveModels([]).map(model => model.id), ANALYTICS_MODELS.map(model => model.id))
   const live = filterLiveModels(['anthropic/claude-sonnet-4.6', 'openai/gpt-4o', 'google/gemini-3.5-flash'])
   assert.deepEqual(live.map(model => model.id), [
-    DEFAULT_ANALYTICS_MODEL,
     'anthropic/claude-sonnet-4.6',
+    'google/gemini-3.5-flash',
+  ])
+  const withoutDefault = filterLiveModels(['anthropic/claude-sonnet-4', 'google/gemini-3.5-flash'])
+  assert.deepEqual(withoutDefault.map(model => model.id), [
+    'anthropic/claude-sonnet-4',
+    DEFAULT_ANALYTICS_MODEL,
     'google/gemini-3.5-flash',
   ])
 })
