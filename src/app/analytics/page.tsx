@@ -7,6 +7,8 @@ import {
   MessageCircle, Plus, Trash2, Send, Loader2, BarChart3,
   DollarSign, Users, GraduationCap, CalendarDays, TrendingUp,
 } from 'lucide-react'
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
+import { ANALYTICS_MODELS, DEFAULT_ANALYTICS_MODEL, isAllowedAnalyticsModel } from '@/lib/analytics-models'
 import { motion, AnimatePresence } from 'motion/react'
 import {
   BarChart, Bar, LineChart, Line, PieChart, Pie, Cell,
@@ -35,6 +37,17 @@ interface ChartConfig {
 }
 
 const COLORS = ['#3b82f6', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6', '#ec4899', '#06b6d4', '#84cc16']
+
+interface CreditsView {
+  label: string
+  detail: string
+  remainingUsd: number | null
+}
+
+interface ModelOption {
+  id: string
+  label: string
+}
 
 const SUGGESTED_PROMPTS = [
   { icon: DollarSign, label: 'Monthly Revenue', prompt: 'Show me a monthly revenue chart for the past 6 months' },
@@ -145,8 +158,44 @@ export default function AnalyticsPage() {
   const [streaming, setStreaming] = useState(false)
   const [streamContent, setStreamContent] = useState('')
   const [sidebarOpen, setSidebarOpen] = useState(true)
+  const [model, setModel] = useState<string>(DEFAULT_ANALYTICS_MODEL)
+  const [modelTouched, setModelTouched] = useState(false)
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLTextAreaElement>(null)
+
+  const { data: credits, isLoading: creditsLoading, isError: creditsError } = useQuery<CreditsView>({
+    queryKey: ['analytics-credits'],
+    queryFn: async () => {
+      const res = await fetch('/api/analytics/credits')
+      if (!res.ok) throw new Error('Credits unavailable')
+      return res.json()
+    },
+    staleTime: 30_000,
+    refetchInterval: 60_000,
+  })
+
+  const { data: modelCatalog } = useQuery<{ defaultModel: string; models: ModelOption[] }>({
+    queryKey: ['analytics-models'],
+    queryFn: async () => {
+      const res = await fetch('/api/analytics/models')
+      if (!res.ok) throw new Error('Models unavailable')
+      return res.json()
+    },
+  })
+
+  useEffect(() => {
+    if (modelTouched) return
+    if (modelCatalog?.defaultModel && isAllowedAnalyticsModel(modelCatalog.defaultModel)) {
+      setModel(modelCatalog.defaultModel)
+    }
+  }, [modelCatalog, modelTouched])
+
+  const modelOptions = (() => {
+    const base = modelCatalog?.models?.length ? modelCatalog.models : [...ANALYTICS_MODELS]
+    if (base.some(option => option.id === model)) return base
+    const current = ANALYTICS_MODELS.find(option => option.id === model)
+    return current ? [current, ...base] : base
+  })()
 
   // Fetch chat list
   const { data: chatListData } = useQuery<{ chats: ChatSummary[] }>({
@@ -221,8 +270,20 @@ export default function AnalyticsPage() {
       const res = await fetch(`/api/analytics/chats/${chatId}/messages`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ message: text }),
+        body: JSON.stringify({ message: text, model }),
       })
+
+      if (!res.ok) {
+        let detail = 'Request failed.'
+        try {
+          const errBody = await res.json()
+          if (typeof errBody?.error === 'string') detail = errBody.error
+        } catch { /* non-JSON error page */ }
+        setStreaming(false)
+        setStreamContent(detail)
+        refetchChat()
+        return
+      }
 
       const reader = res.body?.getReader()
       if (!reader) return
@@ -252,6 +313,7 @@ export default function AnalyticsPage() {
               setStreamContent('')
               refetchChat()
               queryClient.invalidateQueries({ queryKey: ['analytics-chats'] })
+              queryClient.invalidateQueries({ queryKey: ['analytics-credits'] })
             }
             if (data.error) {
               setStreaming(false)
@@ -354,9 +416,33 @@ export default function AnalyticsPage() {
           <Button variant="ghost" size="sm" onClick={() => setSidebarOpen(!sidebarOpen)}>
             <MessageCircle className="h-4 w-4" />
           </Button>
-          <h1 className="text-sm font-medium">
+          <h1 className="text-sm font-medium truncate min-w-0">
             {chatData?.chat?.title || 'Analytics'}
           </h1>
+          <div className="ml-auto flex items-center gap-2 shrink-0">
+            <span
+              className={`text-xs whitespace-nowrap tabular-nums ${credits?.remainingUsd == null ? 'text-muted-foreground' : 'text-foreground'}`}
+              title={creditsError ? 'Could not read the OpenRouter balance.' : (credits?.detail || '')}
+            >
+              {creditsLoading ? 'Credits…' : (creditsError ? 'Credits unavailable' : (credits?.label || 'Credits unavailable'))}
+            </span>
+            <Select
+              value={model}
+              onValueChange={(value) => {
+                setModelTouched(true)
+                setModel(value)
+              }}
+            >
+              <SelectTrigger size="sm" className="h-8 w-[11.5rem]" aria-label="Analytics model">
+                <SelectValue placeholder="Model" />
+              </SelectTrigger>
+              <SelectContent position="popper" side="bottom" align="end" sideOffset={4} className="max-h-72">
+                {modelOptions.map(option => (
+                  <SelectItem key={option.id} value={option.id}>{option.label}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
         </div>
 
         {/* Messages or welcome */}
