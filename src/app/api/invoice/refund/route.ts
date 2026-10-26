@@ -53,6 +53,7 @@ export async function POST(request: NextRequest) {
         notes: `Credit note for Invoice ${original.invoiceNumber}${reason ? ` — Reason: ${reason}` : ''}`,
         paymentStatus: 'refunded',
         paymentMethod: original.paymentMethod,
+        externalStudentId: original.externalStudentId,
       },
     })
 

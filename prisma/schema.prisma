@@ -353,9 +353,13 @@ model Invoice {
   createdAt         DateTime @default(now())
   updatedAt         DateTime @updatedAt
   remainingBalance  Float?
+  // MySQL driving_school_v2.student.student_id. Null on invoices saved
+  // before this column existed; those still match by phone or exact name.
+  externalStudentId Int?
 
   @@index([studentName])
   @@index([invoiceNumber])
+  @@index([externalStudentId])
 }
 
 model InvoiceService {

@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createStudent, updateStudent, deleteStudent, type CreateStudentData } from '@/lib/external-db'
 import { prisma } from '@/lib/db'
+import { findInvoicesForStudent } from '@/lib/invoice-lookup'
+import { findBestLocalStudent } from '@/lib/local-student-lookup'
 
 // POST /api/students/manage — Create a new student in external MySQL DB
 export async function POST(request: NextRequest) {
@@ -23,21 +25,14 @@ export async function POST(request: NextRequest) {
     // Before creating, check if this student already has data in SQLite
     // (from invoices or prior certificate generation) and merge missing fields
     const phoneDigits = body.phone_number.replace(/\D/g, '')
-    const phoneSearch = phoneDigits.length > 10 ? phoneDigits.slice(-10) : phoneDigits
 
     try {
-      // Check local Student table (populated by invoice saves)
-      let localStudent = null
-      if (phoneSearch.length >= 7) {
-        localStudent = await prisma.student.findFirst({
-          where: { phone: { contains: phoneSearch } },
-        })
-      }
-      if (!localStudent) {
-        localStudent = await prisma.student.findFirst({
-          where: { name: { contains: body.full_name } },
-        })
-      }
+      // Check local Student table (populated by invoice saves). Phone last-10
+      // or an exact full name — never a substring such as "Deep" inside "Sandeep".
+      const localStudent = await findBestLocalStudent({
+        phone: body.phone_number,
+        name: body.full_name,
+      })
 
       if (localStudent) {
         // Fill in missing fields from the local record
@@ -48,11 +43,9 @@ export async function POST(request: NextRequest) {
 
       // Also check invoices for address data if still missing
       if (!body.full_address || !body.city) {
-        const invoice = await prisma.invoice.findFirst({
-          where: phoneSearch.length >= 7
-            ? { studentPhone: { contains: phoneSearch } }
-            : { studentName: { contains: body.full_name } },
-          orderBy: { createdAt: 'desc' },
+        const [invoice] = await findInvoicesForStudent({
+          phone: body.phone_number,
+          name: body.full_name,
         })
         if (invoice) {
           body.full_address = body.full_address || invoice.studentAddress || ''
@@ -83,13 +76,9 @@ export async function POST(request: NextRequest) {
 
       // Update local Student record with the MySQL data (so they're linked)
       try {
-        const existing = await prisma.student.findFirst({
-          where: {
-            OR: [
-              ...(phoneSearch.length >= 7 ? [{ phone: { contains: phoneSearch } }] : []),
-              { name: { contains: body.full_name } },
-            ],
-          },
+        const existing = await findBestLocalStudent({
+          phone: body.phone_number,
+          name: body.full_name,
         })
         if (existing) {
           await prisma.student.update({

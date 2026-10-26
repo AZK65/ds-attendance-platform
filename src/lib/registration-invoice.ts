@@ -14,6 +14,7 @@
  */
 
 import { prisma } from '@/lib/db'
+import { resolveExternalStudentId } from '@/lib/invoice-student-id'
 import type { StudentRegistration } from '@prisma/client'
 
 interface CreateRegistrationInvoiceArgs {
@@ -104,6 +105,11 @@ export async function createRegistrationInvoice(
   const notes = noteParts.join('\n')
 
   const today = new Date().toISOString().split('T')[0]
+  const externalStudentId = registration.externalId
+    ?? await resolveExternalStudentId({
+      phone: registration.phoneNumber,
+      name: registration.fullName,
+    })
   const created = await prisma.invoice.create({
     data: {
       invoiceNumber,
@@ -127,6 +133,7 @@ export async function createRegistrationInvoice(
       cloverOrderId: null,
       cloverPaid: paymentMethod === 'card' && paymentStatus === 'paid',
       remainingBalance: null,
+      externalStudentId,
     },
   })
 

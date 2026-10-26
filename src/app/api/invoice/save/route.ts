@@ -1,6 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/db'
 import { searchStudents, createStudent } from '@/lib/external-db'
+import { findBestLocalStudent } from '@/lib/local-student-lookup'
+import { parseExternalStudentId, resolveExternalStudentId } from '@/lib/invoice-student-id'
+import { namesEqual, phoneLast10 } from '@/lib/student-match'
 
 // POST - save invoice record and increment invoice number
 export async function POST(request: NextRequest) {
@@ -36,6 +39,41 @@ export async function POST(request: NextRequest) {
       )
     }
 
+    // MySQL student id, when we can tell who this is. A caller-supplied id
+    // wins. Otherwise the phone last-10 must match one student. Creating a
+    // missing MySQL student (the previous save behavior) supplies the id too.
+    let externalStudentId = parseExternalStudentId(body.externalStudentId)
+    if (externalStudentId == null && studentPhone && phoneLast10(studentPhone)) {
+      try {
+        const phoneKey = phoneLast10(studentPhone)
+        const existing = await searchStudents(phoneKey)
+        const matches = existing.filter((student) => phoneLast10(student.phone_number) === phoneKey)
+        if (matches.length === 1) {
+          externalStudentId = matches[0].student_id
+        } else if (matches.length > 1) {
+          const named = matches.filter((student) => namesEqual(student.full_name, studentName))
+          if (named.length === 1) externalStudentId = named[0].student_id
+        } else {
+          const created = await createStudent({
+            full_name: studentName,
+            phone_number: studentPhone || '',
+            permit_number: '',
+            full_address: studentAddress || '',
+            city: studentCity || '',
+            postal_code: studentPostalCode || '',
+            dob: '',
+            email: studentEmail || '',
+          })
+          externalStudentId = created.insertId
+          console.log(`[Invoice Save] Auto-created student "${studentName}" in external MySQL DB`)
+        }
+      } catch (externalDbError) {
+        console.error('External DB student sync error (non-fatal):', externalDbError)
+      }
+    } else if (externalStudentId == null) {
+      externalStudentId = await resolveExternalStudentId({ name: studentName })
+    }
+
     // Save the invoice record
     const invoice = await prisma.invoice.create({
       data: {
@@ -58,6 +96,7 @@ export async function POST(request: NextRequest) {
         paymentMethod: paymentMethod || null,
         paymentStatus: paymentStatus || 'unpaid',
         remainingBalance: remainingBalance != null ? remainingBalance : null,
+        externalStudentId,
       }
     })
 
@@ -77,22 +116,7 @@ export async function POST(request: NextRequest) {
     // This ensures every invoiced student appears in future searches
     try {
       if (studentName) {
-        const phoneDigits = (studentPhone || '').replace(/\D/g, '')
-        let existing = null
-
-        // Try to find by phone first
-        if (phoneDigits.length >= 7) {
-          existing = await prisma.student.findFirst({
-            where: { phone: { contains: phoneDigits.slice(-10) } },
-          })
-        }
-
-        // Fallback: try by name
-        if (!existing) {
-          existing = await prisma.student.findFirst({
-            where: { name: studentName },
-          })
-        }
+        const existing = await findBestLocalStudent({ phone: studentPhone, name: studentName })
 
         if (existing) {
           // Update any empty fields on existing student
@@ -123,35 +147,6 @@ export async function POST(request: NextRequest) {
     } catch (studentError) {
       // Don't fail the invoice save if student save fails
       console.error('Auto-save student error (non-fatal):', studentError)
-    }
-
-    // Also sync to external MySQL database (the main driving school DB)
-    try {
-      if (studentName && studentPhone) {
-        const phoneDigits = (studentPhone || '').replace(/\D/g, '').slice(-10)
-        // Check if student already exists in MySQL by phone
-        const existing = phoneDigits.length >= 7
-          ? await searchStudents(phoneDigits)
-          : []
-
-        if (existing.length === 0) {
-          // Not found in MySQL — create them
-          await createStudent({
-            full_name: studentName,
-            phone_number: studentPhone || '',
-            permit_number: '',
-            full_address: studentAddress || '',
-            city: studentCity || '',
-            postal_code: studentPostalCode || '',
-            dob: '',
-            email: studentEmail || '',
-          })
-          console.log(`[Invoice Save] Auto-created student "${studentName}" in external MySQL DB`)
-        }
-      }
-    } catch (externalDbError) {
-      // Don't fail invoice save if external DB sync fails
-      console.error('External DB student sync error (non-fatal):', externalDbError)
     }
 
     return NextResponse.json({ invoice })

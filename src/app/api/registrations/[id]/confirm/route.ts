@@ -58,6 +58,19 @@ export async function POST(
       },
     })
 
+    // The registration fee invoice is often created before confirm, so it
+    // does not yet know the MySQL id. Stamp that id now. This is the one
+    // registration being confirmed, not a backfill of other invoices.
+    await prisma.invoice.updateMany({
+      where: {
+        notes: { contains: `[auto:reg=${id}]` },
+        externalStudentId: null,
+      },
+      data: { externalStudentId: result.insertId },
+    }).catch((error) => {
+      console.error('[Registrations] Could not stamp invoice student id:', error)
+    })
+
     // Save as WhatsApp contact so they show up in searches
     if (studentData.phone_number) {
       const phone = studentData.phone_number.replace(/\D/g, '')

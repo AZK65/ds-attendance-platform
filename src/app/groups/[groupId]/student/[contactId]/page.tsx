@@ -62,6 +62,7 @@ import { motion } from 'motion/react'
 import { StudentAvatar } from '@/components/StudentAvatar'
 import { StudentDocumentDownloadDialog } from '@/components/StudentDocumentDownloadDialog'
 import { PaperExamProfileCard, type PaperExamProfileRecord } from '@/components/PaperExamProfileCard'
+import { selectInvoiceForBalanceEdit } from '@/lib/invoice-match'
 
 interface Participant {
   id: string
@@ -131,6 +132,8 @@ interface InvoiceRecord {
   notes: string | null
   paymentStatus: string | null
   paymentMethod: string | null
+  studentPhone?: string | null
+  externalStudentId?: number | null
   createdAt: string
 }
 
@@ -229,6 +232,7 @@ const buildInvoiceUrl = (profile: StudentProfileData | undefined, displayName: s
     studentPostalCode: local?.postalCode || external?.postal_code || '',
     studentEmail: local?.email || external?.email || '',
   })
+  if (external?.student_id) params.set('studentId', String(external.student_id))
   return `/invoice?${params.toString()}`
 }
 
@@ -1888,8 +1892,8 @@ export default function StudentDetailPage() {
                 ? 'text-amber-700'
                 : 'text-green-700'
             }`}>
-              {loadingProfile ? '...' : (profileData?.summary?.openBalance || 0) > 0
-                ? `$${(profileData?.summary?.openBalance || 0).toFixed(2)}`
+              {loadingProfile ? '...' : (profileData?.summary?.openBalance ?? 0) !== 0
+                ? `$${(profileData?.summary?.openBalance ?? 0).toFixed(2)}`
                 : 'Paid up'}
             </p>
           </div>
@@ -2399,8 +2403,8 @@ export default function StudentDetailPage() {
                     <p className={`text-lg font-bold ${
                       (profileData.summary.openBalance || 0) > 0 ? 'text-amber-700' : 'text-green-700'
                     }`}>
-                      {(profileData.summary.openBalance || 0) > 0
-                        ? `$${profileData.summary.openBalance.toFixed(2)}`
+                      {(profileData.summary.openBalance ?? 0) !== 0
+                        ? `$${(profileData.summary.openBalance ?? 0).toFixed(2)}`
                         : 'Paid up'}
                     </p>
                   </div>
@@ -2573,7 +2577,7 @@ export default function StudentDetailPage() {
           <div className="space-y-3">
             <div className="text-sm">
               <p className="text-muted-foreground">Current open balance</p>
-              <p className="text-2xl font-bold">${(profileData?.summary?.openBalance || 0).toFixed(2)}</p>
+              <p className="text-2xl font-bold">${(profileData?.summary?.openBalance ?? 0).toFixed(2)}</p>
             </div>
             <div>
               <Label className="text-sm">New balance ($)</Label>
@@ -2594,7 +2598,11 @@ export default function StudentDetailPage() {
                 disabled={balanceSaving || newBalanceInput === '' || isNaN(parseFloat(newBalanceInput)) || parseFloat(newBalanceInput) < 0}
                 onClick={async () => {
                   const value = parseFloat(newBalanceInput)
-                  const latest = profileData?.invoices?.[0]
+                  const latest = selectInvoiceForBalanceEdit(profileData?.invoices || [], {
+                    externalStudentId: profileData?.dbStudent?.student_id ?? null,
+                    phone: profileData?.dbStudent?.phone_number || phone,
+                    name: profileData?.dbStudent?.full_name || displayName,
+                  })
                   if (!latest) {
                     setBalanceError('No invoice found for this student to update')
                     return

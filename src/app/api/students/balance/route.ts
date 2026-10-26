@@ -1,54 +1,29 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/db'
+import { findInvoicesForStudent } from '@/lib/invoice-lookup'
+import { openBalanceFromInvoices } from '@/lib/invoice-match'
+import { parseExternalStudentId } from '@/lib/invoice-student-id'
 
 // GET /api/students/balance?phone=15145551234
-// Lightweight endpoint returning invoice balance + group link for a student
+// Lightweight endpoint returning invoice balance + group link for a student.
+// Invoices match by MySQL student id, then phone last-10, then exact name
+// only when there is no phone. A newer negative remainingBalance is kept.
 export async function GET(request: NextRequest) {
   const phone = request.nextUrl.searchParams.get('phone') || ''
   const name = request.nextUrl.searchParams.get('name') || ''
+  const externalStudentId = parseExternalStudentId(request.nextUrl.searchParams.get('externalStudentId'))
 
-  if (!phone && !name) {
+  if (!phone && !name && externalStudentId == null) {
     return NextResponse.json({ error: 'Phone or name is required' }, { status: 400 })
   }
 
   try {
-    // Fetch invoices for balance calculation
-    const conditions = []
-
-    if (phone) {
-      const phoneDigits = phone.replace(/\D/g, '')
-      if (phoneDigits.length >= 7) {
-        conditions.push({ studentPhone: { contains: phoneDigits.slice(-10) } })
-      }
-    }
-
-    if (name && name.length >= 2) {
-      conditions.push({ studentName: { contains: name } })
-    }
-
-    let totalInvoiced = 0
-    let totalPaid = 0
-    let latestRemainingBalance: number | null = null
-
-    if (conditions.length > 0) {
-      const invoices = await prisma.invoice.findMany({
-        where: { OR: conditions },
-        select: { total: true, paymentStatus: true, remainingBalance: true, createdAt: true },
-        orderBy: { createdAt: 'desc' },
-      })
-
-      totalInvoiced = invoices.reduce((sum, inv) => sum + inv.total, 0)
-      totalPaid = invoices
-        .filter(inv => inv.paymentStatus === 'paid')
-        .reduce((sum, inv) => sum + inv.total, 0)
-
-      // Get the remaining balance from the most recent invoice (if it had one)
-      // This captures manual/package balance context that openBalance alone can't
-      const latestWithBalance = invoices.find(inv => inv.remainingBalance != null && inv.remainingBalance > 0)
-      if (latestWithBalance) {
-        latestRemainingBalance = latestWithBalance.remainingBalance
-      }
-    }
+    const invoices = await findInvoicesForStudent({ externalStudentId, phone, name })
+    const totalInvoiced = invoices.reduce((sum, inv) => sum + inv.total, 0)
+    const totalPaid = invoices
+      .filter(inv => inv.paymentStatus === 'paid')
+      .reduce((sum, inv) => sum + inv.total, 0)
+    const openBalance = openBalanceFromInvoices(invoices)
 
     // Try to resolve phone → groupId for profile linking
     let groupId: string | null = null
@@ -80,17 +55,10 @@ export async function GET(request: NextRequest) {
 
     }
 
-    // If a manual/package balance was set, use the latest remaining balance
-    // Otherwise fall back to openBalance (totalInvoiced - totalPaid)
-    const rawOpenBalance = totalInvoiced - totalPaid
-    const openBalance = latestRemainingBalance != null
-      ? latestRemainingBalance
-      : rawOpenBalance
-
     return NextResponse.json({
       totalInvoiced: Math.round(totalInvoiced * 100) / 100,
       totalPaid: Math.round(totalPaid * 100) / 100,
-      openBalance: Math.round(openBalance * 100) / 100,
+      openBalance,
       groupId,
       contactId,
     })
