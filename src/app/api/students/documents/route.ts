@@ -14,6 +14,9 @@ import { findInvoicesForStudent } from '@/lib/invoice-lookup'
 import { invoiceBelongsToStudent } from '@/lib/invoice-match'
 import { findBestLocalStudent } from '@/lib/local-student-lookup'
 import { namesEqual, phoneLast10 } from '@/lib/student-match'
+import { resolveClass1 } from '@/lib/rsep1/access'
+import { Rsep1Error } from '@/lib/rsep1/errors'
+import { pdfForStudent } from '@/lib/rsep1/store'
 
 export const runtime = 'nodejs'
 
@@ -531,6 +534,39 @@ export async function GET(request: NextRequest) {
           notes.push({ status: 'included', label: upload.label })
         } else {
           notes.push({ status: 'unavailable', label: upload.label })
+        }
+      }
+    }
+
+    if (wants('results')) {
+      const resultsId = externalStudent?.student_id ?? externalId
+      if (!resultsId) {
+        notes.push({ status: 'unavailable', label: 'RSEP-1 results sheet', detail: 'No student id' })
+      } else {
+        try {
+          const class1 = await resolveClass1(String(resultsId))
+          const { view, bytes } = await pdfForStudent(class1, false)
+          const missing = view.competencies.filter(row => row.gradePercent == null).map(row => row.competency)
+          addFile('Results/rsep-1-results-sheet.pdf', Buffer.from(bytes), 'application/pdf')
+          notes.push({
+            status: 'included',
+            label: 'RSEP-1 results sheet',
+            detail: missing.length ? `Not graded: ${missing.join(', ')}` : view.status === 'draft' ? 'Draft' : undefined,
+          })
+        } catch (error) {
+          if (error instanceof Rsep1Error && (error.code === 'not_class1' || error.code === 'not_found')) {
+            notes.push({
+              status: 'unavailable',
+              label: 'RSEP-1 results sheet',
+              detail: error.code === 'not_class1' ? 'Class 1 students only' : 'Student not found',
+            })
+          } else {
+            notes.push({
+              status: 'failed',
+              label: 'RSEP-1 results sheet',
+              detail: error instanceof Error ? error.message : 'Unknown error',
+            })
+          }
         }
       }
     }

@@ -1060,3 +1060,58 @@ model ScheduleNotifySuppression {
 
   @@index([teamupEventId])
 }
+
+// RSEP-1 Class 1 results sheet and C1–C6 theory grades.
+// New tables only. Nothing above is renamed, retyped, or removed.
+model Rsep1ResultSheet {
+  id                String   @id @default(cuid())
+  externalStudentId Int      @unique
+  registrationId    String?
+  templateVersion   String   @default("rsep1-en-2025-12")
+  values            String   @default("{}")
+  status            String   @default("draft")
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+  updatedBySession  String?
+  updatedByLabel    String?
+  finalizedAt       DateTime?
+  finalizedBy       String?
+  revisionNo        Int      @default(1)
+
+  revisions         Rsep1ResultSheetRevision[]
+  theoryEvaluations Rsep1TheoryEvaluation[]
+}
+
+model Rsep1ResultSheetRevision {
+  id         String   @id @default(cuid())
+  sheetId    String
+  values     String
+  theory     String   @default("[]")
+  changeKind String   @default("sheet")
+  reason     String?
+  savedAt    DateTime @default(now())
+  savedBy    String?
+  pdfPath    String?
+  sheet      Rsep1ResultSheet @relation(fields: [sheetId], references: [id], onDelete: Restrict)
+
+  @@index([sheetId, savedAt])
+}
+
+model Rsep1TheoryEvaluation {
+  id                String   @id @default(cuid())
+  sheetId           String
+  externalStudentId Int
+  competency        String
+  gradePercent      Int?
+  evaluatedOn       String?
+  evaluatorId       String?
+  note              String?
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+  updatedBySession  String?
+  updatedByLabel    String?
+  sheet             Rsep1ResultSheet @relation(fields: [sheetId], references: [id], onDelete: Restrict)
+
+  @@unique([sheetId, competency])
+  @@index([externalStudentId])
+}

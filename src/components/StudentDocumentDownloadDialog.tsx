@@ -75,6 +75,12 @@ const documentOptions = [
     description: 'Submitted exam photos and saved grades',
     icon: ClipboardList,
   },
+  {
+    id: 'results',
+    label: 'RSEP-1 results sheet',
+    description: 'Class 1 competency sheet. Grades stay in the app and are not included.',
+    icon: ClipboardList,
+  },
 ] as const
 
 type DocumentId = (typeof documentOptions)[number]['id']

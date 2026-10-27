@@ -40,6 +40,7 @@ RUN apt-get update && apt-get install -y \
     libxshmfence1 \
     libreoffice-impress \
     poppler-utils \
+    qpdf \
     --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
