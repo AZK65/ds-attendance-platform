@@ -1629,6 +1629,104 @@ export async function addParticipantToGroup(groupId: string, phone: string): Pro
   }
 }
 
+/**
+ * One direct add of a single number to an existing group.
+ *
+ * A privacy rejection (403) can log the linked WhatsApp device out even
+ * when Invite V4 is disabled — that is why ordinary group adds only send
+ * the invite link. This is the explicit staff opt-in: Invite V4 stays off,
+ * the call is made once, and there is no invite-message fallback. Callers
+ * must stop and tell staff to scan the QR code when `disconnected` is set.
+ */
+export async function addParticipantDirectOnce(
+  groupId: string,
+  phone: string,
+): Promise<{ success: boolean; statusCode?: number; error?: string; disconnected: boolean }> {
+  if (!state.client || !state.isConnected) {
+    return { success: false, disconnected: false, error: 'WhatsApp not connected' }
+  }
+
+  const jid = phoneToJid(phone)
+  const client = state.client as {
+    getChatById: (id: string) => Promise<{
+      addParticipants: (
+        participantIds: string[],
+        options?: { autoSendInviteV4?: boolean; sleep?: number | number[] },
+      ) => Promise<unknown>
+    }>
+  }
+
+  const disconnectedMessage = 'WhatsApp disconnected. Open Connect and scan the QR code before the school WhatsApp can send or receive again.'
+
+  let raw: unknown
+  try {
+    const chat = await client.getChatById(groupId)
+    // Exactly one attempt. sleep 0 skips the library's between-participant pause.
+    raw = await chat.addParticipants([jid], { autoSendInviteV4: false, sleep: 0 })
+  } catch (error) {
+    const errMsg = error instanceof Error ? error.message : String(error)
+    const disconnected = await observeWhatsAppConnection()
+    return {
+      success: false,
+      disconnected,
+      error: disconnected ? disconnectedMessage : errMsg,
+    }
+  }
+
+  const disconnected = await observeWhatsAppConnection()
+  const parsed = interpretParticipantAdd(raw, jid)
+  if (disconnected) {
+    return {
+      success: false,
+      disconnected: true,
+      statusCode: parsed.statusCode,
+      error: disconnectedMessage,
+    }
+  }
+  if (!parsed.success) {
+    const privacy = parsed.statusCode === 403
+    return {
+      success: false,
+      disconnected: false,
+      statusCode: parsed.statusCode,
+      error: privacy
+        ? 'WhatsApp rejected the add (403). The student privacy settings blocked it. No invite message was sent, and this was not retried.'
+        : parsed.error || 'WhatsApp did not add the number',
+    }
+  }
+  return { success: true, disconnected: false, statusCode: parsed.statusCode }
+}
+
+/** Watch the session after a direct add. Does not send or add again. */
+async function observeWhatsAppConnection(): Promise<boolean> {
+  const deadline = Date.now() + 1500
+  while (Date.now() < deadline) {
+    if (!state.isConnected) return true
+    await new Promise(resolve => setTimeout(resolve, 150))
+  }
+  return !state.isConnected
+}
+
+function interpretParticipantAdd(
+  raw: unknown,
+  jid: string,
+): { success: boolean; statusCode?: number; error?: string } {
+  if (typeof raw === 'string') return { success: false, error: raw }
+  if (!raw || typeof raw !== 'object') return { success: false, error: 'WhatsApp returned no result' }
+  const record = raw as Record<string, { statusCode?: number; code?: number; message?: string }>
+  const entry = record[jid] || Object.values(record)[0]
+  if (!entry || typeof entry !== 'object') {
+    return { success: false, error: 'WhatsApp returned no participant result' }
+  }
+  const statusCode = typeof entry.statusCode === 'number' ? entry.statusCode : entry.code
+  if (statusCode === 200 || statusCode === 409) return { success: true, statusCode }
+  return {
+    success: false,
+    statusCode,
+    error: entry.message || (statusCode ? `WhatsApp status ${statusCode}` : 'WhatsApp did not add the number'),
+  }
+}
+
 export async function getGroupInviteLink(groupId: string): Promise<string | null> {
   if (!state.client || !state.isConnected) return null
 

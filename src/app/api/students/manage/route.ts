@@ -3,6 +3,7 @@ import { createStudent, updateStudent, deleteStudent, type CreateStudentData } f
 import { prisma } from '@/lib/db'
 import { findInvoicesForStudent } from '@/lib/invoice-lookup'
 import { findBestLocalStudent } from '@/lib/local-student-lookup'
+import { phoneLast10 } from '@/lib/student-match'
 
 // POST /api/students/manage — Create a new student in external MySQL DB
 export async function POST(request: NextRequest) {
@@ -118,48 +119,37 @@ export async function PUT(request: NextRequest) {
       )
     }
 
+    // Phone changes belong to /api/phone-change. This form must not move
+    // group membership off the old WhatsApp contact.
+    const requestedPhone = typeof fields.phone_number === 'string' ? fields.phone_number : ''
+    const previousPhone = typeof old_phone === 'string' ? old_phone : requestedPhone
+    const phoneChangeRequested = Boolean(
+      phoneLast10(requestedPhone)
+      && phoneLast10(previousPhone)
+      && phoneLast10(requestedPhone) !== phoneLast10(previousPhone),
+    )
+    if (phoneChangeRequested) delete fields.phone_number
+
     await updateStudent(student_id, fields)
 
-    // If phone changed, update SQLite Contact + GroupMember across all groups
-    const newPhone = fields.phone_number?.replace(/\D/g, '')
-    const oldPhone = old_phone?.replace(/\D/g, '')
-    if (newPhone && oldPhone && newPhone !== oldPhone) {
-      const oldJid = `${oldPhone}@c.us`
-      const newJid = `${newPhone}@c.us`
-
-      // Create/update new contact
-      await prisma.contact.upsert({
-        where: { id: newJid },
-        update: { phone: newPhone, name: fields.full_name || null, lastSynced: new Date() },
-        create: { id: newJid, phone: newPhone, name: fields.full_name || null },
-      })
-
-      // Move all group memberships from old phone to new phone
-      const oldMemberships = await prisma.groupMember.findMany({
-        where: { contactId: oldJid },
-      })
-      for (const membership of oldMemberships) {
-        await prisma.groupMember.upsert({
-          where: { groupId_contactId: { groupId: membership.groupId, contactId: newJid } },
-          update: { phone: newPhone },
-          create: { groupId: membership.groupId, contactId: newJid, phone: newPhone },
-        })
-      }
-      // Remove old memberships
-      if (oldMemberships.length > 0) {
-        await prisma.groupMember.deleteMany({ where: { contactId: oldJid } })
-      }
-    } else if (newPhone && fields.full_name) {
-      // Just update the contact name
-      const jid = `${newPhone}@c.us`
+    const contactPhone = phoneChangeRequested ? previousPhone : requestedPhone
+    const contactDigits = contactPhone.replace(/\D/g, '')
+    if (!phoneChangeRequested && contactDigits && fields.full_name) {
+      const jid = `${contactDigits}@c.us`
       await prisma.contact.upsert({
         where: { id: jid },
         update: { name: fields.full_name, lastSynced: new Date() },
-        create: { id: jid, phone: newPhone, name: fields.full_name },
+        create: { id: jid, phone: contactDigits, name: fields.full_name },
       }).catch(() => {})
     }
 
-    return NextResponse.json({ success: true })
+    return NextResponse.json({
+      success: true,
+      ...(phoneChangeRequested ? {
+        phoneChangeIgnored: true,
+        message: 'Other details were saved. Use Change phone number to update the phone.',
+      } : {}),
+    })
   } catch (error) {
     console.error('[Students Manage] Update error:', error)
     return NextResponse.json(

@@ -30,6 +30,8 @@ import { PaperExamProfileCard, type PaperExamProfileRecord } from '@/components/
 import { Rsep1ResultsSheetCard } from '@/components/Rsep1ResultsSheetCard'
 import { TheoryEvaluationsCard } from '@/components/TheoryEvaluationsCard'
 import { selectInvoiceForBalanceEdit } from '@/lib/invoice-match'
+import { ChangePhoneDialog } from '@/components/ChangePhoneDialog'
+import { PhoneChangeHistory } from '@/components/PhoneChangeHistory'
 
 interface TeamupEvent {
   id: string
@@ -240,6 +242,7 @@ export default function StudentProfilePage() {
   const [balanceError, setBalanceError] = useState<string | null>(null)
   const [showLms, setShowLms] = useState(false)
   const [certificateMenuOpen, setCertificateMenuOpen] = useState(false)
+  const [phoneDialogOpen, setPhoneDialogOpen] = useState(false)
   const [editingEmail, setEditingEmail] = useState(false)
   const [emailInput, setEmailInput] = useState('')
 
@@ -563,6 +566,9 @@ export default function StudentProfilePage() {
             <Button variant="ghost" size="sm" onClick={() => setShowLms(true)} className="text-muted-foreground hover:text-foreground">
               <GraduationCap className="h-4 w-4" /> LMS Activity
             </Button>
+            <Button variant="ghost" size="sm" onClick={() => setPhoneDialogOpen(true)} className="text-muted-foreground hover:text-foreground" data-testid="open-change-phone">
+              <Phone className="h-4 w-4" /> Change phone number
+            </Button>
           </nav>
         </section>
       </motion.div>
@@ -612,6 +618,20 @@ export default function StudentProfilePage() {
           </div>
         </DialogContent>
       </Dialog>
+
+      <ChangePhoneDialog
+        open={phoneDialogOpen}
+        onOpenChange={setPhoneDialogOpen}
+        subject={{
+          oldPhone: student.phone_number,
+          name: displayName,
+          externalStudentId: student.student_id,
+          localStudentId: data.localStudent?.id,
+        }}
+        onChanged={() => {
+          queryClient.invalidateQueries({ queryKey: ['student-profile', studentId] })
+        }}
+      />
 
       <LmsActivityPanel
         open={showLms}
@@ -670,6 +690,12 @@ export default function StudentProfilePage() {
           </p>
         </div>
       </motion.section>
+
+      <PhoneChangeHistory
+        externalStudentId={student.student_id}
+        localStudentId={data.localStudent?.id}
+        phone={phone}
+      />
 
       {data.vehicleType === 'truck' && (
         <div className="space-y-6">

@@ -218,6 +218,25 @@ export async function getAllStudents(): Promise<StudentRecord[]> {
   return rows as StudentRecord[]
 }
 
+/** Roster rows whose phone contains this number's last 10 digits. */
+export async function findStudentsByPhone(phone: string): Promise<Array<Pick<StudentRecord, 'student_id' | 'full_name' | 'phone_number'>>> {
+  const digits = phone.replace(/\D/g, '')
+  const last10 = digits.length >= 10 ? digits.slice(-10) : ''
+  if (last10.length < 10) return []
+  const db = await getPool()
+  const [rows] = await db.execute<mysql.RowDataPacket[]>(
+    `SELECT student_id, full_name, phone_number
+     FROM student
+     WHERE REGEXP_REPLACE(COALESCE(phone_number, ''), '[^0-9]', '') LIKE ?
+     LIMIT 20`,
+    [`%${last10}%`]
+  )
+  return (rows as Array<Pick<StudentRecord, 'student_id' | 'full_name' | 'phone_number'>>).filter(row => {
+    const rowDigits = String(row.phone_number || '').replace(/\D/g, '')
+    return rowDigits.endsWith(last10)
+  })
+}
+
 export async function getStudentById(id: number): Promise<StudentRecord | null> {
   const db = await getPool()
 

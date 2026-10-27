@@ -22,6 +22,7 @@ import {
   DialogDescription,
   DialogFooter,
 } from '@/components/ui/dialog'
+import { ChangePhoneDialog, type ChangePhoneSubject } from '@/components/ChangePhoneDialog'
 import {
   Table,
   TableBody,
@@ -343,6 +344,7 @@ function StudentsPage() {
   const [showForm, setShowForm] = useState(false)
   const [formData, setFormData] = useState<StudentFormData>(EMPTY_FORM)
   const [editingStudent, setEditingStudent] = useState<StudentRecord | null>(null)
+  const [phoneChange, setPhoneChange] = useState<ChangePhoneSubject | null>(null)
   const [successMessage, setSuccessMessage] = useState('')
 
   // WhatsApp check state
@@ -1647,6 +1649,17 @@ function StudentsPage() {
                                   </DropdownMenuItem>
                                 )}
                                 <DropdownMenuItem onClick={() => {
+                                  setPhoneChange({
+                                    oldPhone: student.phone,
+                                    name: displayName,
+                                    contactId: student.id,
+                                    externalStudentId: dbStudent?.student_id,
+                                  })
+                                }}>
+                                  <Phone className="h-4 w-4 mr-2" />
+                                  Change phone number
+                                </DropdownMenuItem>
+                                <DropdownMenuItem onClick={() => {
                                   const name = dbStudent?.full_name || cleanName(student.name) || cleanName(student.pushName) || ''
                                   router.push(`/certificate?studentName=${encodeURIComponent(name)}&studentPhone=${encodeURIComponent(student.phone)}`)
                                 }}>
@@ -1815,6 +1828,15 @@ function StudentsPage() {
         </DialogContent>
       </Dialog>
 
+      <ChangePhoneDialog
+        open={phoneChange !== null}
+        onOpenChange={(open) => { if (!open) setPhoneChange(null) }}
+        subject={phoneChange}
+        onChanged={() => {
+          queryClient.invalidateQueries()
+        }}
+      />
+
       {/* Add/Edit Student Dialog */}
       <Dialog open={showForm} onOpenChange={(open) => { if (!open) closeForm() }}>
         <DialogContent className="sm:max-w-2xl max-h-[90vh] overflow-y-auto">
@@ -1856,27 +1878,53 @@ function StudentsPage() {
                 <Phone className="h-3.5 w-3.5" />
                 Phone Number <span className="text-destructive">*</span>
               </Label>
+              {editingStudent ? (
+                <div className="rounded-md border bg-muted/40 px-3 py-2">
+                  <p className="text-sm font-medium">{formData.phone_number || '—'}</p>
+                  <p className="mt-1 text-xs text-muted-foreground">
+                    Use Change phone number so the roster, WhatsApp contact, and history stay together.
+                  </p>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    className="mt-2"
+                    onClick={() => {
+                      setPhoneChange({
+                        oldPhone: editingStudent.phone_number,
+                        name: editingStudent.full_name,
+                        externalStudentId: editingStudent.student_id,
+                      })
+                      setShowForm(false)
+                    }}
+                  >
+                    <Phone className="h-3.5 w-3.5 mr-1" />
+                    Change phone number
+                  </Button>
+                </div>
+              ) : (
               <PhoneInput
                 id="phone_number"
                 value={formData.phone_number}
                 onChange={(val) => updateField('phone_number', val)}
               />
-              {whatsappStatus === 'checking' && (
+              )}
+              {!editingStudent && whatsappStatus === 'checking' && (
                 <p className="text-xs text-muted-foreground mt-1 flex items-center gap-1">
                   <Loader2 className="h-3 w-3 animate-spin" /> Checking WhatsApp...
                 </p>
               )}
-              {whatsappStatus === 'valid' && (
+              {!editingStudent && whatsappStatus === 'valid' && (
                 <p className="text-xs text-green-600 mt-1 flex items-center gap-1">
                   <CheckCircle className="h-3 w-3" /> This number is on WhatsApp
                 </p>
               )}
-              {whatsappStatus === 'invalid' && (
+              {!editingStudent && whatsappStatus === 'invalid' && (
                 <p className="text-xs text-red-500 mt-1 flex items-center gap-1">
                   <XCircle className="h-3 w-3" /> This number is not on WhatsApp
                 </p>
               )}
-              {whatsappStatus === 'error' && (
+              {!editingStudent && whatsappStatus === 'error' && (
                 <p className="text-xs text-muted-foreground mt-1">
                   Could not check — WhatsApp may not be connected
                 </p>
