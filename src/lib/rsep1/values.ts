@@ -1,4 +1,4 @@
-import { titleCaseIfUppercase } from '../person-name'
+import { formatRosterName } from '../person-name'
 import { Rsep1Error } from './errors'
 import {
   ALL_COMPETENCIES,
@@ -20,6 +20,10 @@ export interface ManualValues {
   date: string | null
   instructorName: string
   studentName: string
+  /** True when staff typed a name and saved it. Absent on older sheets. */
+  studentNameCustom?: boolean
+  /** True when staff set the top date. Absent means the date follows the last update. */
+  dateCustom?: boolean
   competencies: {
     c7: CompetencySlot
     c8: CompetencySlot
@@ -84,15 +88,64 @@ export function isFutureYmd(value: string, now = new Date()): boolean {
 }
 
 /**
+ * Top Date on the results sheet.
+ * A hand-set date (`dateCustom`) stays until staff clear it.
+ * Otherwise the date is the America/Toronto day of the latest save:
+ * the sheet's `updatedAt` once it is newer than `createdAt`, and any
+ * theory-evaluation `updatedAt`. With no save yet, the date is today.
+ * A finalized sheet shows the date stored with that copy.
+ */
+export function resolveSheetDate(input: {
+  date?: string | null
+  dateCustom?: boolean
+  locked?: boolean
+  sheetCreatedAt?: Date | null
+  sheetUpdatedAt?: Date | null
+  theoryUpdatedAts?: Array<Date | null | undefined>
+  now?: Date
+}): string {
+  const now = input.now ?? new Date()
+  if (input.dateCustom && isValidYmd(input.date)) return input.date
+  if (input.locked && isValidYmd(input.date)) return input.date
+
+  const candidates: Date[] = []
+  const created = input.sheetCreatedAt?.getTime()
+  const updated = input.sheetUpdatedAt?.getTime()
+  if (input.sheetUpdatedAt && created !== undefined && updated !== undefined && updated > created) {
+    candidates.push(input.sheetUpdatedAt)
+  }
+  for (const value of input.theoryUpdatedAts ?? []) {
+    if (value instanceof Date && !Number.isNaN(value.getTime())) candidates.push(value)
+  }
+  if (!candidates.length) return todayToronto(now)
+  return todayToronto(new Date(Math.max(...candidates.map(value => value.getTime()))))
+}
+
+/**
  * Profile name for the RSEP-1 "Name:" field.
  * Source is MySQL `student.full_name`. Cohort tags (`#12`) are removed.
  * A roster "Last, First" value is turned around so the given name comes first.
- * ALL-CAPS names use the same title case as paper-exam messages.
+ * Each all-lower or all-upper word is title-cased. Mixed-case words and
+ * particles such as "de la Cruz" stay as they are.
  */
 export function profileStudentName(fullName: string | null | undefined): string {
   const stripped = (fullName || '').replace(/\s*#\d+\s*/g, ' ').replace(/\s+/g, ' ').trim()
   if (!stripped) return ''
-  return titleCaseIfUppercase(firstNameFirst(stripped))
+  return formatRosterName(firstNameFirst(stripped))
+}
+
+/**
+ * A hand-typed name is kept. A blank name, or a stored profile name that
+ * only differs by roster casing, uses the formatted profile name.
+ */
+export function resolveSheetStudentName(stored: string, profileName: string, custom?: boolean): string {
+  const saved = stored.trim()
+  if (custom === true) return saved
+  if (!saved) return profileName
+  if (saved === profileName) return saved
+  if (custom === false) return profileName
+  if (profileStudentName(saved) === profileName) return profileName
+  return saved
 }
 
 function firstNameFirst(name: string): string {
@@ -191,10 +244,18 @@ export function parseManualValues(raw: unknown): ManualValues {
     }
     date = record.date
   }
+  const studentNameCustom = record.studentNameCustom === true
+    ? true
+    : record.studentNameCustom === false
+      ? false
+      : undefined
+  const dateCustom = record.dateCustom === true ? true : record.dateCustom === false ? false : undefined
   return {
     date,
     instructorName: typeof record.instructorName === 'string' ? record.instructorName.trim() : '',
     studentName: typeof record.studentName === 'string' ? record.studentName.trim() : '',
+    ...(studentNameCustom === undefined ? {} : { studentNameCustom }),
+    ...(dateCustom === undefined ? {} : { dateCustom }),
     competencies: {
       c7: parseSlot(competencies.c7, 'C7'),
       c8: parseSlot(competencies.c8, 'C8'),
@@ -229,7 +290,7 @@ export function readStoredManual(json: string | null | undefined, fallbackName =
   }
 }
 
-export function getEffectiveRsep1Values(manual: ManualValues, theory: TheoryGradeInput[]): EffectiveValues {
+export function getEffectiveRsep1Values(manual: ManualValues, theory: TheoryGradeInput[], now = new Date()): EffectiveValues {
   const competencies = {} as Record<CompKey, CompetencySlot>
   for (const item of THEORY_COMPETENCIES) {
     const row = theory.find(entry => entry.competency.toUpperCase() === item.code)
@@ -241,7 +302,7 @@ export function getEffectiveRsep1Values(manual: ManualValues, theory: TheoryGrad
     competencies[item.key] = manual.competencies[item.key]
   }
   return {
-    date: manual.date,
+    date: manual.date || todayToronto(now),
     instructorName: manual.instructorName,
     studentName: manual.studentName,
     competencies,
