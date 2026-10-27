@@ -15,7 +15,9 @@ import {
   hasTheoryOverride,
   parseGradePercent,
   parseTheoryDate,
+  profileStudentName,
   readStoredManual,
+  todayToronto,
 } from './values'
 import fieldMap from './rsep1-field-map.json' with { type: 'json' }
 
@@ -45,6 +47,51 @@ test('80% boundary and a missing grade', () => {
   assert.throws(() => parseGradePercent(79.9), (error: unknown) => (error as { code?: string }).code === 'grade_not_integer')
   assert.throws(() => parseTheoryDate(null, '2026-10-20'), (error: unknown) => (error as { code?: string }).code === 'date_without_grade')
   assert.throws(() => parseTheoryDate(80, '2099-01-01'), (error: unknown) => (error as { code?: string }).code === 'future_date')
+})
+
+test('late evening in Montréal stays on that calendar day', async () => {
+  // 10:00 p.m. America/Toronto on 2026-10-26 (EDT, UTC−4) is 02:00 UTC on Oct 27.
+  const lateEvening = new Date('2026-10-27T02:00:00.000Z')
+  assert.equal(lateEvening.toISOString().slice(0, 10), '2026-10-27')
+  assert.equal(todayToronto(lateEvening), '2026-10-26')
+  assert.equal(parseTheoryDate(80, '2026-10-26', lateEvening), '2026-10-26')
+  assert.throws(
+    () => parseTheoryDate(80, '2026-10-27', lateEvening),
+    (error: unknown) => (error as { code?: string }).code === 'future_date',
+  )
+
+  assert.equal(todayToronto(new Date('2026-10-27T03:59:00.000Z')), '2026-10-26')
+  assert.equal(todayToronto(new Date('2026-10-27T04:00:00.000Z')), '2026-10-27')
+
+  // After the clocks fall back (EST, UTC−5), 11:30 p.m. on Nov 1 is still Nov 1.
+  const winterEvening = new Date('2026-11-02T04:30:00.000Z')
+  assert.equal(todayToronto(winterEvening), '2026-11-01')
+  assert.throws(
+    () => parseTheoryDate(90, '2026-11-02', winterEvening),
+    (error: unknown) => (error as { code?: string }).code === 'future_date',
+  )
+
+  const manual = emptyManual('Sample Class One')
+  manual.date = todayToronto(lateEvening)
+  const { text } = await readRsep1Fields(await buildRsep1Pdf(getEffectiveRsep1Values(manual, [])))
+  assert.equal(text.date, '2026-10-26')
+})
+
+test('profile name is first name first, with roster caps normalised', async () => {
+  assert.equal(profileStudentName('TREMBLAY, JEAN'), 'Jean Tremblay')
+  assert.equal(profileStudentName('GAGNON, MARIE-EVE #12'), 'Marie-Eve Gagnon')
+  assert.equal(profileStudentName("O'BRIEN, SEAN"), "Sean O'Brien")
+  assert.equal(profileStudentName('JEAN TREMBLAY'), 'Jean Tremblay')
+  assert.equal(profileStudentName('ÉMILIE CÔTÉ'), 'Émilie Côté')
+  assert.equal(profileStudentName('Jean Tremblay'), 'Jean Tremblay')
+  assert.equal(profileStudentName('McDonald, Jean'), 'Jean McDonald')
+  assert.equal(profileStudentName('  #4  '), '')
+
+  const manual = emptyManual(profileStudentName('TREMBLAY, JEAN #4'))
+  manual.date = todayToronto(new Date('2026-10-27T02:00:00.000Z'))
+  const { text } = await readRsep1Fields(await buildRsep1Pdf(getEffectiveRsep1Values(manual, [])))
+  assert.equal(text.studentName, 'Jean Tremblay')
+  assert.equal(text.date, '2026-10-26')
 })
 
 test('stored C1 mastery is ignored and a manual override is rejected', () => {

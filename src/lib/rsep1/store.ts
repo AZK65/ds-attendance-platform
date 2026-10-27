@@ -21,6 +21,7 @@ import {
   parseManualValues,
   parseTheoryDate,
   readStoredManual,
+  todayToronto,
   type ManualValues,
 } from './values'
 
@@ -144,7 +145,7 @@ export async function presentSheet(sheet: Rsep1ResultSheet, rows: TheoryRow[], p
     }),
     summary,
     summaryLine: theorySummaryLine(summary),
-    prefill: { studentName: profileName, date: null as string | null },
+    prefill: { studentName: profileName, date: todayToronto() },
     profileName,
     nameDiffers: !!profileName && !!manual.studentName && profileName !== manual.studentName,
     status: isSheetComplete(effective) ? 'complete' : 'draft',

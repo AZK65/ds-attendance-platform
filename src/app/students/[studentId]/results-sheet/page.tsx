@@ -26,7 +26,7 @@ interface SheetPayload {
     notes: string
   }
   theorySource: Record<string, { gradePercent: number | null; evaluatedOn: string | null }>
-  prefill: { studentName: string }
+  prefill: { studentName: string; date: string | null }
   profileName: string
   nameDiffers: boolean
   status: 'draft' | 'complete'
@@ -68,7 +68,7 @@ export default function ResultsSheetPage() {
   if (query.data && draftKey !== query.data.updatedAt) {
     const values = query.data.values
     setDraftKey(query.data.updatedAt)
-    setDate(values.date || todayToronto())
+    setDate(values.date || query.data.prefill.date || todayToronto())
     setInstructorName(values.instructorName || '')
     setStudentName(values.studentName || query.data.prefill.studentName || '')
     setC7(values.competencies.c7)
@@ -168,7 +168,7 @@ export default function ResultsSheetPage() {
                 <div>
                   <Label htmlFor="student-name">Name</Label>
                   <Input id="student-name" value={studentName} disabled={locked} onChange={event => setStudentName(event.target.value)} />
-                  {query.data.nameDiffers && (
+                  {query.data.nameDiffers && !locked && (
                     <button
                       type="button"
                       className="mt-1 text-xs text-blue-700 underline"

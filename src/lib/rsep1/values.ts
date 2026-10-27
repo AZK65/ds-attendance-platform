@@ -1,3 +1,4 @@
+import { titleCaseIfUppercase } from '../person-name'
 import { Rsep1Error } from './errors'
 import {
   ALL_COMPETENCIES,
@@ -64,21 +65,44 @@ export function isValidYmd(value: string | null | undefined): value is string {
   return date.getUTCFullYear() === year && date.getUTCMonth() === month - 1 && date.getUTCDate() === day
 }
 
+/** Montréal calendar day. Never the server's UTC date. */
+export const TORONTO_TIME_ZONE = 'America/Toronto'
+
 export function todayToronto(now = new Date()): string {
-  return new Intl.DateTimeFormat('en-CA', {
-    timeZone: 'America/Toronto',
+  const parts = new Intl.DateTimeFormat('en-US', {
+    timeZone: TORONTO_TIME_ZONE,
     year: 'numeric',
     month: '2-digit',
     day: '2-digit',
-  }).format(now)
+  }).formatToParts(now)
+  const part = (type: Intl.DateTimeFormatPartTypes) => parts.find(item => item.type === type)?.value || ''
+  return `${part('year')}-${part('month')}-${part('day')}`
 }
 
 export function isFutureYmd(value: string, now = new Date()): boolean {
   return value > todayToronto(now)
 }
 
+/**
+ * Profile name for the RSEP-1 "Name:" field.
+ * Source is MySQL `student.full_name`. Cohort tags (`#12`) are removed.
+ * A roster "Last, First" value is turned around so the given name comes first.
+ * ALL-CAPS names use the same title case as paper-exam messages.
+ */
 export function profileStudentName(fullName: string | null | undefined): string {
-  return (fullName || '').replace(/\s*#\d+\s*/g, ' ').replace(/\s+/g, ' ').trim()
+  const stripped = (fullName || '').replace(/\s*#\d+\s*/g, ' ').replace(/\s+/g, ' ').trim()
+  if (!stripped) return ''
+  return titleCaseIfUppercase(firstNameFirst(stripped))
+}
+
+function firstNameFirst(name: string): string {
+  const comma = name.indexOf(',')
+  if (comma === -1) return name
+  const last = name.slice(0, comma).trim()
+  const first = name.slice(comma + 1).replace(/,/g, ' ').replace(/\s+/g, ' ').trim()
+  if (!first) return last
+  if (!last) return first
+  return `${first} ${last}`
 }
 
 export function parseGradePercent(value: unknown): number | null {

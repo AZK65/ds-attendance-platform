@@ -1,5 +1,6 @@
 import { prisma } from '@/lib/db'
 import { paperExamResultIsVerified } from '@/lib/paper-exam-result'
+import { titleCaseIfUppercase } from '@/lib/person-name'
 import { sendBotReply } from '@/lib/whatsapp/client'
 
 export interface PaperExamResultNotification {
@@ -16,11 +17,7 @@ function percentage(score: number, total: number) {
 export function formatPaperExamStudentName(value: string) {
   const name = value.trim()
   if (!name) return 'there'
-  const letters = name.replace(/[^\p{L}]/gu, '')
-  if (!letters || letters !== letters.toLocaleUpperCase('en-CA')) return name
-  return name
-    .toLocaleLowerCase('en-CA')
-    .replace(/(^|[\s,'’.-])\p{L}/gu, match => match.toLocaleUpperCase('en-CA'))
+  return titleCaseIfUppercase(name)
 }
 
 export function buildPaperExamResultMessage(input: {
