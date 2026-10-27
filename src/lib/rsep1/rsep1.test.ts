@@ -17,6 +17,7 @@ import {
   parseTheoryDate,
   profileStudentName,
   readStoredManual,
+  resolveSheetStudentName,
   todayToronto,
 } from './values'
 import fieldMap from './rsep1-field-map.json' with { type: 'json' }
@@ -85,13 +86,35 @@ test('profile name is first name first, with roster caps normalised', async () =
   assert.equal(profileStudentName('ÉMILIE CÔTÉ'), 'Émilie Côté')
   assert.equal(profileStudentName('Jean Tremblay'), 'Jean Tremblay')
   assert.equal(profileStudentName('McDonald, Jean'), 'Jean McDonald')
+  assert.equal(profileStudentName('McDonald'), 'McDonald')
+  assert.equal(profileStudentName('Sandeep singh'), 'Sandeep Singh')
+  assert.equal(profileStudentName('de la Cruz'), 'de la Cruz')
+  assert.equal(profileStudentName('DE LA CRUZ'), 'de la Cruz')
+  assert.equal(profileStudentName('jean-pierre'), 'Jean-Pierre')
   assert.equal(profileStudentName('  #4  '), '')
+  assert.equal(resolveSheetStudentName('Sandeep singh', 'Sandeep Singh'), 'Sandeep Singh')
+  assert.equal(resolveSheetStudentName('Sandeep singh', 'Sandeep Singh', true), 'Sandeep singh')
+  assert.equal(resolveSheetStudentName('Sandy', 'Sandeep Singh'), 'Sandy')
 
   const manual = emptyManual(profileStudentName('TREMBLAY, JEAN #4'))
   manual.date = todayToronto(new Date('2026-10-27T02:00:00.000Z'))
   const { text } = await readRsep1Fields(await buildRsep1Pdf(getEffectiveRsep1Values(manual, [])))
   assert.equal(text.studentName, 'Jean Tremblay')
   assert.equal(text.date, '2026-10-26')
+})
+
+test('a missing sheet date uses the Toronto day and a saved date stays', async () => {
+  const lateEvening = new Date('2026-10-27T02:00:00.000Z')
+  const blank = emptyManual(profileStudentName('Sandeep singh'))
+  assert.equal(getEffectiveRsep1Values(blank, [], lateEvening).date, '2026-10-26')
+  const saved = emptyManual('Sandeep Singh')
+  saved.date = '2026-09-15'
+  assert.equal(getEffectiveRsep1Values(saved, [], lateEvening).date, '2026-09-15')
+  const { text } = await readRsep1Fields(await buildRsep1Pdf(getEffectiveRsep1Values(blank, [], lateEvening)))
+  assert.equal(text.date, '2026-10-26')
+  assert.equal(text.studentName, 'Sandeep Singh')
+  const kept = await readRsep1Fields(await buildRsep1Pdf(getEffectiveRsep1Values(saved, [], lateEvening)))
+  assert.equal(kept.text.date, '2026-09-15')
 })
 
 test('stored C1 mastery is ignored and a manual override is rejected', () => {
@@ -322,4 +345,69 @@ test('server rejects a C1 override and finalize locks grades', async () => {
   assert.equal(again.revisionNo, 2)
   assert.equal(readFileSync(finalPath).equals(firstFinal), true)
   assert.ok(statSync(path.join(root, 'data', 'rsep1', view.sheetId, 'rev-2.pdf')).size > 1000)
+})
+
+test('preview fills a blank date, finalize stores it, and a typed name stays', async () => {
+  const profileName = profileStudentName('Sandeep singh')
+  assert.equal(profileName, 'Sandeep Singh')
+  const student = { externalStudentId: 900010, studentName: profileName, registrationId: null }
+  await store.ensureSheet(student)
+  const { prisma } = await import('../db')
+  await prisma.rsep1ResultSheet.update({
+    where: { externalStudentId: student.externalStudentId },
+    data: {
+      values: JSON.stringify({
+        date: null,
+        instructorName: '',
+        studentName: 'Sandeep singh',
+        competencies: {
+          c7: { date: null, mastery: null },
+          c8: { date: null, mastery: null },
+        },
+        observation: null,
+        notes: '',
+      }),
+    },
+  })
+
+  const open = await store.getSheetView(student)
+  assert.equal(open.manual.date, null)
+  assert.equal(open.values.date, todayToronto())
+  assert.equal(open.values.studentName, 'Sandeep Singh')
+  const preview = await store.pdfForStudent(student)
+  const previewFields = await readRsep1Fields(preview.bytes)
+  assert.equal(previewFields.text.date, todayToronto())
+  assert.equal(previewFields.text.studentName, 'Sandeep Singh')
+
+  await store.saveManualSheet(student, {
+    values: { date: '2026-09-15', studentName: 'Sandeep singh' },
+  }, actor)
+  const typed = await store.getSheetView(student)
+  assert.equal(typed.values.studentName, 'Sandeep singh')
+  assert.equal(typed.manual.date, '2026-09-15')
+  const kept = await store.pdfForStudent(student)
+  const keptFields = await readRsep1Fields(kept.bytes)
+  assert.equal(keptFields.text.date, '2026-09-15')
+  assert.equal(keptFields.text.studentName, 'Sandeep singh')
+
+  const blankStudent = { externalStudentId: 900011, studentName: 'Sample Class One', registrationId: null }
+  await store.ensureSheet(blankStudent)
+  const before = await store.getSheetView(blankStudent)
+  assert.equal(before.manual.date, null)
+  const finalized = await store.finalizeSheet(blankStudent, actor, true)
+  assert.equal(finalized.manual.date, todayToronto())
+  assert.equal(finalized.values.date, todayToronto())
+  const finalPdf = path.join(root, 'data', 'rsep1', finalized.sheetId, 'rev-1.pdf')
+  const finalText = execFileSync('pdftotext', [finalPdf, '-'], { encoding: 'utf8' })
+  assert.equal(finalText.includes(todayToronto()), true)
+
+  await store.reopenSheet(blankStudent, actor, 'Check the saved date')
+  await store.saveManualSheet(blankStudent, { values: { date: '2026-08-01', studentName: 'Sample Class One' } }, actor)
+  const again = await store.finalizeSheet(blankStudent, actor, true)
+  assert.equal(again.manual.date, '2026-08-01')
+  assert.equal(again.values.date, '2026-08-01')
+  const secondPdf = path.join(root, 'data', 'rsep1', again.sheetId, 'rev-2.pdf')
+  const secondText = execFileSync('pdftotext', [secondPdf, '-'], { encoding: 'utf8' })
+  assert.equal(secondText.includes('2026-08-01'), true)
+  assert.equal(secondText.includes(todayToronto()) && todayToronto() !== '2026-08-01', false)
 })

@@ -21,6 +21,7 @@ import {
   parseManualValues,
   parseTheoryDate,
   readStoredManual,
+  resolveSheetStudentName,
   todayToronto,
   type ManualValues,
 } from './values'
@@ -112,11 +113,11 @@ export async function instructorChoices() {
   }
 }
 
-export async function presentSheet(sheet: Rsep1ResultSheet, rows: TheoryRow[], profileName: string) {
+export async function presentSheet(sheet: Rsep1ResultSheet, rows: TheoryRow[], profileName: string, now = new Date()) {
   const manual = readStoredManual(sheet.values, profileName)
-  if (!manual.studentName) manual.studentName = profileName
+  const printedName = resolveSheetStudentName(manual.studentName, profileName, manual.studentNameCustom)
   const grades = theorySnapshot(rows)
-  const effective = getEffectiveRsep1Values(manual, grades)
+  const effective = getEffectiveRsep1Values({ ...manual, studentName: printedName }, grades, now)
   const names = await instructorMap(rows.map(row => row.evaluatorId).filter((id): id is string => !!id))
   const summary = theorySummary(THEORY_COMPETENCIES.map(item => {
     const row = rows.find(entry => entry.competency === item.code)
@@ -145,9 +146,9 @@ export async function presentSheet(sheet: Rsep1ResultSheet, rows: TheoryRow[], p
     }),
     summary,
     summaryLine: theorySummaryLine(summary),
-    prefill: { studentName: profileName, date: todayToronto() },
+    prefill: { studentName: profileName, date: todayToronto(now) },
     profileName,
-    nameDiffers: !!profileName && !!manual.studentName && profileName !== manual.studentName,
+    nameDiffers: !!profileName && printedName !== profileName,
     status: isSheetComplete(effective) ? 'complete' : 'draft',
     locked: !!sheet.finalizedAt,
     finalizedAt: sheet.finalizedAt?.toISOString() ?? null,
@@ -298,6 +299,9 @@ export async function saveManualSheet(
   }
   const record = body && typeof body === 'object' ? body as Record<string, unknown> : {}
   const manual = parseManualValues(record.values ?? record)
+  const typedName = manual.studentName.trim()
+  if (typedName && typedName !== ctx.studentName) manual.studentNameCustom = true
+  else delete manual.studentNameCustom
   const sheet = await ensureSheet(ctx)
   assertUnlocked(sheet)
   const expected = typeof record.expectedUpdatedAt === 'string' ? record.expectedUpdatedAt : null
@@ -364,9 +368,13 @@ export async function finalizeSheet(ctx: Class1Context, actor: Actor, confirmInc
   try {
     const fresh = await loadSheet(ctx.externalStudentId)
     const manual = readStoredManual(fresh.values, ctx.studentName)
+    const usedDate = view.values.date
+    const filledDate = !manual.date && !!usedDate
+    if (filledDate) manual.date = usedDate
     await prisma.rsep1ResultSheet.update({
       where: { id: sheet.id },
       data: {
+        ...(filledDate ? { values: JSON.stringify(manual) } : {}),
         finalizedAt: new Date(),
         finalizedBy: actor.label,
         status: view.status,
