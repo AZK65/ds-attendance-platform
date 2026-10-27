@@ -54,10 +54,10 @@ export function middleware(request: NextRequest) {
 
   // study.qazidriving.ca is the student LMS. It serves the app under /study
   // and talks to /api/lms/* (its own session auth). Admin surfaces
-  // (/api/lms/admin, the /lms editor, the rest of the platform) are NOT
-  // reachable from this host.
+  // (/api/lms/admin, the /lms editor, the assistant API, the rest of the
+  // platform) are NOT reachable from this host.
   if (isStudyHost) {
-    if (pathname.startsWith('/api/lms/admin')) {
+    if (pathname.startsWith('/api/lms/admin') || pathname === '/api/assistant' || pathname.startsWith('/api/assistant/')) {
       return NextResponse.json({ error: 'Not found' }, { status: 404 })
     }
     // Student LMS APIs pass through untouched (gated by the LMS cookie).
@@ -96,6 +96,14 @@ export function middleware(request: NextRequest) {
     return NextResponse.next()
   }
   if (PUBLIC_EXACT.includes(pathname)) {
+    return NextResponse.next()
+  }
+
+  // Read-only assistant API. These routes authenticate themselves with
+  // Authorization: Bearer ASSISTANT_API_TOKEN and reject query-string tokens.
+  // Skipping the admin cookie here does not open any other path: the study
+  // host still 404s above, and every other /api route keeps the cookie gate.
+  if (pathname === '/api/assistant' || pathname.startsWith('/api/assistant/')) {
     return NextResponse.next()
   }
 
