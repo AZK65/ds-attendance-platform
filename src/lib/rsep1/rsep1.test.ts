@@ -7,6 +7,7 @@ import { before, test } from 'node:test'
 import { fileURLToPath } from 'node:url'
 import { PDFDocument } from 'pdf-lib'
 import { masteryFromGrade, theorySummary, theorySummaryLine } from './competencies'
+import { groupProfileResultsStudentId } from './group-profile'
 import { buildRsep1Pdf, readRsep1Fields } from './fill'
 import { hashBytes, loadRsep1Template, RSEP1_TEMPLATE_SHA256, rsep1TemplatePath } from './template'
 import {
@@ -33,6 +34,15 @@ const ctx = {
   studentName: 'Sample Class One',
   registrationId: null,
 }
+
+test('group profile shows RSEP-1 only for a matched truck student', () => {
+  assert.equal(groupProfileResultsStudentId('truck', 900001), '900001')
+  assert.equal(groupProfileResultsStudentId('truck', '900001'), '900001')
+  assert.equal(groupProfileResultsStudentId('car', 900001), null)
+  assert.equal(groupProfileResultsStudentId('truck', null), null)
+  assert.equal(groupProfileResultsStudentId(undefined, undefined), null)
+  assert.equal(groupProfileResultsStudentId('truck', 0), null)
+})
 
 test('80% boundary and a missing grade', () => {
   assert.equal(masteryFromGrade(0), 'No')

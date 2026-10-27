@@ -62,6 +62,9 @@ import { motion } from 'motion/react'
 import { StudentAvatar } from '@/components/StudentAvatar'
 import { StudentDocumentDownloadDialog } from '@/components/StudentDocumentDownloadDialog'
 import { PaperExamProfileCard, type PaperExamProfileRecord } from '@/components/PaperExamProfileCard'
+import { Rsep1ResultsSheetCard } from '@/components/Rsep1ResultsSheetCard'
+import { TheoryEvaluationsCard } from '@/components/TheoryEvaluationsCard'
+import { groupProfileResultsStudentId } from '@/lib/rsep1/group-profile'
 import { selectInvoiceForBalanceEdit } from '@/lib/invoice-match'
 
 interface Participant {
@@ -428,6 +431,7 @@ interface JourneyCardProps {
   studentPhone: string
   vehicleType?: string | null
   groupId?: string
+  rsep1StudentId?: string | null
 }
 
 interface SessionDetail {
@@ -514,6 +518,7 @@ function TruckJourneyCard({
   studentName,
   studentPhone,
   groupId,
+  rsep1StudentId,
 }: JourneyCardProps) {
   const [openEvent, setOpenEvent] = useState<TruckProgressEvent | null>(null)
   const [openTheoryId, setOpenTheoryId] = useState<string | null>(null)
@@ -719,6 +724,13 @@ function TruckJourneyCard({
                 />
               )}
             </section>
+
+            {rsep1StudentId && (
+              <div className="space-y-6 border-t pt-6" data-testid="group-rsep1">
+                <TheoryEvaluationsCard studentId={rsep1StudentId} />
+                <Rsep1ResultsSheetCard studentId={rsep1StudentId} />
+              </div>
+            )}
 
             <section aria-labelledby="truck-practical-progress" className="border-t pt-6">
               <div className="mb-3 flex flex-wrap items-end justify-between gap-2">
@@ -1276,6 +1288,7 @@ export default function StudentDetailPage() {
     },
     enabled: !!phone,
   })
+  const resultsStudentId = groupProfileResultsStudentId(profileData?.vehicleType, profileData?.dbStudent?.student_id)
 
   // Inline email editor — writes to the local SQLite Student row via the
   // MySQL studentId-keyed PATCH endpoint. Falls through to creating a
@@ -1741,6 +1754,23 @@ export default function StudentDetailPage() {
                   </Link>
                 </Button>
                 <AttendanceSheetButton phone={phone} />
+                {resultsStudentId && (
+                  <>
+                    <Button variant="ghost" size="sm" className="text-muted-foreground hover:text-foreground" asChild>
+                      <Link href={`/students/${resultsStudentId}/results-sheet`} data-testid="group-results-sheet">
+                        <ClipboardList className="mr-1 h-4 w-4" />
+                        Results Sheet
+                      </Link>
+                    </Button>
+                    <Link
+                      href={`/students/${resultsStudentId}`}
+                      data-testid="group-full-profile"
+                      className="px-2 text-xs text-muted-foreground underline-offset-2 hover:text-foreground hover:underline"
+                    >
+                      Full profile
+                    </Link>
+                  </>
+                )}
                 <Button variant="ghost" size="sm" className="text-muted-foreground hover:text-foreground" onClick={startEditing}>
                   <Edit3 className="mr-1 h-4 w-4" />
                   Edit
@@ -2183,6 +2213,7 @@ export default function StudentDetailPage() {
           studentPhone={phone}
           vehicleType={groupData?.group?.vehicleType || profileData?.vehicleType}
           groupId={groupId}
+          rsep1StudentId={resultsStudentId}
         />
       </motion.div>
 
