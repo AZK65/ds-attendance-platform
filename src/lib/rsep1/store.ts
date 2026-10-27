@@ -21,8 +21,8 @@ import {
   parseManualValues,
   parseTheoryDate,
   readStoredManual,
+  resolveSheetDate,
   resolveSheetStudentName,
-  todayToronto,
   type ManualValues,
 } from './values'
 
@@ -116,8 +116,21 @@ export async function instructorChoices() {
 export async function presentSheet(sheet: Rsep1ResultSheet, rows: TheoryRow[], profileName: string, now = new Date()) {
   const manual = readStoredManual(sheet.values, profileName)
   const printedName = resolveSheetStudentName(manual.studentName, profileName, manual.studentNameCustom)
+  const activity = {
+    sheetCreatedAt: sheet.createdAt,
+    sheetUpdatedAt: sheet.updatedAt,
+    theoryUpdatedAts: rows.map(row => row.updatedAt),
+    now,
+  }
+  const shownDate = resolveSheetDate({
+    date: manual.date,
+    dateCustom: manual.dateCustom,
+    locked: !!sheet.finalizedAt,
+    ...activity,
+  })
+  const autoDate = resolveSheetDate({ date: null, dateCustom: false, locked: false, ...activity })
   const grades = theorySnapshot(rows)
-  const effective = getEffectiveRsep1Values({ ...manual, studentName: printedName }, grades, now)
+  const effective = getEffectiveRsep1Values({ ...manual, studentName: printedName, date: shownDate }, grades, now)
   const names = await instructorMap(rows.map(row => row.evaluatorId).filter((id): id is string => !!id))
   const summary = theorySummary(THEORY_COMPETENCIES.map(item => {
     const row = rows.find(entry => entry.competency === item.code)
@@ -146,7 +159,9 @@ export async function presentSheet(sheet: Rsep1ResultSheet, rows: TheoryRow[], p
     }),
     summary,
     summaryLine: theorySummaryLine(summary),
-    prefill: { studentName: profileName, date: todayToronto(now) },
+    prefill: { studentName: profileName, date: autoDate },
+    autoDate,
+    dateCustom: manual.dateCustom === true,
     profileName,
     nameDiffers: !!profileName && printedName !== profileName,
     status: isSheetComplete(effective) ? 'complete' : 'draft',
@@ -302,6 +317,12 @@ export async function saveManualSheet(
   const typedName = manual.studentName.trim()
   if (typedName && typedName !== ctx.studentName) manual.studentNameCustom = true
   else delete manual.studentNameCustom
+  const submitted = record.values && typeof record.values === 'object' ? record.values as Record<string, unknown> : record
+  if (submitted.dateCustom === true && manual.date) manual.dateCustom = true
+  else if (submitted.dateCustom === false || !manual.date) {
+    delete manual.dateCustom
+    manual.date = null
+  } else manual.dateCustom = true
   const sheet = await ensureSheet(ctx)
   assertUnlocked(sheet)
   const expected = typeof record.expectedUpdatedAt === 'string' ? record.expectedUpdatedAt : null
@@ -368,13 +389,11 @@ export async function finalizeSheet(ctx: Class1Context, actor: Actor, confirmInc
   try {
     const fresh = await loadSheet(ctx.externalStudentId)
     const manual = readStoredManual(fresh.values, ctx.studentName)
-    const usedDate = view.values.date
-    const filledDate = !manual.date && !!usedDate
-    if (filledDate) manual.date = usedDate
+    if (view.values.date) manual.date = view.values.date
     await prisma.rsep1ResultSheet.update({
       where: { id: sheet.id },
       data: {
-        ...(filledDate ? { values: JSON.stringify(manual) } : {}),
+        values: JSON.stringify(manual),
         finalizedAt: new Date(),
         finalizedBy: actor.label,
         status: view.status,
@@ -405,6 +424,8 @@ export async function reopenSheet(ctx: Class1Context, actor: Actor, reason: unkn
   if (!sheet.finalizedAt) throw new Rsep1Error(400, 'not_finalized', 'This results sheet is not finalized')
   const before = { finalizedAt: sheet.finalizedAt.toISOString(), revisionNo: sheet.revisionNo }
   const nextRevision = sheet.revisionNo + 1
+  const manual = readStoredManual(sheet.values, ctx.studentName)
+  if (!manual.dateCustom) manual.date = null
   await prisma.theoryCorrection.create({
     data: {
       entityType: 'Rsep1ResultSheet',
@@ -420,6 +441,7 @@ export async function reopenSheet(ctx: Class1Context, actor: Actor, reason: unkn
   await prisma.rsep1ResultSheet.update({
     where: { id: sheet.id },
     data: {
+      values: JSON.stringify(manual),
       finalizedAt: null,
       finalizedBy: null,
       revisionNo: nextRevision,
@@ -430,7 +452,7 @@ export async function reopenSheet(ctx: Class1Context, actor: Actor, reason: unkn
   const fresh = await loadSheet(ctx.externalStudentId)
   await appendRevision({
     sheetId: sheet.id,
-    values: readStoredManual(fresh.values, ctx.studentName),
+    values: manual,
     theory: { rows: theorySnapshot(fresh.theoryEvaluations), changes: [] },
     changeKind: 'reopen',
     reason: text,

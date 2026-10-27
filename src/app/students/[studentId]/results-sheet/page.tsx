@@ -29,6 +29,8 @@ interface SheetPayload {
   prefill: { studentName: string; date: string | null }
   profileName: string
   nameDiffers: boolean
+  autoDate: string
+  dateCustom: boolean
   status: 'draft' | 'complete'
   locked: boolean
   finalizedAt: string | null
@@ -45,6 +47,7 @@ export default function ResultsSheetPage() {
   const queryClient = useQueryClient()
   const [draftKey, setDraftKey] = useState<string | null>(null)
   const [date, setDate] = useState('')
+  const [dateCustom, setDateCustom] = useState(false)
   const [instructorName, setInstructorName] = useState('')
   const [studentName, setStudentName] = useState('')
   const [c7, setC7] = useState<Slot>({ date: null, mastery: null })
@@ -68,7 +71,8 @@ export default function ResultsSheetPage() {
   if (query.data && draftKey !== query.data.updatedAt) {
     const values = query.data.values
     setDraftKey(query.data.updatedAt)
-    setDate(values.date || query.data.prefill.date || todayToronto())
+    setDate(values.date || query.data.autoDate || query.data.prefill.date || todayToronto())
+    setDateCustom(query.data.dateCustom)
     setInstructorName(values.instructorName || '')
     setStudentName(values.studentName || query.data.prefill.studentName || '')
     setC7(values.competencies.c7)
@@ -85,7 +89,8 @@ export default function ResultsSheetPage() {
         body: JSON.stringify({
           expectedUpdatedAt: query.data?.updatedAt,
           values: {
-            date: date || null,
+            date: dateCustom ? (date || null) : null,
+            dateCustom,
             instructorName,
             studentName,
             competencies: { c7, c8 },
@@ -162,8 +167,26 @@ export default function ResultsSheetPage() {
               <div className="grid gap-4 sm:grid-cols-2">
                 <div>
                   <Label htmlFor="sheet-date">Date</Label>
-                  <Input id="sheet-date" type="date" value={date} disabled={locked} onChange={event => setDate(event.target.value)} />
-                  <p className="mt-1 text-xs text-muted-foreground">The day this sheet is filled in.</p>
+                  <Input
+                    id="sheet-date"
+                    type="date"
+                    value={date}
+                    disabled={locked}
+                    onChange={event => {
+                      if (!event.target.value) {
+                        setDateCustom(false)
+                        setDate(query.data?.autoDate || todayToronto())
+                        return
+                      }
+                      setDateCustom(true)
+                      setDate(event.target.value)
+                    }}
+                  />
+                  <p className="mt-1 text-xs text-muted-foreground">
+                    {dateCustom
+                      ? 'Set by hand. Clear the field to follow the last save again.'
+                      : 'The Montréal day of the last save. Before the first save, this is today. You can type a different date.'}
+                  </p>
                 </div>
                 <div>
                   <Label htmlFor="student-name">Name</Label>

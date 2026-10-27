@@ -22,6 +22,8 @@ export interface ManualValues {
   studentName: string
   /** True when staff typed a name and saved it. Absent on older sheets. */
   studentNameCustom?: boolean
+  /** True when staff set the top date. Absent means the date follows the last update. */
+  dateCustom?: boolean
   competencies: {
     c7: CompetencySlot
     c8: CompetencySlot
@@ -83,6 +85,40 @@ export function todayToronto(now = new Date()): string {
 
 export function isFutureYmd(value: string, now = new Date()): boolean {
   return value > todayToronto(now)
+}
+
+/**
+ * Top Date on the results sheet.
+ * A hand-set date (`dateCustom`) stays until staff clear it.
+ * Otherwise the date is the America/Toronto day of the latest save:
+ * the sheet's `updatedAt` once it is newer than `createdAt`, and any
+ * theory-evaluation `updatedAt`. With no save yet, the date is today.
+ * A finalized sheet shows the date stored with that copy.
+ */
+export function resolveSheetDate(input: {
+  date?: string | null
+  dateCustom?: boolean
+  locked?: boolean
+  sheetCreatedAt?: Date | null
+  sheetUpdatedAt?: Date | null
+  theoryUpdatedAts?: Array<Date | null | undefined>
+  now?: Date
+}): string {
+  const now = input.now ?? new Date()
+  if (input.dateCustom && isValidYmd(input.date)) return input.date
+  if (input.locked && isValidYmd(input.date)) return input.date
+
+  const candidates: Date[] = []
+  const created = input.sheetCreatedAt?.getTime()
+  const updated = input.sheetUpdatedAt?.getTime()
+  if (input.sheetUpdatedAt && created !== undefined && updated !== undefined && updated > created) {
+    candidates.push(input.sheetUpdatedAt)
+  }
+  for (const value of input.theoryUpdatedAts ?? []) {
+    if (value instanceof Date && !Number.isNaN(value.getTime())) candidates.push(value)
+  }
+  if (!candidates.length) return todayToronto(now)
+  return todayToronto(new Date(Math.max(...candidates.map(value => value.getTime()))))
 }
 
 /**
@@ -213,11 +249,13 @@ export function parseManualValues(raw: unknown): ManualValues {
     : record.studentNameCustom === false
       ? false
       : undefined
+  const dateCustom = record.dateCustom === true ? true : record.dateCustom === false ? false : undefined
   return {
     date,
     instructorName: typeof record.instructorName === 'string' ? record.instructorName.trim() : '',
     studentName: typeof record.studentName === 'string' ? record.studentName.trim() : '',
     ...(studentNameCustom === undefined ? {} : { studentNameCustom }),
+    ...(dateCustom === undefined ? {} : { dateCustom }),
     competencies: {
       c7: parseSlot(competencies.c7, 'C7'),
       c8: parseSlot(competencies.c8, 'C8'),
