@@ -27,6 +27,8 @@ import { LmsActivityPanel } from '@/components/LmsActivityPanel'
 import { StudentDocumentDownloadDialog } from '@/components/StudentDocumentDownloadDialog'
 import { formatTime12h as formatClock } from '@/lib/theory-hours'
 import { PaperExamProfileCard, type PaperExamProfileRecord } from '@/components/PaperExamProfileCard'
+import { Rsep1ResultsSheetCard } from '@/components/Rsep1ResultsSheetCard'
+import { TheoryEvaluationsCard } from '@/components/TheoryEvaluationsCard'
 import { selectInvoiceForBalanceEdit } from '@/lib/invoice-match'
 
 interface TeamupEvent {
@@ -551,6 +553,13 @@ export default function StudentProfilePage() {
               </Link>
             </Button>
             <AttendanceSheetButton phone={phone} />
+            {data?.vehicleType === 'truck' && (
+              <Button variant="ghost" size="sm" asChild className="text-muted-foreground hover:text-foreground">
+                <Link href={`/students/${studentId}/results-sheet`}>
+                  <ClipboardList className="h-4 w-4" /> Results Sheet
+                </Link>
+              </Button>
+            )}
             <Button variant="ghost" size="sm" onClick={() => setShowLms(true)} className="text-muted-foreground hover:text-foreground">
               <GraduationCap className="h-4 w-4" /> LMS Activity
             </Button>
@@ -661,6 +670,13 @@ export default function StudentProfilePage() {
           </p>
         </div>
       </motion.section>
+
+      {data.vehicleType === 'truck' && (
+        <div className="space-y-6">
+          <TheoryEvaluationsCard studentId={studentId} />
+          <Rsep1ResultsSheetCard studentId={studentId} />
+        </div>
+      )}
 
       {/* Database Profile Card */}
       <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.15, duration: 0.25 }}>

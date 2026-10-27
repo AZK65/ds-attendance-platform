@@ -1,0 +1,425 @@
+{
+ "template": "RSEP-1-original.pdf",
+ "sha256": "94962684910584c897c63fe7d3aa835eb17653d75329e57a5766a3e12e12c874",
+ "pageSize": [
+  612,
+  792
+ ],
+ "units": "PDF points, origin bottom-left",
+ "fields": [
+  {
+   "key": "date",
+   "pdfName": "txtTexte1",
+   "type": "text",
+   "page": 1,
+   "rect": [
+    148.3,
+    592.1,
+    536.1,
+    606.1
+   ],
+   "multiline": false,
+   "align": "left",
+   "fontSize": 10
+  },
+  {
+   "key": "instructorName",
+   "pdfName": "txtTexte2",
+   "type": "text",
+   "page": 1,
+   "rect": [
+    148.3,
+    570.5,
+    536.1,
+    584.5
+   ],
+   "multiline": false,
+   "align": "left",
+   "fontSize": 10
+  },
+  {
+   "key": "studentName",
+   "pdfName": "txtTexte3",
+   "type": "text",
+   "page": 1,
+   "rect": [
+    148.3,
+    548.7,
+    536.1,
+    562.7
+   ],
+   "multiline": false,
+   "align": "left",
+   "fontSize": 10
+  },
+  {
+   "key": "c1Date",
+   "pdfName": "txtTexteC1",
+   "type": "text",
+   "page": 1,
+   "rect": [
+    270.6,
+    457.6,
+    390.6,
+    471.6
+   ],
+   "multiline": false,
+   "align": "left",
+   "fontSize": 10
+  },
+  {
+   "key": "c1Mastery",
+   "pdfName": "CheckC1",
+   "type": "exclusiveCheckbox",
+   "page": 1,
+   "options": [
+    {
+     "exportValue": "Yes",
+     "rect": [
+      433.0,
+      457.3,
+      447.4,
+      471.7
+     ]
+    },
+    {
+     "exportValue": "No",
+     "rect": [
+      507.5,
+      457.3,
+      521.9,
+      471.7
+     ]
+    }
+   ]
+  },
+  {
+   "key": "c2Date",
+   "pdfName": "txtTexteC2",
+   "type": "text",
+   "page": 1,
+   "rect": [
+    270.6,
+    418.8,
+    390.6,
+    432.8
+   ],
+   "multiline": false,
+   "align": "left",
+   "fontSize": 10
+  },
+  {
+   "key": "c2Mastery",
+   "pdfName": "CheckC2",
+   "type": "exclusiveCheckbox",
+   "page": 1,
+   "options": [
+    {
+     "exportValue": "Yes",
+     "rect": [
+      433.0,
+      418.5,
+      447.4,
+      432.9
+     ]
+    },
+    {
+     "exportValue": "No",
+     "rect": [
+      507.5,
+      418.5,
+      521.9,
+      432.9
+     ]
+    }
+   ]
+  },
+  {
+   "key": "c3Date",
+   "pdfName": "txtTexteC3",
+   "type": "text",
+   "page": 1,
+   "rect": [
+    270.6,
+    380.6,
+    390.6,
+    394.6
+   ],
+   "multiline": false,
+   "align": "left",
+   "fontSize": 10
+  },
+  {
+   "key": "c3Mastery",
+   "pdfName": "CheckC3",
+   "type": "exclusiveCheckbox",
+   "page": 1,
+   "options": [
+    {
+     "exportValue": "Yes",
+     "rect": [
+      433.0,
+      380.4,
+      447.4,
+      394.8
+     ]
+    },
+    {
+     "exportValue": "No",
+     "rect": [
+      507.5,
+      380.4,
+      521.9,
+      394.8
+     ]
+    }
+   ]
+  },
+  {
+   "key": "c4Date",
+   "pdfName": "txtTexteC4",
+   "type": "text",
+   "page": 1,
+   "rect": [
+    270.6,
+    343.2,
+    390.6,
+    357.2
+   ],
+   "multiline": false,
+   "align": "left",
+   "fontSize": 10
+  },
+  {
+   "key": "c4Mastery",
+   "pdfName": "CheckC4",
+   "type": "exclusiveCheckbox",
+   "page": 1,
+   "options": [
+    {
+     "exportValue": "Yes",
+     "rect": [
+      433.0,
+      342.9,
+      447.4,
+      357.3
+     ]
+    },
+    {
+     "exportValue": "No",
+     "rect": [
+      507.5,
+      342.9,
+      521.9,
+      357.3
+     ]
+    }
+   ]
+  },
+  {
+   "key": "c5Date",
+   "pdfName": "txtTexteC5",
+   "type": "text",
+   "page": 1,
+   "rect": [
+    270.6,
+    306.2,
+    390.6,
+    320.2
+   ],
+   "multiline": false,
+   "align": "left",
+   "fontSize": 10
+  },
+  {
+   "key": "c5Mastery",
+   "pdfName": "CheckC5",
+   "type": "exclusiveCheckbox",
+   "page": 1,
+   "options": [
+    {
+     "exportValue": "Yes",
+     "rect": [
+      433.0,
+      305.9,
+      447.4,
+      320.3
+     ]
+    },
+    {
+     "exportValue": "No",
+     "rect": [
+      507.5,
+      305.9,
+      521.9,
+      320.3
+     ]
+    }
+   ]
+  },
+  {
+   "key": "c6Date",
+   "pdfName": "txtTexteC6",
+   "type": "text",
+   "page": 1,
+   "rect": [
+    270.6,
+    269.0,
+    390.6,
+    283.0
+   ],
+   "multiline": false,
+   "align": "left",
+   "fontSize": 10
+  },
+  {
+   "key": "c6Mastery",
+   "pdfName": "CheckC6",
+   "type": "exclusiveCheckbox",
+   "page": 1,
+   "options": [
+    {
+     "exportValue": "Yes",
+     "rect": [
+      433.0,
+      268.7,
+      447.4,
+      283.1
+     ]
+    },
+    {
+     "exportValue": "No",
+     "rect": [
+      507.5,
+      268.7,
+      521.9,
+      283.1
+     ]
+    }
+   ]
+  },
+  {
+   "key": "c7Date",
+   "pdfName": "txtTexteC7",
+   "type": "text",
+   "page": 1,
+   "rect": [
+    270.6,
+    232.0,
+    390.6,
+    246.0
+   ],
+   "multiline": false,
+   "align": "left",
+   "fontSize": 10
+  },
+  {
+   "key": "c7Mastery",
+   "pdfName": "CheckC7",
+   "type": "exclusiveCheckbox",
+   "page": 1,
+   "options": [
+    {
+     "exportValue": "Yes",
+     "rect": [
+      433.0,
+      231.7,
+      447.4,
+      246.1
+     ]
+    },
+    {
+     "exportValue": "No",
+     "rect": [
+      507.5,
+      231.7,
+      521.9,
+      246.1
+     ]
+    }
+   ]
+  },
+  {
+   "key": "c8Date",
+   "pdfName": "txtTexteC8",
+   "type": "text",
+   "page": 1,
+   "rect": [
+    270.6,
+    194.7,
+    390.6,
+    208.7
+   ],
+   "multiline": false,
+   "align": "center",
+   "fontSize": 10
+  },
+  {
+   "key": "c8Mastery",
+   "pdfName": "CheckC8",
+   "type": "exclusiveCheckbox",
+   "page": 1,
+   "options": [
+    {
+     "exportValue": "Yes",
+     "rect": [
+      433.0,
+      194.5,
+      447.4,
+      208.9
+     ]
+    },
+    {
+     "exportValue": "No",
+     "rect": [
+      508.0,
+      194.5,
+      522.4,
+      208.9
+     ]
+    }
+   ]
+  },
+  {
+   "key": "observation",
+   "pdfName": "Check9",
+   "type": "exclusiveCheckbox",
+   "page": 1,
+   "options": [
+    {
+     "exportValue": "Mastery",
+     "rect": [
+      226.7,
+      119.8,
+      241.1,
+      134.2
+     ]
+    },
+    {
+     "exportValue": "Needs work",
+     "rect": [
+      329.2,
+      119.8,
+      343.6,
+      134.2
+     ]
+    }
+   ]
+  },
+  {
+   "key": "notes",
+   "pdfName": "txtP2",
+   "type": "text",
+   "page": 2,
+   "rect": [
+    70.2,
+    256.0,
+    540.3,
+    675.5
+   ],
+   "multiline": true,
+   "align": "left",
+   "fontSize": 10
+  }
+ ]
+}
