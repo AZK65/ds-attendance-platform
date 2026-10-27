@@ -36,7 +36,6 @@ import {
   BookOpen,
   CheckCircle,
   XCircle,
-  AlertTriangle,
   Save,
   X,
   GraduationCap,
@@ -66,6 +65,8 @@ import { Rsep1ResultsSheetCard } from '@/components/Rsep1ResultsSheetCard'
 import { TheoryEvaluationsCard } from '@/components/TheoryEvaluationsCard'
 import { groupProfileResultsStudentId } from '@/lib/rsep1/group-profile'
 import { selectInvoiceForBalanceEdit } from '@/lib/invoice-match'
+import { ChangePhoneDialog } from '@/components/ChangePhoneDialog'
+import { PhoneChangeHistory } from '@/components/PhoneChangeHistory'
 
 interface Participant {
   id: string
@@ -1212,7 +1213,7 @@ export default function StudentDetailPage() {
   const [balanceSaving, setBalanceSaving] = useState(false)
   const [balanceError, setBalanceError] = useState<string | null>(null)
   const [editName, setEditName] = useState('')
-  const [editPhone, setEditPhone] = useState('')
+  const [phoneDialogOpen, setPhoneDialogOpen] = useState(false)
   const [certificateMenuOpen, setCertificateMenuOpen] = useState(false)
 
   // Fetch group data to get participant info
@@ -1528,11 +1529,11 @@ export default function StudentDetailPage() {
 
   // Edit mutation
   const editMutation = useMutation({
-    mutationFn: async ({ newPhone, newName }: { newPhone?: string; newName?: string }) => {
+    mutationFn: async ({ newName }: { newName?: string }) => {
       const res = await fetch(`/api/groups/${encodeURIComponent(groupId)}/members`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ contactId, newPhone, newName }),
+        body: JSON.stringify({ contactId, newName }),
       })
       if (!res.ok) {
         const data = await res.json()
@@ -1547,21 +1548,16 @@ export default function StudentDetailPage() {
   })
 
   const handleSaveEdit = () => {
-    const phoneChanged = editPhone !== phone
     const nameChanged = editName !== (participant?.name || '')
-    if (!phoneChanged && !nameChanged) {
+    if (!nameChanged) {
       setEditing(false)
       return
     }
-    editMutation.mutate({
-      newPhone: phoneChanged ? editPhone : undefined,
-      newName: nameChanged ? editName : undefined,
-    })
+    editMutation.mutate({ newName: editName })
   }
 
   const startEditing = () => {
     setEditName(participant?.name || participant?.pushName || '')
-    setEditPhone(phone)
     setEditing(true)
     editMutation.reset()
   }
@@ -1775,6 +1771,10 @@ export default function StudentDetailPage() {
                   <Edit3 className="mr-1 h-4 w-4" />
                   Edit
                 </Button>
+                <Button variant="ghost" size="sm" className="text-muted-foreground hover:text-foreground" onClick={() => setPhoneDialogOpen(true)} data-testid="open-change-phone">
+                  <Phone className="mr-1 h-4 w-4" />
+                  Change phone number
+                </Button>
               </nav>
             )}
           </section>
@@ -1835,21 +1835,12 @@ export default function StudentDetailPage() {
           className="border rounded-lg p-4 space-y-4"
         >
           <h3 className="font-medium">Edit Student Info</h3>
-          {editPhone !== phone && (
-            <div className="flex items-center gap-2 p-2 bg-yellow-50 border border-yellow-200 rounded text-sm text-yellow-800">
-              <AlertTriangle className="h-4 w-4 flex-shrink-0" />
-              Changing the phone will remove the old number and add the new one to the WhatsApp group.
-            </div>
-          )}
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-            <div>
-              <Label className="text-sm">Name</Label>
-              <Input value={editName} onChange={e => setEditName(e.target.value)} placeholder="Student name" />
-            </div>
-            <div>
-              <Label className="text-sm">Phone</Label>
-              <Input value={editPhone} onChange={e => setEditPhone(e.target.value)} placeholder="Phone number" />
-            </div>
+          <p className="text-sm text-muted-foreground">
+            Phone numbers are changed with Change phone number, so the old WhatsApp contact and attendance stay in place.
+          </p>
+          <div>
+            <Label className="text-sm">Name</Label>
+            <Input value={editName} onChange={e => setEditName(e.target.value)} placeholder="Student name" />
           </div>
           {editMutation.isError && (
             <p className="text-sm text-destructive">
@@ -1868,6 +1859,29 @@ export default function StudentDetailPage() {
           </div>
         </motion.div>
       )}
+
+      <PhoneChangeHistory
+        externalStudentId={profileData?.dbStudent?.student_id}
+        localStudentId={profileData?.localStudent?.id}
+        contactId={contactId}
+        phone={phone}
+      />
+
+      <ChangePhoneDialog
+        open={phoneDialogOpen}
+        onOpenChange={setPhoneDialogOpen}
+        subject={{
+          oldPhone: phone,
+          name: displayName,
+          externalStudentId: profileData?.dbStudent?.student_id,
+          localStudentId: profileData?.localStudent?.id,
+          contactId,
+        }}
+        onChanged={() => {
+          queryClient.invalidateQueries({ queryKey: ['group', groupId] })
+          queryClient.invalidateQueries({ queryKey: ['student-profile'] })
+        }}
+      />
 
       {/* Info Cards */}
       {!loadingGroup && (

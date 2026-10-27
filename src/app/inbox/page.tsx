@@ -13,8 +13,9 @@ import {
   Search, Send, ArrowLeft, Users, User, Wifi, WifiOff,
   Loader2, MessageCircle, ImageIcon, FileText, Mic, Video,
   Bot, Pause, Play, AlertCircle, CalendarClock, CalendarPlus,
-  CalendarX, RefreshCw, ExternalLink, Paperclip, X, Download
+  CalendarX, RefreshCw, ExternalLink, Paperclip, X, Download, Phone
 } from 'lucide-react'
+import { ChangePhoneDialog } from '@/components/ChangePhoneDialog'
 
 // ── Bot state (per-conversation) ───────────────────────────────
 
@@ -508,6 +509,7 @@ function MessageBubble({
 
 export default function InboxPage() {
   const [selectedChatId, setSelectedChatId] = useState<string | null>(null)
+  const [phoneDialogOpen, setPhoneDialogOpen] = useState(false)
   const [selectedSystemMessage, setSelectedSystemMessage] = useState<Message | null>(null)
   const [openImage, setOpenImage] = useState<{ url: string; name: string } | null>(null)
   const [searchTerm, setSearchTerm] = useState('')
@@ -906,6 +908,18 @@ export default function InboxPage() {
                 </p>
               </div>
 
+              {!selectedChat?.isGroup && selectedChatId && (
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="h-8 shrink-0 gap-1.5 px-2.5 text-xs"
+                  onClick={() => setPhoneDialogOpen(true)}
+                >
+                  <Phone className="h-3.5 w-3.5" />
+                  <span className="hidden sm:inline">Change number</span>
+                </Button>
+              )}
+
               {selectedChat?.isGroup && selectedChatId && (
                 <Button asChild size="sm" variant="outline" className="h-8 shrink-0 gap-1.5 px-2.5 text-xs">
                   <Link href={`/groups/${encodeURIComponent(selectedChatId)}`}>
@@ -1185,6 +1199,20 @@ export default function InboxPage() {
           </div>
         </DialogContent>
       </Dialog>
+
+      <ChangePhoneDialog
+        open={phoneDialogOpen}
+        onOpenChange={setPhoneDialogOpen}
+        subject={selectedChatId && !selectedChat?.isGroup ? {
+          oldPhone: selectedPhone,
+          name: selectedChat?.name,
+          contactId: selectedChatId,
+          localStudentId: selectedBotState?.studentId,
+        } : null}
+        onChanged={() => {
+          queryClient.invalidateQueries({ queryKey: ['inbox-chats'] })
+        }}
+      />
     </div>
   )
 }

@@ -1115,3 +1115,34 @@ model Rsep1TheoryEvaluation {
   @@unique([sheetId, competency])
   @@index([externalStudentId])
 }
+
+// Staff phone-number changes. New table only — startup runs
+// `prisma db push --accept-data-loss`, so this must stay additive.
+model PhoneChangeLog {
+  id                 String   @id @default(cuid())
+  oldPhone           String
+  newPhone           String
+  actorSessionId     String?
+  actorLabel         String?
+  externalStudentId  Int?
+  localStudentId     String?
+  contactId          String?
+  studentName        String?
+  // JSON: records created, updated, and deliberately kept.
+  recordsUpdated     String
+  whatsappRegistered Boolean?
+  whatsappDetail     String?
+  // JSON array of other students/contacts that already had the new number.
+  duplicateWarning   String?
+  // none | invite | direct_add
+  groupAction        String   @default("none")
+  groupActionDetail  String?
+  createdAt          DateTime @default(now())
+
+  @@index([externalStudentId])
+  @@index([localStudentId])
+  @@index([contactId])
+  @@index([oldPhone])
+  @@index([newPhone])
+  @@index([createdAt])
+}

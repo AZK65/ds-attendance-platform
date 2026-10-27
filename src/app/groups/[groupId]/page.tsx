@@ -63,7 +63,9 @@ import {
   Copy,
   MoreHorizontal,
   ScanLine,
+  Phone,
 } from 'lucide-react'
+import { ChangePhoneDialog } from '@/components/ChangePhoneDialog'
 import { Input } from '@/components/ui/input'
 import Link from 'next/link'
 import { motion } from 'motion/react'
@@ -172,6 +174,7 @@ export default function GroupDetailPage() {
 
   const [showAddModal, setShowAddModal] = useState(false)
   const [removeConfirm, setRemoveConfirm] = useState<string | null>(null)
+  const [phoneTarget, setPhoneTarget] = useState<{ oldPhone: string; name?: string | null; contactId?: string | null } | null>(null)
   const [showSendClassMessage, setShowSendClassMessage] = useState(false)
   const [messageSentSuccess, setMessageSentSuccess] = useState(false)
   const [showZoomAttendance, setShowZoomAttendance] = useState(false)
@@ -1185,6 +1188,19 @@ export default function GroupDetailPage() {
                       )}
                     </TableCell>
                     <TableCell>
+                      <div className="flex items-center">
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        title="Change phone number"
+                        onClick={() => setPhoneTarget({
+                          oldPhone: participant.phone,
+                          name: getDisplayName(participant),
+                          contactId: participant.id,
+                        })}
+                      >
+                        <Phone className="h-4 w-4" />
+                      </Button>
                       <Button
                         variant="ghost"
                         size="icon"
@@ -1201,6 +1217,7 @@ export default function GroupDetailPage() {
                       >
                         <Trash2 className="h-4 w-4" />
                       </Button>
+                      </div>
                     </TableCell>
                   </MotionTableRow>
                 ))}
@@ -1244,6 +1261,17 @@ export default function GroupDetailPage() {
                     </TableCell>
                     <TableCell>
                       <div className="flex items-center">
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          title="Change phone number"
+                          onClick={() => setPhoneTarget({
+                            oldPhone: invite.phone,
+                            name: invite.name,
+                          })}
+                        >
+                          <Phone className="h-4 w-4" />
+                        </Button>
                         <Button
                           variant="ghost"
                           size="icon"
@@ -1293,6 +1321,15 @@ export default function GroupDetailPage() {
           onOpenChange={setShowSchedule}
         />
       )}
+
+      <ChangePhoneDialog
+        open={phoneTarget !== null}
+        onOpenChange={(open) => { if (!open) setPhoneTarget(null) }}
+        subject={phoneTarget}
+        onChanged={() => {
+          queryClient.invalidateQueries({ queryKey: ['group', groupId] })
+        }}
+      />
 
       <Dialog
         open={removeConfirm !== null}
