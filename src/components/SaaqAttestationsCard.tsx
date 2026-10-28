@@ -50,16 +50,6 @@ interface Overview {
   slots: { theory: Slot; practical: Slot }
 }
 
-const ACTION_LABEL: Record<FileItem['action'], string> = {
-  uploaded: 'Uploaded',
-  replaced: 'Replaced',
-  removed: 'Removed',
-}
-
-function formatWhen(iso: string) {
-  return new Date(iso).toLocaleString('en-CA', { timeZone: 'America/Toronto' })
-}
-
 function formatDay(ymd: string | null) {
   if (!ymd) return '—'
   const [year, month, day] = ymd.split('-').map(Number)
@@ -72,10 +62,13 @@ function formatDay(ymd: string | null) {
   })
 }
 
-function formatSize(bytes: number) {
-  if (bytes < 1024) return `${bytes} B`
-  if (bytes < 1024 * 1024) return `${Math.round(bytes / 1024)} KB`
-  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`
+function formatStamp(iso: string) {
+  return new Date(iso).toLocaleDateString('en-CA', {
+    timeZone: 'America/Toronto',
+    year: 'numeric',
+    month: 'short',
+    day: 'numeric',
+  })
 }
 
 function fileHref(studentId: string, fileId: string, download = false) {
@@ -111,9 +104,6 @@ export function SaaqAttestationsCard({ studentId }: { studentId: string }) {
         </CardTitle>
       </CardHeader>
       <CardContent className="space-y-4">
-        <p className="text-xs text-muted-foreground">
-          Stored copy of the SAAQ-issued document. Does not change exam eligibility.
-        </p>
         {query.isLoading && <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />}
         {query.isError && <p className="text-sm text-destructive">{(query.error as Error).message}</p>}
         {query.data && (
@@ -177,13 +167,7 @@ function SlotPanel({
       </div>
 
       {slot.current && (
-        <>
-          <p className="text-xs text-muted-foreground">Uploaded · {formatWhen(slot.current.uploadedAt)}</p>
-          <FileFacts file={slot.current} />
-        </>
-      )}
-      {slot.current && !slot.current.available && (
-        <p className="text-xs text-destructive">The saved file is missing from disk. You can remove the record.</p>
+        <p className="break-all text-sm" data-testid={`saaq-filename-${slot.kind}`}>{slot.current.originalName}</p>
       )}
 
       <div className="flex flex-wrap gap-2">
@@ -225,65 +209,7 @@ function SlotPanel({
         )}
       </div>
 
-      {slot.current?.mimeType === 'image/heic' && (
-        <p className="text-xs text-muted-foreground">HEIC preview may not open in this browser. Download still works.</p>
-      )}
-
-      {slot.dateChanges.length > 0 && (
-        <ul className="space-y-1 text-xs text-muted-foreground" data-testid={`saaq-date-log-${slot.kind}`}>
-          {slot.dateChanges.map(change => (
-            <li key={`${change.at}-${change.reason}`}>
-              Date changed {formatWhen(change.at)}: {formatDay(change.before)} → {formatDay(change.after)}. {change.reason}
-            </li>
-          ))}
-        </ul>
-      )}
-
-      <div data-testid={`saaq-history-${slot.kind}`}>
-        <p className="text-xs font-medium">History ({slot.history.length})</p>
-        {slot.history.length === 0 ? (
-          <p className="mt-1 text-xs text-muted-foreground">No earlier versions.</p>
-        ) : (
-          <ul className="mt-2 space-y-3">
-            {slot.history.map(file => (
-              <li key={file.id} className="rounded-md border border-dashed p-2 text-xs">
-                <p className="font-medium">
-                  {ACTION_LABEL[file.action]} · {formatWhen(file.actionAt)}
-                </p>
-                {file.action !== 'uploaded' && (
-                  <p className="text-muted-foreground">Uploaded · {formatWhen(file.uploadedAt)}</p>
-                )}
-                <FileFacts file={file} />
-                {file.replaceReason && <p className="mt-1 text-muted-foreground">Replace reason: {file.replaceReason}</p>}
-                {file.deletedReason && <p className="mt-1 text-muted-foreground">Delete reason: {file.deletedReason}</p>}
-                <div className="mt-2 flex flex-wrap gap-2">
-                  {file.available && (
-                    <>
-                      <Button size="sm" variant="outline" className="h-7" asChild>
-                        <a href={fileHref(studentId, file.id)} target="_blank" rel="noopener">View</a>
-                      </Button>
-                      <Button size="sm" variant="outline" className="h-7" asChild>
-                        <a href={fileHref(studentId, file.id, true)}>Download</a>
-                      </Button>
-                    </>
-                  )}
-                  {file.available && (
-                    <Button
-                      type="button"
-                      size="sm"
-                      variant="outline"
-                      className="h-7 text-destructive"
-                      onClick={() => setDeleteTarget(file)}
-                    >
-                      Remove file
-                    </Button>
-                  )}
-                </div>
-              </li>
-            ))}
-          </ul>
-        )}
-      </div>
+      <HistoryList studentId={studentId} slot={slot} />
 
       <UploadDialog
         open={uploadOpen}
@@ -316,13 +242,42 @@ function SlotPanel({
   )
 }
 
-function FileFacts({ file }: { file: FileItem }) {
+function HistoryList({ studentId, slot }: { studentId: string; slot: Slot }) {
+  const lines = [
+    ...slot.history.map(file => ({ kind: 'file' as const, at: file.actionAt, file })),
+    ...slot.dateChanges.map(change => ({ kind: 'date' as const, at: change.at, change })),
+  ].sort((a, b) => b.at.localeCompare(a.at))
+  if (lines.length === 0) return null
+
   return (
-    <div className="space-y-0.5 text-xs text-muted-foreground">
-      <p className="break-all text-foreground">{file.originalName}</p>
-      <p>{formatSize(file.sizeBytes)} · version {file.version}</p>
-      <p className="break-all font-mono" title={file.sha256}>{file.sha256}</p>
-    </div>
+    <details className="text-sm" data-testid={`saaq-history-${slot.kind}`}>
+      <summary className="cursor-pointer text-muted-foreground">History ({lines.length})</summary>
+      <ul className="mt-2 space-y-2">
+        {lines.map(line => line.kind === 'file' ? (
+          <li key={line.file.id} className="flex flex-wrap items-center gap-x-3 gap-y-1">
+            <span className="min-w-0 break-all">
+              {line.file.action === 'removed' ? `Removed ${line.file.originalName}` : line.file.originalName}
+              {' · '}
+              {formatStamp(line.at)}
+            </span>
+            {line.file.available && (
+              <span className="flex gap-2">
+                <Button size="sm" variant="outline" className="h-7" asChild>
+                  <a href={fileHref(studentId, line.file.id)} target="_blank" rel="noopener">View</a>
+                </Button>
+                <Button size="sm" variant="outline" className="h-7" asChild>
+                  <a href={fileHref(studentId, line.file.id, true)}>Download</a>
+                </Button>
+              </span>
+            )}
+          </li>
+        ) : (
+          <li key={`${line.change.at}-${line.change.before}-${line.change.after}`}>
+            Date changed {formatDay(line.change.before)} → {formatDay(line.change.after)}
+          </li>
+        ))}
+      </ul>
+    </details>
   )
 }
 
