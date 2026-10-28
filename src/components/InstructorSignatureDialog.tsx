@@ -119,7 +119,7 @@ export function InstructorSignatureDialog({
           <DialogTitle>{title || `Instructor signature — ${selectedName}`}</DialogTitle>
           <DialogDescription>
             {addedLater
-              ? 'This lesson was already signed by the student. The booklet will note the date this instructor signature was added.'
+              ? 'This lesson was already signed by the student. The date this instructor signature was added is kept on the record.'
               : studentPhones.length > 1
                 ? `One drawing is saved for ${studentPhones.length} students who signed this lesson.`
                 : 'Draw the instructor signature for this lesson.'}

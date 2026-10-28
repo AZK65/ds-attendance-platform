@@ -7,7 +7,8 @@
  *   npx tsx scripts/render-booklet-preview.ts fixture.json --legacy --out /tmp/booklets
  *   npx tsx scripts/render-booklet-preview.ts fixture.json --all --out /tmp/booklets
  *
- * --samples applies fixture.samples (instructor drawings, one added later, one practical row).
+ * --samples applies fixture.samples (instructor drawings, including one stored as added later, and one practical row).
+ * addedLater stays in the fixture. The booklet does not print that date.
  * --legacy renders with main's booklet code, for a before/after comparison.
  * --all writes the plain after PDF, the samples after PDF, and the legacy before PDF.
  */
@@ -16,6 +17,7 @@ import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'nod
 import path from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { buildSignatureAttendancePdf, type AttendancePdfInput, type AttendanceSignatureInput } from '../src/lib/signature-attendance-pdf'
+import { lessonNetLabel } from '../src/lib/theory-hours'
 
 interface FixtureSession {
   sessionNumber: number
@@ -44,6 +46,8 @@ interface FixtureSignature {
   signatureDataUrl: string
   signedAt: string
   scheduledStart?: string | null
+  scheduledEnd?: string | null
+  netLabel?: string | null
   instructorName?: string | null
   instructorNo?: string | null
   instructorSignatureDataUrl?: string | null
@@ -88,6 +92,7 @@ function toSignature(row: FixtureSignature, studentName: string): AttendanceSign
     signatureDataUrl: row.signatureDataUrl,
     signedAt: new Date(row.signedAt),
     scheduledStart: row.scheduledStart ?? null,
+    netLabel: row.netLabel?.trim() || lessonNetLabel(row.scheduledStart, row.scheduledEnd),
     instructorName: row.instructorName ?? null,
     instructorNo: row.instructorNo ?? null,
     instructorSignatureDataUrl: row.instructorSignatureDataUrl ?? null,
@@ -109,7 +114,7 @@ function materialize(fixture: Fixture, samples: boolean): AttendancePdfInput {
       const session = theory.sessions.find(row => row.sessionNumber === sample.sessionNumber)
       if (!session) continue
       session.instructorSignatureDataUrl = fixture.samples.instructorSignatureDataUrl || session.instructorSignatureDataUrl || null
-      session.instructorSignedOn = sample.addedLater ? (sample.signedOn || null) : null
+      session.instructorSignedOn = null
     }
     if (fixture.samples.practical) signatures.push({ ...fixture.samples.practical })
   }
@@ -125,6 +130,8 @@ function materialize(fixture: Fixture, samples: boolean): AttendancePdfInput {
         signatureDataUrl: session.signatureDataUrl,
         signedAt: session.signedAt,
         scheduledStart: `${session.date} ${session.startTime}`,
+        scheduledEnd: `${session.date} ${session.endTime}`,
+        netLabel: session.netLabel,
         instructorName: session.instructorName,
         instructorNo: session.instructorNo,
         instructorSignatureDataUrl: session.instructorSignatureDataUrl,

@@ -49,6 +49,11 @@ export function formatSignedOn(value: Date | string): string {
   }).format(date)
 }
 
+/** Class 1 header. "15 theory · 1 practical" — signed lessons, not one combined total. */
+export function formatClass1SignedCounts(theorySigned: number, practicalSigned: number): string {
+  return `${theorySigned} theory · ${practicalSigned} practical`
+}
+
 /** "Instructor: Abdul Rahman Ahmed Qazi. Instructor no.: Pending" */
 export function formatBookletInstructorLine(name: string, saaqInstructorNo?: string | null): string {
   const number = saaqInstructorNo?.trim() || 'Pending'

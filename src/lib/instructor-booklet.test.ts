@@ -7,9 +7,9 @@ import { before, test } from 'node:test'
 import { fileURLToPath } from 'node:url'
 import { NextRequest } from 'next/server'
 import { PDFDocument } from 'pdf-lib'
-import { formatBookletDateTime, formatBookletInstructorLine, formatScheduledStart } from './booklet-format'
-import { buildSignatureAttendancePdf } from './signature-attendance-pdf'
-import { AHMED_INSTRUCTOR } from './theory-hours'
+import { formatBookletDateTime, formatBookletInstructorLine, formatClass1SignedCounts, formatScheduledStart } from './booklet-format'
+import { buildSignatureAttendancePdf, countClass1SignedLessons } from './signature-attendance-pdf'
+import { AHMED_INSTRUCTOR, TEMPLATE_V1, TEMPLATE_V2, breaksForDay, formatNet, lessonNetLabel, netMinutes } from './theory-hours'
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..')
 const dbDir = mkdtempSync(path.join(tmpdir(), 'instructor-booklet-'))
@@ -54,6 +54,79 @@ test('booklet date is the scheduled start, and a missing number prints Pending',
     formatBookletInstructorLine('Abdul Rahman Ahmed Qazi', '12345'),
     'Instructor: Abdul Rahman Ahmed Qazi. Instructor no.: 12345',
   )
+})
+
+test('formatNet is the booklet net length: breaks and lunch are excluded', () => {
+  assert.equal(formatNet(225), '3h45')
+  assert.equal(formatNet(450), '7h30')
+  assert.equal(formatNet(netMinutes('17:30', '21:30', breaksForDay(TEMPLATE_V1, 2))), '3h45')
+  assert.equal(formatNet(netMinutes('17:30', '21:30', breaksForDay(TEMPLATE_V2, 2))), '3h45')
+  assert.equal(formatNet(netMinutes('09:00', '18:00', breaksForDay(TEMPLATE_V1, 6))), '7h30')
+  assert.equal(formatNet(netMinutes('08:30', '17:30', breaksForDay(TEMPLATE_V2, 6))), '7h30')
+  assert.equal(lessonNetLabel('09:00', '11:00'), '2h00')
+  assert.equal(lessonNetLabel('2026-09-12T09:00:00', '2026-09-12T11:00:00'), '2h00')
+  assert.equal(lessonNetLabel('09:00', null), null)
+  assert.equal(lessonNetLabel(null, '11:00'), null)
+})
+
+test('Class 1 header counts signed theory and practical separately, and does not print an added-later date', () => {
+  assert.equal(formatClass1SignedCounts(15, 1), '15 theory · 1 practical')
+  assert.equal(formatClass1SignedCounts(15, 0), '15 theory · 0 practical')
+  const withProgram = countClass1SignedLessons({
+    theory: {
+      sessions: [
+        { basis: 'signature', signatureDataUrl: PNG },
+        { basis: 'admin_confirmed', signatureDataUrl: null },
+      ],
+    },
+    signatures: [
+      {
+        eventId: 'theory-1',
+        studentName: 'Vikrant Thakur',
+        sessionLabel: 'Class 1 Theory 1',
+        moduleNumber: null,
+        sortieNumber: null,
+        signatureDataUrl: PNG,
+        signedAt: new Date('2026-08-04T21:30:00-04:00'),
+        instructorSignedOn: 'Oct 28, 2026',
+      },
+      {
+        eventId: 'practical-1',
+        studentName: 'Vikrant Thakur',
+        sessionLabel: 'Truck Class 1 (Auto)',
+        moduleNumber: null,
+        sortieNumber: 1,
+        signatureDataUrl: PNG,
+        signedAt: new Date('2026-09-12T11:05:00-04:00'),
+        instructorSignedOn: 'Oct 28, 2026',
+      },
+    ],
+  })
+  assert.deepEqual(withProgram, { theory: 1, practical: 1 })
+  const fromSignatures = countClass1SignedLessons({
+    theory: null,
+    signatures: withProgram && [
+      {
+        eventId: 'theory-2',
+        studentName: 'Vikrant Thakur',
+        sessionLabel: 'Class 1 Theory 2',
+        moduleNumber: null,
+        sortieNumber: null,
+        signatureDataUrl: PNG,
+        signedAt: new Date('2026-08-06T21:30:00-04:00'),
+      },
+      {
+        eventId: 'practical-2',
+        studentName: 'Vikrant Thakur',
+        sessionLabel: 'Practical Class 2',
+        moduleNumber: null,
+        sortieNumber: null,
+        signatureDataUrl: PNG,
+        signedAt: new Date('2026-09-13T09:00:00-04:00'),
+      },
+    ],
+  })
+  assert.deepEqual(fromSignatures, { theory: 1, practical: 1 })
 })
 
 test('Class 1 booklet PDF renders', async () => {

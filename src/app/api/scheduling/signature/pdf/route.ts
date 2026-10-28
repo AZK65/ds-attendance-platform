@@ -1,8 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/db'
-import { formatSignedOn } from '@/lib/booklet-format'
 import { buildSignatureAttendancePdf, type AttendanceSignatureInput, type TheoryBooklet } from '@/lib/signature-attendance-pdf'
 import { getTheoryProgress } from '@/lib/theory-progress'
+import { lessonNetLabel } from '@/lib/theory-hours'
 
 function last10(value: string): string {
   const digits = value.replace(/\D/g, '')
@@ -89,8 +89,9 @@ export async function GET(request: NextRequest) {
         instructorName: name,
         instructorNo: instructor?.saaqInstructorNo || null,
         instructorSignatureDataUrl: signed?.signatureDataUrl || null,
-        instructorSignedOn: signed?.addedLater ? formatSignedOn(signed.signedAt) : null,
+        instructorSignedOn: null,
         scheduledStart: signed?.lessonStartAt?.trim() || snapshotByEvent.get(eventId)?.startDt || null,
+        netLabel: lessonNetLabel(snapshotByEvent.get(eventId)?.startDt, snapshotByEvent.get(eventId)?.endDt),
       }
     }
     bookletSignatures = signatures.map(signature => ({

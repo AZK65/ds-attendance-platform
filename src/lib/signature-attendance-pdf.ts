@@ -3,6 +3,7 @@ import { Document, Page, Text, View, Image, StyleSheet, renderToBuffer } from '@
 import {
   formatBookletDateTime,
   formatBookletInstructorLine,
+  formatClass1SignedCounts,
   formatScheduledStart,
   formatSignedAtFallback,
   instructorNumberLabel,
@@ -21,8 +22,10 @@ export interface AttendanceSignatureInput {
   instructorName?: string | null
   instructorNo?: string | null
   instructorSignatureDataUrl?: string | null
-  /** Set when the instructor signature was added after the lesson. Already formatted. */
+  /** Kept for callers. The booklet does not print it. */
   instructorSignedOn?: string | null
+  /** Net length such as "2h00". Blank on the booklet when null. */
+  netLabel?: string | null
 }
 
 export interface TheoryBookletSession {
@@ -79,6 +82,7 @@ type TruckRow = {
   instructorNo: string | null
   instructorSignature: string | null
   instructorSignedOn: string | null
+  netLabel: string | null
 }
 
 const dateText = (value: Date) => value.toLocaleDateString('en-CA', {
@@ -96,8 +100,6 @@ const styles = StyleSheet.create({
   title: { fontSize: 17, fontWeight: 'bold' },
   subtitle: { fontSize: 8.5, color: '#666666', marginTop: 4 },
   totalBlock: { alignItems: 'flex-end' },
-  totalNumber: { fontSize: 17, fontWeight: 'bold' },
-  totalLabel: { fontSize: 7.5, color: '#666666', marginTop: 2 },
   metricRow: { flexDirection: 'row', gap: 8, marginBottom: 16 },
   metric: { flex: 1, padding: 10, backgroundColor: '#f4f4f5', borderRadius: 5 },
   metricLabel: { fontSize: 7, color: '#666666', letterSpacing: 0.7, marginBottom: 3 },
@@ -125,7 +127,7 @@ const styles = StyleSheet.create({
   truckInstructor: { width: 112, paddingVertical: 4, paddingHorizontal: 4, fontSize: 6.5 },
   truckSig: { flex: 1, paddingVertical: 2, paddingHorizontal: 4 },
   truckSigImage: { height: 26, maxWidth: 130, objectFit: 'contain' as const, objectPosition: 'left center' as const },
-  signedLater: { fontSize: 5.5, color: '#71717a', marginTop: 1 },
+  truckSignedCounts: { fontSize: 11, fontWeight: 'bold' as const, textAlign: 'right' as const },
   pending: { fontSize: 7, color: '#71717a' },
 })
 
@@ -163,6 +165,7 @@ function truckRows(signatures: AttendanceSignatureInput[]) {
       instructorNo: signature.instructorNo || null,
       instructorSignature: signature.instructorSignatureDataUrl || null,
       instructorSignedOn: signature.instructorSignedOn || null,
+      netLabel: signature.netLabel?.trim() || null,
     }
     if (theoryMatch) theory.push(row)
     else if (practicalMatch || signature.sortieNumber != null) practical.push(row)
@@ -187,6 +190,11 @@ const theoryCell = (session: TheoryBookletSession) => {
   return React.createElement(Text, null, session.displayEn)
 }
 
+const classNameCell = (label: string, netLabel?: string | null) => React.createElement(View, { style: styles.truckLabel },
+  React.createElement(Text, null, label),
+  netLabel?.trim() ? React.createElement(Text, { style: styles.pending }, netLabel.trim()) : null,
+)
+
 const instructorNameCell = (name: string | null | undefined, number: string | null | undefined) => {
   if (!name?.trim()) return React.createElement(Text, { style: styles.pending }, 'Pending')
   return React.createElement(View, null,
@@ -195,12 +203,9 @@ const instructorNameCell = (name: string | null | undefined, number: string | nu
   )
 }
 
-const instructorSignatureCell = (src: string | null | undefined, signedOn: string | null | undefined) => {
+const instructorSignatureCell = (src: string | null | undefined) => {
   if (!src) return React.createElement(Text, { style: styles.pending }, '—')
-  return React.createElement(View, null,
-    React.createElement(Image, { src, style: styles.truckSigImage }),
-    signedOn ? React.createElement(Text, { style: styles.signedLater }, `signed on ${signedOn}`) : null,
-  )
+  return React.createElement(Image, { src, style: styles.truckSigImage })
 }
 
 const TruckTableHeader = () => React.createElement(View, { style: [styles.row, styles.headerRowTable], fixed: true },
@@ -214,29 +219,46 @@ const TruckTableHeader = () => React.createElement(View, { style: [styles.row, s
 const TruckSignatureTable = ({ rows }: { rows: TruckRow[] }) => React.createElement(View, { style: styles.table },
   React.createElement(TruckTableHeader),
   ...rows.map((row, index) => React.createElement(View, { key: `${row.label}-${index}`, style: styles.row, wrap: false },
-    React.createElement(Text, { style: styles.truckLabel }, row.label),
+    classNameCell(row.label, row.netLabel),
     React.createElement(Text, { style: styles.truckDate }, row.date),
     React.createElement(View, { style: styles.truckSig },
       React.createElement(Image, { src: row.signature, style: styles.truckSigImage }),
     ),
     React.createElement(View, { style: styles.truckInstructor }, instructorNameCell(row.instructorName, row.instructorNo)),
-    React.createElement(View, { style: styles.truckSig }, instructorSignatureCell(row.instructorSignature, row.instructorSignedOn)),
+    React.createElement(View, { style: styles.truckSig }, instructorSignatureCell(row.instructorSignature)),
   )),
 )
 
 const TheorySessionTable = ({ sessions }: { sessions: TheoryBookletSession[] }) => React.createElement(View, { style: styles.table },
   React.createElement(TruckTableHeader),
   ...sessions.map(session => React.createElement(View, { key: `theory-${session.sessionNumber}`, style: styles.row, wrap: false },
-    React.createElement(Text, { style: styles.truckLabel }, `Theory class ${session.sessionNumber}`),
+    classNameCell(`Theory class ${session.sessionNumber}`, session.netLabel),
     React.createElement(Text, { style: styles.truckDate }, formatBookletDateTime(session.date, session.startTime)),
     React.createElement(View, { style: styles.truckSig }, theoryCell(session)),
     React.createElement(View, { style: styles.truckInstructor }, instructorNameCell(session.instructorName, session.instructorNo)),
-    React.createElement(View, { style: styles.truckSig }, instructorSignatureCell(session.instructorSignatureDataUrl, session.instructorSignedOn)),
+    React.createElement(View, { style: styles.truckSig }, instructorSignatureCell(session.instructorSignatureDataUrl)),
   )),
 )
 
+function theorySessionSigned(session: { basis: string; signatureDataUrl?: string | null }): boolean {
+  return session.basis === 'signature' || !!session.signatureDataUrl
+}
+
+/** Signed theory classes and signed practical lessons. Theory sessions win when the booklet has them, so the same lesson is not counted twice from ClassSignature. */
+export function countClass1SignedLessons(input: {
+  theory?: { sessions: Array<{ basis: string; signatureDataUrl?: string | null }> } | null
+  signatures: AttendanceSignatureInput[]
+}): { theory: number; practical: number } {
+  const rows = truckRows(input.signatures)
+  const theory = input.theory && input.theory.sessions.length > 0
+    ? input.theory.sessions.filter(theorySessionSigned).length
+    : rows.theory.length
+  return { theory, practical: rows.practical.length }
+}
+
 const TruckDocument = ({ signatures, studentName, phone, theory }: Omit<AttendancePdfInput, 'isTruck'>) => {
   const rows = truckRows(signatures)
+  const signedCounts = countClass1SignedLessons({ theory, signatures })
   const theorySection = theory && theory.sessions.length > 0
     ? React.createElement(View, { style: styles.section },
       React.createElement(View, { style: styles.sectionHeader },
@@ -270,8 +292,7 @@ const TruckDocument = ({ signatures, studentName, phone, theory }: Omit<Attendan
           React.createElement(Text, { style: styles.subtitle }, `Student: ${studentName}   Phone: ${phone}`),
         ),
         React.createElement(View, { style: styles.totalBlock },
-          React.createElement(Text, { style: styles.totalNumber }, `${signatures.length}`),
-          React.createElement(Text, { style: styles.totalLabel }, 'SIGNED CLASSES'),
+          React.createElement(Text, { style: styles.truckSignedCounts }, formatClass1SignedCounts(signedCounts.theory, signedCounts.practical)),
         ),
       ),
       React.createElement(View, { style: styles.metricRow },

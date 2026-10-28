@@ -194,6 +194,31 @@ export function formatNet(minutes: number): string {
   return `${h}h${String(rem).padStart(2, '0')}`
 }
 
+function asHhmm(value: string): string | null {
+  const match = value.trim().match(/(?:^|[T ])(\d{2}:\d{2})(?::\d{2})?/)
+  return match ? match[1] : null
+}
+
+/**
+ * Net length of one lesson, formatted by formatNet.
+ * Minutes come from netMinutes: breaks and lunch in `breaks` are excluded.
+ * Practical lessons pass no breaks, so the label is the clock length.
+ * Missing start or end, or a zero window, returns null.
+ */
+export function lessonNetLabel(
+  start: string | null | undefined,
+  end: string | null | undefined,
+  breaks: TheoryBreak[] = [],
+): string | null {
+  if (!start?.trim() || !end?.trim()) return null
+  const startTime = asHhmm(start)
+  const endTime = asHhmm(end)
+  if (!startTime || !endTime) return null
+  const minutes = netMinutes(startTime, endTime, breaks)
+  if (minutes <= 0) return null
+  return formatNet(minutes)
+}
+
 /** 225 → "3 h 45". Used in French copy. */
 export function formatNetFr(minutes: number): string {
   const m = Math.max(0, Math.round(minutes))
