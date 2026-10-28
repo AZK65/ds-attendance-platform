@@ -8,6 +8,7 @@
     "start": "next start",
     "lint": "eslint",
     "test:rsep1": "tsx --test src/lib/rsep1/rsep1.test.ts",
+    "test:saaq": "tsx --test src/lib/saaq-attestations/saaq-attestations.test.ts",
     "test:phone-change": "tsx --test src/lib/phone-change.test.ts",
     "postinstall": "patch-package"
   },

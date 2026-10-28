@@ -17,6 +17,8 @@ import { namesEqual, phoneLast10 } from '@/lib/student-match'
 import { resolveClass1 } from '@/lib/rsep1/access'
 import { Rsep1Error } from '@/lib/rsep1/errors'
 import { pdfForStudent } from '@/lib/rsep1/store'
+import { attestationsExplicitlyRequested } from '@/lib/saaq-attestations/sniff'
+import { currentAttestationFiles } from '@/lib/saaq-attestations/store'
 
 export const runtime = 'nodejs'
 
@@ -534,6 +536,39 @@ export async function GET(request: NextRequest) {
           notes.push({ status: 'included', label: upload.label })
         } else {
           notes.push({ status: 'unavailable', label: upload.label })
+        }
+      }
+    }
+
+    // Opt-in only. Download all sends no `include`, so this stays out of that ZIP.
+    if (attestationsExplicitlyRequested(request.nextUrl.searchParams.get('include'))) {
+      const attestationStudentId = externalStudent?.student_id ?? externalId
+      if (!attestationStudentId) {
+        notes.push({ status: 'unavailable', label: 'SAAQ attestations', detail: 'No student id' })
+      } else {
+        try {
+          const class1 = await resolveClass1(String(attestationStudentId))
+          const attestationFiles = await currentAttestationFiles(class1.externalStudentId)
+          if (attestationFiles.length === 0) {
+            notes.push({ status: 'unavailable', label: 'SAAQ attestations', detail: 'None received' })
+          } else {
+            for (const file of attestationFiles) addFile(file.filename, file.bytes, file.contentType)
+            notes.push({ status: 'included', label: 'SAAQ attestations', detail: `${attestationFiles.length} current file(s)` })
+          }
+        } catch (error) {
+          if (error instanceof Rsep1Error && (error.code === 'not_class1' || error.code === 'not_found')) {
+            notes.push({
+              status: 'unavailable',
+              label: 'SAAQ attestations',
+              detail: error.code === 'not_class1' ? 'Class 1 students only' : 'Student not found',
+            })
+          } else {
+            notes.push({
+              status: 'failed',
+              label: 'SAAQ attestations',
+              detail: error instanceof Error ? error.message : 'Unknown error',
+            })
+          }
         }
       }
     }

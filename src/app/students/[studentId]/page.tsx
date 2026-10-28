@@ -28,6 +28,7 @@ import { StudentDocumentDownloadDialog } from '@/components/StudentDocumentDownl
 import { formatTime12h as formatClock } from '@/lib/theory-hours'
 import { PaperExamProfileCard, type PaperExamProfileRecord } from '@/components/PaperExamProfileCard'
 import { Rsep1ResultsSheetCard } from '@/components/Rsep1ResultsSheetCard'
+import { SaaqAttestationsCard } from '@/components/SaaqAttestationsCard'
 import { TheoryEvaluationsCard } from '@/components/TheoryEvaluationsCard'
 import { selectInvoiceForBalanceEdit } from '@/lib/invoice-match'
 import { ChangePhoneDialog } from '@/components/ChangePhoneDialog'
@@ -701,6 +702,7 @@ export default function StudentProfilePage() {
         <div className="space-y-6">
           <TheoryEvaluationsCard studentId={studentId} />
           <Rsep1ResultsSheetCard studentId={studentId} />
+          <SaaqAttestationsCard studentId={studentId} />
         </div>
       )}
 
