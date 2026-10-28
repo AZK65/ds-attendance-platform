@@ -1146,3 +1146,52 @@ model PhoneChangeLog {
   @@index([newPhone])
   @@index([createdAt])
 }
+
+// SAAQ-issued attestations uploaded by staff. Internal only.
+// New tables only — startup runs `prisma db push --accept-data-loss`.
+// Keyed by the MySQL roster id, the same key as Rsep1ResultSheet.
+// Never looked up by phone (siblings can share a number).
+// Status is not stored: Received means currentFileId points at a file
+// whose bytes are still on disk. Otherwise the slot is Not received.
+model SaaqAttestation {
+  id                String   @id @default(cuid())
+  externalStudentId Int
+  // "theory" | "practical"
+  kind              String
+  currentFileId     String?
+  // YYYY-MM-DD. Cleared when the current file is deleted.
+  receivedOn        String?
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+  files             SaaqAttestationFile[]
+
+  @@unique([externalStudentId, kind])
+  @@index([externalStudentId])
+}
+
+// Every upload. Replaced files stay on disk. A delete removes the bytes
+// (storedPath becomes null) but keeps this row: name, size, hash, reason, time.
+// Session id and IP are stored for the school’s own records and are not shown.
+model SaaqAttestationFile {
+  id                String    @id @default(cuid())
+  attestationId     String
+  version           Int
+  storedPath        String?
+  originalName      String
+  mimeType          String
+  sizeBytes         Int
+  sha256            String
+  uploadedAt        DateTime  @default(now())
+  uploadedBySession String?
+  uploadedByIp      String?
+  replacedAt        DateTime?
+  replaceReason     String?
+  deletedAt         DateTime?
+  deletedBySession  String?
+  deletedByIp       String?
+  deletedReason     String?
+  attestation       SaaqAttestation @relation(fields: [attestationId], references: [id], onDelete: Restrict)
+
+  @@unique([attestationId, version])
+  @@index([attestationId])
+}

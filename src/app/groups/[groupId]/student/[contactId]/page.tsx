@@ -62,6 +62,7 @@ import { StudentAvatar } from '@/components/StudentAvatar'
 import { StudentDocumentDownloadDialog } from '@/components/StudentDocumentDownloadDialog'
 import { PaperExamProfileCard, type PaperExamProfileRecord } from '@/components/PaperExamProfileCard'
 import { Rsep1ResultsSheetCard } from '@/components/Rsep1ResultsSheetCard'
+import { SaaqAttestationsCard } from '@/components/SaaqAttestationsCard'
 import { TheoryEvaluationsCard } from '@/components/TheoryEvaluationsCard'
 import { groupProfileResultsStudentId } from '@/lib/rsep1/group-profile'
 import { selectInvoiceForBalanceEdit } from '@/lib/invoice-match'
@@ -730,6 +731,7 @@ function TruckJourneyCard({
               <div className="space-y-6 border-t pt-6" data-testid="group-rsep1">
                 <TheoryEvaluationsCard studentId={rsep1StudentId} />
                 <Rsep1ResultsSheetCard studentId={rsep1StudentId} />
+                <SaaqAttestationsCard studentId={rsep1StudentId} />
               </div>
             )}
 

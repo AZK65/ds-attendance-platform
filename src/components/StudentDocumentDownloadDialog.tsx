@@ -7,6 +7,7 @@ import {
   Award,
   ClipboardList,
   Download,
+  FileBadge,
   FileSignature,
   HeartPulse,
   Images,
@@ -83,6 +84,8 @@ const documentOptions = [
   },
 ] as const
 
+// Kept off the main list so Select all and Download all leave it out.
+
 type DocumentId = (typeof documentOptions)[number]['id']
 
 interface StudentDocumentDownloadDialogProps {
@@ -98,6 +101,7 @@ export function StudentDocumentDownloadDialog({
 }: StudentDocumentDownloadDialogProps) {
   const [open, setOpen] = useState(false)
   const [selected, setSelected] = useState<Set<DocumentId>>(() => new Set())
+  const [includeAttestations, setIncludeAttestations] = useState(false)
   const [downloading, setDownloading] = useState<'selected' | 'all' | null>(null)
   const [downloadError, setDownloadError] = useState('')
 
@@ -121,11 +125,14 @@ export function StudentDocumentDownloadDialog({
   }
 
   const startDownload = async (mode: 'selected' | 'all') => {
-    if (mode === 'selected' && selected.size === 0) return
+    const selectedIds: string[] = Array.from(selected)
+    // Download all is the default bundle. Attestations stay out of it even if the box is ticked.
+    if (mode === 'selected' && includeAttestations) selectedIds.push('attestations')
+    if (mode === 'selected' && selectedIds.length === 0) return
     setDownloading(mode)
     setDownloadError('')
     const query = new URLSearchParams(baseQuery)
-    if (mode === 'selected') query.set('include', Array.from(selected).join(','))
+    if (mode === 'selected') query.set('include', selectedIds.join(','))
     if (mode === 'all') query.set('archive', '1')
     try {
       const response = await fetch(`/api/students/documents?${query.toString()}`)
@@ -226,6 +233,24 @@ export function StudentDocumentDownloadDialog({
               )
             })}
           </div>
+
+          <label className="mt-3 flex cursor-pointer items-start gap-3 rounded-lg border border-dashed p-3">
+            <Checkbox
+              checked={includeAttestations}
+              onCheckedChange={checked => setIncludeAttestations(checked === true)}
+              className="mt-1"
+              data-testid="saaq-attestations-zip"
+            />
+            <span className="min-w-0 flex-1">
+              <span className="flex items-center gap-2 text-sm font-semibold">
+                <FileBadge className="h-4 w-4 text-muted-foreground" />
+                SAAQ attestations (internal)
+              </span>
+              <span className="mt-1 block text-xs leading-4 text-muted-foreground">
+                The theory and practical documents the SAAQ issued to the school. Left out of Download all. Tick this only when you mean to include them.
+              </span>
+            </span>
+          </label>
         </div>
 
         <DialogFooter className="border-t bg-muted/30 px-6 py-4 sm:items-center sm:justify-between">
@@ -245,7 +270,7 @@ export function StudentDocumentDownloadDialog({
               type="button"
               variant="outline"
               onClick={() => startDownload('selected')}
-              disabled={selected.size === 0 || downloading !== null}
+              disabled={(selected.size === 0 && !includeAttestations) || downloading !== null}
             >
               {downloading === 'selected' ? <Loader2 className="animate-spin" /> : <Download />}
               Download selected
