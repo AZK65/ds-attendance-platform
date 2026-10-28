@@ -3,11 +3,12 @@
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import { Button } from '@/components/ui/button'
-import { ArrowLeft, DollarSign, Laptop } from 'lucide-react'
+import { ArrowLeft, DollarSign, Laptop, GraduationCap } from 'lucide-react'
 
 const TABS = [
   { href: '/settings/pricing', label: 'Pricing', icon: DollarSign },
   { href: '/settings/devices', label: 'Devices', icon: Laptop },
+  { href: '/settings/instructors', label: 'Instructors', icon: GraduationCap },
 ]
 
 export default function SettingsLayout({ children }: { children: React.ReactNode }) {

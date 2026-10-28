@@ -994,6 +994,37 @@ model Instructor {
   displayName         String
   saaqInstructorNo    String?
   teamupSubcalendarId Int?    @unique
+  // Full name printed on the Class 1 booklet. One field, not family/first.
+  // Null until staff or the seed fills it. The SAAQ number stays null until
+  // a real number is entered; nothing invents one.
+  bookletName         String?
+}
+
+// One instructor drawing per lesson per student. Create-only: a second POST
+// for the same event and student is rejected. Student signatures are a
+// separate table and are never updated from here.
+model LessonInstructorSignature {
+  id               String   @id @default(cuid())
+  eventId          String
+  studentPhone     String
+  classSignatureId String?
+  instructorId     String
+  // Frozen full name at signing. The instructor number is not frozen: once
+  // SAAQ issues it, every booklet row for this person shows the current number.
+  bookletName      String
+  lessonKind       String
+  // Frozen scheduled start, "YYYY-MM-DD HH:mm" or a Teamup start_dt.
+  // Empty when no TheorySession and no Teamup snapshot existed at signing.
+  lessonStartAt    String   @default("")
+  signatureDataUrl String
+  method           String
+  addedLater       Boolean  @default(false)
+  signedAt         DateTime @default(now())
+
+  @@unique([eventId, studentPhone])
+  @@index([studentPhone])
+  @@index([eventId])
+  @@index([instructorId])
 }
 
 model TheorySession {

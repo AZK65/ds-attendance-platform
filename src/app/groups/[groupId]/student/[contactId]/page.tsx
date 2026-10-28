@@ -2,6 +2,7 @@
 
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { formatNet } from '@/lib/theory-hours'
+import { InstructorSignatureDialog } from '@/components/InstructorSignatureDialog'
 import { useParams, useRouter } from 'next/navigation'
 import { useState, useMemo, type ReactNode } from 'react'
 import { Button } from '@/components/ui/button'
@@ -524,6 +525,7 @@ function TruckJourneyCard({
 }: JourneyCardProps) {
   const [openEvent, setOpenEvent] = useState<TruckProgressEvent | null>(null)
   const [openTheoryId, setOpenTheoryId] = useState<string | null>(null)
+  const [addingInstructor, setAddingInstructor] = useState<{ eventId: string; subcalendarId: number | null } | null>(null)
   const { data: theoryProgress } = useQuery<TheoryProgressResponse | null>({
     queryKey: ['theory-progress', groupId, studentPhone],
     queryFn: async () => {
@@ -545,6 +547,20 @@ function TruckJourneyCard({
     enabled: !!studentPhone,
     staleTime: 30_000,
   })
+  const { data: instructorSignData, refetch: refetchInstructorSigs } = useQuery<{ signatures: Array<{ eventId: string; addedLater: boolean }> }>({
+    queryKey: ['instructor-signatures', studentPhone],
+    queryFn: async () => {
+      const res = await fetch(`/api/scheduling/instructor-signature?phone=${encodeURIComponent(studentPhone)}`)
+      if (!res.ok) return { signatures: [] }
+      return res.json()
+    },
+    enabled: !!studentPhone,
+    staleTime: 30_000,
+  })
+  const instructorSignedEvents = useMemo(
+    () => new Set((instructorSignData?.signatures || []).map(row => String(row.eventId))),
+    [instructorSignData],
+  )
 
   const progress = useMemo(() => {
     const signedEventIds = new Set((signatureData?.signatures || []).map(signature => String(signature.eventId)))
@@ -631,6 +647,11 @@ function TruckJourneyCard({
             <span className="block text-sm font-semibold tabular-nums">{item.label}</span>
             <span className="mt-1 block text-xs opacity-80">{eventDate(item.event)} · {fmtHours(item.hours)} h</span>
             <span className="mt-2 block text-xs font-medium">{statusText[item.status]}</span>
+            {(signatureData?.signatures || []).some(row => String(row.eventId) === String(item.event.id)) && (
+              <span className="mt-1 block text-[11px] font-medium">
+                {instructorSignedEvents.has(String(item.event.id)) ? 'Instructor signed' : 'needs instructor sign-off'}
+              </span>
+            )}
           </button>
         ))}
       </div>
@@ -715,6 +736,11 @@ function TruckJourneyCard({
                         <span className="block text-sm font-semibold tabular-nums">{session.label}</span>
                         <span className="mt-1 block text-xs opacity-80">{session.date.slice(5)}</span>
                         <span className="mt-2 block text-xs font-medium">{session.attendance?.displayEn || 'Scheduled'}</span>
+                        {session.attendance?.basis === 'signature' && session.teamupEventId && (
+                          <span className="mt-1 block text-[11px] font-medium">
+                            {instructorSignedEvents.has(String(session.teamupEventId)) ? 'Instructor signed' : 'needs instructor sign-off'}
+                          </span>
+                        )}
                       </button>
                     ))}
                   </div>
@@ -819,6 +845,17 @@ function TruckJourneyCard({
                   )}
                 </div>
               )}
+              {openTheory.attendance?.basis === 'signature' && openTheory.teamupEventId && (
+                <div className="col-span-2">
+                  {instructorSignedEvents.has(String(openTheory.teamupEventId)) ? (
+                    <p className="text-sm text-green-700">Instructor signed</p>
+                  ) : (
+                    <Button type="button" size="sm" variant="outline" onClick={() => setAddingInstructor({ eventId: openTheory.teamupEventId!, subcalendarId: null })}>
+                      Add instructor signature
+                    </Button>
+                  )}
+                </div>
+              )}
               {openTheory.teamupEventId && (
                 <div className="col-span-2 pt-2">
                   <Button variant="outline" size="sm" asChild>
@@ -846,6 +883,22 @@ function TruckJourneyCard({
                 <p className="text-xs text-muted-foreground">Attendance</p>
                 <Badge variant="outline" className={statusClasses[openEvent.status]}>{statusText[openEvent.status]}</Badge>
               </div>
+              {(signatureData?.signatures || []).some(row => String(row.eventId) === String(openEvent.event.id)) && (
+                <div className="col-span-2">
+                  {instructorSignedEvents.has(String(openEvent.event.id)) ? (
+                    <p className="text-sm text-green-700">Instructor signed</p>
+                  ) : (
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="outline"
+                      onClick={() => setAddingInstructor({ eventId: String(openEvent.event.id), subcalendarId: openEvent.event.subcalendar_ids?.[0] ?? null })}
+                    >
+                      Add instructor signature
+                    </Button>
+                  )}
+                </div>
+              )}
               <div className="col-span-2 pt-2">
                 <Button variant="outline" size="sm" asChild>
                   <Link href={`/scheduling?eventId=${encodeURIComponent(openEvent.event.id)}`}>View in scheduler</Link>
@@ -855,6 +908,21 @@ function TruckJourneyCard({
           )}
         </DialogContent>
       </Dialog>
+      {addingInstructor && (
+        <InstructorSignatureDialog
+          open
+          eventId={addingInstructor.eventId}
+          studentPhones={[studentPhone]}
+          suggestSubcalendarId={addingInstructor.subcalendarId}
+          addedLater
+          title="Add instructor signature"
+          onClose={() => setAddingInstructor(null)}
+          onSaved={() => {
+            setAddingInstructor(null)
+            refetchInstructorSigs()
+          }}
+        />
+      )}
     </Card>
   )
 }

@@ -33,6 +33,7 @@ import { TheoryEvaluationsCard } from '@/components/TheoryEvaluationsCard'
 import { selectInvoiceForBalanceEdit } from '@/lib/invoice-match'
 import { ChangePhoneDialog } from '@/components/ChangePhoneDialog'
 import { PhoneChangeHistory } from '@/components/PhoneChangeHistory'
+import { InstructorSignatureDialog } from '@/components/InstructorSignatureDialog'
 
 interface TeamupEvent {
   id: string
@@ -104,8 +105,16 @@ interface SignatureRow {
   signatureDataUrl?: string | null
 }
 
+function class1LessonKind(label: string | null): 'theory' | 'practical' | null {
+  if (!label) return null
+  if (/class 1 theory|theory class/i.test(label)) return 'theory'
+  if (/truck class|practical class/i.test(label)) return 'practical'
+  return null
+}
+
 function AttendanceSheetButton({ phone }: { phone: string }) {
   const [showHistory, setShowHistory] = useState(false)
+  const [adding, setAdding] = useState<SignatureRow | null>(null)
   // Fetches signatures WITH image data (?includeSignatures=1) so the dialog
   // shows actual signatures inline, not just a count. Payload is bigger but
   // acceptable for a per-student open — average student has <20 signatures.
@@ -122,7 +131,19 @@ function AttendanceSheetButton({ phone }: { phone: string }) {
     enabled: !!phone,
     staleTime: 60 * 1000,
   })
+  const { data: instructorData, refetch: refetchInstructor } = useQuery<{ signatures: Array<{ eventId: string; studentPhone: string; addedLater: boolean; signedAt: string }> }>({
+    queryKey: ['instructor-signatures', phone, showHistory],
+    queryFn: async () => {
+      const res = await fetch(`/api/scheduling/instructor-signature?phone=${encodeURIComponent(phone)}`)
+      if (!res.ok) return { signatures: [] }
+      return res.json()
+    },
+    enabled: showHistory && !!phone,
+  })
   const signatures = data?.signatures ?? []
+  const instructorByEvent = new Map(
+    (instructorData?.signatures || []).map(row => [`${row.eventId}:${(row.studentPhone || '').replace(/\D/g, '').slice(-10)}`, row]),
+  )
   const count = signatures.length
 
   const fmtDate = (iso: string) => {
@@ -177,7 +198,10 @@ function AttendanceSheetButton({ phone }: { phone: string }) {
             </div>
           ) : (
             <ul className="divide-y max-h-[540px] overflow-y-auto -mx-6 px-6">
-              {signatures.map((s) => (
+              {signatures.map((s) => {
+                const kind = class1LessonKind(labelFor(s))
+                const instructorSig = instructorByEvent.get(`${s.eventId}:${(s.studentPhone || phone).replace(/\D/g, '').slice(-10)}`)
+                return (
                 <li key={s.id} className="py-4">
                   <div className="flex items-start justify-between gap-3 mb-2">
                     <div className="min-w-0">
@@ -204,8 +228,23 @@ function AttendanceSheetButton({ phone }: { phone: string }) {
                       Signature image not available
                     </div>
                   )}
+                  {kind && (
+                    instructorSig ? (
+                      <p className="mt-2 text-xs text-green-700">
+                        Instructor signed{instructorSig.addedLater ? ` · signed on ${fmtDate(instructorSig.signedAt)}` : ''}
+                      </p>
+                    ) : (
+                      <div className="mt-2 flex items-center justify-between gap-2">
+                        <p className="text-xs text-amber-800">needs instructor sign-off</p>
+                        <Button type="button" size="sm" variant="outline" onClick={() => setAdding(s)}>
+                          Add instructor signature
+                        </Button>
+                      </div>
+                    )
+                  )}
                 </li>
-              ))}
+                )
+              })}
             </ul>
           )}
           <div className="pt-3 border-t flex items-center justify-between text-xs text-muted-foreground">
@@ -222,6 +261,20 @@ function AttendanceSheetButton({ phone }: { phone: string }) {
           </div>
         </DialogContent>
       </Dialog>
+      {adding && (
+        <InstructorSignatureDialog
+          open
+          eventId={adding.eventId}
+          studentPhones={[adding.studentPhone || phone]}
+          addedLater
+          title="Add instructor signature"
+          onClose={() => setAdding(null)}
+          onSaved={() => {
+            setAdding(null)
+            refetchInstructor()
+          }}
+        />
+      )}
     </>
   )
 }

@@ -20,6 +20,8 @@ export const SATURDAY_NET_MINUTES = 450
 
 export const AHMED_INSTRUCTOR = {
   legalName: 'Abdul Rahman Ahmed Qazi',
+  /** Printed as-is on the Class 1 booklet. One full name, not family/first. */
+  bookletName: 'Abdul Rahman Ahmed Qazi',
   displayName: 'Ahmed',
   /** Null until SAAQ issues a number. Never invent one. */
   saaqInstructorNo: null as string | null,
@@ -426,16 +428,17 @@ export function formatReportHoursLine(args: {
 }
 
 export function formatInstructorLine(
-  instructor: { legalName: string; saaqInstructorNo?: string | null },
+  instructor: { legalName: string; bookletName?: string | null; saaqInstructorNo?: string | null },
   lang: 'en' | 'fr',
 ): string {
+  const name = instructor.bookletName?.trim() || instructor.legalName
   const number = instructor.saaqInstructorNo?.trim() || ''
   if (lang === 'fr') {
     const no = number || 'en attente (non encore attribué)'
-    return `Formateur : ${instructor.legalName} — No de formateur SAAQ : ${no}`
+    return `Formateur : ${name} — No de formateur SAAQ : ${no}`
   }
-  const no = number || 'pending (not yet issued)'
-  return `Instructor: ${instructor.legalName} — SAAQ instructor no.: ${no}`
+  const no = number || 'Pending'
+  return `Instructor: ${name}. Instructor no.: ${no}`
 }
 
 const EN_DAY: Record<number, string> = {

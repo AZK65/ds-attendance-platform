@@ -51,19 +51,24 @@ export async function ensureTheoryProgram() {
   const existingInstructor = await prisma.instructor.findUnique({
     where: { teamupSubcalendarId: AHMED_INSTRUCTOR.teamupSubcalendarId },
   })
+  // Names already stored are left alone. A blank field is filled once.
+  // The SAAQ number is never written here, including when it is still null.
+  const fill = (current: string | null | undefined, value: string) =>
+    current && current.trim() ? undefined : value
   const instructor = existingInstructor
     ? await prisma.instructor.update({
       where: { id: existingInstructor.id },
       data: {
-        legalName: AHMED_INSTRUCTOR.legalName,
-        displayName: AHMED_INSTRUCTOR.displayName,
-        // Keep a number SAAQ has already issued. Never fill this in here.
+        legalName: fill(existingInstructor.legalName, AHMED_INSTRUCTOR.legalName),
+        displayName: fill(existingInstructor.displayName, AHMED_INSTRUCTOR.displayName),
+        bookletName: fill(existingInstructor.bookletName, AHMED_INSTRUCTOR.bookletName),
       },
     })
     : await prisma.instructor.create({
       data: {
         legalName: AHMED_INSTRUCTOR.legalName,
         displayName: AHMED_INSTRUCTOR.displayName,
+        bookletName: AHMED_INSTRUCTOR.bookletName,
         saaqInstructorNo: null,
         teamupSubcalendarId: AHMED_INSTRUCTOR.teamupSubcalendarId,
       },
