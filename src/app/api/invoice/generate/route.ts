@@ -4,6 +4,10 @@ import { renderToBuffer } from '@react-pdf/renderer'
 import { Document, Page, View, Text, Image, StyleSheet } from '@react-pdf/renderer'
 import { BRAND, logoHeightForWidth } from '@/lib/brand'
 import { logoDataUrl } from '@/lib/brand-assets'
+import { findInvoicesForStudent } from '@/lib/invoice-lookup'
+import { listPriorPayments, printedRemainingBalance, type PaymentHistory } from '@/lib/invoice-payments'
+import { parseExternalStudentId } from '@/lib/invoice-student-id'
+import { prisma } from '@/lib/db'
 
 interface LineItem {
   description: string
@@ -43,6 +47,14 @@ interface InvoiceData {
   taxesEnabled: boolean
   notes: string
   remainingBalance?: number
+  /** MySQL student id, when the caller already has it. Used only to find prior invoices. */
+  externalStudentId?: number | null
+  /**
+   * Prior paid invoices. The POST handler fills this from the database.
+   * Null means the lookup failed and the section is omitted.
+   * An empty list means there are no payments yet.
+   */
+  paymentHistory?: PaymentHistory | null
 }
 
 // Styles for the invoice PDF
@@ -233,8 +245,8 @@ const styles = StyleSheet.create({
   },
   // Notes
   notesSection: {
-    marginTop: 40,
-    paddingTop: 15,
+    marginTop: 18,
+    paddingTop: 12,
     borderTopWidth: 1,
     borderTopColor: '#e0e0e0',
   },
@@ -251,6 +263,22 @@ const styles = StyleSheet.create({
     color: '#555',
     lineHeight: 1.5,
   },
+  paymentSection: {
+    marginTop: 22,
+  },
+  paymentTitle: {
+    fontSize: 11,
+    fontWeight: 'bold',
+    color: BRAND.blue,
+    marginBottom: 8,
+  },
+  paymentEmpty: {
+    fontSize: 10,
+    color: BRAND.ink70,
+  },
+  paymentDate: { flex: 2, fontSize: 10 },
+  paymentMethod: { flex: 2, fontSize: 10 },
+  paymentAmount: { flex: 2, fontSize: 10, textAlign: 'right' },
   // Footer
   footer: {
     position: 'absolute',
@@ -265,6 +293,14 @@ const styles = StyleSheet.create({
 
 function formatCurrency(amount: number): string {
   return `$${amount.toFixed(2)}`
+}
+
+function paymentMethodLabel(method: string | null): string {
+  if (!method) return ''
+  if (method === 'cash') return 'Cash'
+  if (method === 'card') return 'Card'
+  if (method === 'online') return 'Online'
+  return method
 }
 
 function InvoiceDocument({ data, logoSrc }: { data: InvoiceData; logoSrc: string | null }) {
@@ -363,7 +399,7 @@ function InvoiceDocument({ data, logoSrc }: { data: InvoiceData; logoSrc: string
           React.createElement(Text, { style: styles.totalFinalLabel }, 'Total:'),
           React.createElement(Text, { style: styles.totalFinalValue }, formatCurrency(data.total)),
         ),
-        // Remaining Balance (if provided)
+        // Remaining Balance (if provided). This is the stored figure, not a sum of the payment rows.
         data.remainingBalance !== undefined && data.remainingBalance > 0
           ? React.createElement(View, { style: { flexDirection: 'row', justifyContent: 'flex-end', width: 250, paddingVertical: 4, marginTop: 4 } },
               React.createElement(Text, { style: { flex: 1, textAlign: 'right', paddingRight: 15, color: BRAND.red, fontSize: 10, fontWeight: 'bold' } }, 'Remaining Balance:'),
@@ -371,6 +407,36 @@ function InvoiceDocument({ data, logoSrc }: { data: InvoiceData; logoSrc: string
             )
           : null,
       ),
+
+      data.paymentHistory ? React.createElement(View, { style: styles.paymentSection },
+        React.createElement(Text, { style: styles.paymentTitle }, 'Payment history'),
+        data.paymentHistory.payments.length === 0
+          ? React.createElement(Text, { style: styles.paymentEmpty }, 'No payments yet')
+          : React.createElement(View, null,
+              React.createElement(View, { style: styles.tableHeader },
+                React.createElement(Text, { style: { ...styles.paymentDate, ...styles.tableHeaderText } }, 'Date'),
+                React.createElement(Text, { style: { ...styles.paymentMethod, ...styles.tableHeaderText } }, 'Method'),
+                React.createElement(Text, { style: { ...styles.paymentAmount, ...styles.tableHeaderText } }, 'Amount'),
+              ),
+              ...data.paymentHistory.payments.map((payment) =>
+                React.createElement(View, { key: payment.invoiceNumber, style: styles.tableRow },
+                  React.createElement(Text, { style: styles.paymentDate }, payment.date),
+                  React.createElement(Text, { style: styles.paymentMethod }, paymentMethodLabel(payment.method)),
+                  React.createElement(Text, { style: styles.paymentAmount }, formatCurrency(payment.amount)),
+                ),
+              ),
+              React.createElement(View, { style: styles.totalRowFinal },
+                React.createElement(Text, { style: styles.totalFinalLabel }, 'Total paid:'),
+                React.createElement(Text, { style: styles.totalFinalValue }, formatCurrency(data.paymentHistory.totalPaid)),
+              ),
+              printedRemainingBalance(data.remainingBalance) != null
+                ? React.createElement(View, { style: { flexDirection: 'row', justifyContent: 'flex-end', width: 250, paddingVertical: 4, marginTop: 4 } },
+                    React.createElement(Text, { style: { flex: 1, textAlign: 'right', paddingRight: 15, color: BRAND.red, fontSize: 10, fontWeight: 'bold' } }, 'Remaining balance:'),
+                    React.createElement(Text, { style: { width: 100, textAlign: 'right', color: BRAND.red, fontSize: 10, fontWeight: 'bold' } }, formatCurrency(printedRemainingBalance(data.remainingBalance) as number)),
+                  )
+                : null,
+            ),
+      ) : null,
 
       // Notes
       data.notes ? React.createElement(View, { style: styles.notesSection },
@@ -391,6 +457,31 @@ export async function buildInvoicePdf(body: InvoiceData) {
   return renderToBuffer(element)
 }
 
+/** Read prior paid invoices for this student. Does not write. */
+export async function loadPaymentHistory(body: Pick<InvoiceData, 'invoiceNumber' | 'invoiceDate' | 'studentName' | 'studentPhone' | 'externalStudentId'>): Promise<PaymentHistory | null> {
+  try {
+    const saved = await prisma.invoice.findUnique({
+      where: { invoiceNumber: body.invoiceNumber },
+      select: { externalStudentId: true },
+    })
+    const externalStudentId = parseExternalStudentId(body.externalStudentId) ?? saved?.externalStudentId ?? null
+    const phone = body.studentPhone || ''
+    const name = body.studentName || ''
+    if (externalStudentId == null && !phone && !name) return { payments: [], totalPaid: 0 }
+    const invoices = await findInvoicesForStudent({ externalStudentId, phone, name })
+    return listPriorPayments(invoices, {
+      invoiceNumber: body.invoiceNumber,
+      invoiceDate: body.invoiceDate,
+      externalStudentId,
+      phone,
+      name,
+    })
+  } catch (error) {
+    console.warn('[Invoice] Payment history lookup failed:', error)
+    return null
+  }
+}
+
 export async function POST(request: NextRequest) {
   try {
     const body: InvoiceData = await request.json()
@@ -402,7 +493,8 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    const buffer = await buildInvoicePdf(body)
+    const paymentHistory = await loadPaymentHistory(body)
+    const buffer = await buildInvoicePdf({ ...body, paymentHistory })
     const uint8Array = new Uint8Array(buffer)
 
     return new NextResponse(uint8Array, {

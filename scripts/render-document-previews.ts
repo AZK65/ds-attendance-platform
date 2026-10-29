@@ -11,6 +11,8 @@ import { mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import path from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { NextRequest } from 'next/server'
+import { buildInvoicePdf } from '../src/app/api/invoice/generate/route'
+import { listPriorPayments, type StoredInvoicePayment } from '../src/lib/invoice-payments'
 import { buildSignatureAttendancePdf, type AttendancePdfInput } from '../src/lib/signature-attendance-pdf'
 import { buildMedicalDeclarationPdf } from '../src/lib/medical-pdf'
 import { buildRegistrationTermsPdf } from '../src/lib/registration-terms-pdf'
@@ -96,7 +98,6 @@ function fixtureToInput(fixture: {
 }
 
 async function invoice() {
-  const { POST } = await import('../src/app/api/invoice/generate/route')
   const body = {
     schoolName: 'Qazi Driving School',
     schoolAddress: '786 Jean-Talon St W',
@@ -129,12 +130,24 @@ async function invoice() {
     notes: 'Sample invoice for layout preview. Not a real student.',
     remainingBalance: 120,
   }
-  const res = await POST(new NextRequest('http://localhost/api/invoice/generate', {
-    method: 'POST',
-    headers: { 'content-type': 'application/json' },
-    body: JSON.stringify(body),
+  const prior: StoredInvoicePayment[] = [
+    { invoiceNumber: 'INV-0001', invoiceDate: '2026-03-02', total: 250, paymentMethod: 'cash', paymentStatus: 'paid', externalStudentId: 42, studentPhone: body.studentPhone, studentName: body.studentName },
+    { invoiceNumber: 'INV-0002', invoiceDate: '2026-06-15', total: 150, paymentMethod: 'card', paymentStatus: 'paid', externalStudentId: 42, studentPhone: body.studentPhone, studentName: body.studentName },
+    { invoiceNumber: 'INV-0003', invoiceDate: '2026-08-01', total: 100, paymentMethod: null, paymentStatus: 'paid', externalStudentId: 42, studentPhone: body.studentPhone, studentName: body.studentName },
+  ]
+  const withPayments = listPriorPayments(prior, {
+    invoiceNumber: body.invoiceNumber,
+    invoiceDate: body.invoiceDate,
+    externalStudentId: 42,
+    phone: body.studentPhone,
+    name: body.studentName,
+  })
+  save('invoice-with-payments.pdf', await buildInvoicePdf({ ...body, externalStudentId: 42, paymentHistory: withPayments }))
+  save('invoice-no-payments.pdf', await buildInvoicePdf({
+    ...body,
+    invoiceNumber: 'INV-2026-0200',
+    paymentHistory: { payments: [], totalPaid: 0 },
   }))
-  save('invoice.pdf', Buffer.from(await res.arrayBuffer()))
 }
 
 async function zoom() {
