@@ -7,8 +7,8 @@
 // always blank.
 //
 // A payment is an Invoice with paymentStatus "paid". There is no payments
-// table. Date payée is the invoice date of the payment that crossed the
-// threshold (YYYY-MM-DD). Amounts are compared in cents.
+// table. Date payée uses the receipt timestamp, falling back to invoice date
+// for historical records. Amounts are compared in cents.
 
 import { invoiceBelongsToStudent, type StudentIdentity } from '@/lib/invoice-match'
 
@@ -32,8 +32,7 @@ export interface ContractInvoiceInput {
   invoiceNumber: string
   invoiceDate?: string | null
   /**
-   * Optional. Invoice rows do not store this. When it is missing, the
-   * invoice date is the paid date.
+   * Receipt timestamp. Historical invoices fall back to their invoice date.
    */
   paidAt?: string | Date | null
   total: number
@@ -71,12 +70,12 @@ export function moneyToCents(amount: number): number {
 
 function calendarDay(value: string | Date | null | undefined): string {
   if (value == null || value === '') return ''
-  if (value instanceof Date) {
-    if (Number.isNaN(value.getTime())) return ''
-    return value.toISOString().slice(0, 10)
+  if (typeof value === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(value.trim())) {
+    return value.trim()
   }
-  const match = String(value).trim().match(/^(\d{4}-\d{2}-\d{2})/)
-  return match ? match[1] : ''
+  const date = value instanceof Date ? value : new Date(value)
+  if (Number.isNaN(date.getTime())) return ''
+  return new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Toronto', year: 'numeric', month: '2-digit', day: '2-digit' }).format(date)
 }
 
 /** Paid date, or the invoice date when no paid date was stored. */

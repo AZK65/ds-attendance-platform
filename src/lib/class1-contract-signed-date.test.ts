@@ -5,6 +5,12 @@ import { class1StudentSignedAt, formatContractDate } from './class1-contract-sig
 const TODAY = new Date('2026-10-29T15:00:00.000Z')
 const SIGNATURE = 'data:image/png;base64,abc'
 
+test('a signed contract without a known signing timestamp leaves the date blank', () => {
+  const signed = class1StudentSignedAt({ signatureImage: SIGNATURE }, TODAY)
+  assert.equal(signed, null)
+  assert.equal(formatContractDate(signed, 'fr'), '')
+})
+
 test('a stored submission date is the Montréal signing day, not today', () => {
   // 2026-08-04 02:30 UTC is 22:30 the previous evening in Montréal (EDT, UTC-4).
   const signed = class1StudentSignedAt({

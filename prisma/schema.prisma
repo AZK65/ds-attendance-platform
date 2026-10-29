@@ -347,6 +347,7 @@ model Invoice {
   notes             String?
   paymentMethod     String?
   paymentStatus     String   @default("unpaid")
+  paidAt            DateTime?
   cloverOrderId     String?
   cloverPaymentUrl  String?
   cloverPaid        Boolean  @default(false)

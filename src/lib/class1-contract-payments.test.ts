@@ -157,6 +157,12 @@ test('same paid date orders by created time, then invoice number', () => {
 })
 
 test('an explicit paid date is used ahead of the invoice date', () => {
+  assert.equal(contractPaymentDate({ invoiceDate: '2026-01-01', paidAt: new Date('2026-08-07T02:00:00Z') }), '2026-08-06')
+  const delayed = rowsFor([
+    invoice({ invoiceNumber: 'DEPOSIT', invoiceDate: '2026-08-03', total: 500 }),
+    invoice({ invoiceNumber: 'LATER', invoiceDate: '2026-08-01', paidAt: '2026-08-07T02:00:00Z', total: 2000 }),
+  ])
+  assert.equal(delayed[0].datePaid, '2026-08-06')
   assert.equal(contractPaymentDate({ invoiceDate: '2026-01-01', paidAt: '2026-04-09' }), '2026-04-09')
   assert.equal(contractPaymentDate({ invoiceDate: '2026-01-01' }), '2026-01-01')
   const payments = listContractPayments([

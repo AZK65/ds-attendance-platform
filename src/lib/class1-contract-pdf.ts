@@ -45,8 +45,7 @@ export interface Class1ContractData {
   repName: string
   repSignedAt: Date | null
   /**
-   * When the student signed. Null only when the contract is unsigned and
-   * the registration has no stored signing timestamp; the PDF then uses today.
+   * Stored signing timestamp. Null means unknown; never invent a signing date.
    */
   studentSignedAt: Date | null
 }
@@ -310,11 +309,9 @@ function ContractPage({
   school: Class1ContractSchool
   rows: readonly ContractInstallmentRow[]
 }) {
-  const contractDate = formatContractDate(data.studentSignedAt ?? new Date(), lang)
+  const contractDate = formatContractDate(data.studentSignedAt, lang)
   const repSignedDate = data.repSignedAt
-    ? (lang === 'en'
-        ? data.repSignedAt.toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })
-        : data.repSignedAt.toLocaleDateString('fr-CA', { month: 'long', day: 'numeric', year: 'numeric' }))
+    ? formatContractDate(data.repSignedAt, lang)
     : ''
 
   const t = lang === 'en' ? {
@@ -460,21 +457,21 @@ function ContractPage({
       React.createElement(SectionBar, { info: t.sections[0], lang }),
       React.createElement(Text, { style: styles.callout }, t.sec1Body),
       React.createElement(Text, { style: styles.text }, t.sec1IncludesPre),
-      React.createElement(Text, { style: styles.text }, `▸ ${t.theoryHours}\n▸ ${t.practicalHours}`),
+      React.createElement(Text, { style: styles.text }, `- ${t.theoryHours}\n- ${t.practicalHours}`),
       React.createElement(Text, { style: styles.text }, t.sec1Body2),
       React.createElement(Sub, { num: '1.2', title: lang === 'en' ? 'Training Locations' : 'Lieux de formation' }),
       ...locationRows.map((row, i) =>
         React.createElement(View, { key: i, style: { flexDirection: 'row', alignItems: 'flex-end', marginBottom: 4 } },
           React.createElement(Text, { style: [styles.partyFieldLabel, { width: 148, marginBottom: 3 }] as never }, row.label.toUpperCase()),
           React.createElement(View, { style: { flex: 1, borderBottomWidth: 0.6, borderBottomColor: '#bbb', paddingBottom: 2 } },
-            React.createElement(Text, { style: styles.partyFieldValue }, row.value || '—'),
+            React.createElement(Text, { style: { fontSize: 9 } }, row.value || '—'),
           ),
         ),
       ),
     ),
-    React.createElement(View, { style: styles.section },
+    React.createElement(View, { style: styles.section, wrap: false },
       React.createElement(SectionBar, { info: t.sections[1], lang }),
-      React.createElement(View, { style: styles.pricingBlock },
+      React.createElement(View, { style: styles.pricingBlock, wrap: false },
         React.createElement(View, { style: [styles.pricingRow, styles.pricingHeader] as never },
           React.createElement(Text, { style: [styles.pricingHeaderText, { flex: 1 }] as never }, t.component.toUpperCase()),
           React.createElement(Text, { style: [styles.pricingHeaderText, { width: 80, textAlign: 'right' }] as never }, t.hours.toUpperCase()),
@@ -499,7 +496,7 @@ function ContractPage({
       React.createElement(Text, { style: styles.text }, t.sec2Body),
       React.createElement(Sub, { num: '2.4', title: lang === 'en' ? 'Payment Schedule' : 'Calendrier des versements' }),
       React.createElement(Text, { style: styles.text }, t.payIntro),
-      React.createElement(View, { style: styles.payTable },
+      React.createElement(View, { style: styles.payTable, wrap: false },
         React.createElement(View, { style: styles.payHeaderRow },
           React.createElement(Text, { style: [styles.payHeaderCell, { width: 28, textAlign: 'center' }] as never }, t.payHeaders[0]),
           React.createElement(Text, { style: [styles.payHeaderCell, { flex: 1 }] as never }, t.payHeaders[1]),
@@ -545,7 +542,7 @@ function ContractPage({
         ),
       ),
     ),
-    React.createElement(View, { style: styles.section },
+    React.createElement(View, { style: styles.section, wrap: false },
       React.createElement(SectionBar, { info: t.sections[6], lang }),
       React.createElement(View, { style: styles.consentBlock },
         ...[
@@ -563,7 +560,7 @@ function ContractPage({
         ),
       ),
     ),
-    React.createElement(View, { style: styles.sigSection },
+    React.createElement(View, { style: styles.sigSection, wrap: false },
       React.createElement(View, { style: styles.sigBar },
         React.createElement(Text, { style: styles.sigBarTitle }, t.sigTitle),
         React.createElement(Text, { style: styles.sigBarSub }, t.sigSub),

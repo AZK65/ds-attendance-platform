@@ -12,7 +12,7 @@
     "test:phone-change": "tsx --test src/lib/phone-change.test.ts",
     "test:booklet": "tsx --test src/lib/instructor-booklet.test.ts",
     "test:student-sign": "tsx --test src/lib/student-sign-now.test.ts",
-    "test:class1-contract": "tsx --test src/lib/class1-contract-payments.test.ts src/lib/class1-contract-signed-date.test.ts src/lib/class1-contract-pdf.test.ts",
+    "test:class1-contract": "tsx --test src/lib/class1-contract-payments.test.ts src/lib/class1-contract-signed-date.test.ts src/lib/class1-contract-pdf.test.ts src/lib/invoice-paid-at.test.ts",
     "contract:render": "tsx scripts/render-class1-contract.ts",
     "postinstall": "patch-package"
   },
