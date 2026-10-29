@@ -124,30 +124,31 @@ test('the invoice PDF lists dated payments and still prints the stored remaining
     name: 'Sample Student',
   })
   const text = await pdfText('with-payments.pdf', { ...invoiceBase, paymentHistory: listed })
-  assert.match(text, /Payment history/)
-  assert.match(text, /2026-03-02/)
+  assert.match(text, /PAYMENT HISTORY/)
+  assert.match(text, /Mar 2, 2026/)
+  assert.match(text, /Jun 15, 2026/)
+  assert.match(text, /Aug 1, 2026/)
   assert.match(text, /Cash/)
-  assert.match(text, /\$250\.00/)
-  assert.match(text, /2026-06-15/)
   assert.match(text, /Card/)
-  assert.match(text, /2026-08-01/)
+  assert.match(text, /\$250\.00/)
   assert.match(text, /\$100\.00/)
   assert.match(text, /Total paid:/)
   assert.match(text, /\$500\.00/)
-  assert.match(text, /Remaining Balance:/)
-  assert.match(text, /Remaining balance:/)
+  assert.equal((text.match(/Remaining balance:/g) || []).length, 1)
   assert.match(text, /\$120\.00/)
+  assert.doesNotMatch(text, /2026-03-02/)
   assert.doesNotMatch(text, /INV-0004/)
   assert.doesNotMatch(text, /\$999\.00/)
 })
 
-test('an invoice with no earlier payments says so and keeps the stored balance', async () => {
+test('an invoice with no earlier payments says so and keeps the stored balance once', async () => {
   const text = await pdfText('no-payments.pdf', {
     ...invoiceBase,
     paymentHistory: { payments: [], totalPaid: 0 },
   })
   assert.match(text, /No payments yet/)
-  assert.match(text, /Remaining Balance:/)
+  assert.match(text, /Total paid:/)
+  assert.match(text, /\$0\.00/)
+  assert.equal((text.match(/Remaining balance:/g) || []).length, 1)
   assert.match(text, /\$120\.00/)
-  assert.doesNotMatch(text, /Total paid:/)
 })

@@ -264,22 +264,61 @@ const styles = StyleSheet.create({
     lineHeight: 1.5,
   },
   paymentSection: {
-    marginTop: 22,
+    marginTop: 16,
   },
   paymentTitle: {
-    fontSize: 11,
+    fontSize: 9,
     fontWeight: 'bold',
     color: BRAND.blue,
-    marginBottom: 8,
+    letterSpacing: 0.6,
+    textTransform: 'uppercase',
+    marginBottom: 6,
   },
   paymentEmpty: {
-    fontSize: 10,
+    fontSize: 9,
     color: BRAND.ink70,
+    marginBottom: 8,
   },
-  paymentDate: { flex: 2, fontSize: 10 },
-  paymentMethod: { flex: 2, fontSize: 10 },
-  paymentAmount: { flex: 2, fontSize: 10, textAlign: 'right' },
-  paymentTotals: { alignItems: 'flex-end' },
+  paymentHead: {
+    flexDirection: 'row',
+    backgroundColor: BRAND.surfaceMuted,
+    paddingVertical: 4,
+    paddingLeft: 8,
+    paddingRight: 0,
+  },
+  paymentHeadText: {
+    fontSize: 8,
+    fontWeight: 'bold',
+    color: BRAND.ink70,
+    letterSpacing: 0.4,
+  },
+  paymentLine: {
+    flexDirection: 'row',
+    borderBottomWidth: 0.4,
+    borderBottomColor: BRAND.rule,
+    paddingVertical: 3,
+    paddingLeft: 8,
+    paddingRight: 0,
+  },
+  paymentDate: { flex: 2, fontSize: 9, color: BRAND.ink },
+  paymentMethod: { flex: 2, fontSize: 9, color: BRAND.ink },
+  paymentAmount: { flex: 2, fontSize: 9, color: BRAND.ink, textAlign: 'right' },
+  paymentSummary: {
+    alignItems: 'flex-end',
+    marginTop: 6,
+  },
+  paymentSummaryRow: {
+    flexDirection: 'row',
+    justifyContent: 'flex-end',
+    width: 250,
+    paddingVertical: 2,
+  },
+  paymentSummaryFirst: {
+    borderTopWidth: 0.6,
+    borderTopColor: BRAND.rule,
+    marginTop: 2,
+    paddingTop: 5,
+  },
   // Footer
   footer: {
     position: 'absolute',
@@ -297,11 +336,23 @@ function formatCurrency(amount: number): string {
 }
 
 function paymentMethodLabel(method: string | null): string {
-  if (!method) return ''
+  if (!method) return '\u2014'
   if (method === 'cash') return 'Cash'
   if (method === 'card') return 'Card'
   if (method === 'online') return 'Online'
   return method
+}
+
+function formatPaymentDate(value: string): string {
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value)
+  if (!match) return value
+  const date = new Date(Date.UTC(Number(match[1]), Number(match[2]) - 1, Number(match[3])))
+  return new Intl.DateTimeFormat('en-US', {
+    month: 'short',
+    day: 'numeric',
+    year: 'numeric',
+    timeZone: 'UTC',
+  }).format(date)
 }
 
 function InvoiceDocument({ data, logoSrc }: { data: InvoiceData; logoSrc: string | null }) {
@@ -400,11 +451,11 @@ function InvoiceDocument({ data, logoSrc }: { data: InvoiceData; logoSrc: string
           React.createElement(Text, { style: styles.totalFinalLabel }, 'Total:'),
           React.createElement(Text, { style: styles.totalFinalValue }, formatCurrency(data.total)),
         ),
-        // Remaining Balance (if provided). This is the stored figure, not a sum of the payment rows.
-        data.remainingBalance !== undefined && data.remainingBalance > 0
+        // If payment history could not be read, the stored balance still appears once, here.
+        !data.paymentHistory && printedRemainingBalance(data.remainingBalance) != null
           ? React.createElement(View, { style: { flexDirection: 'row', justifyContent: 'flex-end', width: 250, paddingVertical: 4, marginTop: 4 } },
-              React.createElement(Text, { style: { flex: 1, textAlign: 'right', paddingRight: 15, color: BRAND.red, fontSize: 10, fontWeight: 'bold' } }, 'Remaining Balance:'),
-              React.createElement(Text, { style: { width: 100, textAlign: 'right', color: BRAND.red, fontSize: 10, fontWeight: 'bold' } }, formatCurrency(data.remainingBalance)),
+              React.createElement(Text, { style: { flex: 1, textAlign: 'right', paddingRight: 15, color: BRAND.red, fontSize: 10, fontWeight: 'bold' } }, 'Remaining balance:'),
+              React.createElement(Text, { style: { width: 100, textAlign: 'right', color: BRAND.red, fontSize: 10, fontWeight: 'bold' } }, formatCurrency(printedRemainingBalance(data.remainingBalance) as number)),
             )
           : null,
       ),
@@ -414,31 +465,31 @@ function InvoiceDocument({ data, logoSrc }: { data: InvoiceData; logoSrc: string
         data.paymentHistory.payments.length === 0
           ? React.createElement(Text, { style: styles.paymentEmpty }, 'No payments yet')
           : React.createElement(View, null,
-              React.createElement(View, { style: styles.tableHeader },
-                React.createElement(Text, { style: { ...styles.paymentDate, ...styles.tableHeaderText } }, 'Date'),
-                React.createElement(Text, { style: { ...styles.paymentMethod, ...styles.tableHeaderText } }, 'Method'),
-                React.createElement(Text, { style: { ...styles.paymentAmount, ...styles.tableHeaderText } }, 'Amount'),
+              React.createElement(View, { style: styles.paymentHead },
+                React.createElement(Text, { style: [styles.paymentDate, styles.paymentHeadText] }, 'Date'),
+                React.createElement(Text, { style: [styles.paymentMethod, styles.paymentHeadText] }, 'Method'),
+                React.createElement(Text, { style: [styles.paymentAmount, styles.paymentHeadText] }, 'Amount'),
               ),
               ...data.paymentHistory.payments.map((payment) =>
-                React.createElement(View, { key: payment.invoiceNumber, style: styles.tableRow },
-                  React.createElement(Text, { style: styles.paymentDate }, payment.date),
+                React.createElement(View, { key: payment.invoiceNumber, style: styles.paymentLine, wrap: false },
+                  React.createElement(Text, { style: styles.paymentDate }, formatPaymentDate(payment.date)),
                   React.createElement(Text, { style: styles.paymentMethod }, paymentMethodLabel(payment.method)),
                   React.createElement(Text, { style: styles.paymentAmount }, formatCurrency(payment.amount)),
                 ),
               ),
-              React.createElement(View, { style: styles.paymentTotals },
-                React.createElement(View, { style: styles.totalRowFinal },
-                  React.createElement(Text, { style: styles.totalFinalLabel }, 'Total paid:'),
-                  React.createElement(Text, { style: styles.totalFinalValue }, formatCurrency(data.paymentHistory.totalPaid)),
-                ),
-                printedRemainingBalance(data.remainingBalance) != null
-                  ? React.createElement(View, { style: { flexDirection: 'row', justifyContent: 'flex-end', width: 250, paddingVertical: 4, marginTop: 4 } },
-                      React.createElement(Text, { style: { flex: 1, textAlign: 'right', paddingRight: 15, color: BRAND.red, fontSize: 10, fontWeight: 'bold' } }, 'Remaining balance:'),
-                      React.createElement(Text, { style: { width: 100, textAlign: 'right', color: BRAND.red, fontSize: 10, fontWeight: 'bold' } }, formatCurrency(printedRemainingBalance(data.remainingBalance) as number)),
-                    )
-                  : null,
-              ),
             ),
+        React.createElement(View, { style: styles.paymentSummary },
+          React.createElement(View, { style: [styles.paymentSummaryRow, styles.paymentSummaryFirst] },
+            React.createElement(Text, { style: styles.totalLabel }, 'Total paid:'),
+            React.createElement(Text, { style: styles.totalValue }, formatCurrency(data.paymentHistory.totalPaid)),
+          ),
+          printedRemainingBalance(data.remainingBalance) != null
+            ? React.createElement(View, { style: styles.paymentSummaryRow },
+                React.createElement(Text, { style: { flex: 1, textAlign: 'right', paddingRight: 15, color: BRAND.red, fontSize: 11, fontWeight: 'bold' } }, 'Remaining balance:'),
+                React.createElement(Text, { style: { width: 100, textAlign: 'right', color: BRAND.red, fontSize: 11, fontWeight: 'bold' } }, formatCurrency(printedRemainingBalance(data.remainingBalance) as number)),
+              )
+            : null,
+        ),
       ) : null,
 
       // Notes
