@@ -1,20 +1,25 @@
-// Paid rows on the Class 1 service contract (section 2.4).
+// Section 2.4 of the Class 1 service contract.
 //
-// A payment in this app is an Invoice with paymentStatus "paid". There is no
-// payments table and no paid-at column. Date payée is an explicit paid date
-// when the caller has one, otherwise the invoice date (YYYY-MM-DD). Refunded
-// invoices are not payments. Rows are not matched to the stage labels.
+// The contract is four installments of CLASS1_INSTALLMENT_AMOUNT, tax
+// included (10 000 $ in total). A row is filled only once paid, non-refunded
+// invoices, oldest first, reach that multiple. Anything past the contract
+// total is left off. There are never rows after the fourth. Date prévue is
+// always blank.
 //
-// More than four payments: CLASS1_PAYMENT_OVERFLOW. The default adds rows
-// 05, 06, … so nothing is dropped or merged. Switch that constant to
-// 'autres-versements' to roll payments 5+ into one line instead.
+// A payment is an Invoice with paymentStatus "paid". There is no payments
+// table. Date payée is the invoice date of the payment that crossed the
+// threshold (YYYY-MM-DD). Amounts are compared in cents.
 
-import { invoiceBelongsToStudent, roundMoney, type StudentIdentity } from '@/lib/invoice-match'
+import { invoiceBelongsToStudent, type StudentIdentity } from '@/lib/invoice-match'
 
-export type Class1PaymentOverflow = 'extra-rows' | 'autres-versements'
+/** Tax-included amount of each printed installment. */
+export const CLASS1_INSTALLMENT_AMOUNT = 2500
 
-/** Change this one constant if Ars wants a single "Autres versements" line. */
-export const CLASS1_PAYMENT_OVERFLOW: Class1PaymentOverflow = 'extra-rows'
+/** Printed rows. Payments beyond this many installments stay off the contract. */
+export const CLASS1_INSTALLMENT_COUNT = 4
+
+export const CLASS1_INSTALLMENT_CENTS = CLASS1_INSTALLMENT_AMOUNT * 100
+export const CLASS1_CONTRACT_TOTAL_CENTS = CLASS1_INSTALLMENT_CENTS * CLASS1_INSTALLMENT_COUNT
 
 export const CLASS1_INSTALLMENT_STAGES = [
   { en: 'At the start of training', fr: 'Au début de la formation' },
@@ -22,9 +27,6 @@ export const CLASS1_INSTALLMENT_STAGES = [
   { en: 'Before start of practical component', fr: 'Avant le début du volet pratique' },
   { en: 'After 50% of practical component', fr: 'Après 50 % du volet pratique' },
 ] as const
-
-const EXTRA_PAYMENT_STEP = { en: 'Additional payment', fr: 'Autre versement' }
-const OTHER_PAYMENTS_STEP = { en: 'Other payments', fr: 'Autres versements' }
 
 export interface ContractInvoiceInput {
   invoiceNumber: string
@@ -54,12 +56,17 @@ export interface ContractInstallmentRow {
   number: string
   stepEn: string
   stepFr: string
-  /** Quebec French money, e.g. "1 250,00 $", or '' when the row has no payment. */
+  /** "2 500,00 $" once this installment is reached, otherwise ''. */
   amount: string
   /** Always blank. Date prévue is not filled from invoices. */
   dateScheduled: ''
-  /** YYYY-MM-DD, or '' when the row has no payment. */
+  /** YYYY-MM-DD of the payment that reached this installment, or ''. */
   datePaid: string
+}
+
+export function moneyToCents(amount: number): number {
+  if (!Number.isFinite(amount)) return 0
+  return Math.round(amount * 100)
 }
 
 function calendarDay(value: string | Date | null | undefined): string {
@@ -89,15 +96,16 @@ function createdAtMs(value: Date | string | number | null | undefined): number {
 
 /**
  * Quebec French currency: grouped thousands, comma decimals, dollar sign
- * after the amount. Uses a non-breaking space (fr-CA), e.g. "1 250,00 $".
+ * after the amount. Uses a non-breaking space (fr-CA), e.g. "2 500,00 $".
  */
 export function formatQuebecMoney(amount: number): string {
+  const cents = moneyToCents(amount)
   return new Intl.NumberFormat('fr-CA', {
     style: 'currency',
     currency: 'CAD',
     minimumFractionDigits: 2,
     maximumFractionDigits: 2,
-  }).format(roundMoney(amount))
+  }).format(cents / 100)
 }
 
 /**
@@ -116,7 +124,7 @@ export function listContractPayments(
     .map((invoice) => ({
       invoiceNumber: invoice.invoiceNumber,
       date: contractPaymentDate(invoice),
-      amount: roundMoney(invoice.total),
+      amount: moneyToCents(invoice.total) / 100,
       createdAt: invoice.createdAt,
     }))
     .sort((a, b) => {
@@ -128,69 +136,53 @@ export function listContractPayments(
     })
 }
 
+const INSTALLMENT_LABEL = formatQuebecMoney(CLASS1_INSTALLMENT_AMOUNT)
+
 function emptyRow(index: number): ContractInstallmentRow {
   const stage = CLASS1_INSTALLMENT_STAGES[index]
   return {
     number: String(index + 1).padStart(2, '0'),
-    stepEn: stage?.en ?? EXTRA_PAYMENT_STEP.en,
-    stepFr: stage?.fr ?? EXTRA_PAYMENT_STEP.fr,
+    stepEn: stage.en,
+    stepFr: stage.fr,
     amount: '',
     dateScheduled: '',
     datePaid: '',
   }
 }
 
-function filledRow(index: number, payment: ListedContractPayment, step = stepFor(index)): ContractInstallmentRow {
+function filledRow(index: number, datePaid: string): ContractInstallmentRow {
+  const stage = CLASS1_INSTALLMENT_STAGES[index]
   return {
     number: String(index + 1).padStart(2, '0'),
-    stepEn: step.en,
-    stepFr: step.fr,
-    amount: formatQuebecMoney(payment.amount),
+    stepEn: stage.en,
+    stepFr: stage.fr,
+    amount: INSTALLMENT_LABEL,
     dateScheduled: '',
-    datePaid: payment.date,
+    datePaid,
   }
-}
-
-function stepFor(index: number): { en: string; fr: string } {
-  return CLASS1_INSTALLMENT_STAGES[index] ?? EXTRA_PAYMENT_STEP
 }
 
 /**
- * Map paid invoices onto the printed schedule. The first four payments use
- * the four stage labels in order. They are not checked against those stages.
- * Date prévue is always blank. Rows with no payment stay blank.
+ * Walk paid invoices oldest first. Row N (1-based) fills when the running
+ * total reaches N × 2 500 $, using the date of the payment that crossed
+ * that line. One payment can fill several rows. Money past 10 000 $ is ignored.
  */
 export function buildContractInstallmentRows(
   payments: readonly ListedContractPayment[],
-  overflow: Class1PaymentOverflow = CLASS1_PAYMENT_OVERFLOW,
 ): ContractInstallmentRow[] {
-  if (overflow === 'autres-versements') {
-    const rows: ContractInstallmentRow[] = []
-    for (let index = 0; index < 4; index += 1) {
-      const payment = payments[index]
-      rows.push(payment ? filledRow(index, payment) : emptyRow(index))
+  const rows = Array.from({ length: CLASS1_INSTALLMENT_COUNT }, (_, index) => emptyRow(index))
+  let runningCents = 0
+  let nextIndex = 0
+  for (const payment of payments) {
+    if (nextIndex >= CLASS1_INSTALLMENT_COUNT) break
+    runningCents += moneyToCents(payment.amount)
+    while (
+      nextIndex < CLASS1_INSTALLMENT_COUNT
+      && runningCents >= (nextIndex + 1) * CLASS1_INSTALLMENT_CENTS
+    ) {
+      rows[nextIndex] = filledRow(nextIndex, payment.date)
+      nextIndex += 1
     }
-    if (payments.length > 4) {
-      const extra = payments.slice(4)
-      const dates = extra.map((payment) => payment.date).filter((date) => date.length > 0).sort()
-      const datePaid = dates.length <= 1 ? (dates[0] || '') : `${dates[0]} – ${dates[dates.length - 1]}`
-      rows.push({
-        number: '05',
-        stepEn: OTHER_PAYMENTS_STEP.en,
-        stepFr: OTHER_PAYMENTS_STEP.fr,
-        amount: formatQuebecMoney(extra.reduce((sum, payment) => sum + payment.amount, 0)),
-        dateScheduled: '',
-        datePaid,
-      })
-    }
-    return rows
-  }
-
-  const count = Math.max(CLASS1_INSTALLMENT_STAGES.length, payments.length)
-  const rows: ContractInstallmentRow[] = []
-  for (let index = 0; index < count; index += 1) {
-    const payment = payments[index]
-    rows.push(payment ? filledRow(index, payment) : emptyRow(index))
   }
   return rows
 }

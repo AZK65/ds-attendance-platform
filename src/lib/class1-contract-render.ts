@@ -4,6 +4,7 @@ import { getPricing } from '@/lib/pricing'
 import { pickClass1Registration } from '@/lib/class1-contract-lookup'
 import { resolveClass1TrainingLocations } from '@/lib/class1-contract-locations'
 import { buildContractInstallmentRows, listContractPayments } from '@/lib/class1-contract-payments'
+import { class1StudentSignedAt } from '@/lib/class1-contract-signed-date'
 import {
   renderClass1ContractPdf,
   type Class1ContractData,
@@ -74,6 +75,11 @@ export async function renderStoredClass1Contract(registrationId: string, lang: C
     repSignature: reg.repSignatureImage,
     repName: reg.repSignerName || '',
     repSignedAt: reg.repSignedAt,
+    studentSignedAt: class1StudentSignedAt({
+      signatureImage: reg.signatureImage,
+      submittedAt: reg.submittedAt,
+      termsAcceptedAt: reg.termsAcceptedAt,
+    }),
   }
   const rows = buildContractInstallmentRows(listContractPayments(invoices, student))
   const buffer = await renderClass1ContractPdf({

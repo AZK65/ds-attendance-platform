@@ -2,12 +2,14 @@ import assert from 'node:assert/strict'
 import { test } from 'node:test'
 import { pickClass1Registration } from './class1-contract-lookup'
 import {
+  CLASS1_INSTALLMENT_AMOUNT,
+  CLASS1_INSTALLMENT_COUNT,
   CLASS1_INSTALLMENT_STAGES,
-  CLASS1_PAYMENT_OVERFLOW,
   buildContractInstallmentRows,
   contractPaymentDate,
   formatQuebecMoney,
   listContractPayments,
+  moneyToCents,
   type ContractInvoiceInput,
 } from './class1-contract-payments'
 
@@ -36,6 +38,19 @@ test('Quebec money uses a grouped amount, a comma, and a trailing dollar sign', 
   assert.equal(formatQuebecMoney(0), '0,00\u00a0$')
 })
 
+const FILLED = formatQuebecMoney(CLASS1_INSTALLMENT_AMOUNT)
+
+function filledDates(rows: ReturnType<typeof rowsFor>): string[] {
+  return rows.map((row) => row.datePaid)
+}
+
+test('installment size and count are the named contract constants', () => {
+  assert.equal(CLASS1_INSTALLMENT_AMOUNT, 2500)
+  assert.equal(CLASS1_INSTALLMENT_COUNT, 4)
+  assert.equal(moneyToCents(2499.99), 249999)
+  assert.equal(moneyToCents(2500), 250000)
+})
+
 test('zero payments leave four blank rows and a blank scheduled date', () => {
   const rows = rowsFor([])
   assert.equal(rows.length, 4)
@@ -48,84 +63,88 @@ test('zero payments leave four blank rows and a blank scheduled date', () => {
   }
 })
 
-test('one payment fills row 01 only', () => {
+test('Vikrant: 500 then 2000 reaches the first 2500, and the next 2500 reaches the second', () => {
   const rows = rowsFor([
-    invoice({ invoiceNumber: 'INV-1', invoiceDate: '2026-02-02', total: 2262.5 }),
+    invoice({ invoiceNumber: 'C', invoiceDate: '2026-09-01', total: 2500, createdAt: '2026-09-01T00:00:00.000Z' }),
+    invoice({ invoiceNumber: 'A', invoiceDate: '2026-08-03', total: 500, createdAt: '2026-08-03T00:00:00.000Z' }),
+    invoice({ invoiceNumber: 'B', invoiceDate: '2026-08-06', total: 2000, createdAt: '2026-08-06T00:00:00.000Z' }),
   ])
   assert.equal(rows.length, 4)
-  assert.equal(rows[0].amount, '2\u00a0262,50\u00a0$')
-  assert.equal(rows[0].datePaid, '2026-02-02')
-  assert.equal(rows[0].dateScheduled, '')
-  assert.equal(rows[0].stepFr, 'Au début de la formation')
-  for (const row of rows.slice(1)) {
-    assert.equal(row.amount, '')
-    assert.equal(row.datePaid, '')
-    assert.equal(row.dateScheduled, '')
-  }
-})
-
-test('four payments stay on the four stage rows, oldest first', () => {
-  const rows = rowsFor([
-    invoice({ invoiceNumber: 'INV-4', invoiceDate: '2026-08-01', total: 400, createdAt: '2026-08-01T00:00:00.000Z' }),
-    invoice({ invoiceNumber: 'INV-1', invoiceDate: '2026-02-01', total: 100, createdAt: '2026-02-01T00:00:00.000Z' }),
-    invoice({ invoiceNumber: 'INV-3', invoiceDate: '2026-06-01', total: 300, createdAt: '2026-06-01T00:00:00.000Z' }),
-    invoice({ invoiceNumber: 'INV-2', invoiceDate: '2026-04-01', total: 200, createdAt: '2026-04-01T00:00:00.000Z' }),
-  ])
-  assert.equal(rows.length, 4)
-  assert.deepEqual(rows.map((row) => row.datePaid), ['2026-02-01', '2026-04-01', '2026-06-01', '2026-08-01'])
-  assert.deepEqual(rows.map((row) => row.amount), [
-    '100,00\u00a0$',
-    '200,00\u00a0$',
-    '300,00\u00a0$',
-    '400,00\u00a0$',
-  ])
-  assert.deepEqual(rows.map((row) => row.stepFr), CLASS1_INSTALLMENT_STAGES.map((stage) => stage.fr))
+  assert.equal(rows[0].amount, FILLED)
+  assert.equal(rows[0].datePaid, '2026-08-06')
+  assert.equal(rows[1].amount, FILLED)
+  assert.equal(rows[1].datePaid, '2026-09-01')
+  assert.equal(rows[2].amount, '')
+  assert.equal(rows[2].datePaid, '')
+  assert.equal(rows[3].amount, '')
+  assert.equal(rows[3].datePaid, '')
   assert.ok(rows.every((row) => row.dateScheduled === ''))
 })
 
-test('six payments add rows 05 and 06 instead of dropping any', () => {
-  assert.equal(CLASS1_PAYMENT_OVERFLOW, 'extra-rows')
-  const amounts = [100, 200, 300, 400, 500, 600]
-  const rows = rowsFor(amounts.map((total, index) => invoice({
-    invoiceNumber: `INV-${index + 1}`,
-    invoiceDate: `2026-0${index + 1}-15`,
-    total,
-    createdAt: `2026-0${index + 1}-15T00:00:00.000Z`,
-  })))
-  assert.equal(rows.length, 6)
-  assert.deepEqual(rows.map((row) => row.number), ['01', '02', '03', '04', '05', '06'])
-  assert.deepEqual(rows.map((row) => row.datePaid), [
-    '2026-01-15', '2026-02-15', '2026-03-15', '2026-04-15', '2026-05-15', '2026-06-15',
+test('one 10000 payment fills all four rows on that date', () => {
+  const rows = rowsFor([
+    invoice({ invoiceNumber: 'FULL', invoiceDate: '2026-04-15', total: 10000 }),
   ])
-  assert.equal(rows[4].stepFr, 'Autre versement')
-  assert.equal(rows[5].stepFr, 'Autre versement')
-  assert.equal(rows[4].stepEn, 'Additional payment')
-  assert.equal(rows[3].stepFr, 'Après 50 % du volet pratique')
-  assert.equal(rows[5].amount, '600,00\u00a0$')
-  assert.ok(rows.every((row) => row.dateScheduled === ''))
+  assert.deepEqual(rows.map((row) => row.amount), [FILLED, FILLED, FILLED, FILLED])
+  assert.deepEqual(filledDates(rows), ['2026-04-15', '2026-04-15', '2026-04-15', '2026-04-15'])
 })
 
-test('refunded and unpaid invoices are excluded, and the rest stay in paid-date order', () => {
+test('12000 paid still prints only the four contract rows', () => {
   const rows = rowsFor([
-    invoice({ invoiceNumber: 'PAID-LATE', invoiceDate: '2026-05-20', total: 1250, createdAt: '2026-05-20T00:00:00.000Z' }),
-    invoice({ invoiceNumber: 'REFUND-OLD', invoiceDate: '2026-01-02', total: 9999, paymentStatus: 'refunded' }),
-    invoice({ invoiceNumber: 'UNPAID', invoiceDate: '2026-01-03', total: 50, paymentStatus: 'unpaid' }),
+    invoice({ invoiceNumber: 'OVER', invoiceDate: '2026-05-01', total: 12000 }),
+  ])
+  assert.equal(rows.length, 4)
+  assert.deepEqual(rows.map((row) => row.amount), [FILLED, FILLED, FILLED, FILLED])
+  assert.ok(rows.every((row) => row.datePaid === '2026-05-01'))
+  assert.ok(rows.every((row) => row.number !== '05'))
+})
+
+test('2400 paid leaves every row blank', () => {
+  const rows = rowsFor([
+    invoice({ invoiceNumber: 'PART', invoiceDate: '2026-06-01', total: 2400 }),
+  ])
+  assert.ok(rows.every((row) => row.amount === '' && row.datePaid === ''))
+})
+
+test('2499.99 does not reach an installment and 2500 does, compared in cents', () => {
+  const short = rowsFor([
+    invoice({ invoiceNumber: 'SHORT', invoiceDate: '2026-07-01', total: 2499.99 }),
+  ])
+  assert.ok(short.every((row) => row.amount === '' && row.datePaid === ''))
+
+  const exact = rowsFor([
+    invoice({ invoiceNumber: 'EXACT', invoiceDate: '2026-07-02', total: 2500 }),
+  ])
+  assert.equal(exact[0].amount, FILLED)
+  assert.equal(exact[0].datePaid, '2026-07-02')
+  assert.ok(exact.slice(1).every((row) => row.amount === ''))
+
+  const split = rowsFor([
+    invoice({ invoiceNumber: 'A', invoiceDate: '2026-07-01', total: 2499.99, createdAt: '2026-07-01T00:00:00.000Z' }),
+    invoice({ invoiceNumber: 'B', invoiceDate: '2026-07-03', total: 0.01, createdAt: '2026-07-03T00:00:00.000Z' }),
+  ])
+  assert.equal(split[0].datePaid, '2026-07-03')
+  assert.equal(split[0].amount, FILLED)
+  assert.equal(split[1].amount, '')
+})
+
+test('refunded invoices are excluded from the running total', () => {
+  const rows = rowsFor([
+    invoice({ invoiceNumber: 'REFUND', invoiceDate: '2026-01-02', total: 10000, paymentStatus: 'refunded' }),
+    invoice({ invoiceNumber: 'UNPAID', invoiceDate: '2026-01-03', total: 2500, paymentStatus: 'unpaid' }),
     invoice({
       invoiceNumber: 'OTHER',
       invoiceDate: '2026-01-04',
-      total: 80,
+      total: 2500,
       externalStudentId: 99,
       studentPhone: '438-555-0100',
       studentName: 'Amélie Bouchard',
     }),
-    invoice({ invoiceNumber: 'PAID-EARLY', invoiceDate: '2026-02-02', total: 500, createdAt: '2026-02-02T00:00:00.000Z' }),
-    invoice({ invoiceNumber: 'CREDIT', invoiceDate: '2026-01-05', total: -500, paymentStatus: 'refunded' }),
+    invoice({ invoiceNumber: 'PAID', invoiceDate: '2026-08-06', total: 2500, createdAt: '2026-08-06T00:00:00.000Z' }),
   ])
-  assert.deepEqual(rows.map((row) => row.datePaid), ['2026-02-02', '2026-05-20', '', ''])
-  assert.equal(rows[0].amount, '500,00\u00a0$')
-  assert.equal(rows[1].amount, '1\u00a0250,00\u00a0$')
-  assert.equal(rows[2].amount, '')
-  assert.equal(rows[3].amount, '')
+  assert.equal(rows[0].amount, FILLED)
+  assert.equal(rows[0].datePaid, '2026-08-06')
+  assert.ok(rows.slice(1).every((row) => row.amount === '' && row.datePaid === ''))
 })
 
 test('same paid date orders by created time, then invoice number', () => {
@@ -192,25 +211,6 @@ test('MySQL id wins, then phone last-10, then exact name', () => {
     }),
   ], { name: 'Amélie Bouchard' })
   assert.equal(byName.length, 1)
-})
-
-test('autres-versements rolls payments after the fourth into one line', () => {
-  const payments = listContractPayments([
-    invoice({ invoiceNumber: '1', invoiceDate: '2026-01-01', total: 10 }),
-    invoice({ invoiceNumber: '2', invoiceDate: '2026-02-01', total: 20 }),
-    invoice({ invoiceNumber: '3', invoiceDate: '2026-03-01', total: 30 }),
-    invoice({ invoiceNumber: '4', invoiceDate: '2026-04-01', total: 40 }),
-    invoice({ invoiceNumber: '5', invoiceDate: '2026-05-01', total: 50 }),
-    invoice({ invoiceNumber: '6', invoiceDate: '2026-06-01', total: 60 }),
-  ], STUDENT)
-  const rows = buildContractInstallmentRows(payments, 'autres-versements')
-  assert.equal(rows.length, 5)
-  assert.equal(rows[4].number, '05')
-  assert.equal(rows[4].stepFr, 'Autres versements')
-  assert.equal(rows[4].amount, '110,00\u00a0$')
-  assert.equal(rows[4].datePaid, '2026-05-01 – 2026-06-01')
-  assert.equal(rows[4].dateScheduled, '')
-  assert.equal(rows[3].datePaid, '2026-04-01')
 })
 
 test('registration lookup prefers id, contract number, and MySQL id, and skips Class 5', () => {

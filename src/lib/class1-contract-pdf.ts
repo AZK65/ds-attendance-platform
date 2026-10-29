@@ -3,6 +3,7 @@ import { renderToBuffer } from '@react-pdf/renderer'
 import { Document, Page, View, Text, Image, StyleSheet } from '@react-pdf/renderer'
 import type { TruckContract } from '@/lib/pricing'
 import type { ContractInstallmentRow } from '@/lib/class1-contract-payments'
+import { formatContractDate } from '@/lib/class1-contract-signed-date'
 
 // Class 1 service contract. Moved out of the register route so a script can
 // render it without starting the server. The registration signature images
@@ -43,6 +44,11 @@ export interface Class1ContractData {
   repSignature: string | null
   repName: string
   repSignedAt: Date | null
+  /**
+   * When the student signed. Null only when the contract is unsigned and
+   * the registration has no stored signing timestamp; the PDF then uses today.
+   */
+  studentSignedAt: Date | null
 }
 
 const styles = StyleSheet.create({
@@ -80,7 +86,8 @@ const styles = StyleSheet.create({
   titleSub: { fontSize: 9, color: '#555' },
   titleMeta: { width: 220, paddingLeft: 18, borderLeftWidth: 1, borderLeftColor: '#ccc' },
   titleMetaLabel: { fontSize: 6.5, color: '#888', letterSpacing: 1, marginBottom: 2, fontFamily: 'Helvetica-Bold' },
-  titleMetaValue: { fontSize: 10, borderBottomWidth: 1, borderBottomColor: '#000', paddingBottom: 2, marginBottom: 8 },
+  titleMetaValue: { fontSize: 10 },
+  titleMetaUnderline: { borderBottomWidth: 1, borderBottomColor: '#000', paddingBottom: 3, marginBottom: 8 },
   partiesRow: {
     flexDirection: 'row',
     borderWidth: 1,
@@ -102,6 +109,7 @@ const styles = StyleSheet.create({
   },
   partyField: {
     flexDirection: 'row',
+    alignItems: 'flex-end',
     marginBottom: 4,
     paddingBottom: 3,
     borderBottomWidth: 0.5,
@@ -199,7 +207,8 @@ const styles = StyleSheet.create({
     borderWidth: 1, borderColor: '#000',
   },
   sigPlaceLabel: { fontSize: 7.5, color: '#555', fontFamily: 'Helvetica-Bold', marginRight: 8 },
-  sigPlaceValue: { flex: 1, fontSize: 9, borderBottomWidth: 0.5, borderBottomColor: '#000', paddingBottom: 2 },
+  sigPlaceValue: { flex: 1, borderBottomWidth: 0.6, borderBottomColor: '#000', paddingBottom: 3 },
+  sigPlaceText: { fontSize: 9 },
   sigGrid: { flexDirection: 'row', borderWidth: 1, borderColor: '#000', borderTopWidth: 0 },
   sigBlock: { flex: 1, padding: 12 },
   sigBlockDivider: { borderLeftWidth: 1, borderLeftColor: '#000' },
@@ -208,7 +217,17 @@ const styles = StyleSheet.create({
     paddingHorizontal: 6, paddingVertical: 2, alignSelf: 'flex-start', marginBottom: 8, letterSpacing: 1,
   },
   sigFieldLabel: { fontSize: 6.5, color: '#555', letterSpacing: 0.6, fontFamily: 'Helvetica-Bold', marginBottom: 2 },
-  sigLine: { borderBottomWidth: 0.5, borderBottomColor: '#000', paddingVertical: 5, marginBottom: 6 },
+  sigLine: {
+    borderBottomWidth: 0.6,
+    borderBottomColor: '#000',
+    paddingBottom: 3,
+    marginBottom: 6,
+    minHeight: 16,
+    justifyContent: 'flex-end',
+  },
+  durationLabel: { fontSize: 7, color: '#555', fontFamily: 'Helvetica-Bold', letterSpacing: 0.4, marginBottom: 4 },
+  durationValue: { borderBottomWidth: 0.8, borderBottomColor: '#000', paddingBottom: 5, paddingTop: 1 },
+  durationText: { fontSize: 10, fontFamily: 'Helvetica-Bold', lineHeight: 1.15 },
   sigImage: { height: 36, marginBottom: 4 },
   footer: {
     marginTop: 14, paddingVertical: 6,
@@ -291,9 +310,7 @@ function ContractPage({
   school: Class1ContractSchool
   rows: readonly ContractInstallmentRow[]
 }) {
-  const contractDate = lang === 'en'
-    ? new Date().toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })
-    : new Date().toLocaleDateString('fr-CA', { month: 'long', day: 'numeric', year: 'numeric' })
+  const contractDate = formatContractDate(data.studentSignedAt ?? new Date(), lang)
   const repSignedDate = data.repSignedAt
     ? (lang === 'en'
         ? data.repSignedAt.toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })
@@ -411,9 +428,13 @@ function ContractPage({
       ),
       React.createElement(View, { style: styles.titleMeta },
         React.createElement(Text, { style: styles.titleMetaLabel }, t.contractNo.toUpperCase()),
-        React.createElement(Text, { style: styles.titleMetaValue }, data.contractNumber || '—'),
+        React.createElement(View, { style: styles.titleMetaUnderline },
+          React.createElement(Text, { style: styles.titleMetaValue }, data.contractNumber || '—'),
+        ),
         React.createElement(Text, { style: styles.titleMetaLabel }, t.date.toUpperCase()),
-        React.createElement(Text, { style: styles.titleMetaValue }, contractDate),
+        React.createElement(View, { style: styles.titleMetaUnderline },
+          React.createElement(Text, { style: styles.titleMetaValue }, contractDate),
+        ),
       ),
     ),
     React.createElement(View, { style: styles.partiesRow },
@@ -443,9 +464,11 @@ function ContractPage({
       React.createElement(Text, { style: styles.text }, t.sec1Body2),
       React.createElement(Sub, { num: '1.2', title: lang === 'en' ? 'Training Locations' : 'Lieux de formation' }),
       ...locationRows.map((row, i) =>
-        React.createElement(View, { key: i, style: { flexDirection: 'row', marginBottom: 4 } },
-          React.createElement(Text, { style: [styles.partyFieldLabel, { width: 148 }] as never }, row.label.toUpperCase()),
-          React.createElement(Text, { style: [styles.partyFieldValue, { borderBottomWidth: 0.5, borderBottomColor: '#bbb' }] as never }, row.value || '—'),
+        React.createElement(View, { key: i, style: { flexDirection: 'row', alignItems: 'flex-end', marginBottom: 4 } },
+          React.createElement(Text, { style: [styles.partyFieldLabel, { width: 148, marginBottom: 3 }] as never }, row.label.toUpperCase()),
+          React.createElement(View, { style: { flex: 1, borderBottomWidth: 0.6, borderBottomColor: '#bbb', paddingBottom: 2 } },
+            React.createElement(Text, { style: styles.partyFieldValue }, row.value || '—'),
+          ),
         ),
       ),
     ),
@@ -505,15 +528,19 @@ function ContractPage({
       React.createElement(Text, { style: styles.text }, t.sec4Body),
       React.createElement(View, { style: { flexDirection: 'row', gap: 20 } },
         React.createElement(View, { style: { flex: 1 } },
-          React.createElement(Text, { style: styles.partyFieldLabel }, t.firstCourse.toUpperCase()),
-          React.createElement(Text, { style: [styles.partyFieldValue, styles.prefilled, { borderBottomWidth: 0.5, borderBottomColor: '#000', paddingVertical: 4 }] as never },
-            (lang === 'en' ? formatDateEn(data.firstCourseDate) : formatDateFr(data.firstCourseDate)) || '—',
+          React.createElement(Text, { style: styles.durationLabel }, t.firstCourse.toUpperCase()),
+          React.createElement(View, { style: styles.durationValue },
+            React.createElement(Text, { style: styles.durationText },
+              (lang === 'en' ? formatDateEn(data.firstCourseDate) : formatDateFr(data.firstCourseDate)) || '—',
+            ),
           ),
         ),
         React.createElement(View, { style: { flex: 1 } },
-          React.createElement(Text, { style: styles.partyFieldLabel }, t.maxComplete.toUpperCase()),
-          React.createElement(Text, { style: [styles.partyFieldValue, styles.prefilled, { borderBottomWidth: 0.5, borderBottomColor: '#000', paddingVertical: 4 }] as never },
-            (lang === 'en' ? formatDateEn(data.maxCompletionDate) : formatDateFr(data.maxCompletionDate)) || '—',
+          React.createElement(Text, { style: styles.durationLabel }, t.maxComplete.toUpperCase()),
+          React.createElement(View, { style: styles.durationValue },
+            React.createElement(Text, { style: styles.durationText },
+              (lang === 'en' ? formatDateEn(data.maxCompletionDate) : formatDateFr(data.maxCompletionDate)) || '—',
+            ),
           ),
         ),
       ),
@@ -544,30 +571,44 @@ function ContractPage({
       React.createElement(Text, { style: styles.sigIntro }, t.sigIntro),
       React.createElement(View, { style: styles.sigPlace },
         React.createElement(Text, { style: styles.sigPlaceLabel }, t.signedAt),
-        React.createElement(Text, { style: styles.sigPlaceValue }, data.signedAtPlace),
+        React.createElement(View, { style: styles.sigPlaceValue },
+          React.createElement(Text, { style: styles.sigPlaceText }, data.signedAtPlace || ' '),
+        ),
       ),
       React.createElement(View, { style: styles.sigGrid },
         React.createElement(View, { style: styles.sigBlock },
           React.createElement(Text, { style: styles.sigBlockTag }, t.student.toUpperCase()),
           React.createElement(Text, { style: styles.sigFieldLabel }, t.sigFull.toUpperCase()),
-          React.createElement(Text, { style: styles.sigLine }, data.fullName || ''),
+          React.createElement(View, { style: styles.sigLine },
+            React.createElement(Text, { style: styles.sigPlaceText }, data.fullName || ' '),
+          ),
           React.createElement(Text, { style: styles.sigFieldLabel }, t.sig.toUpperCase()),
           data.studentSignature
             ? React.createElement(Image, { src: data.studentSignature, style: styles.sigImage })
-            : React.createElement(Text, { style: styles.sigLine }, ''),
+            : React.createElement(View, { style: styles.sigLine },
+                React.createElement(Text, { style: styles.sigPlaceText }, ' '),
+              ),
           React.createElement(Text, { style: styles.sigFieldLabel }, t.sigDate.toUpperCase()),
-          React.createElement(Text, { style: styles.sigLine }, contractDate),
+          React.createElement(View, { style: styles.sigLine },
+            React.createElement(Text, { style: styles.sigPlaceText }, contractDate || ' '),
+          ),
         ),
         React.createElement(View, { style: [styles.sigBlock, styles.sigBlockDivider] as never },
           React.createElement(Text, { style: styles.sigBlockTag }, t.rep.toUpperCase()),
           React.createElement(Text, { style: styles.sigFieldLabel }, t.sigFull.toUpperCase()),
-          React.createElement(Text, { style: styles.sigLine }, data.repName),
+          React.createElement(View, { style: styles.sigLine },
+            React.createElement(Text, { style: styles.sigPlaceText }, data.repName || ' '),
+          ),
           React.createElement(Text, { style: styles.sigFieldLabel }, t.sig.toUpperCase()),
           data.repSignature
             ? React.createElement(Image, { src: data.repSignature, style: styles.sigImage })
-            : React.createElement(Text, { style: styles.sigLine }, ''),
+            : React.createElement(View, { style: styles.sigLine },
+                React.createElement(Text, { style: styles.sigPlaceText }, ' '),
+              ),
           React.createElement(Text, { style: styles.sigFieldLabel }, t.sigDate.toUpperCase()),
-          React.createElement(Text, { style: styles.sigLine }, repSignedDate),
+          React.createElement(View, { style: styles.sigLine },
+            React.createElement(Text, { style: styles.sigPlaceText }, repSignedDate || ' '),
+          ),
         ),
       ),
     ),

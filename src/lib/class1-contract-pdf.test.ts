@@ -32,16 +32,17 @@ const data: Class1ContractData = {
   address: '1200 Rue Saint-Denis, Montréal, H2X 3J5',
   phone: '514-555-0199',
   email: 'amelie.bouchard.example@example.com',
-  firstCourseDate: '2026-02-02',
-  maxCompletionDate: '2027-08-02',
+  firstCourseDate: '2026-08-04',
+  maxCompletionDate: '2028-02-04',
   signedAtPlace: 'Montréal',
   consentSaaq: true,
   consentTransfer: true,
   consentContact: true,
-  studentSignature: null,
+  studentSignature: 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==',
   repSignature: null,
-  repName: '',
-  repSignedAt: null,
+  repName: 'Karim Haddad',
+  repSignedAt: new Date('2026-08-05T16:00:00.000Z'),
+  studentSignedAt: new Date('2026-08-03T16:00:00.000Z'),
 }
 const school: Class1ContractSchool = {
   name: 'École de Conduite Qazi',
@@ -54,12 +55,12 @@ const school: Class1ContractSchool = {
   truckCircuitAddress: CLASS1_DEFAULT_CIRCUIT_ADDRESS,
 }
 
-test('French Class 1 PDF prints locations, paid rows, and a blank scheduled date', { skip: !pdftotextAvailable() }, async () => {
+test('French Class 1 PDF prints locations, threshold rows, and the stored signing day', { skip: !pdftotextAvailable() }, async () => {
   const invoices = [
-    { invoiceNumber: 'INV-2', invoiceDate: '2026-05-04', total: 1500, paymentStatus: 'paid', externalStudentId: 42, createdAt: '2026-05-04T00:00:00.000Z' },
-    { invoiceNumber: 'INV-1', invoiceDate: '2026-02-02', total: 2262.5, paymentStatus: 'paid', externalStudentId: 42, createdAt: '2026-02-02T00:00:00.000Z' },
+    { invoiceNumber: 'INV-C', invoiceDate: '2026-09-01', total: 2500, paymentStatus: 'paid', externalStudentId: 42, createdAt: '2026-09-01T00:00:00.000Z' },
+    { invoiceNumber: 'INV-A', invoiceDate: '2026-08-03', total: 500, paymentStatus: 'paid', externalStudentId: 42, createdAt: '2026-08-03T00:00:00.000Z' },
     { invoiceNumber: 'INV-R', invoiceDate: '2026-01-01', total: 999, paymentStatus: 'refunded', externalStudentId: 42, createdAt: '2026-01-01T00:00:00.000Z' },
-    { invoiceNumber: 'INV-3', invoiceDate: '2026-03-16', total: 2262.5, paymentStatus: 'paid', externalStudentId: 42, createdAt: '2026-03-16T00:00:00.000Z' },
+    { invoiceNumber: 'INV-B', invoiceDate: '2026-08-06', total: 2000, paymentStatus: 'paid', externalStudentId: 42, createdAt: '2026-08-06T00:00:00.000Z' },
   ]
   const buffer = await renderClass1ContractPdf({
     lang: 'fr',
@@ -77,14 +78,18 @@ test('French Class 1 PDF prints locations, paid rows, and a blank scheduled date
   assert.match(text, /Communication des coordonnées/)
   assert.match(text, /786 Rue Jean-Talon O, Montréal, QC H3N 1S2/)
   assert.match(text, /3002 Av Jacques-Bureau, Laval, QC H4P 0H3/)
-  assert.match(text, /2 262,50 \$/)
-  assert.match(text, /1 500,00 \$/)
-  assert.match(text, /2026-02-02/)
-  assert.match(text, /2026-03-16/)
-  assert.match(text, /2026-05-04/)
+  assert.match(text, /2 500,00 \$/)
+  assert.match(text, /2026-08-06/)
+  assert.match(text, /2026-09-01/)
+  assert.doesNotMatch(text, /2026-08-03/)
   assert.match(text, /\$ _______/)
   assert.doesNotMatch(text, /999/)
-  const paidAt = text.indexOf('2026-02-02')
-  const nextPaid = text.indexOf('2026-03-16')
-  assert.ok(paidAt >= 0 && nextPaid > paidAt)
+  assert.equal(text.split('3 août 2026').length - 1, 2)
+  assert.match(text, /4 août 2026/)
+  assert.match(text, /4 février 2028/)
+  assert.match(text, /5 août 2026/)
+  assert.doesNotMatch(text, /29 octobre 2026/)
+  const firstPaid = text.indexOf('2026-08-06')
+  const secondPaid = text.indexOf('2026-09-01')
+  assert.ok(firstPaid >= 0 && secondPaid > firstPaid)
 })
