@@ -78,6 +78,7 @@ interface InvoiceData {
   cloverPaymentUrl: string | null
   cloverPaid: boolean
   remainingBalance: number | null
+  externalStudentId?: number | null
 }
 
 interface SettingsData {
@@ -225,6 +226,7 @@ export default function InvoiceViewPage() {
         taxesEnabled: settings.taxesEnabled && (invoice.gstAmount > 0 || invoice.qstAmount > 0),
         notes: invoice.notes || '',
         remainingBalance,
+        externalStudentId: invoice.externalStudentId ?? null,
       }
 
       try {

@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import PDFDocument from 'pdfkit'
-import path from 'path'
-import fs from 'fs'
+import { BRAND } from '@/lib/brand'
+import { drawPdfKitLetterhead, usePdfKitChrome } from '@/lib/brand-assets'
 
 const SCHOOL_INFO = {
   name: 'QAZI DRIVING SCHOOL',
@@ -47,17 +47,8 @@ export async function POST(request: NextRequest) {
     const doc = new PDFDocument({ margin: 50, size: 'A4' })
     const chunks: Buffer[] = []
     doc.on('data', (chunk) => chunks.push(chunk))
-
-    // --- Header ---
-    const logoPath = path.join(process.cwd(), 'public', 'qazi-logo.png')
-    if (fs.existsSync(logoPath)) {
-      doc.image(logoPath, 222.5, 30, { width: 150 })
-      doc.moveDown(3.5)
-    } else {
-      doc.fontSize(18).font('Helvetica-Bold').fillColor('#047857').text(SCHOOL_INFO.nameFr, { align: 'center' })
-      doc.fontSize(16).fillColor('#047857').text(SCHOOL_INFO.name, { align: 'center' })
-      doc.moveDown(0.3)
-    }
+    usePdfKitChrome(doc)
+    drawPdfKitLetterhead(doc)
 
     // School info
     doc.fontSize(10).font('Helvetica').fillColor('#374151')
@@ -70,11 +61,11 @@ export async function POST(request: NextRequest) {
     doc.moveDown(0.5)
 
     // Title
-    doc.fontSize(18).font('Helvetica-Bold').fillColor('#047857').text('Truck Training Schedule', { align: 'center' })
+    doc.fontSize(18).font('Helvetica-Bold').fillColor(BRAND.blue).text('Truck Training Schedule', { align: 'center' })
     doc.moveDown(0.5)
 
     // Student info
-    doc.fontSize(12).font('Helvetica-Bold').fillColor('#000000').text('Student Information', 50)
+    doc.fontSize(12).font('Helvetica-Bold').fillColor(BRAND.blue).text('Student Information', 50)
     doc.moveDown(0.3)
     doc.fontSize(11).font('Helvetica').fillColor('#374151')
     doc.text(`Name: ${studentName}`, 50)
@@ -97,10 +88,10 @@ export async function POST(request: NextRequest) {
 
     // Draw header function (reusable for page breaks)
     const drawTableHeader = (y: number) => {
-      doc.fillColor('#047857')
+      doc.fillColor(BRAND.blue700)
       doc.rect(tableLeft, y, tableWidth, rowHeight).fill()
 
-      doc.fillColor('#ffffff').fontSize(10).font('Helvetica-Bold')
+      doc.fillColor(BRAND.onBlue).fontSize(10).font('Helvetica-Bold')
       let x = tableLeft + 5
       doc.text('#', x, y + 9, { width: colWidths.index })
       x += colWidths.index
@@ -112,7 +103,7 @@ export async function POST(request: NextRequest) {
       x += colWidths.type
       doc.text('Location', x, y + 9, { width: colWidths.location })
 
-      doc.strokeColor('#047857').lineWidth(1)
+      doc.strokeColor(BRAND.blue700).lineWidth(1)
       doc.moveTo(tableLeft, y + rowHeight).lineTo(tableLeft + tableWidth, y + rowHeight).stroke()
 
       return y + rowHeight
@@ -136,7 +127,7 @@ export async function POST(request: NextRequest) {
 
       // Alternating row background
       if (index % 2 === 1) {
-        doc.fillColor('#f0fdf4') // very light green
+        doc.fillColor(BRAND.surfaceMuted)
         doc.rect(tableLeft, y, tableWidth, rowHeight).fill()
       }
 
@@ -152,16 +143,16 @@ export async function POST(request: NextRequest) {
       // Index / class number
       doc.font('Helvetica-Bold')
       if (cls.isExam) {
-        doc.fillColor('#b91c1c')
+        doc.fillColor(BRAND.red)
         doc.text('EXAM', x, y + 9, { width: colWidths.index })
       } else {
-        doc.fillColor('#047857')
+        doc.fillColor(BRAND.green700)
         doc.text(String(classNumber), x, y + 9, { width: colWidths.index })
       }
       x += colWidths.index
 
       // Date
-      doc.font('Helvetica').fillColor('#000000')
+      doc.font('Helvetica').fillColor(BRAND.ink)
       doc.text(formatDateDisplay(cls.date), x, y + 9, { width: colWidths.date })
       x += colWidths.date
 
@@ -172,9 +163,9 @@ export async function POST(request: NextRequest) {
       // Type
       doc.font('Helvetica-Bold')
       if (cls.isExam) {
-        doc.fillColor('#b91c1c').text('Exam', x, y + 9, { width: colWidths.type })
+        doc.fillColor(BRAND.red).text('Exam', x, y + 9, { width: colWidths.type })
       } else {
-        doc.fillColor('#047857').text('Class', x, y + 9, { width: colWidths.type })
+        doc.fillColor(BRAND.green700).text('Class', x, y + 9, { width: colWidths.type })
       }
       x += colWidths.type
 

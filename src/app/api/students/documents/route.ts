@@ -506,6 +506,7 @@ export async function GET(request: NextRequest) {
               taxesEnabled: (invoiceSettings?.taxesEnabled ?? true) && (invoice.gstAmount > 0 || invoice.qstAmount > 0),
               notes: invoice.notes || '',
               remainingBalance: invoice.remainingBalance ?? 0,
+              externalStudentId: invoice.externalStudentId,
             }),
           },
         )

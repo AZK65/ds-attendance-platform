@@ -1,8 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getGroupParticipants, getGroupInfo, getWhatsAppState, getGroupLastMessage } from '@/lib/whatsapp/client'
 import PDFDocument from 'pdfkit'
-import path from 'path'
-import fs from 'fs'
+import { BRAND } from '@/lib/brand'
+import { drawPdfKitLetterhead, usePdfKitChrome } from '@/lib/brand-assets'
 
 // School information constants
 const SCHOOL_INFO = {
@@ -40,23 +40,8 @@ export async function GET(
     const chunks: Buffer[] = []
 
     doc.on('data', (chunk) => chunks.push(chunk))
-
-    // Try to add logo if it exists - centered
-    const logoPath = path.join(process.cwd(), 'public', 'qazi-logo.png')
-    if (fs.existsSync(logoPath)) {
-      // Center the logo: page width is 595 (A4), logo width is 150, so x = (595 - 150) / 2 = 222.5
-      doc.image(logoPath, 222.5, 30, { width: 150 })
-      doc.moveDown(3.5)
-    } else {
-      // Text-based header if no logo - red theme
-      doc.fontSize(18).font('Helvetica-Bold').fillColor('#b91c1c').text(SCHOOL_INFO.nameFr, {
-        align: 'center'
-      })
-      doc.fontSize(16).fillColor('#b91c1c').text(SCHOOL_INFO.name, {
-        align: 'center'
-      })
-      doc.moveDown(0.3)
-    }
+    usePdfKitChrome(doc)
+    drawPdfKitLetterhead(doc)
 
     // School info line
     doc.fontSize(10).font('Helvetica').fillColor('#374151')
@@ -71,13 +56,13 @@ export async function GET(
     doc.moveDown(0.5)
 
     // Title
-    doc.fontSize(16).font('Helvetica-Bold').fillColor('#000000').text('Class Attendance Sheet', {
+    doc.fontSize(16).font('Helvetica-Bold').fillColor(BRAND.blue).text('Class Attendance Sheet', {
       align: 'center'
     })
     doc.moveDown(0.3)
 
     // Group name
-    doc.fontSize(12).font('Helvetica').text(groupInfo.name, {
+    doc.fontSize(12).font('Helvetica').fillColor(BRAND.ink).text(groupInfo.name, {
       align: 'center'
     })
     doc.moveDown(0.3)
@@ -93,7 +78,7 @@ export async function GET(
 
     if (moduleNumber) {
       doc.moveDown(0.2)
-      doc.fontSize(11).font('Helvetica-Bold').fillColor('#1f2937').text(`Module ${moduleNumber}`, { align: 'center' })
+      doc.fontSize(11).font('Helvetica-Bold').fillColor(BRAND.blue700).text(`Module ${moduleNumber}`, { align: 'center' })
     }
     doc.moveDown(0.3)
 
@@ -101,7 +86,7 @@ export async function GET(
     doc
       .fontSize(10)
       .font('Helvetica')
-      .fillColor('#000000')
+      .fillColor(BRAND.ink)
       .text(`Total Students: ${participants.length}`, { align: 'center' })
     doc.moveDown(0.8)
 
@@ -118,10 +103,10 @@ export async function GET(
     const rowHeight = 25
 
     // Header row - black theme
-    doc.fillColor('#1f2937')
+    doc.fillColor(BRAND.blue700)
     doc.rect(tableLeft, tableTop, tableWidth, rowHeight).fill()
 
-    doc.fillColor('#ffffff').fontSize(10).font('Helvetica-Bold')
+    doc.fillColor(BRAND.onBlue).fontSize(10).font('Helvetica-Bold')
     let x = tableLeft + 5
     doc.text('#', x, tableTop + 8, { width: colWidths.index })
     x += colWidths.index
@@ -133,7 +118,7 @@ export async function GET(
 
     // Header border
     doc
-      .strokeColor('#1f2937')
+      .strokeColor(BRAND.blue700)
       .lineWidth(1)
       .moveTo(tableLeft, tableTop + rowHeight)
       .lineTo(tableLeft + tableWidth, tableTop + rowHeight)
@@ -152,11 +137,11 @@ export async function GET(
 
       // Alternating row background - light gray
       if (index % 2 === 1) {
-        doc.fillColor('#f3f4f6')
+        doc.fillColor(BRAND.surfaceMuted)
         doc.rect(tableLeft, y, tableWidth, rowHeight).fill()
       }
 
-      doc.fillColor('#000000')
+      doc.fillColor(BRAND.ink)
       x = tableLeft + 5
 
       doc.text(String(index + 1), x, y + 8, { width: colWidths.index })
@@ -181,7 +166,7 @@ export async function GET(
       // Checkbox for attendance - black border
       const checkboxX = x + (colWidths.attendance / 2) - 6
       const checkboxY = y + 6
-      doc.strokeColor('#1f2937').lineWidth(1)
+      doc.strokeColor(BRAND.blue700).lineWidth(1)
       doc.rect(checkboxX, checkboxY, 12, 12).stroke()
 
       // Row border

@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/db'
+import { emailLogoAttachment } from '@/lib/brand-assets'
+import { contractEmailHtml } from '@/lib/document-emails'
 
 // POST /api/register/email-contract
 // Generates the truck SAAQ Class 1 contract PDF for a registration and
@@ -15,7 +17,7 @@ async function sendEmailViaResend(apiKey: string, payload: {
   to: string[]
   subject: string
   html: string
-  attachments: { filename: string; content: string }[]
+  attachments: { filename: string; content: string; content_id?: string }[]
 }) {
   const res = await fetch('https://api.resend.com/emails', {
     method: 'POST',
@@ -65,20 +67,14 @@ export async function POST(request: NextRequest) {
 
     const filename = `Service-Contract-${(reg.fullName || 'student').replace(/\s+/g, '_')}.pdf`
     const subject = `Your Qazi Driving School Class 1 Service Contract`
-    const html = `
-      <p>Hello ${reg.fullName || ''},</p>
-      <p>Please find your <strong>Class 1 service contract</strong> attached to this email,
-      including both English and French versions.</p>
-      <p>Keep this document until you obtain your licence — it is required by the SAAQ.</p>
-      <p>Thank you,<br>Qazi Driving School</p>
-    `
+    const html = contractEmailHtml(reg.fullName || '')
 
     await sendEmailViaResend(apiKey, {
       from,
       to: [recipient],
       subject,
       html,
-      attachments: [{ filename, content: base64 }],
+      attachments: [emailLogoAttachment(), { filename, content: base64 }],
     })
 
     await prisma.messageLog.create({

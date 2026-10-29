@@ -1,5 +1,7 @@
 import { PDFDocument, StandardFonts, rgb } from 'pdf-lib'
 import { MEDICAL_CONDITIONS } from './medical'
+import { BRAND, hexToUnit, logoHeightForWidth } from './brand'
+import { readLogoBytes } from './brand-assets'
 
 export interface MedicalDeclarationPdfInput {
   fullName: string
@@ -93,16 +95,27 @@ export async function buildMedicalDeclarationPdf(input: MedicalDeclarationPdfInp
   const page = doc.addPage([612, 792])
   const font = await doc.embedFont(StandardFonts.Helvetica)
   const bold = await doc.embedFont(StandardFonts.HelveticaBold)
-  const ink = rgb(0.06, 0.07, 0.09)
-  const muted = rgb(0.4, 0.42, 0.48)
-  const blue = rgb(0.12, 0.25, 0.8)
+  const ink = rgb(...hexToUnit(BRAND.ink))
+  const muted = rgb(...hexToUnit(BRAND.ink70))
+  const blue = rgb(...hexToUnit(BRAND.blue))
+  const green = rgb(...hexToUnit(BRAND.green))
+  const red = rgb(...hexToUnit(BRAND.red))
 
-  page.drawRectangle({ x: 0, y: 762, width: 612, height: 30, color: blue })
+  const stripe = 612 / 3
+  page.drawRectangle({ x: 0, y: 786, width: stripe, height: 6, color: blue })
+  page.drawRectangle({ x: stripe, y: 786, width: stripe, height: 6, color: red })
+  page.drawRectangle({ x: stripe * 2, y: 786, width: 612 - stripe * 2, height: 6, color: green })
+  const logoWidth = 92
+  const logoHeight = logoHeightForWidth(logoWidth)
+  try {
+    const logo = await doc.embedPng(readLogoBytes())
+    page.drawImage(logo, { x: 612 - 36 - logoWidth, y: 748, width: logoWidth, height: logoHeight })
+  } catch { /* the declaration still prints if the logo file cannot be read */ }
   page.drawText('Self-Declaration of Medical Information', {
-    x: 36, y: 770, size: 14, font: bold, color: rgb(1, 1, 1),
+    x: 36, y: 768, size: 13, font: bold, color: blue,
   })
   page.drawText('SAAQ form 6224A · Student record copy', {
-    x: 36, y: 745, size: 9, font, color: muted,
+    x: 36, y: 752, size: 9, font, color: muted,
   })
 
   let y = 720
@@ -166,7 +179,7 @@ export async function buildMedicalDeclarationPdf(input: MedicalDeclarationPdfInp
   page.drawRectangle({
     x: 36, y: y - 9, width: 10, height: 10,
     borderColor: ink, borderWidth: 0.6,
-    color: noneChecked ? rgb(0.18, 0.66, 0.29) : rgb(1, 1, 1),
+      color: noneChecked ? green : rgb(1, 1, 1),
   })
   if (noneChecked) {
     page.drawText('X', { x: 37.5, y: y - 8, size: 9, font: bold, color: rgb(1, 1, 1) })

@@ -4,6 +4,8 @@ import { renderToBuffer } from '@react-pdf/renderer'
 import { Document, Page, View, Text, Image, StyleSheet } from '@react-pdf/renderer'
 import { prisma } from '@/lib/db'
 import { getPricing, type TruckContract } from '@/lib/pricing'
+import { BRAND, logoHeightForWidth } from '@/lib/brand'
+import { logoDataUrl } from '@/lib/brand-assets'
 
 // Contract pricing (theory/practical hours + prices) now comes from
 // Settings → Pricing (PricingSettings.truck*), threaded in as `pricing`.
@@ -61,7 +63,7 @@ const styles = StyleSheet.create({
     borderBottomColor: '#000',
     marginBottom: 14,
   },
-  titleH1: { fontSize: 26, fontFamily: 'Helvetica-Bold', color: '#000', lineHeight: 1, marginBottom: 6 },
+  titleH1: { fontSize: 26, fontFamily: 'Helvetica-Bold', color: BRAND.blue, lineHeight: 1, marginBottom: 6 },
   titleSub: { fontSize: 9, color: '#555' },
   titleMeta: { width: 220, paddingLeft: 18, borderLeftWidth: 1, borderLeftColor: '#ccc' },
   titleMetaLabel: { fontSize: 6.5, color: '#888', letterSpacing: 1, marginBottom: 2, fontFamily: 'Helvetica-Bold' },
@@ -80,7 +82,7 @@ const styles = StyleSheet.create({
     fontSize: 7.5,
     fontFamily: 'Helvetica-Bold',
     color: '#fff',
-    backgroundColor: '#000',
+    backgroundColor: BRAND.blue700,
     paddingHorizontal: 6,
     paddingVertical: 3,
     alignSelf: 'flex-start',
@@ -103,7 +105,7 @@ const styles = StyleSheet.create({
   sectionBar: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#000',
+    backgroundColor: BRAND.blue700,
     color: '#fff',
     paddingVertical: 5,
     paddingHorizontal: 10,
@@ -138,7 +140,7 @@ const styles = StyleSheet.create({
   bold: { fontFamily: 'Helvetica-Bold' },
   callout: {
     borderLeftWidth: 2,
-    borderLeftColor: '#000',
+    borderLeftColor: BRAND.red,
     backgroundColor: '#f6f6f6',
     paddingVertical: 6,
     paddingHorizontal: 10,
@@ -156,18 +158,18 @@ const styles = StyleSheet.create({
     borderBottomWidth: 0.5,
     borderBottomColor: '#ddd',
   },
-  pricingHeader: { backgroundColor: '#000' },
+  pricingHeader: { backgroundColor: BRAND.blue700 },
   pricingHeaderText: { color: '#fff', fontSize: 7.5, fontFamily: 'Helvetica-Bold', letterSpacing: 1 },
   pricingName: { flex: 1, fontSize: 9.5 },
   pricingMeta: { width: 80, fontSize: 8.5, color: '#666', textAlign: 'right' },
   pricingAmount: { width: 100, fontSize: 12, fontFamily: 'Helvetica-Bold', textAlign: 'right' },
   pricingSubtotal: { backgroundColor: '#f6f6f6' },
-  pricingTotal: { backgroundColor: '#000' },
+  pricingTotal: { backgroundColor: BRAND.blue700 },
   pricingTotalText: { color: '#fff' },
 
   // Payment table
   payTable: { borderWidth: 1, borderColor: '#000', marginBottom: 8 },
-  payHeaderRow: { flexDirection: 'row', backgroundColor: '#000', paddingVertical: 5, paddingHorizontal: 8 },
+  payHeaderRow: { flexDirection: 'row', backgroundColor: BRAND.blue700, paddingVertical: 5, paddingHorizontal: 8 },
   payHeaderCell: { color: '#fff', fontSize: 7, fontFamily: 'Helvetica-Bold', letterSpacing: 0.6 },
   payRow: {
     flexDirection: 'row', paddingVertical: 6, paddingHorizontal: 8,
@@ -190,7 +192,7 @@ const styles = StyleSheet.create({
 
   // Signatures
   sigSection: { marginTop: 14 },
-  sigBar: { backgroundColor: '#000', paddingVertical: 7, paddingHorizontal: 10, flexDirection: 'row', justifyContent: 'space-between' },
+  sigBar: { backgroundColor: BRAND.blue700, paddingVertical: 7, paddingHorizontal: 10, flexDirection: 'row', justifyContent: 'space-between' },
   sigBarTitle: { color: '#fff', fontSize: 11, fontFamily: 'Helvetica-Bold' },
   sigBarSub: { color: '#ccc', fontSize: 7, letterSpacing: 1 },
   sigIntro: { backgroundColor: '#f6f6f6', borderLeftWidth: 1, borderLeftColor: '#000', borderRightWidth: 1, borderRightColor: '#000', padding: 10, fontSize: 9 },
@@ -205,7 +207,7 @@ const styles = StyleSheet.create({
   sigBlock: { flex: 1, padding: 12 },
   sigBlockDivider: { borderLeftWidth: 1, borderLeftColor: '#000' },
   sigBlockTag: {
-    fontSize: 6.5, fontFamily: 'Helvetica-Bold', color: '#fff', backgroundColor: '#000',
+    fontSize: 6.5, fontFamily: 'Helvetica-Bold', color: '#fff', backgroundColor: BRAND.blue700,
     paddingHorizontal: 6, paddingVertical: 2, alignSelf: 'flex-start', marginBottom: 8, letterSpacing: 1,
   },
   sigFieldLabel: { fontSize: 6.5, color: '#555', letterSpacing: 0.6, fontFamily: 'Helvetica-Bold', marginBottom: 2 },
@@ -245,7 +247,7 @@ function Sub({ num, title }: { num: string; title: string }) {
   )
 }
 
-function ContractPage({
+export function ContractPage({
   lang,
   data,
   school,
@@ -380,11 +382,20 @@ function ContractPage({
     ] as SectionInfo[],
   }
 
+  const logo = logoDataUrl()
   return React.createElement(Page, { size: 'LETTER', style: styles.page },
+    React.createElement(View, { style: { flexDirection: 'row', height: 6, marginHorizontal: -42, marginTop: -38, marginBottom: 6 } },
+      React.createElement(View, { style: { flex: 1, backgroundColor: BRAND.blue } }),
+      React.createElement(View, { style: { flex: 1, backgroundColor: BRAND.red } }),
+      React.createElement(View, { style: { flex: 1, backgroundColor: BRAND.green } }),
+    ),
     // Top bar
     React.createElement(View, { style: styles.topBar },
       React.createElement(Text, { style: styles.topLeft }, t.classLine),
-      React.createElement(Text, { style: styles.topCenter }, school.name),
+      React.createElement(View, { style: { flexDirection: 'row', alignItems: 'center', gap: 6 } },
+        logo ? React.createElement(Image, { src: logo, style: { width: 52, height: logoHeightForWidth(52) } }) : null,
+        React.createElement(Text, { style: styles.topCenter }, school.name),
+      ),
       React.createElement(Text, { style: styles.topRight }, school.address.split(',')[0]),
     ),
 
