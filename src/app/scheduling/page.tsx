@@ -4,6 +4,8 @@ import React, { useState, useMemo, useEffect, useRef, Suspense } from 'react'
 import { useSearchParams } from 'next/navigation'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { Button } from '@/components/ui/button'
+import { BRAND } from '@/lib/brand'
+import { buildSchedulingPrintHtml } from '@/lib/scheduling-print-html'
 import { Badge } from '@/components/ui/badge'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -1988,13 +1990,13 @@ function SchedulingPage() {
         let style = ''
         if (i === statusColIdx) {
           style = cell === 'Present'
-            ? 'color:#16a34a;font-weight:600;'
-            : 'color:#dc2626;font-weight:600;'
+            ? `color:${BRAND.green};font-weight:600;`
+            : `color:${BRAND.red};font-weight:600;`
         }
         if (i === presentColIdx) {
           style = cell === 'Yes'
-            ? 'color:#16a34a;font-weight:600;'
-            : cell === 'No' ? 'color:#dc2626;font-weight:600;' : ''
+            ? `color:${BRAND.green};font-weight:600;`
+            : cell === 'No' ? `color:${BRAND.red};font-weight:600;` : ''
         }
         return `<td style="padding:6px 10px;border-bottom:1px solid #e5e7eb;font-size:12px;${style}">${cell}</td>`
       }).join('')
@@ -2005,47 +2007,16 @@ function SchedulingPage() {
       ? `<img src="${logoBase64}" style="height:50px;object-fit:contain;" />`
       : `<div style="font-size:18px;font-weight:700;">Qazi Driving School</div>`
 
-    const html = `
-      <!DOCTYPE html>
-      <html>
-      <head>
-        <title>${meta.title}</title>
-        <style>
-          @page { margin: 40px; size: ${exportMode === 'schedule' ? 'landscape' : 'portrait'}; }
-          body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; margin: 0; padding: 20px; color: #1e293b; }
-          .header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 20px; padding-bottom: 16px; border-bottom: 2px solid #e2e8f0; }
-          .header-left { display: flex; align-items: center; gap: 16px; }
-          .header-text h1 { font-size: 18px; margin: 0 0 2px 0; }
-          .header-text .subtitle { font-size: 12px; color: #64748b; margin: 0; }
-          .count-badge { background: #f1f5f9; border-radius: 6px; padding: 4px 12px; font-size: 12px; color: #475569; font-weight: 500; }
-          table { width: 100%; border-collapse: collapse; }
-          th { text-align: left; padding: 8px 10px; background: #f8fafc; border-bottom: 2px solid #e2e8f0; font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; color: #64748b; }
-          tr:nth-child(even) td { background: #f8fafc; }
-          .footer { margin-top: 32px; padding-top: 12px; border-top: 1px solid #e2e8f0; font-size: 10px; color: #94a3b8; display: flex; justify-content: space-between; }
-        </style>
-      </head>
-      <body>
-        <div class="header">
-          <div class="header-left">
-            ${logoHtml}
-            <div class="header-text">
-              <h1>${meta.title}</h1>
-              <div class="subtitle">${meta.subtitle}</div>
-            </div>
-          </div>
-          <div class="count-badge">${rows.length} class${rows.length !== 1 ? 'es' : ''}</div>
-        </div>
-        <table>
-          <thead><tr>${headers.map(h => `<th>${h}</th>`).join('')}</tr></thead>
-          <tbody>${tableRows}</tbody>
-        </table>
-        <div class="footer">
-          <span>Qazi Driving School</span>
-          <span>Generated ${new Date().toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit' })}</span>
-        </div>
-      </body>
-      </html>
-    `
+    const html = buildSchedulingPrintHtml({
+      title: meta.title,
+      subtitle: meta.subtitle,
+      headers,
+      tableRowsHtml: tableRows,
+      rowCount: rows.length,
+      logoHtml,
+      landscape: exportMode === 'schedule',
+      generatedLabel: new Date().toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit' }),
+    })
 
     // Replace loading content with actual PDF content
     printWindow.document.open()

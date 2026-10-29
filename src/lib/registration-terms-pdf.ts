@@ -1,5 +1,7 @@
 import { PDFDocument, PDFFont, StandardFonts, rgb } from 'pdf-lib'
 import type { RegistrationTermsSnapshot } from './registration-terms'
+import { BRAND, hexToUnit, logoHeightForWidth } from './brand'
+import { readLogoBytes } from './brand-assets'
 
 export interface RegistrationTermsPdfInput {
   studentName: string
@@ -62,10 +64,12 @@ export async function buildRegistrationTermsPdf(input: RegistrationTermsPdfInput
   const doc = await PDFDocument.create()
   const regular = await doc.embedFont(StandardFonts.Helvetica)
   const bold = await doc.embedFont(StandardFonts.HelveticaBold)
-  const ink = rgb(0.055, 0.06, 0.075)
-  const muted = rgb(0.39, 0.41, 0.46)
-  const line = rgb(0.83, 0.84, 0.87)
-  const red = rgb(0.88, 0.12, 0.14)
+  const ink = rgb(...hexToUnit(BRAND.ink))
+  const muted = rgb(...hexToUnit(BRAND.ink70))
+  const line = rgb(...hexToUnit(BRAND.rule))
+  const blue = rgb(...hexToUnit(BRAND.blue))
+  const red = rgb(...hexToUnit(BRAND.red))
+  const green = rgb(...hexToUnit(BRAND.green))
   const french = input.snapshot.language === 'fr'
   const labels = french
     ? {
@@ -84,8 +88,17 @@ export async function buildRegistrationTermsPdf(input: RegistrationTermsPdfInput
       }
 
   const page = doc.addPage([PAGE_WIDTH, PAGE_HEIGHT])
-  page.drawRectangle({ x: 0, y: PAGE_HEIGHT - 10, width: PAGE_WIDTH, height: 10, color: red })
-  page.drawText('QAZI DRIVING SCHOOL', { x: LEFT, y: PAGE_HEIGHT - 34, size: 8.5, font: bold, color: ink })
+  const stripe = PAGE_WIDTH / 3
+  page.drawRectangle({ x: 0, y: PAGE_HEIGHT - 6, width: stripe, height: 6, color: blue })
+  page.drawRectangle({ x: stripe, y: PAGE_HEIGHT - 6, width: stripe, height: 6, color: red })
+  page.drawRectangle({ x: stripe * 2, y: PAGE_HEIGHT - 6, width: PAGE_WIDTH - stripe * 2, height: 6, color: green })
+  const logoWidth = 62
+  const logoHeight = logoHeightForWidth(logoWidth)
+  try {
+    const logo = await doc.embedPng(readLogoBytes())
+    page.drawImage(logo, { x: LEFT, y: PAGE_HEIGHT - 40, width: logoWidth, height: logoHeight })
+  } catch { /* header text still identifies the school */ }
+  page.drawText('QAZI DRIVING SCHOOL', { x: LEFT + logoWidth + 8, y: PAGE_HEIGHT - 34, size: 8.5, font: bold, color: ink })
   page.drawText(labels.page, {
     x: PAGE_WIDTH - RIGHT - 150,
     y: PAGE_HEIGHT - 34,
@@ -123,7 +136,7 @@ export async function buildRegistrationTermsPdf(input: RegistrationTermsPdfInput
   const columnWidth = (CONTENT_WIDTH - columnGap) / 2
   const drawSection = (x: number, y: number, title: string, body: string) => {
     let nextY = drawWrappedAt(title, {
-      x, y, width: columnWidth, font: bold, size: 9.8, gapAfter: 3, lineHeight: 11.3,
+      x, y, width: columnWidth, font: bold, size: 9.8, gapAfter: 3, lineHeight: 11.3, color: blue,
     })
     nextY = drawWrappedAt(body, {
       x, y: nextY, width: columnWidth, size: compactSize, gapAfter: 6, lineHeight: compactLine,
@@ -131,7 +144,7 @@ export async function buildRegistrationTermsPdf(input: RegistrationTermsPdfInput
     return nextY
   }
 
-  page.drawText(safeText(input.snapshot.terms.title), { x: LEFT, y: 716, size: 20, font: bold, color: ink })
+  page.drawText(safeText(input.snapshot.terms.title), { x: LEFT, y: 716, size: 20, font: bold, color: blue })
   page.drawText(safeText(input.snapshot.terms.subtitle), { x: LEFT, y: 694, size: 10, font: regular, color: muted })
 
   const boxTop = 680
@@ -173,7 +186,7 @@ export async function buildRegistrationTermsPdf(input: RegistrationTermsPdfInput
 
   if (input.snapshot.truckConsents?.length) {
     rightY = drawWrappedAt(labels.consents, {
-      x: rightX, y: rightY - 1, width: columnWidth, font: bold, size: 9.8, gapAfter: 4, lineHeight: 11.3,
+      x: rightX, y: rightY - 1, width: columnWidth, font: bold, size: 9.8, gapAfter: 4, lineHeight: 11.3, color: blue,
     })
     for (const consent of input.snapshot.truckConsents) {
       const boxY = rightY - 1
@@ -189,7 +202,7 @@ export async function buildRegistrationTermsPdf(input: RegistrationTermsPdfInput
   page.drawLine({ start: { x: LEFT, y: footerY }, end: { x: PAGE_WIDTH - RIGHT, y: footerY }, thickness: 0.5, color: line })
   footerY -= 13
   footerY = drawWrappedAt(labels.acknowledgements, {
-    x: LEFT, y: footerY, width: CONTENT_WIDTH, font: bold, size: 9.8, gapAfter: 5, lineHeight: 11.2,
+    x: LEFT, y: footerY, width: CONTENT_WIDTH, font: bold, size: 9.8, gapAfter: 5, lineHeight: 11.2, color: blue,
   })
   for (const statement of input.snapshot.acceptanceStatements) {
     page.drawRectangle({ x: LEFT, y: footerY - 7, width: 8, height: 8, color: ink })

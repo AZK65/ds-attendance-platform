@@ -2,8 +2,8 @@ import { NextRequest, NextResponse } from 'next/server'
 import React from 'react'
 import { renderToBuffer } from '@react-pdf/renderer'
 import { Document, Page, View, Text, Image, StyleSheet } from '@react-pdf/renderer'
-import fs from 'fs'
-import path from 'path'
+import { BRAND, logoHeightForWidth } from '@/lib/brand'
+import { logoDataUrl } from '@/lib/brand-assets'
 
 interface LineItem {
   description: string
@@ -51,8 +51,18 @@ const styles = StyleSheet.create({
     padding: 40,
     fontSize: 10,
     fontFamily: 'Helvetica',
-    color: '#333',
+    color: BRAND.ink,
   },
+  stripe: {
+    flexDirection: 'row',
+    height: 6,
+    marginHorizontal: -40,
+    marginTop: -40,
+    marginBottom: 16,
+  },
+  stripeBlue: { flex: 1, backgroundColor: BRAND.blue },
+  stripeRed: { flex: 1, backgroundColor: BRAND.red },
+  stripeGreen: { flex: 1, backgroundColor: BRAND.green },
   // Header
   header: {
     flexDirection: 'row',
@@ -65,13 +75,13 @@ const styles = StyleSheet.create({
     gap: 12,
   },
   logo: {
-    width: 80,
-    height: 30,
+    width: 118,
+    height: logoHeightForWidth(118),
   },
   invoiceTitle: {
     fontSize: 28,
     fontWeight: 'bold',
-    color: '#1a1a1a',
+    color: BRAND.blue,
     letterSpacing: 2,
   },
   // School & Invoice Info
@@ -111,7 +121,7 @@ const styles = StyleSheet.create({
   },
   dividerThick: {
     borderBottomWidth: 2,
-    borderBottomColor: '#333',
+    borderBottomColor: BRAND.blue,
     marginBottom: 20,
   },
   // Bill To
@@ -121,7 +131,7 @@ const styles = StyleSheet.create({
   billToLabel: {
     fontSize: 9,
     fontWeight: 'bold',
-    color: '#888',
+    color: BRAND.blue,
     textTransform: 'uppercase',
     letterSpacing: 1,
     marginBottom: 6,
@@ -139,7 +149,7 @@ const styles = StyleSheet.create({
   // Table
   tableHeader: {
     flexDirection: 'row',
-    backgroundColor: '#f5f5f5',
+    backgroundColor: BRAND.blue700,
     borderBottomWidth: 1,
     borderBottomColor: '#ddd',
     paddingVertical: 8,
@@ -175,7 +185,7 @@ const styles = StyleSheet.create({
     fontWeight: 'bold',
     fontSize: 9,
     textTransform: 'uppercase',
-    color: '#555',
+    color: BRAND.onBlue,
     letterSpacing: 0.5,
   },
   // Totals
@@ -205,7 +215,7 @@ const styles = StyleSheet.create({
     width: 250,
     paddingVertical: 6,
     borderTopWidth: 2,
-    borderTopColor: '#333',
+    borderTopColor: BRAND.blue,
     marginTop: 3,
   },
   totalFinalLabel: {
@@ -231,7 +241,7 @@ const styles = StyleSheet.create({
   notesLabel: {
     fontSize: 9,
     fontWeight: 'bold',
-    color: '#888',
+    color: BRAND.blue,
     textTransform: 'uppercase',
     letterSpacing: 1,
     marginBottom: 5,
@@ -260,6 +270,11 @@ function formatCurrency(amount: number): string {
 function InvoiceDocument({ data, logoSrc }: { data: InvoiceData; logoSrc: string | null }) {
   return React.createElement(Document, null,
     React.createElement(Page, { size: 'LETTER', style: styles.page },
+      React.createElement(View, { style: styles.stripe, fixed: true },
+        React.createElement(View, { style: styles.stripeBlue }),
+        React.createElement(View, { style: styles.stripeRed }),
+        React.createElement(View, { style: styles.stripeGreen }),
+      ),
       // Header
       React.createElement(View, { style: styles.header },
         React.createElement(View, { style: styles.headerLeft },
@@ -272,7 +287,7 @@ function InvoiceDocument({ data, logoSrc }: { data: InvoiceData; logoSrc: string
       React.createElement(View, { style: styles.infoRow },
         // School info (left)
         React.createElement(View, { style: styles.schoolInfo },
-          React.createElement(Text, { style: { fontWeight: 'bold', fontSize: 11, marginBottom: 3, color: '#333' } }, data.schoolName),
+          React.createElement(Text, { style: { fontWeight: 'bold', fontSize: 11, marginBottom: 3, color: BRAND.ink } }, data.schoolName),
           React.createElement(Text, null, data.schoolAddress),
           React.createElement(Text, null, `${data.schoolCity}, ${data.schoolProvince} ${data.schoolPostalCode}`),
           data.gstNumber ? React.createElement(Text, { style: { marginTop: 4 } }, `TPS/GST: ${data.gstNumber}`) : null,
@@ -351,8 +366,8 @@ function InvoiceDocument({ data, logoSrc }: { data: InvoiceData; logoSrc: string
         // Remaining Balance (if provided)
         data.remainingBalance !== undefined && data.remainingBalance > 0
           ? React.createElement(View, { style: { flexDirection: 'row', justifyContent: 'flex-end', width: 250, paddingVertical: 4, marginTop: 4 } },
-              React.createElement(Text, { style: { flex: 1, textAlign: 'right', paddingRight: 15, color: '#b45309', fontSize: 10, fontWeight: 'bold' } }, 'Remaining Balance:'),
-              React.createElement(Text, { style: { width: 100, textAlign: 'right', color: '#b45309', fontSize: 10, fontWeight: 'bold' } }, formatCurrency(data.remainingBalance)),
+              React.createElement(Text, { style: { flex: 1, textAlign: 'right', paddingRight: 15, color: BRAND.red, fontSize: 10, fontWeight: 'bold' } }, 'Remaining Balance:'),
+              React.createElement(Text, { style: { width: 100, textAlign: 'right', color: BRAND.red, fontSize: 10, fontWeight: 'bold' } }, formatCurrency(data.remainingBalance)),
             )
           : null,
       ),
@@ -371,6 +386,11 @@ function InvoiceDocument({ data, logoSrc }: { data: InvoiceData; logoSrc: string
   )
 }
 
+export async function buildInvoicePdf(body: InvoiceData) {
+  const element = InvoiceDocument({ data: body, logoSrc: logoDataUrl() })
+  return renderToBuffer(element)
+}
+
 export async function POST(request: NextRequest) {
   try {
     const body: InvoiceData = await request.json()
@@ -382,20 +402,7 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    // Try to load the logo
-    let logoSrc: string | null = null
-    try {
-      const logoPath = path.join(process.cwd(), 'public', 'qazi-logo.png')
-      if (fs.existsSync(logoPath)) {
-        const logoBuffer = fs.readFileSync(logoPath)
-        logoSrc = `data:image/png;base64,${logoBuffer.toString('base64')}`
-      }
-    } catch (err) {
-      console.warn('[Invoice] Could not load logo:', err)
-    }
-
-    const element = InvoiceDocument({ data: body, logoSrc })
-    const buffer = await renderToBuffer(element)
+    const buffer = await buildInvoicePdf(body)
     const uint8Array = new Uint8Array(buffer)
 
     return new NextResponse(uint8Array, {
