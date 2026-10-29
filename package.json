@@ -11,6 +11,7 @@
     "test:saaq": "tsx --test src/lib/saaq-attestations/saaq-attestations.test.ts",
     "test:phone-change": "tsx --test src/lib/phone-change.test.ts",
     "test:booklet": "tsx --test src/lib/instructor-booklet.test.ts",
+    "test:student-sign": "tsx --test src/lib/student-sign-now.test.ts",
     "postinstall": "patch-package"
   },
   "dependencies": {
