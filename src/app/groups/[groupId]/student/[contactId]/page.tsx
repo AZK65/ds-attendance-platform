@@ -3,6 +3,8 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { formatNet } from '@/lib/theory-hours'
 import { InstructorSignatureDialog } from '@/components/InstructorSignatureDialog'
+import { StudentSignatureDialog, type StudentSignTarget } from '@/components/StudentSignatureDialog'
+import { showStudentSignsNow, studentHasClassSignature } from '@/lib/student-sign-now'
 import { useParams, useRouter } from 'next/navigation'
 import { useState, useMemo, type ReactNode } from 'react'
 import { Button } from '@/components/ui/button'
@@ -523,9 +525,11 @@ function TruckJourneyCard({
   groupId,
   rsep1StudentId,
 }: JourneyCardProps) {
+  const queryClient = useQueryClient()
   const [openEvent, setOpenEvent] = useState<TruckProgressEvent | null>(null)
   const [openTheoryId, setOpenTheoryId] = useState<string | null>(null)
   const [addingInstructor, setAddingInstructor] = useState<{ eventId: string; subcalendarId: number | null } | null>(null)
+  const [studentSigning, setStudentSigning] = useState<StudentSignTarget | null>(null)
   const { data: theoryProgress } = useQuery<TheoryProgressResponse | null>({
     queryKey: ['theory-progress', groupId, studentPhone],
     queryFn: async () => {
@@ -662,6 +666,26 @@ function TruckJourneyCard({
   const shownTotal = Math.min(125, theoryHoursNumeric + progress.practicalHours)
   const shownPercent = Math.round((shownTotal / 125) * 100)
   const openTheory = theoryProgress?.sessions.find(session => session.id === openTheoryId) || null
+  const signedEventIds = useMemo(
+    () => (signatureData?.signatures || []).map(signature => String(signature.eventId)),
+    [signatureData],
+  )
+  const openTheoryHasSignature = studentHasClassSignature({
+    eventId: openTheory?.teamupEventId,
+    signatureEventIds: signedEventIds,
+    attendanceBasis: openTheory?.attendance?.basis,
+  })
+  const showStudentSign = openTheory != null && !loadingSignatures && showStudentSignsNow({
+    date: openTheory.date,
+    startTime: openTheory.startTime,
+    eventId: openTheory.teamupEventId,
+    hasClassSignature: openTheoryHasSignature,
+  })
+  const refreshTheorySignatures = () => {
+    queryClient.invalidateQueries({ queryKey: ['theory-progress', groupId, studentPhone] })
+    queryClient.invalidateQueries({ queryKey: ['truck-journey-signatures', studentPhone] })
+    queryClient.invalidateQueries({ queryKey: ['theory-signature-image'] })
+  }
   const { data: openSignature } = useQuery<{ signatures: Array<{ signatureDataUrl?: string; signedAt: string }> }>({
     queryKey: ['theory-signature-image', openTheory?.teamupEventId, studentPhone],
     queryFn: async () => {
@@ -819,7 +843,7 @@ function TruckJourneyCard({
             <DialogDescription>Class 1 truck program attendance</DialogDescription>
           </DialogHeader>
           {openTheory && (
-            <div className="grid grid-cols-2 gap-4 text-sm">
+            <div className="grid grid-cols-2 gap-4 text-sm" data-testid="theory-lesson-dialog">
               <div>
                 <p className="text-xs text-muted-foreground">Date</p>
                 <p className="font-medium">{openTheory.date}</p>
@@ -835,6 +859,26 @@ function TruckJourneyCard({
                   <p className="mt-1 text-xs text-muted-foreground">{openTheory.attendance.staffNote}</p>
                 )}
               </div>
+              {showStudentSign && openTheory.teamupEventId && (
+                <div className="col-span-2">
+                  <Button
+                    type="button"
+                    size="sm"
+                    data-testid="student-signs-now"
+                    onClick={() => setStudentSigning({
+                      eventId: openTheory.teamupEventId!,
+                      studentName,
+                      phone: studentPhone,
+                      sessionLabel: openTheory.label,
+                      subtitle: `${openTheory.label} · ${openTheory.date} ${openTheory.startTime}–${openTheory.endTime}`,
+                      moduleNumber: null,
+                      sortieNumber: null,
+                    })}
+                  >
+                    <FileSignature className="h-4 w-4" /> Student signs now
+                  </Button>
+                </div>
+              )}
               {openTheory.attendance?.basis === 'signature' && openSignature?.signatures?.[0]?.signatureDataUrl && (
                 <div className="col-span-2">
                   <p className="text-xs text-muted-foreground">Signature</p>
@@ -850,7 +894,7 @@ function TruckJourneyCard({
                   {instructorSignedEvents.has(String(openTheory.teamupEventId)) ? (
                     <p className="text-sm text-green-700">Instructor signed</p>
                   ) : (
-                    <Button type="button" size="sm" variant="outline" onClick={() => setAddingInstructor({ eventId: openTheory.teamupEventId!, subcalendarId: null })}>
+                    <Button type="button" size="sm" variant="outline" data-testid="add-instructor-signature" onClick={() => setAddingInstructor({ eventId: openTheory.teamupEventId!, subcalendarId: null })}>
                       Add instructor signature
                     </Button>
                   )}
@@ -921,6 +965,18 @@ function TruckJourneyCard({
             setAddingInstructor(null)
             refetchInstructorSigs()
           }}
+        />
+      )}
+      {studentSigning && (
+        <StudentSignatureDialog
+          key={studentSigning.eventId}
+          target={studentSigning}
+          onCancel={() => setStudentSigning(null)}
+          onSaved={() => {
+            setStudentSigning(null)
+            refreshTheorySignatures()
+          }}
+          onAlreadySigned={() => refreshTheorySignatures()}
         />
       )}
     </Card>
