@@ -20,6 +20,13 @@ export async function PUT(request: NextRequest) {
     const updateData: any = {}
     if (paymentMethod !== undefined) updateData.paymentMethod = paymentMethod
     if (paymentStatus !== undefined) updateData.paymentStatus = paymentStatus
+    // Keep an existing receipt date when staff update the payment method.
+    // Historical paid invoices have no receipt timestamp; do not date them today.
+    if (paymentStatus === 'paid' && invoice.paymentStatus !== 'paid') {
+      updateData.paidAt = new Date()
+    } else if (paymentStatus === 'unpaid') {
+      updateData.paidAt = null
+    }
 
     const updated = await prisma.invoice.update({
       where: { id: invoiceId },

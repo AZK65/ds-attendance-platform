@@ -95,6 +95,11 @@ export async function POST(request: NextRequest) {
         notes: notes || null,
         paymentMethod: paymentMethod || null,
         paymentStatus: paymentStatus || 'unpaid',
+        // For a receipt entered as already paid, honor its selected date
+        // (including historical receipts). Noon UTC preserves the Montréal day.
+        paidAt: paymentStatus === 'paid'
+          ? new Date(`${invoiceDate}T12:00:00.000Z`)
+          : null,
         remainingBalance: remainingBalance != null ? remainingBalance : null,
         externalStudentId,
       }
