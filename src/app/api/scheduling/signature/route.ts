@@ -2,13 +2,17 @@ import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/db'
 import { signInTheoryLabel } from '@/lib/theory-hours'
 
+function isUniqueConflict(error: unknown): boolean {
+  return typeof error === 'object' && error !== null && 'code' in error && (error as { code: string }).code === 'P2002'
+}
+
 // POST /api/scheduling/signature
 // Body: { eventId, studentPhone, studentName, signatureDataUrl,
 //         sessionLabel?, moduleNumber?, sortieNumber? }
 //
-// Upserts a per-(event, student) signature. Also marks the corresponding
-// ClassAttendance row as present so the rest of the app sees the student
-// as having attended without a separate write.
+// Creates a per-(event, student) signature. A second signature for the same
+// student and lesson is rejected. Also marks the corresponding ClassAttendance
+// row as present so the rest of the app sees the student as having attended.
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json()
@@ -65,26 +69,33 @@ export async function POST(request: NextRequest) {
       // Theory tables are not available. Keep the label the client sent.
     }
 
-    const signature = await prisma.classSignature.upsert({
+    const already = await prisma.classSignature.findUnique({
       where: { eventId_studentPhone: { eventId, studentPhone: cleanedPhone } },
-      create: {
-        eventId,
-        studentPhone: cleanedPhone,
-        studentName,
-        sessionLabel: resolvedLabel,
-        moduleNumber: moduleNumber ?? null,
-        sortieNumber: sortieNumber ?? null,
-        signatureDataUrl,
-      },
-      update: {
-        studentName,
-        sessionLabel: resolvedLabel,
-        moduleNumber: moduleNumber ?? null,
-        sortieNumber: sortieNumber ?? null,
-        signatureDataUrl,
-        signedAt: new Date(),
-      },
+      select: { id: true },
     })
+    if (already) {
+      return NextResponse.json({ error: 'already signed' }, { status: 409 })
+    }
+
+    let signature
+    try {
+      signature = await prisma.classSignature.create({
+        data: {
+          eventId,
+          studentPhone: cleanedPhone,
+          studentName,
+          sessionLabel: resolvedLabel,
+          moduleNumber: moduleNumber ?? null,
+          sortieNumber: sortieNumber ?? null,
+          signatureDataUrl,
+        },
+      })
+    } catch (error) {
+      if (isUniqueConflict(error)) {
+        return NextResponse.json({ error: 'already signed' }, { status: 409 })
+      }
+      throw error
+    }
 
     try {
       const theory = await prisma.theorySession.findUnique({ where: { teamupEventId: eventId } })

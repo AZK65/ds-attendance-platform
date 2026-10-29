@@ -8,6 +8,7 @@ import { Card, CardContent } from '@/components/ui/card'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog'
 import { CheckCircle2, Loader2, RotateCcw, Download, X, Pencil, Users, ArrowLeft, ChevronRight } from 'lucide-react'
 import { SignaturePad as SignatureCanvas, type SignaturePadHandle } from '@/components/SignaturePad'
+import { InstructorSignatureDialog } from '@/components/InstructorSignatureDialog'
 import { CLASS1_THEORY_REQUIRED_SESSIONS, signInTheoryLabel } from '@/lib/theory-hours'
 
 interface TeamupEvent {
@@ -16,6 +17,7 @@ interface TeamupEvent {
   start_dt: string
   end_dt: string
   notes?: string
+  subcalendar_ids?: number[]
 }
 
 interface GroupSummary {
@@ -56,6 +58,8 @@ interface SignTarget {
   subtitle: string
   moduleNumber: number | null
   sortieNumber: number | null
+  lessonKind: 'theory' | 'practical' | 'other'
+  subcalendarId: number | null
 }
 
 const stripHtml = (s: string) => s.replace(/<[^>]*>/g, '')
@@ -140,6 +144,8 @@ export default function SignInMode({ onExit }: { onExit: () => void }) {
   const [view, setView] = useState<View>('classes')
   const [selectedClass, setSelectedClass] = useState<GroupClass | null>(null)
   const [signing, setSigning] = useState<SignTarget | null>(null)
+  const [instructorFollowUp, setInstructorFollowUp] = useState<SignTarget | null>(null)
+  const [theorySignOffPhones, setTheorySignOffPhones] = useState<string[] | null>(null)
 
   // /api/scheduling/events returns the events array directly (not wrapped).
   const { data: eventsData, isLoading: eventsLoading, refetch } = useQuery<TeamupEvent[]>({
@@ -182,6 +188,25 @@ export default function SignInMode({ onExit }: { onExit: () => void }) {
     for (const s of (signedData?.signatures || [])) set.add(`${s.eventId}:${last10(s.studentPhone)}`)
     return set
   }, [signedData])
+
+  const { data: instructorSignData, refetch: refetchInstructorSigs } = useQuery<{
+    signatures: Array<{ studentPhone: string }>
+    suggestedInstructorId: string | null
+  }>({
+    queryKey: ['instructor-signatures', selectedClass?.eventId || ''],
+    queryFn: async () => {
+      const res = await fetch(`/api/scheduling/instructor-signature?eventId=${encodeURIComponent(selectedClass!.eventId)}`)
+      if (!res.ok) return { signatures: [], suggestedInstructorId: null }
+      return res.json()
+    },
+    enabled: !!selectedClass?.isTruck && view === 'roster',
+  })
+
+  const instructorSignedPhones = useMemo(() => {
+    const set = new Set<string>()
+    for (const row of instructorSignData?.signatures || []) set.add(last10(row.studentPhone))
+    return set
+  }, [instructorSignData])
 
   // WhatsApp groups — only needed to resolve a theory event's group name to a
   // group id (for the roster). Loaded when leaving the classes view.
@@ -258,6 +283,7 @@ export default function SignInMode({ onExit }: { onExit: () => void }) {
 
   const eventToTarget = (event: TeamupEvent): SignTarget => {
     const p = parseTitle(event.title)
+    const truckPractical = /^Truck Class/i.test(event.title || '') || /TruckClass:\s*yes/i.test(stripHtml(event.notes || ''))
     return {
       eventId: event.id,
       studentName: p.studentName || '(unknown)',
@@ -266,6 +292,8 @@ export default function SignInMode({ onExit }: { onExit: () => void }) {
       subtitle: `${p.label} · ${fmtTime(event.start_dt)}`,
       moduleNumber: p.moduleNumber,
       sortieNumber: p.sortieNumber,
+      lessonKind: truckPractical ? 'practical' : 'other',
+      subcalendarId: event.subcalendar_ids?.[0] ?? null,
     }
   }
 
@@ -282,6 +310,8 @@ export default function SignInMode({ onExit }: { onExit: () => void }) {
       subtitle: `${gc.group.name} · ${fmtTime(gc.startDt)}`,
       moduleNumber: gc.moduleNumber,
       sortieNumber: null,
+      lessonKind: gc.isTruck ? 'theory' : 'other',
+      subcalendarId: null,
     }
   }
 
@@ -454,9 +484,24 @@ export default function SignInMode({ onExit }: { onExit: () => void }) {
   // ── Roster view (students of a class sign in) ───────────────────
   const rosterView = selectedClass && (
     <>
-      <Button variant="outline" onClick={() => { setView('groups'); setSelectedClass(null) }}>
-        <ArrowLeft className="h-4 w-4 mr-1" /> Back to class list
-      </Button>
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <Button variant="outline" onClick={() => { setView('groups'); setSelectedClass(null) }}>
+          <ArrowLeft className="h-4 w-4 mr-1" /> Back to class list
+        </Button>
+        {selectedClass.isTruck && roster.some(member => signedKeySet.has(`${selectedClass.eventId}:${last10(member.phone)}`) && !instructorSignedPhones.has(last10(member.phone))) && (
+          <Button
+            onClick={() => {
+              const phones = roster
+                .filter(member => signedKeySet.has(`${selectedClass.eventId}:${last10(member.phone)}`) && !instructorSignedPhones.has(last10(member.phone)))
+                .map(member => member.phone)
+                .filter((phone): phone is string => !!phone)
+              if (phones.length) setTheorySignOffPhones(phones)
+            }}
+          >
+            <Pencil className="h-4 w-4 mr-2" /> Instructor sign-off
+          </Button>
+        )}
+      </div>
 
       {membersLoading ? (
         <div className="flex items-center justify-center py-20">
@@ -487,6 +532,7 @@ export default function SignInMode({ onExit }: { onExit: () => void }) {
         <div className="grid gap-2">
           {roster.map(member => {
             const signed = signedKeySet.has(`${selectedClass.eventId}:${last10(member.phone)}`)
+            const instructorSigned = instructorSignedPhones.has(last10(member.phone))
             const name = member.name || member.pushName || member.phone
             return (
               <Card
@@ -500,9 +546,15 @@ export default function SignInMode({ onExit }: { onExit: () => void }) {
                     {member.name && <p className="text-sm text-muted-foreground truncate">{member.phone}</p>}
                   </div>
                   {signed ? (
-                    <Badge className="bg-green-100 text-green-800 gap-1 text-sm py-1.5 px-3">
-                      <CheckCircle2 className="h-4 w-4" /> Signed
-                    </Badge>
+                    selectedClass.isTruck && !instructorSigned ? (
+                      <Badge className="bg-amber-100 text-amber-900 gap-1 text-sm py-1.5 px-3">
+                        needs instructor sign-off
+                      </Badge>
+                    ) : (
+                      <Badge className="bg-green-100 text-green-800 gap-1 text-sm py-1.5 px-3">
+                        <CheckCircle2 className="h-4 w-4" /> Signed
+                      </Badge>
+                    )
                   ) : (
                     <Button size="lg"><Pencil className="h-4 w-4 mr-2" /> Sign</Button>
                   )}
@@ -527,8 +579,39 @@ export default function SignInMode({ onExit }: { onExit: () => void }) {
           target={signing}
           onCancel={() => setSigning(null)}
           onSaved={() => {
+            const target = signing
             setSigning(null)
             refetchSigs()
+            if (target.lessonKind === 'practical' && target.phone) setInstructorFollowUp(target)
+          }}
+        />
+      )}
+
+      {instructorFollowUp?.phone && (
+        <InstructorSignatureDialog
+          open
+          eventId={instructorFollowUp.eventId}
+          studentPhones={[instructorFollowUp.phone]}
+          suggestSubcalendarId={instructorFollowUp.subcalendarId}
+          onClose={() => setInstructorFollowUp(null)}
+          onSaved={() => {
+            setInstructorFollowUp(null)
+            refetchInstructorSigs()
+          }}
+        />
+      )}
+
+      {theorySignOffPhones && selectedClass && (
+        <InstructorSignatureDialog
+          open
+          eventId={selectedClass.eventId}
+          studentPhones={theorySignOffPhones}
+          defaultInstructorId={instructorSignData?.suggestedInstructorId}
+          title="Instructor sign-off"
+          onClose={() => setTheorySignOffPhones(null)}
+          onSaved={() => {
+            setTheorySignOffPhones(null)
+            refetchInstructorSigs()
           }}
         />
       )}
@@ -583,6 +666,10 @@ function SignaturePad({
           sortieNumber: target.sortieNumber,
         }),
       })
+      if (res.status === 409) {
+        setError('already signed')
+        return
+      }
       if (!res.ok) {
         const data = await res.json().catch(() => ({}))
         throw new Error(data.error || `Save failed (${res.status})`)

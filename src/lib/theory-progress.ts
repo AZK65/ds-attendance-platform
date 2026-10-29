@@ -38,6 +38,7 @@ export interface TheoryProgressSession {
   approximateBreaks: boolean
   status: string
   teamupEventId: string | null
+  instructorId: string | null
   source: string
   attendance: {
     status: string
@@ -56,6 +57,7 @@ export interface TheoryProgress {
   program: { code: string; requiredNetMinutes: number; requiredSessions: number }
   instructor: {
     legalName: string
+    bookletName: string | null
     displayName: string
     saaqInstructorNo: string | null
     pending: boolean
@@ -139,6 +141,7 @@ export async function getTheoryProgress(groupId: string, phone: string): Promise
       approximateBreaks: approximate,
       status: session.status,
       teamupEventId: session.teamupEventId,
+      instructorId: session.instructorId,
       source: session.source,
       attendance: {
         status: row?.status || (session.date > today ? 'scheduled' : 'scheduled'),
@@ -158,6 +161,7 @@ export async function getTheoryProgress(groupId: string, phone: string): Promise
   const instructorView = instructor
     ? {
       legalName: instructor.legalName,
+      bookletName: instructor.bookletName,
       displayName: instructor.displayName,
       saaqInstructorNo: instructor.saaqInstructorNo,
       pending: !instructor.saaqInstructorNo,
@@ -207,7 +211,11 @@ export async function listTheorySessions(groupId: string) {
     ? await prisma.instructor.findUnique({ where: { id: instructorId } })
     : null
   const instructorView = instructor
-    ? { legalName: instructor.legalName, saaqInstructorNo: instructor.saaqInstructorNo }
+    ? {
+      legalName: instructor.legalName,
+      bookletName: instructor.bookletName,
+      saaqInstructorNo: instructor.saaqInstructorNo,
+    }
     : null
   const scheduledNetMinutes = sessions.reduce((sum, session) => sum + session.netMinutes, 0)
   return {

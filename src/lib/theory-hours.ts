@@ -20,6 +20,8 @@ export const SATURDAY_NET_MINUTES = 450
 
 export const AHMED_INSTRUCTOR = {
   legalName: 'Abdul Rahman Ahmed Qazi',
+  /** Printed as-is on the Class 1 booklet. One full name, not family/first. */
+  bookletName: 'Abdul Rahman Ahmed Qazi',
   displayName: 'Ahmed',
   /** Null until SAAQ issues a number. Never invent one. */
   saaqInstructorNo: null as string | null,
@@ -190,6 +192,31 @@ export function formatNet(minutes: number): string {
   const h = Math.floor(m / 60)
   const rem = m % 60
   return `${h}h${String(rem).padStart(2, '0')}`
+}
+
+function asHhmm(value: string): string | null {
+  const match = value.trim().match(/(?:^|[T ])(\d{2}:\d{2})(?::\d{2})?/)
+  return match ? match[1] : null
+}
+
+/**
+ * Net length of one lesson, formatted by formatNet.
+ * Minutes come from netMinutes: breaks and lunch in `breaks` are excluded.
+ * Practical lessons pass no breaks, so the label is the clock length.
+ * Missing start or end, or a zero window, returns null.
+ */
+export function lessonNetLabel(
+  start: string | null | undefined,
+  end: string | null | undefined,
+  breaks: TheoryBreak[] = [],
+): string | null {
+  if (!start?.trim() || !end?.trim()) return null
+  const startTime = asHhmm(start)
+  const endTime = asHhmm(end)
+  if (!startTime || !endTime) return null
+  const minutes = netMinutes(startTime, endTime, breaks)
+  if (minutes <= 0) return null
+  return formatNet(minutes)
 }
 
 /** 225 → "3 h 45". Used in French copy. */
@@ -426,16 +453,17 @@ export function formatReportHoursLine(args: {
 }
 
 export function formatInstructorLine(
-  instructor: { legalName: string; saaqInstructorNo?: string | null },
+  instructor: { legalName: string; bookletName?: string | null; saaqInstructorNo?: string | null },
   lang: 'en' | 'fr',
 ): string {
+  const name = instructor.bookletName?.trim() || instructor.legalName
   const number = instructor.saaqInstructorNo?.trim() || ''
   if (lang === 'fr') {
     const no = number || 'en attente (non encore attribué)'
-    return `Formateur : ${instructor.legalName} — No de formateur SAAQ : ${no}`
+    return `Formateur : ${name} — No de formateur SAAQ : ${no}`
   }
-  const no = number || 'pending (not yet issued)'
-  return `Instructor: ${instructor.legalName} — SAAQ instructor no.: ${no}`
+  const no = number || 'Pending'
+  return `Instructor: ${name}. Instructor no.: ${no}`
 }
 
 const EN_DAY: Record<number, string> = {

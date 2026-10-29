@@ -1,5 +1,13 @@
 import React from 'react'
 import { Document, Page, Text, View, Image, StyleSheet, renderToBuffer } from '@react-pdf/renderer'
+import {
+  formatBookletDateTime,
+  formatBookletInstructorLine,
+  formatClass1SignedCounts,
+  formatScheduledStart,
+  formatSignedAtFallback,
+  instructorNumberLabel,
+} from '@/lib/booklet-format'
 
 export interface AttendanceSignatureInput {
   eventId: string
@@ -9,6 +17,15 @@ export interface AttendanceSignatureInput {
   sortieNumber: number | null
   signatureDataUrl: string
   signedAt: Date
+  /** Frozen scheduled start, or a Teamup snapshot start. Omit to fall back to signedAt. */
+  scheduledStart?: string | null
+  instructorName?: string | null
+  instructorNo?: string | null
+  instructorSignatureDataUrl?: string | null
+  /** Kept for callers. The booklet does not print it. */
+  instructorSignedOn?: string | null
+  /** Net length such as "2h00". Blank on the booklet when null. */
+  netLabel?: string | null
 }
 
 export interface TheoryBookletSession {
@@ -22,6 +39,10 @@ export interface TheoryBookletSession {
   basis: string
   signatureDataUrl: string | null
   signedAt: string | null
+  instructorName?: string | null
+  instructorNo?: string | null
+  instructorSignatureDataUrl?: string | null
+  instructorSignedOn?: string | null
 }
 
 export interface TheoryBooklet {
@@ -29,12 +50,14 @@ export interface TheoryBooklet {
   hoursLineFr: string
   instructorLineEn: string
   instructorLineFr: string
+  /** When set, the English header is built from this instead of instructorLineEn. */
+  headerInstructor?: { bookletName: string; saaqInstructorNo?: string | null } | null
   sessions: TheoryBookletSession[]
   attendedCount: number
   requiredSessions: number
 }
 
-interface AttendancePdfInput {
+export interface AttendancePdfInput {
   signatures: AttendanceSignatureInput[]
   studentName: string
   phone: string
@@ -55,6 +78,11 @@ type TruckRow = {
   label: string
   date: string
   signature: string
+  instructorName: string | null
+  instructorNo: string | null
+  instructorSignature: string | null
+  instructorSignedOn: string | null
+  netLabel: string | null
 }
 
 const dateText = (value: Date) => value.toLocaleDateString('en-CA', {
@@ -62,15 +90,6 @@ const dateText = (value: Date) => value.toLocaleDateString('en-CA', {
   year: 'numeric',
   month: 'short',
   day: 'numeric',
-})
-
-const dateTimeText = (value: Date) => value.toLocaleString('en-CA', {
-  timeZone: 'America/Toronto',
-  year: 'numeric',
-  month: 'short',
-  day: 'numeric',
-  hour: 'numeric',
-  minute: '2-digit',
 })
 
 const styles = StyleSheet.create({
@@ -81,8 +100,6 @@ const styles = StyleSheet.create({
   title: { fontSize: 17, fontWeight: 'bold' },
   subtitle: { fontSize: 8.5, color: '#666666', marginTop: 4 },
   totalBlock: { alignItems: 'flex-end' },
-  totalNumber: { fontSize: 17, fontWeight: 'bold' },
-  totalLabel: { fontSize: 7.5, color: '#666666', marginTop: 2 },
   metricRow: { flexDirection: 'row', gap: 8, marginBottom: 16 },
   metric: { flex: 1, padding: 10, backgroundColor: '#f4f4f5', borderRadius: 5 },
   metricLabel: { fontSize: 7, color: '#666666', letterSpacing: 0.7, marginBottom: 3 },
@@ -102,6 +119,16 @@ const styles = StyleSheet.create({
   empty: { padding: 14, color: '#71717a', backgroundColor: '#fafafa', borderWidth: 1, borderColor: '#e4e4e7', borderStyle: 'dashed', borderRadius: 5 },
   phaseTitle: { fontSize: 11, fontWeight: 'bold', marginTop: 9, marginBottom: 4, color: '#1d4ed8' },
   footer: { position: 'absolute', left: 36, right: 36, bottom: 18, flexDirection: 'row', justifyContent: 'space-between', fontSize: 6.5, color: '#71717a' },
+  truckPage: { paddingHorizontal: 22 },
+  truckTopRule: { marginHorizontal: -22 },
+  truckFooter: { left: 22, right: 22 },
+  truckLabel: { width: 72, paddingVertical: 4, paddingHorizontal: 4, fontSize: 7.5 },
+  truckDate: { width: 102, paddingVertical: 4, paddingHorizontal: 4, fontSize: 7 },
+  truckInstructor: { width: 112, paddingVertical: 4, paddingHorizontal: 4, fontSize: 6.5 },
+  truckSig: { flex: 1, paddingVertical: 2, paddingHorizontal: 4 },
+  truckSigImage: { height: 26, maxWidth: 130, objectFit: 'contain' as const, objectPosition: 'left center' as const },
+  truckSignedCounts: { fontSize: 11, fontWeight: 'bold' as const, textAlign: 'right' as const },
+  pending: { fontSize: 7, color: '#71717a' },
 })
 
 const TableHeader = () => React.createElement(View, { style: [styles.row, styles.headerRowTable], fixed: true },
@@ -110,16 +137,11 @@ const TableHeader = () => React.createElement(View, { style: [styles.row, styles
   React.createElement(Text, { style: [styles.cellSig, styles.headerCell] }, 'Student signature'),
 )
 
-const SignatureTable = ({ rows }: { rows: TruckRow[] }) => React.createElement(View, { style: styles.table },
-  React.createElement(TableHeader),
-  ...rows.map((row, index) => React.createElement(View, { key: `${row.label}-${index}`, style: styles.row, wrap: false },
-    React.createElement(Text, { style: styles.cellLabel }, row.label),
-    React.createElement(Text, { style: styles.cellDate }, row.date),
-    React.createElement(View, { style: styles.cellSig },
-      React.createElement(Image, { src: row.signature, style: styles.sigImage }),
-    ),
-  )),
-)
+function practicalWhen(signature: AttendanceSignatureInput): string {
+  const scheduled = signature.scheduledStart?.trim()
+  if (scheduled) return formatScheduledStart(scheduled)
+  return formatSignedAtFallback(signature.signedAt)
+}
 
 function truckRows(signatures: AttendanceSignatureInput[]) {
   const theory: TruckRow[] = []
@@ -130,15 +152,20 @@ function truckRows(signatures: AttendanceSignatureInput[]) {
     const label = signature.sessionLabel || 'Class 1 training'
     const theoryMatch = label.match(/^Class 1 Theory\s+(\d+)/i)
     const practicalMatch = label.match(/^(?:Truck|Practical) Class\s+(\d+)/i)
-    const row = {
+    const row: TruckRow = {
       number: theoryMatch ? Number(theoryMatch[1]) : practicalMatch ? Number(practicalMatch[1]) : null,
       label: theoryMatch
         ? `Theory class ${theoryMatch[1]}`
         : practicalMatch
           ? `Practical class ${practicalMatch[1]}`
           : label,
-      date: dateText(signature.signedAt),
+      date: practicalWhen(signature),
       signature: signature.signatureDataUrl,
+      instructorName: signature.instructorName || null,
+      instructorNo: signature.instructorNo || null,
+      instructorSignature: signature.instructorSignatureDataUrl || null,
+      instructorSignedOn: signature.instructorSignedOn || null,
+      netLabel: signature.netLabel?.trim() || null,
     }
     if (theoryMatch) theory.push(row)
     else if (practicalMatch || signature.sortieNumber != null) practical.push(row)
@@ -155,34 +182,83 @@ function truckRows(signatures: AttendanceSignatureInput[]) {
 
 const theoryCell = (session: TheoryBookletSession) => {
   if (session.basis === 'signature' && session.signatureDataUrl) {
-    return React.createElement(Image, { src: session.signatureDataUrl, style: styles.sigImage })
+    return React.createElement(Image, { src: session.signatureDataUrl, style: styles.truckSigImage })
   }
   if (session.basis === 'admin_confirmed') {
-    return React.createElement(Text, null, `${session.displayEn} / ${session.displayFr}`)
+    return React.createElement(Text, null, session.displayEn)
   }
   return React.createElement(Text, null, session.displayEn)
 }
 
-const TheorySessionTable = ({ sessions }: { sessions: TheoryBookletSession[] }) => React.createElement(View, { style: styles.table },
-  React.createElement(View, { style: [styles.row, styles.headerRowTable], fixed: true },
-    React.createElement(Text, { style: [styles.cellLabel, styles.headerCell] }, 'Class'),
-    React.createElement(Text, { style: [styles.cellDate, styles.headerCell] }, 'Date'),
-    React.createElement(Text, { style: [styles.cellSig, styles.headerCell] }, 'Attendance'),
-  ),
-  ...sessions.map(session => {
-    const when = session.basis === 'signature' && session.signedAt
-      ? dateTimeText(new Date(session.signedAt))
-      : session.date
-    return React.createElement(View, { key: `theory-${session.sessionNumber}`, style: styles.row, wrap: false },
-      React.createElement(Text, { style: styles.cellLabel }, `Theory class ${session.sessionNumber}`),
-      React.createElement(Text, { style: styles.cellDate }, `${when}\n${session.startTime}–${session.endTime}`),
-      React.createElement(View, { style: styles.cellSig }, theoryCell(session)),
-    )
-  }),
+const classNameCell = (label: string, netLabel?: string | null) => React.createElement(View, { style: styles.truckLabel },
+  React.createElement(Text, null, label),
+  netLabel?.trim() ? React.createElement(Text, { style: styles.pending }, netLabel.trim()) : null,
 )
+
+const instructorNameCell = (name: string | null | undefined, number: string | null | undefined) => {
+  if (!name?.trim()) return React.createElement(Text, { style: styles.pending }, 'Pending')
+  return React.createElement(View, null,
+    React.createElement(Text, null, name.trim()),
+    React.createElement(Text, { style: styles.pending }, instructorNumberLabel(number)),
+  )
+}
+
+const instructorSignatureCell = (src: string | null | undefined) => {
+  if (!src) return React.createElement(Text, { style: styles.pending }, '—')
+  return React.createElement(Image, { src, style: styles.truckSigImage })
+}
+
+const TruckTableHeader = () => React.createElement(View, { style: [styles.row, styles.headerRowTable], fixed: true },
+  React.createElement(Text, { style: [styles.truckLabel, styles.headerCell] }, 'Class'),
+  React.createElement(Text, { style: [styles.truckDate, styles.headerCell] }, 'Date'),
+  React.createElement(Text, { style: [styles.truckSig, styles.headerCell] }, 'Student signature'),
+  React.createElement(Text, { style: [styles.truckInstructor, styles.headerCell] }, 'Instructor'),
+  React.createElement(Text, { style: [styles.truckSig, styles.headerCell] }, 'Instructor signature'),
+)
+
+const TruckSignatureTable = ({ rows }: { rows: TruckRow[] }) => React.createElement(View, { style: styles.table },
+  React.createElement(TruckTableHeader),
+  ...rows.map((row, index) => React.createElement(View, { key: `${row.label}-${index}`, style: styles.row, wrap: false },
+    classNameCell(row.label, row.netLabel),
+    React.createElement(Text, { style: styles.truckDate }, row.date),
+    React.createElement(View, { style: styles.truckSig },
+      React.createElement(Image, { src: row.signature, style: styles.truckSigImage }),
+    ),
+    React.createElement(View, { style: styles.truckInstructor }, instructorNameCell(row.instructorName, row.instructorNo)),
+    React.createElement(View, { style: styles.truckSig }, instructorSignatureCell(row.instructorSignature)),
+  )),
+)
+
+const TheorySessionTable = ({ sessions }: { sessions: TheoryBookletSession[] }) => React.createElement(View, { style: styles.table },
+  React.createElement(TruckTableHeader),
+  ...sessions.map(session => React.createElement(View, { key: `theory-${session.sessionNumber}`, style: styles.row, wrap: false },
+    classNameCell(`Theory class ${session.sessionNumber}`, session.netLabel),
+    React.createElement(Text, { style: styles.truckDate }, formatBookletDateTime(session.date, session.startTime)),
+    React.createElement(View, { style: styles.truckSig }, theoryCell(session)),
+    React.createElement(View, { style: styles.truckInstructor }, instructorNameCell(session.instructorName, session.instructorNo)),
+    React.createElement(View, { style: styles.truckSig }, instructorSignatureCell(session.instructorSignatureDataUrl)),
+  )),
+)
+
+function theorySessionSigned(session: { basis: string; signatureDataUrl?: string | null }): boolean {
+  return session.basis === 'signature' || !!session.signatureDataUrl
+}
+
+/** Signed theory classes and signed practical lessons. Theory sessions win when the booklet has them, so the same lesson is not counted twice from ClassSignature. */
+export function countClass1SignedLessons(input: {
+  theory?: { sessions: Array<{ basis: string; signatureDataUrl?: string | null }> } | null
+  signatures: AttendanceSignatureInput[]
+}): { theory: number; practical: number } {
+  const rows = truckRows(input.signatures)
+  const theory = input.theory && input.theory.sessions.length > 0
+    ? input.theory.sessions.filter(theorySessionSigned).length
+    : rows.theory.length
+  return { theory, practical: rows.practical.length }
+}
 
 const TruckDocument = ({ signatures, studentName, phone, theory }: Omit<AttendancePdfInput, 'isTruck'>) => {
   const rows = truckRows(signatures)
+  const signedCounts = countClass1SignedLessons({ theory, signatures })
   const theorySection = theory && theory.sessions.length > 0
     ? React.createElement(View, { style: styles.section },
       React.createElement(View, { style: styles.sectionHeader },
@@ -190,9 +266,11 @@ const TruckDocument = ({ signatures, studentName, phone, theory }: Omit<Attendan
         React.createElement(Text, { style: styles.sectionMeta }, `${theory.attendedCount} of ${theory.requiredSessions} classes`),
       ),
       React.createElement(Text, { style: styles.sectionMeta }, theory.hoursLineEn),
-      React.createElement(Text, { style: styles.sectionMeta }, theory.hoursLineFr),
-      theory.instructorLineEn ? React.createElement(Text, { style: styles.sectionMeta }, theory.instructorLineEn) : null,
-      theory.instructorLineFr ? React.createElement(Text, { style: styles.sectionMeta }, theory.instructorLineFr) : null,
+      (theory.headerInstructor?.bookletName
+        ? React.createElement(Text, { style: styles.sectionMeta }, formatBookletInstructorLine(theory.headerInstructor.bookletName, theory.headerInstructor.saaqInstructorNo))
+        : theory.instructorLineEn
+          ? React.createElement(Text, { style: styles.sectionMeta }, theory.instructorLineEn)
+          : null),
       React.createElement(TheorySessionTable, { sessions: theory.sessions }),
     )
     : React.createElement(View, { style: styles.section },
@@ -201,12 +279,12 @@ const TruckDocument = ({ signatures, studentName, phone, theory }: Omit<Attendan
         React.createElement(Text, { style: styles.sectionMeta }, `${rows.theory.length} classes signed - 75 hours required`),
       ),
       rows.theory.length
-        ? React.createElement(SignatureTable, { rows: rows.theory })
+        ? React.createElement(TruckSignatureTable, { rows: rows.theory })
         : React.createElement(Text, { style: styles.empty }, 'No theory signatures recorded.'),
     )
   return React.createElement(Document, null,
-    React.createElement(Page, { size: 'LETTER', style: styles.page, wrap: true },
-      React.createElement(View, { style: styles.topRule, fixed: true }),
+    React.createElement(Page, { size: 'LETTER', style: [styles.page, styles.truckPage], wrap: true },
+      React.createElement(View, { style: [styles.topRule, styles.truckTopRule], fixed: true }),
       React.createElement(View, { style: styles.headerRow },
         React.createElement(View, null,
           React.createElement(Text, { style: styles.eyebrow }, 'QAZI DRIVING SCHOOL'),
@@ -214,8 +292,7 @@ const TruckDocument = ({ signatures, studentName, phone, theory }: Omit<Attendan
           React.createElement(Text, { style: styles.subtitle }, `Student: ${studentName}   Phone: ${phone}`),
         ),
         React.createElement(View, { style: styles.totalBlock },
-          React.createElement(Text, { style: styles.totalNumber }, `${signatures.length}`),
-          React.createElement(Text, { style: styles.totalLabel }, 'SIGNED CLASSES'),
+          React.createElement(Text, { style: styles.truckSignedCounts }, formatClass1SignedCounts(signedCounts.theory, signedCounts.practical)),
         ),
       ),
       React.createElement(View, { style: styles.metricRow },
@@ -233,13 +310,13 @@ const TruckDocument = ({ signatures, studentName, phone, theory }: Omit<Attendan
         ),
       ),
       theorySection,
-      React.createElement(View, { style: styles.section },
+      React.createElement(View, { style: styles.section, wrap: rows.practical.length > 6 },
         React.createElement(View, { style: styles.sectionHeader },
           React.createElement(Text, { style: styles.sectionTitle }, 'Practical training'),
           React.createElement(Text, { style: styles.sectionMeta }, `${rows.practical.length} classes signed - 50 hours required`),
         ),
         rows.practical.length
-          ? React.createElement(SignatureTable, { rows: rows.practical })
+          ? React.createElement(TruckSignatureTable, { rows: rows.practical })
           : React.createElement(Text, { style: styles.empty }, 'No practical signatures recorded yet.'),
       ),
       rows.other.length > 0 && React.createElement(View, { style: styles.section },
@@ -247,9 +324,9 @@ const TruckDocument = ({ signatures, studentName, phone, theory }: Omit<Attendan
           React.createElement(Text, { style: styles.sectionTitle }, 'Other Class 1 records'),
           React.createElement(Text, { style: styles.sectionMeta }, `${rows.other.length} signed`),
         ),
-        React.createElement(SignatureTable, { rows: rows.other }),
+        React.createElement(TruckSignatureTable, { rows: rows.other }),
       ),
-      React.createElement(View, { style: styles.footer, fixed: true },
+      React.createElement(View, { style: [styles.footer, styles.truckFooter], fixed: true },
         React.createElement(Text, null, 'Qazi Driving School - Class 1 student record'),
         React.createElement(Text, { render: ({ pageNumber, totalPages }) => `Page ${pageNumber} of ${totalPages}` }),
       ),
