@@ -279,6 +279,7 @@ const styles = StyleSheet.create({
   paymentDate: { flex: 2, fontSize: 10 },
   paymentMethod: { flex: 2, fontSize: 10 },
   paymentAmount: { flex: 2, fontSize: 10, textAlign: 'right' },
+  paymentTotals: { alignItems: 'flex-end' },
   // Footer
   footer: {
     position: 'absolute',
@@ -425,16 +426,18 @@ function InvoiceDocument({ data, logoSrc }: { data: InvoiceData; logoSrc: string
                   React.createElement(Text, { style: styles.paymentAmount }, formatCurrency(payment.amount)),
                 ),
               ),
-              React.createElement(View, { style: styles.totalRowFinal },
-                React.createElement(Text, { style: styles.totalFinalLabel }, 'Total paid:'),
-                React.createElement(Text, { style: styles.totalFinalValue }, formatCurrency(data.paymentHistory.totalPaid)),
+              React.createElement(View, { style: styles.paymentTotals },
+                React.createElement(View, { style: styles.totalRowFinal },
+                  React.createElement(Text, { style: styles.totalFinalLabel }, 'Total paid:'),
+                  React.createElement(Text, { style: styles.totalFinalValue }, formatCurrency(data.paymentHistory.totalPaid)),
+                ),
+                printedRemainingBalance(data.remainingBalance) != null
+                  ? React.createElement(View, { style: { flexDirection: 'row', justifyContent: 'flex-end', width: 250, paddingVertical: 4, marginTop: 4 } },
+                      React.createElement(Text, { style: { flex: 1, textAlign: 'right', paddingRight: 15, color: BRAND.red, fontSize: 10, fontWeight: 'bold' } }, 'Remaining balance:'),
+                      React.createElement(Text, { style: { width: 100, textAlign: 'right', color: BRAND.red, fontSize: 10, fontWeight: 'bold' } }, formatCurrency(printedRemainingBalance(data.remainingBalance) as number)),
+                    )
+                  : null,
               ),
-              printedRemainingBalance(data.remainingBalance) != null
-                ? React.createElement(View, { style: { flexDirection: 'row', justifyContent: 'flex-end', width: 250, paddingVertical: 4, marginTop: 4 } },
-                    React.createElement(Text, { style: { flex: 1, textAlign: 'right', paddingRight: 15, color: BRAND.red, fontSize: 10, fontWeight: 'bold' } }, 'Remaining balance:'),
-                    React.createElement(Text, { style: { width: 100, textAlign: 'right', color: BRAND.red, fontSize: 10, fontWeight: 'bold' } }, formatCurrency(printedRemainingBalance(data.remainingBalance) as number)),
-                  )
-                : null,
             ),
       ) : null,
 
