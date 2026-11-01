@@ -73,8 +73,14 @@
   .platform-nav-links { display: flex; }
   .platform-mobile-nav { display: none; }
 }
-@media (min-width: 1280px) {
-  .platform-nav-inner { grid-template-columns: auto minmax(0, 1fr) auto; padding-block: 0.75rem; }
+@media (min-width: 1024px) {
+  .platform-nav-links { justify-content: center; }
+}
+@media (min-width: 1536px) {
+  /* Equal side tracks centre the menu on the viewport, regardless of the
+     different widths of the logo and search/notification controls. Below
+     this breakpoint the menu keeps its own row so controls cannot overlap. */
+  .platform-nav-inner { grid-template-columns: minmax(0, 1fr) max-content minmax(0, 1fr); padding-block: 0.75rem; }
   .platform-nav-links { grid-row: 1; grid-column: 2; justify-content: center; overflow: visible; padding: 0; }
 }
 @media (prefers-reduced-motion: reduce) {

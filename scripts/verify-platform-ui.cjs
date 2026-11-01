@@ -87,7 +87,7 @@ async function main() {
     await page.waitForSelector('a[href="/groups/preview-car-1"]')
     await new Promise(r => setTimeout(r, 800))
     await page.screenshot({ path: path.join(out, 'groups-desktop.png'), fullPage: true })
-    for (const width of [1440, 1280, 1024, 768, 390, 320]) {
+    for (const width of [2560, 2048, 1920, 1720, 1536, 1440, 1280, 1024, 768, 390, 320]) {
       await page.setViewport({ width, height: 900 })
       await new Promise(r => setTimeout(r, 150))
       const layout = await page.evaluate(() => {
@@ -95,13 +95,17 @@ async function main() {
         const tools = document.querySelector('.platform-nav-tools').getBoundingClientRect()
         const logo = nav.querySelector('img').getBoundingClientRect()
         const links = nav.querySelector('.platform-nav-links').getBoundingClientRect()
+        const firstLink = nav.querySelector('.platform-nav-links > :first-child').getBoundingClientRect()
         const lastLink = nav.querySelector('.platform-nav-links > :last-child').getBoundingClientRect()
-        return { width: document.documentElement.scrollWidth, viewport: innerWidth, overlap: logo.right > tools.left || (innerWidth >= 1280 && lastLink.right > tools.left), labelledLinks: [...nav.querySelectorAll('a[aria-current], .platform-nav-link')].every(a => a.textContent.trim()), linksWidth: links.width }
+        return { width: document.documentElement.scrollWidth, viewport: innerWidth, overlap: logo.right > tools.left || (innerWidth >= 1536 && (lastLink.right > tools.left || firstLink.left < logo.right)), centreOffset: Math.abs((firstLink.left + lastLink.right) / 2 - innerWidth / 2), labelledLinks: [...nav.querySelectorAll('a[aria-current], .platform-nav-link')].every(a => a.textContent.trim()), linksWidth: links.width }
       })
       assert(layout.width <= layout.viewport, `Page overflow at ${width}: ${layout.width}`)
       assert(!layout.overlap, `Header overlaps at ${width}`)
+      if (width >= 1024) assert(layout.centreOffset <= 1, `Menu is ${layout.centreOffset}px off centre at ${width}`)
       assert(layout.labelledLinks, `Missing nav labels at ${width}`)
     }
+    await page.setViewport({ width: 1920, height: 1080 })
+    await page.screenshot({ path: path.join(out, 'header-centred-desktop.png') })
     await page.setViewport({ width: 390, height: 844 })
     await page.click('[aria-label="Browse all pages"]')
     await page.waitForSelector('[role="menu"]')
