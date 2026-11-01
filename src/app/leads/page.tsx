@@ -219,12 +219,10 @@ function LeadsContent() {
         initial={{ opacity: 0, y: -10 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ duration: 0.25 }}
-        className="flex items-start justify-between gap-4 flex-wrap"
+        className="platform-page-heading"
       >
         <div>
-          <h1 className="text-2xl font-bold flex items-center gap-2">
-            <Target className="h-6 w-6" /> Leads
-          </h1>
+          <h1>Leads</h1>
           <p className="text-muted-foreground text-sm mt-1">
             Website and ad enquiries. Review their answers, call, then mark contacted.
           </p>

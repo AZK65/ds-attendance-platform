@@ -1241,15 +1241,15 @@ function StudentsPage() {
         initial={{ opacity: 0, y: -10 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ duration: 0.25 }}
-        className="flex items-center justify-between"
+        className="platform-page-heading"
       >
         <div>
-          <h1 className="text-2xl font-bold">Students</h1>
+          <h1>Students</h1>
           <p className="text-muted-foreground text-sm mt-1">
             Search, add, and edit students in the database
           </p>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="platform-page-actions">
           {dismissedList.length > 0 && (
             <Button variant="outline" onClick={() => setShowRecentlyDeleted(true)}>
               <Archive className="h-4 w-4 mr-2" />
@@ -1259,7 +1259,7 @@ function StudentsPage() {
           )}
           <Button onClick={() => setShowNewStudentChoice(true)}>
             <UserPlus className="h-4 w-4 mr-2" />
-            New Student
+            New student
           </Button>
         </div>
       </motion.div>
@@ -1374,7 +1374,7 @@ function StudentsPage() {
       >
         <Card>
           <CardHeader>
-            <div className="flex items-center justify-between gap-4">
+            <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
               <CardTitle className="flex items-center gap-2 text-lg flex-shrink-0">
                 <Users className="h-5 w-5" />
                 Active Students
@@ -1382,7 +1382,7 @@ function StudentsPage() {
                   {searchQuery.trim() ? `${filteredStudents.length}/${activeStudents.length}` : activeStudents.length}
                 </Badge>
               </CardTitle>
-              <div className="flex items-center gap-2 flex-1 max-w-lg">
+              <div className="flex w-full items-center gap-2 sm:flex-1 sm:max-w-lg">
                 <div className="relative flex-1">
                   <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
                   <Input
@@ -1394,7 +1394,7 @@ function StudentsPage() {
                 </div>
                 <DropdownMenu>
                   <DropdownMenuTrigger asChild>
-                    <Button variant="outline" size="sm" className="h-9 gap-1.5 flex-shrink-0">
+                    <Button variant="outline" size="sm" className="h-9 gap-1.5 flex-shrink-0" aria-label="Sort students">
                       {sortBy === 'last-class' ? (
                         <ArrowDown className="h-3.5 w-3.5" />
                       ) : sortBy === 'oldest-class' ? (

@@ -1811,7 +1811,7 @@ export default function StudentDetailPage() {
             <span className="text-muted-foreground">Loading...</span>
           </div>
         ) : (
-          <section className="overflow-hidden rounded-xl bg-muted/40">
+          <section className="overflow-hidden rounded-xl border bg-card">
             <div className="flex flex-col gap-6 p-6 sm:flex-row sm:items-center sm:justify-between">
               <div className="flex min-w-0 items-center gap-4">
                 <StudentAvatar
@@ -1822,8 +1822,8 @@ export default function StudentDetailPage() {
                   zoomable
                 />
                 <div className="min-w-0">
-                  <div className="flex min-w-0 items-center gap-2.5">
-                    <h1 className="truncate text-3xl font-semibold leading-tight tracking-tight">{displayName}</h1>
+                  <div className="flex flex-wrap min-w-0 items-center gap-2">
+                    <h1 className="text-2xl sm:text-3xl font-semibold leading-tight tracking-tight break-words max-w-full">{displayName}</h1>
                     <Badge variant="outline" className="shrink-0 border-foreground/15 bg-background font-medium text-foreground">
                       {profileData?.vehicleType === 'truck' ? (
                         <><Truck className="mr-1 h-3.5 w-3.5" /> Truck</>

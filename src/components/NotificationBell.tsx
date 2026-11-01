@@ -117,7 +117,12 @@ export function NotificationBell() {
       }
     }
     document.addEventListener('mousedown', handler)
-    return () => document.removeEventListener('mousedown', handler)
+    const escape = (e: KeyboardEvent) => { if (e.key === 'Escape') setOpen(false) }
+    document.addEventListener('keydown', escape)
+    return () => {
+      document.removeEventListener('mousedown', handler)
+      document.removeEventListener('keydown', escape)
+    }
   }, [open])
 
   // Fetch sent messages
@@ -156,6 +161,8 @@ export function NotificationBell() {
     <div className="relative" ref={panelRef}>
       <button
         onClick={() => setOpen(!open)}
+        aria-label="Message notifications"
+        aria-expanded={open}
         className="relative flex items-center justify-center h-8 w-8 rounded-md text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
       >
         <Bell className="h-4 w-4" />
@@ -176,7 +183,7 @@ export function NotificationBell() {
             animate={{ opacity: 1, y: 0, scale: 1 }}
             exit={{ opacity: 0, y: -5, scale: 0.95 }}
             transition={{ duration: 0.15 }}
-            className="absolute right-0 top-10 w-80 sm:w-96 bg-background border rounded-lg shadow-xl z-50 overflow-hidden"
+            className="platform-floating-panel absolute right-0 top-10 w-80 sm:w-96 bg-card border rounded-lg shadow-xl z-50 overflow-hidden"
           >
             {/* Header with tabs */}
             <div className="flex border-b">

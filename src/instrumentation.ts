@@ -3,6 +3,9 @@
 // so these run reliably regardless of whether any browser has the app open.
 
 export async function register() {
+  // Isolated UI previews/tests must not connect WhatsApp or send reminders.
+  // Unset in production; authentication and API permissions are unchanged.
+  if (process.env.QAZI_DISABLE_BACKGROUND_JOBS === '1') return
   // Only run on the server (Node.js runtime), not during build or in edge runtime
   if (process.env.NEXT_RUNTIME === 'nodejs') {
     const BASE_URL = `http://localhost:${process.env.PORT || 3000}`

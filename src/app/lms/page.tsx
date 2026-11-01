@@ -38,12 +38,9 @@ export default function LmsAdminPage() {
 
   return (
     <main className="max-w-4xl mx-auto p-4 sm:p-6 space-y-5">
-      <div className="flex items-center gap-3">
-        <Link href="/scheduling"><Button variant="ghost" size="icon"><ArrowLeft className="h-4 w-4" /></Button></Link>
-        <div className="flex items-center gap-2">
-          <GraduationCap className="h-5 w-5" />
-          <h1 className="text-xl font-semibold">LMS — study.qazidriving.ca</h1>
-        </div>
+      <div className="platform-page-heading">
+        <div><h1>Learning</h1><p>Lessons, exams and student access on study.qazidriving.ca.</p></div>
+        <Link href="/scheduling"><Button variant="outline" size="sm"><ArrowLeft className="h-4 w-4" />Schedule</Button></Link>
       </div>
 
       <div className="flex flex-wrap items-center gap-3 justify-between">

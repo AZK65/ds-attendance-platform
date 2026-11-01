@@ -2064,8 +2064,9 @@ function CertificatePageInner() {
     <div className="min-h-screen bg-background">
       <main className="container mx-auto px-4 py-8">
         <div className="max-w-4xl mx-auto">
+          <div className="platform-page-heading"><div><h1>Certificates</h1><p>Create, review and issue student documents.</p></div></div>
           {/* Mode Toggle + Links */}
-          <div className="flex items-center justify-between mb-6">
+          <div className="flex flex-wrap items-center justify-between gap-3 mb-6">
             <Link href="/certificate/history">
               <Button variant="outline" size="sm" className="gap-1.5">
                 <Archive className="h-3.5 w-3.5" /> History

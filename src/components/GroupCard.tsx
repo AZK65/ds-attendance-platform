@@ -3,7 +3,7 @@
 import { motion } from 'motion/react'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
-import { Users, Clock, BookOpen } from 'lucide-react'
+import { Users, Clock, BookOpen, CalendarDays, ArrowUpRight } from 'lucide-react'
 import Link from 'next/link'
 
 interface GroupCardProps {
@@ -41,13 +41,13 @@ export function GroupCard({ group, nextTheory }: GroupCardProps) {
 
   return (
     <motion.div variants={fadeSlideUp} whileHover={{ y: -2, transition: { duration: 0.2 } }}>
-      <Link href={`/groups/${encodeURIComponent(group.id)}`}>
-        <Card className="hover:bg-accent/50 transition-colors cursor-pointer h-full">
-          <CardHeader className="pb-2">
-            <div className="flex items-start justify-between gap-2">
+      <Link href={`/groups/${encodeURIComponent(group.id)}`} className="group block rounded-xl">
+        <Card className="gap-4 transition-colors duration-200 hover:border-foreground/30 cursor-pointer h-full">
+          <CardHeader className="gap-2">
+            <div className="flex items-start justify-between gap-3">
               <CardTitle className="text-lg leading-tight">{group.name}</CardTitle>
               {group.moduleNumber && (
-                <Badge variant="default" className="shrink-0 gap-1">
+                <Badge variant="secondary" className="shrink-0 gap-1 rounded-md">
                   <BookOpen className="h-3 w-3" />
                   Module {group.moduleNumber}
                 </Badge>
@@ -61,20 +61,16 @@ export function GroupCard({ group, nextTheory }: GroupCardProps) {
             )}
           </CardHeader>
           <CardContent>
-            <div className="flex flex-wrap gap-2">
-              <Badge variant="secondary" className="gap-1">
-                <Users className="h-3 w-3" />
-                {group.participantCount} members
-              </Badge>
-              {nextTheory && (
-                <Badge variant="outline" className="gap-1" title={nextTheory.title}>
-                  Next theory
-                  {nextTheory.module ? ` · M${nextTheory.module}` : ''}
-                  {' · '}
-                  {formatNextTheoryLabel(nextTheory.date)}
-                </Badge>
-              )}
+            <div className="flex items-center justify-between gap-3 text-sm text-muted-foreground">
+              <span className="flex items-center gap-2"><Users className="h-4 w-4" />{group.participantCount} members</span>
+              <ArrowUpRight className="h-4 w-4 transition-colors group-hover:text-foreground" />
             </div>
+            {nextTheory && (
+              <div className="mt-4 flex items-start gap-2 rounded-lg bg-muted/60 p-3 text-sm" title={nextTheory.title}>
+                <CalendarDays className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" />
+                <div><p className="text-xs text-muted-foreground">Next theory{nextTheory.module ? ` · Module ${nextTheory.module}` : ''}</p><p className="mt-1 font-medium">{formatNextTheoryLabel(nextTheory.date)}</p></div>
+              </div>
+            )}
           </CardContent>
         </Card>
       </Link>

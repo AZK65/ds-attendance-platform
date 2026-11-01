@@ -2,6 +2,7 @@
 
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { ThemeProvider } from 'next-themes'
+import { MotionConfig } from 'motion/react'
 import { useState } from 'react'
 import { usePathname } from 'next/navigation'
 import { Navbar } from './Navbar'
@@ -31,11 +32,17 @@ export function Providers({ children }: { children: React.ReactNode }) {
   return (
     <ThemeProvider attribute="class" defaultTheme="system" enableSystem disableTransitionOnChange>
       <QueryClientProvider client={queryClient}>
-        {!hideNavbar && <Navbar />}
-        {!hideNavbar && <GlobalSearch />}
-        {/* Heartbeat only on authenticated admin pages (where the navbar shows) */}
-        {!hideNavbar && <SessionHeartbeat />}
-        {children}
+        <MotionConfig reducedMotion="user">
+          {hideNavbar ? children : (
+            <div className="platform-shell">
+              <a href="#platform-content" className="platform-skip-link">Skip to content</a>
+              <Navbar />
+              <GlobalSearch />
+              <SessionHeartbeat />
+              <div id="platform-content" tabIndex={-1}>{children}</div>
+            </div>
+          )}
+        </MotionConfig>
       </QueryClientProvider>
     </ThemeProvider>
   )
