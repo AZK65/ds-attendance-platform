@@ -401,25 +401,22 @@ export default function GroupsPage() {
   return (
     <div className="min-h-screen bg-background">
       <main className="container mx-auto px-4 py-8">
-        <div className="flex flex-col gap-4 mb-6">
-          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+        <div>
+          <div className="platform-page-heading">
             <div>
-              <h2 className="text-2xl font-bold">Your Groups</h2>
+              <h1>Groups</h1>
               <p className="text-muted-foreground">
-                Select a group to manage members
+                Manage cohorts, class schedules and attendance.
               </p>
             </div>
-            <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2">
+            <div className="grid w-full grid-cols-2 gap-2 sm:flex sm:w-auto sm:items-center">
               <Button
                 variant="outline"
                 onClick={() => setOpen(true)}
-                className="w-full sm:w-64 justify-start text-muted-foreground"
+                className="col-span-2 w-full sm:w-64 justify-start text-muted-foreground"
               >
                 <Search className="mr-2 h-4 w-4" />
                 Search groups or people...
-                <kbd className="pointer-events-none ml-auto hidden sm:inline-flex h-5 select-none items-center gap-1 rounded border bg-muted px-1.5 font-mono text-[10px] font-medium text-muted-foreground">
-                  <span className="text-xs">⌘</span>K
-                </kbd>
               </Button>
               <Button onClick={() => {
                 setShowNewGroup(true)
@@ -428,7 +425,7 @@ export default function GroupsPage() {
                 setNewGroupResult(null)
               }}>
                 <Plus className="mr-2 h-4 w-4" />
-                New Group
+                New group
               </Button>
               <Button
                 variant="outline"

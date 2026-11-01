@@ -350,7 +350,7 @@ export default function AnalyticsPage() {
   }
 
   return (
-    <div className="flex h-[calc(100vh-64px)]">
+    <div className="platform-workspace-height flex">
       {/* Sidebar */}
       <AnimatePresence>
         {sidebarOpen && (

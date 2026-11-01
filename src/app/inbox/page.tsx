@@ -797,7 +797,7 @@ export default function InboxPage() {
   // ── Render ─────────────────────────────────────────────────
 
   return (
-    <div className="flex h-[calc(100vh-3.5rem)] overflow-hidden">
+    <div className="platform-workspace-height flex overflow-hidden">
       {/* ── Chat list sidebar ── */}
       <div
         className={`${

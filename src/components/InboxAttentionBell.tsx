@@ -50,7 +50,12 @@ export function InboxAttentionBell() {
       if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false)
     }
     document.addEventListener('mousedown', onClick)
-    return () => document.removeEventListener('mousedown', onClick)
+    const escape = (e: KeyboardEvent) => { if (e.key === 'Escape') setOpen(false) }
+    document.addEventListener('keydown', escape)
+    return () => {
+      document.removeEventListener('mousedown', onClick)
+      document.removeEventListener('keydown', escape)
+    }
   }, [open])
 
   const count = data?.count || 0
@@ -61,6 +66,7 @@ export function InboxAttentionBell() {
       <button
         type="button"
         onClick={() => setOpen(o => !o)}
+        aria-expanded={open}
         aria-label={hasAny ? `${count} WhatsApp chat${count === 1 ? '' : 's'} need attention` : 'Inbox — no unanswered chats'}
         className={`relative inline-flex items-center justify-center h-9 w-9 rounded-full transition-colors ${
           hasAny ? 'text-red-600 hover:bg-red-50 dark:hover:bg-red-950/40' : 'text-muted-foreground hover:bg-muted'
@@ -81,7 +87,7 @@ export function InboxAttentionBell() {
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0, y: -4 }}
             transition={{ duration: 0.12 }}
-            className="absolute right-0 top-full mt-2 w-80 max-w-[calc(100vw-2rem)] rounded-lg border bg-popover text-popover-foreground shadow-lg z-50"
+            className="platform-floating-panel absolute right-0 top-full mt-2 w-80 max-w-[calc(100vw-2rem)] rounded-lg border bg-popover text-popover-foreground shadow-lg z-50"
           >
             <div className="px-4 py-3 border-b flex items-center justify-between">
               <div>

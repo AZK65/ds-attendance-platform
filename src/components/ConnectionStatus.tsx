@@ -69,7 +69,12 @@ export function ConnectionStatus() {
       }
     }
     document.addEventListener('mousedown', handler)
-    return () => document.removeEventListener('mousedown', handler)
+    const escape = (e: KeyboardEvent) => { if (e.key === 'Escape') setShowPanel(false) }
+    document.addEventListener('keydown', escape)
+    return () => {
+      document.removeEventListener('mousedown', handler)
+      document.removeEventListener('keydown', escape)
+    }
   }, [showPanel])
 
   if (isLoading) {
@@ -101,6 +106,8 @@ export function ConnectionStatus() {
         onClick={() => setShowPanel(!showPanel)}
         className="flex items-center justify-center h-8 w-8 rounded-md hover:bg-muted transition-colors"
         title={dotTitle}
+        aria-label={dotTitle}
+        aria-expanded={showPanel}
       >
         <div className={`h-2.5 w-2.5 rounded-full ${dotColor}`} />
       </button>
@@ -112,7 +119,7 @@ export function ConnectionStatus() {
             animate={{ opacity: 1, y: 0, scale: 1 }}
             exit={{ opacity: 0, y: -5, scale: 0.95 }}
             transition={{ duration: 0.15 }}
-            className="absolute right-0 top-10 w-72 bg-background border rounded-lg shadow-xl z-50 p-4"
+            className="platform-floating-panel absolute right-0 top-10 w-72 bg-card border rounded-lg shadow-xl z-50 p-4"
           >
             {/* Header */}
             <div className="flex items-center justify-between mb-3">
@@ -124,6 +131,7 @@ export function ConnectionStatus() {
               </div>
               <button
                 onClick={() => setShowPanel(false)}
+                aria-label="Close connection details"
                 className="h-6 w-6 flex items-center justify-center rounded hover:bg-muted"
               >
                 <X className="h-3.5 w-3.5" />

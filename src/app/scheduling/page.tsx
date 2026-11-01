@@ -2444,8 +2444,11 @@ function SchedulingPage() {
   return (
     <div className="min-h-screen bg-background">
       <main className="container mx-auto px-4 py-4">
+        <div className="platform-page-heading">
+          <div><h1>Schedule</h1><p>Classes, instructors and attendance in one place.</p></div>
+        </div>
         {/* Teacher Tabs */}
-        <div className="flex items-center gap-2 mb-4 overflow-x-auto pb-2">
+        <div className="platform-teacher-filters" aria-label="Filter by instructor">
           <button
             className={`relative px-3 py-1.5 text-sm font-medium rounded-md transition-colors whitespace-nowrap ${
               selectedTeacher === null ? 'text-primary-foreground' : 'text-foreground hover:bg-muted'
@@ -2500,8 +2503,8 @@ function SchedulingPage() {
         </div>
 
         {/* View Switcher + Date Navigation */}
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 mb-4">
-          <div className="flex items-center gap-2">
+        <div className="platform-calendar-toolbar">
+          <div className="flex flex-wrap items-center gap-2">
             {/* View Switcher */}
             <div className="inline-flex rounded-lg border bg-muted p-1">
               {(['day', 'week', 'month'] as ViewMode[]).map(mode => (
@@ -2527,15 +2530,17 @@ function SchedulingPage() {
             </div>
 
             {/* Date Navigation */}
-            <Button variant="outline" size="icon" onClick={goToPrev}>
+            <div className="flex items-center gap-2">
+            <Button variant="outline" size="icon" onClick={goToPrev} aria-label="Previous period">
               <ChevronLeft className="h-4 w-4" />
             </Button>
-            <span className="text-sm font-medium min-w-[180px] text-center truncate">
+            <span className="text-sm font-semibold text-center tabular-nums">
               {dateLabel}
             </span>
-            <Button variant="outline" size="icon" onClick={goToNext}>
+            <Button variant="outline" size="icon" onClick={goToNext} aria-label="Next period">
               <ChevronRight className="h-4 w-4" />
             </Button>
+            </div>
             <Button variant="outline" size="sm" onClick={goToToday}>
               Today
             </Button>
@@ -2548,7 +2553,7 @@ function SchedulingPage() {
               <Pencil className="h-4 w-4 mr-1" /> Sign-In Mode
             </Button>
           </div>
-          <div className="flex items-center gap-2">
+          <div className="platform-page-actions">
             <Button size="sm" onClick={() => {
               setFormData({
                 ...initialFormData,
