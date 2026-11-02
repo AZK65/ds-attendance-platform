@@ -500,6 +500,10 @@ model StudentRegistration {
   paymentCheckoutUrl       String?
   paymentCheckoutCreatedAt DateTime?
   paymentReturnToken       String?   @unique
+  // Set when an automatic Class 5 unpaid-checkout WhatsApp reminder is claimed.
+  // Cleared if that send fails before delivery, so a later run can retry.
+  // Left set after a successful send so the registration is reminded at most once.
+  paymentReminderSentAt    DateTime?
 
   source         String? // "qr", "online-registration", etc.
 
@@ -528,6 +532,7 @@ model StudentRegistration {
   updatedAt      DateTime  @updatedAt
 
   @@index([status])
+  @@index([status, createdAt])
 }
 
 model Exam {

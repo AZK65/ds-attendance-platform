@@ -3,10 +3,11 @@
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import { Button } from '@/components/ui/button'
-import { ArrowLeft, DollarSign, Laptop, GraduationCap } from 'lucide-react'
+import { ArrowLeft, DollarSign, Laptop, GraduationCap, MessageCircle } from 'lucide-react'
 
 const TABS = [
   { href: '/settings/pricing', label: 'Pricing', icon: DollarSign },
+  { href: '/settings/reminders', label: 'Reminders', icon: MessageCircle },
   { href: '/settings/devices', label: 'Devices', icon: Laptop },
   { href: '/settings/instructors', label: 'Instructors', icon: GraduationCap },
 ]
@@ -17,7 +18,7 @@ export default function SettingsLayout({ children }: { children: React.ReactNode
   return (
     <main className="max-w-4xl mx-auto p-4 sm:p-6 space-y-6">
       <div className="platform-page-heading">
-        <div><h1>Settings</h1><p>Manage pricing, connected devices and instructors.</p></div>
+        <div><h1>Settings</h1><p>Manage pricing, reminders, connected devices and instructors.</p></div>
         <Link href="/scheduling">
           <Button variant="outline" size="sm"><ArrowLeft className="h-4 w-4" />Schedule</Button>
         </Link>
