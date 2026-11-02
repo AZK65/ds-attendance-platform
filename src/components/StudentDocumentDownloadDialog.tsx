@@ -20,6 +20,7 @@ import { Checkbox } from '@/components/ui/checkbox'
 import {
   Dialog,
   DialogContent,
+  DialogBody,
   DialogDescription,
   DialogFooter,
   DialogHeader,
@@ -179,8 +180,8 @@ export function StudentDocumentDownloadDialog({
         </Button>
       </DialogTrigger>
 
-      <DialogContent className="gap-0 overflow-hidden p-0 sm:max-w-xl">
-        <DialogHeader className="border-b bg-muted/40 px-6 pb-5 pt-6 pr-14">
+      <DialogContent className="dialog-scroll-layout flex flex-col gap-0 overflow-hidden p-0 sm:max-w-xl sm:p-0" data-testid="student-documents-dialog">
+        <DialogHeader className="border-b bg-muted/40 p-4 pr-12 text-left sm:p-6 sm:pr-14">
           <div className="mb-1 flex h-10 w-10 items-center justify-center rounded-lg border bg-background shadow-xs">
             <Download className="h-5 w-5" />
           </div>
@@ -190,7 +191,7 @@ export function StudentDocumentDownloadDialog({
           </DialogDescription>
         </DialogHeader>
 
-        <div className="px-6 py-5">
+        <DialogBody className="p-4 sm:px-6 sm:py-5">
           <div className="mb-3 flex items-center justify-between">
             <p className="text-sm font-semibold">Choose documents</p>
             <button
@@ -251,21 +252,21 @@ export function StudentDocumentDownloadDialog({
               </span>
             </span>
           </label>
-        </div>
+        </DialogBody>
 
-        <DialogFooter className="border-t bg-muted/30 px-6 py-4 sm:items-center sm:justify-between">
+        <DialogFooter className="flex-col gap-3 border-t bg-popover p-4 sm:flex-col sm:items-stretch sm:px-6">
           <div>
             <p className="text-xs text-muted-foreground">
               {selected.size} of {documentOptions.length} categories selected
             </p>
             {downloadError && (
-              <p className="mt-1 flex max-w-64 items-center gap-1.5 text-xs text-destructive">
+              <p role="alert" className="mt-1 flex items-center gap-1.5 text-xs text-destructive">
                 <AlertCircle className="h-3.5 w-3.5 shrink-0" />
                 {downloadError}
               </p>
             )}
           </div>
-          <div className="flex flex-col-reverse gap-2 sm:flex-row">
+          <div className="grid gap-2 sm:grid-cols-2">
             <Button
               type="button"
               variant="outline"

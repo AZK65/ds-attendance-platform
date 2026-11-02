@@ -76,7 +76,7 @@ export function PaperExamProfileCard({ exams }: { exams: PaperExamProfileRecord[
                   </p>
                   {exam.error && <p className="mt-2 text-xs font-medium text-red-700">{exam.error}</p>}
                 </div>
-                <div className="flex items-center gap-3">
+                <div className="flex flex-wrap items-center gap-3">
                   {exam.score !== null && (
                     <div className="text-right">
                       <p className="text-2xl font-bold tabular-nums">{exam.score}/{exam.totalQuestions || '—'}</p>
@@ -117,20 +117,20 @@ export function PaperExamProfileCard({ exams }: { exams: PaperExamProfileRecord[
       </Card>
 
       <Dialog open={Boolean(preview)} onOpenChange={open => !open && setPreview(null)}>
-        <DialogContent className="max-h-[92vh] max-w-5xl overflow-hidden p-0">
-          <DialogHeader className="border-b px-6 py-4">
+        <DialogContent className="flex h-[90dvh] max-w-5xl flex-col gap-0 overflow-hidden p-0">
+          <DialogHeader className="border-b px-4 py-4 pr-12 text-left sm:pl-6">
             <DialogTitle>{preview?.exam.title} · Page {preview?.page.pageNumber}</DialogTitle>
             <DialogDescription>Saved on this student&apos;s profile from their private WhatsApp submission.</DialogDescription>
           </DialogHeader>
-          <div className="grid max-h-[75vh] min-h-[50vh] place-items-center overflow-auto bg-neutral-950 p-4">
+          <div className="grid min-h-0 min-w-0 flex-1 place-items-center overflow-auto bg-neutral-950 p-4">
             {preview?.page.mimetype.startsWith('image/') ? (
-              <Image src={preview.exam.verified ? preview.page.markedUrl : preview.page.url} alt="Submitted paper exam" width={1600} height={2200} unoptimized className="h-auto max-h-[70vh] w-auto max-w-full object-contain" />
+              <Image src={preview.exam.verified ? preview.page.markedUrl : preview.page.url} alt="Submitted paper exam" width={1600} height={2200} unoptimized className="h-full min-h-0 w-full min-w-0 object-contain" />
             ) : preview ? (
-              <iframe src={preview.page.url} title="Submitted paper exam PDF" className="h-[70vh] w-full rounded bg-white" />
+              <iframe src={preview.page.url} title="Submitted paper exam PDF" className="h-full w-full rounded bg-white" />
             ) : null}
           </div>
           {preview && (
-            <div className="flex items-center justify-between border-t px-6 py-3">
+            <div className="flex shrink-0 flex-wrap items-center justify-between gap-2 border-t px-4 py-3">
               <span className="text-xs text-muted-foreground">{preview.exam.verified ? 'Staff-verified marked copy' : 'Original submission'}</span>
               <Button size="sm" variant="outline" asChild><a href={preview.exam.verified ? preview.exam.markedDownloadUrl : preview.exam.originalDownloadUrl}><Download /> Download</a></Button>
             </div>

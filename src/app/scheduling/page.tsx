@@ -2983,7 +2983,7 @@ function SchedulingPage() {
 
       {/* Event Detail Dialog */}
       <Dialog open={showEventDetail} onOpenChange={(open) => { if (!open) { setShowEventDetail(false); setSelectedEvent(null); setTheoryGroupId(null); setEditingStudentInfo(false) } }}>
-        <DialogContent className="w-[95vw] sm:max-w-2xl overflow-hidden">
+        <DialogContent className="w-[95vw] sm:max-w-2xl">
           <DialogHeader>
             <DialogTitle>Class Details</DialogTitle>
             <DialogDescription>View class information</DialogDescription>

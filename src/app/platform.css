@@ -35,6 +35,14 @@
 .platform-shell :where([data-slot="table-head"]) { color: var(--muted-foreground); background: var(--muted); padding-inline: 1rem; }
 .platform-shell :where([data-slot="table-cell"]) { padding: 0.75rem 1rem; }
 .platform-shell :where([data-slot="card-title"]) { line-height: 1.4; }
+.platform-shell :where(main, [data-slot="card"], [role="tabpanel"]) { min-width: 0; }
+
+/* Portal dialogs live outside platform-shell. At extreme browser zoom or
+   landscape-phone heights, allow the whole panel to scroll as a fallback. */
+@media (max-height: 28rem) {
+  .dialog-scroll-layout { overflow-y: auto; }
+  .dialog-scroll-layout > [data-slot="dialog-body"] { flex: none; overflow: visible; }
+}
 
 .platform-skip-link { position: fixed; top: 0.5rem; left: 1rem; z-index: 60; padding: 0.75rem 1rem; border-radius: 0.5rem; background: var(--primary); color: var(--primary-foreground); transform: translateY(-200%); }
 .platform-skip-link:focus { transform: translateY(0); }

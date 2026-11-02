@@ -197,7 +197,7 @@ function WeekdayBulkEditor({
 
       <div className="flex items-center gap-2">
         <Checkbox id="bulk-skip-notify" checked={skipNotify} onCheckedChange={value => setSkipNotify(value === true)} />
-        <Label htmlFor="bulk-skip-notify" className="text-sm font-normal">Don't notify the group</Label>
+        <Label htmlFor="bulk-skip-notify" className="text-sm font-normal">Don&apos;t notify the group</Label>
       </div>
 
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
@@ -337,7 +337,7 @@ function ScheduleRow({
 
       <div className="flex items-center gap-2">
         <Checkbox id={`skip-notify-${event.id}`} checked={skipNotify} onCheckedChange={value => setSkipNotify(value === true)} />
-        <Label htmlFor={`skip-notify-${event.id}`} className="text-sm font-normal">Don't notify the group</Label>
+        <Label htmlFor={`skip-notify-${event.id}`} className="text-sm font-normal">Don&apos;t notify the group</Label>
       </div>
 
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
@@ -391,9 +391,9 @@ export function GroupScheduleDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-4xl max-h-[90vh] overflow-hidden flex flex-col">
+      <DialogContent className="dialog-scroll-layout sm:max-w-4xl overflow-hidden flex flex-col">
         <DialogHeader>
-          <div className="flex items-start justify-between gap-4 pr-8">
+          <div className="flex flex-wrap items-start justify-between gap-4 pr-8">
             <div>
               <DialogTitle className="flex items-center gap-2">
                 <CalendarDays className="h-5 w-5" /> Group schedule
@@ -408,7 +408,7 @@ export function GroupScheduleDialog({
           </div>
         </DialogHeader>
 
-        <div className="overflow-y-auto pr-1 space-y-3">
+        <div data-slot="dialog-body" className="min-h-0 min-w-0 flex-1 overflow-y-auto overscroll-contain pr-1 space-y-3">
           {scheduleQuery.isLoading ? (
             <div className="py-16 text-center text-muted-foreground">
               <Loader2 className="h-6 w-6 animate-spin mx-auto mb-3" /> Loading Teamup schedule…

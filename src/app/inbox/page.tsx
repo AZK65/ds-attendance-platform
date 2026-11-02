@@ -1129,22 +1129,22 @@ export default function InboxPage() {
       </div>
 
       <Dialog open={!!openImage} onOpenChange={(open) => !open && setOpenImage(null)}>
-        <DialogContent className="max-w-5xl overflow-hidden border-neutral-800 bg-neutral-950 p-0 text-white">
+        <DialogContent className="flex h-[88dvh] max-w-5xl flex-col gap-0 overflow-hidden border-neutral-800 bg-neutral-950 p-0 text-white">
           <DialogHeader className="sr-only">
             <DialogTitle>{openImage?.name || 'WhatsApp photo'}</DialogTitle>
             <DialogDescription>Full-size WhatsApp attachment preview</DialogDescription>
           </DialogHeader>
           {openImage && (
-            <div className="flex max-h-[88vh] min-h-72 flex-col">
+            <div className="flex min-h-0 flex-1 flex-col">
               <div className="flex min-h-0 flex-1 items-center justify-center bg-black p-3 sm:p-6">
                 {/* eslint-disable-next-line @next/next/no-img-element */}
                 <img
                   src={openImage.url}
                   alt={openImage.name}
-                  className="max-h-[76vh] max-w-full object-contain"
+                  className="h-full min-h-0 w-full min-w-0 object-contain"
                 />
               </div>
-              <div className="flex items-center justify-between gap-3 border-t border-white/10 px-4 py-3">
+              <div className="flex shrink-0 items-center justify-between gap-3 border-t border-white/10 px-4 py-3">
                 <span className="min-w-0 truncate text-sm text-neutral-300">{openImage.name}</span>
                 <a
                   href={`${openImage.url}${openImage.url.includes('?') ? '&' : '?'}download=1`}
