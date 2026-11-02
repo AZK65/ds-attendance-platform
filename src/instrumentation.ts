@@ -39,6 +39,7 @@ export async function register() {
     let isPolling = false
     let isReconcilingZoom = false
     let isRemindingUnpaidClass5 = false
+    let isEmailingUnpaidClass5 = false
 
     // Process scheduled messages every 30 seconds
     async function processScheduledMessages() {
@@ -132,6 +133,29 @@ export async function register() {
       }
     }
 
+    // Email version of the Class 5 unpaid-checkout reminder. Its own route and
+    // lock, so a disconnected WhatsApp client cannot block it.
+    async function emailUnpaidClass5() {
+      if (isEmailingUnpaidClass5) return
+      isEmailingUnpaidClass5 = true
+      try {
+        const res = await fetch(`${BASE_URL}/api/class5-payment-reminders/email/process`, {
+          method: 'POST',
+          headers: { 'x-internal': '1' },
+        })
+        if (res.ok) {
+          const data = await res.json()
+          if (data.sent > 0) {
+            console.log(`[Class5ReminderEmail] Sent ${data.sent} unpaid checkout email(s)`)
+          }
+        }
+      } catch {
+        // Server might not be ready yet — the next interval retries.
+      } finally {
+        isEmailingUnpaidClass5 = false
+      }
+    }
+
     // Wait for the server to be ready before starting intervals
     const STARTUP_DELAY = 10_000 // 10 seconds
     const MESSAGE_INTERVAL = 30_000 // 30 seconds
@@ -172,6 +196,9 @@ export async function register() {
       console.log('[Class5Reminder] Starting unpaid Class 5 checkout reminder (every 3 min)')
       remindUnpaidClass5()
       setInterval(remindUnpaidClass5, CLASS5_REMINDER_INTERVAL)
+      console.log('[Class5ReminderEmail] Starting unpaid Class 5 checkout email (every 3 min)')
+      emailUnpaidClass5()
+      setInterval(emailUnpaidClass5, CLASS5_REMINDER_INTERVAL)
 
       // Stagger the poller start by 15 seconds so they don't overlap on startup
       setTimeout(() => {
