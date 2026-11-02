@@ -18,6 +18,19 @@ export const CLASS5_PAYMENT_REMINDER_EMAIL_PREFERENCE_KEY = 'class5PaymentRemind
 export const CLASS5_PAYMENT_REMINDER_EMAIL_SUBJECT = 'Your Qazi Driving School registration payment'
 export const CLASS5_REMINDER_EMAIL_MESSAGE_TYPE = 'class5-payment-reminder-email'
 export const CLASS5_REMINDER_EMAIL_FROM = 'Qazi Driving School <info@qazidriving.ca>'
+// Same file invoices and the public site serve. Hosted so mail clients can load it.
+export const CLASS5_REMINDER_EMAIL_LOGO_URL = 'https://qazidriving.ca/qazi-logo.png'
+// Marketing site tokens: --color-brand-red, --color-brand-blue, --color-brand-green, --color-ink.
+export const CLASS5_REMINDER_BRAND = {
+  red: '#e32726',
+  blue: '#1e3fcb',
+  green: '#2fa94a',
+  ink: '#0e1116',
+  muted: '#3b4150',
+  surface: '#f4f5f8',
+  cream: '#fafaf7',
+  rule: '#e5e7ec',
+} as const
 
 const LITERAL_FIRST_PAYMENT = '$250'
 
@@ -83,8 +96,8 @@ export interface Class5PaymentReminderEmail {
   html: string
 }
 
-// Plain text is the approved wording. HTML uses the same words, with the
-// retry link clickable, and the ink colour from the registration emails.
+// Plain text stays the approved sentence. HTML adds the logo, the brand
+// colours, and a payment button without changing those words.
 export function buildClass5PaymentReminderEmail(input: {
   firstName: string
   amountLabel: string
@@ -92,10 +105,63 @@ export function buildClass5PaymentReminderEmail(input: {
 }): Class5PaymentReminderEmail {
   const text = buildClass5PaymentReminderMessage(input)
   const safeUrl = escapeHtml(input.retryUrl)
-  const htmlText = `Hi ${escapeHtml(input.firstName)}, this is Qazi Driving School. We saw your Class 5 registration but the first ${escapeHtml(input.amountLabel)} payment didn't go through. If you couldn't pay, you can use this link: <a href="${safeUrl}" style="color:#0B0B0F;">${safeUrl}</a>. Let us know if you have any issues.`
-  const html = `<div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; color:#0B0B0F;">
-  <p style="font-size:16px; line-height:1.55; margin:0; overflow-wrap:anywhere;">${htmlText}</p>
-</div>`
+  const brand = CLASS5_REMINDER_BRAND
+  const sentence = `Hi ${escapeHtml(input.firstName)}, this is Qazi Driving School. We saw your Class 5 registration but the first ${escapeHtml(input.amountLabel)} payment didn't go through. If you couldn't pay, you can use this link: <a href="${safeUrl}" style="color:${brand.blue};text-decoration:underline;">${safeUrl}</a>. Let us know if you have any issues.`
+  const html = `<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>${escapeHtml(CLASS5_PAYMENT_REMINDER_EMAIL_SUBJECT)}</title>
+</head>
+<body style="margin:0;padding:0;background:${brand.surface};">
+  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:${brand.surface};">
+    <tr>
+      <td align="center" style="padding:24px 12px;">
+        <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:560px;background:#ffffff;border-radius:16px;">
+          <tr>
+            <td style="padding:0;font-size:0;line-height:0;">
+              <table role="presentation" width="100%" cellpadding="0" cellspacing="0">
+                <tr>
+                  <td width="34%" height="8" style="background:${brand.red};font-size:0;line-height:0;">&nbsp;</td>
+                  <td width="33%" height="8" style="background:${brand.blue};font-size:0;line-height:0;">&nbsp;</td>
+                  <td width="33%" height="8" style="background:${brand.green};font-size:0;line-height:0;">&nbsp;</td>
+                </tr>
+              </table>
+            </td>
+          </tr>
+          <tr>
+            <td align="center" style="padding:28px 24px 4px;">
+              <img src="${CLASS5_REMINDER_EMAIL_LOGO_URL}" alt="Qazi Driving School" width="168" style="display:block;width:168px;max-width:70%;height:auto;border:0;">
+            </td>
+          </tr>
+          <tr>
+            <td style="padding:16px 24px 8px;font-family:Arial,Helvetica,sans-serif;font-size:16px;line-height:1.6;color:${brand.ink};overflow-wrap:anywhere;">
+              ${sentence}
+            </td>
+          </tr>
+          <tr>
+            <td style="padding:8px 24px 28px;">
+              <table role="presentation" width="100%" cellpadding="0" cellspacing="0">
+                <tr>
+                  <td align="center" bgcolor="${brand.red}" style="border-radius:999px;background:${brand.red};">
+                    <a href="${safeUrl}" style="display:block;padding:14px 20px;font-family:Arial,Helvetica,sans-serif;font-size:16px;line-height:1.3;font-weight:bold;color:#ffffff;text-decoration:none;">Complete your payment</a>
+                  </td>
+                </tr>
+              </table>
+            </td>
+          </tr>
+          <tr>
+            <td style="padding:14px 24px;background:${brand.cream};border-top:1px solid ${brand.rule};font-family:Arial,Helvetica,sans-serif;font-size:12px;line-height:1.5;color:${brand.muted};">
+              Qazi Driving School
+            </td>
+          </tr>
+        </table>
+      </td>
+    </tr>
+  </table>
+</body>
+</html>`
   return {
     subject: CLASS5_PAYMENT_REMINDER_EMAIL_SUBJECT,
     text,
