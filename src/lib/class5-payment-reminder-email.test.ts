@@ -68,7 +68,8 @@ test('subject and body use the approved wording, price, and retry link', () => {
   assert.equal(email.html.includes('#2fa94a'), false)
   assert.ok(email.html.includes('width="220"'))
   assert.ok(email.html.includes('https://qazidriving.ca/qazi-logo.png'))
-  assert.ok(email.html.includes('Complete your $250 payment'))
+  assert.ok(email.html.includes('Complete payment to Register'))
+  assert.equal(email.html.includes('Complete your $'), false)
   assert.ok(email.html.includes('Class 5 registration · First payment $250'))
   assert.ok(email.html.includes('v:roundrect'))
   assert.ok(email.html.includes('Button not working? Copy this link:'))
@@ -88,7 +89,8 @@ test('subject and body use the approved wording, price, and retry link', () => {
   })
   assert.match(priced.text, /first \$300 payment/)
   assert.doesNotMatch(priced.text, /first \$250 payment/)
-  assert.ok(priced.html.includes('Complete your $300 payment'))
+  assert.ok(priced.html.includes('Complete payment to Register'))
+  assert.equal(priced.html.includes('Complete your $'), false)
 
   const unknown = buildClass5PaymentReminderEmail({
     firstName: 'Sam',
@@ -96,7 +98,7 @@ test('subject and body use the approved wording, price, and retry link', () => {
     knownAmountLabel: null,
     retryUrl: url,
   })
-  assert.ok(unknown.html.includes('>Complete your payment<'))
+  assert.ok(unknown.html.includes('Complete payment to Register'))
   assert.equal(unknown.html.includes('Complete your $'), false)
   assert.equal(unknown.html.includes('First payment'), false)
   assert.ok(unknown.html.includes('Class 5 registration'))
@@ -238,7 +240,7 @@ test('overlapping runs send one email and a later run does not send again', asyn
   assert.equal(run.sends[0].to, EMAIL)
   assert.equal(run.sends[0].subject, 'Your Qazi Driving School registration payment')
   assert.match(run.sends[0].text, /^Hi Sam,/)
-  assert.ok(run.sends[0].html.includes('Complete your $250 payment'))
+  assert.ok(run.sends[0].html.includes('Complete payment to Register'))
   assert.match(run.sends[0].html, new RegExp(run.row.id))
   assert.equal(run.logs.filter(log => log.status === 'sent').length, 1)
 

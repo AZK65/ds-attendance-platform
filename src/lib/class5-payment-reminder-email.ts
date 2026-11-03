@@ -114,7 +114,7 @@ export function buildClass5PaymentReminderEmail(input: {
   retryUrl: string
 }): Class5PaymentReminderEmail {
   const known = input.knownAmountLabel?.trim() || null
-  const buttonLabel = known ? `Complete your ${known} payment` : 'Complete your payment'
+  const buttonLabel = 'Complete payment to Register'
   const summary = known
     ? `Class 5 registration · First payment ${known}`
     : 'Class 5 registration'
