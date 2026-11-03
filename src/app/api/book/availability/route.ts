@@ -1,6 +1,13 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/db'
 import { bookingTokenFromRequest } from '@/lib/booking-auth'
+import {
+  carClassGapViolation,
+  eventBelongsToStudent,
+  isEarlyCarSession,
+  mergeScheduledCarClasses,
+  type CalendarClass,
+} from '@/lib/car-class-gap'
 
 const BASE_URL = 'https://api.teamup.com'
 
@@ -219,6 +226,10 @@ export async function POST(request: NextRequest) {
     //      a week apart.
     let earliestAllowed = new Date(Date.now() + 3 * 60 * 60 * 1000) // default: 3h lead
     let earliestReason: 'phase1-wait' | 'same-week' | null = null
+    let gapClasses: CalendarClass[] = []
+    const gapSession = Number(sortieNumber)
+    let gapMessage: string | null = null
+    let gapEarliestDate: string | null = null
 
     if (sortieNumber && studentId) {
       try {
@@ -235,9 +246,11 @@ export async function POST(request: NextRequest) {
         })
 
         // Same-theory-group rule: must be at least SAME_GROUP_MIN_DAYS days
-        // after the most recent road class in the same group.
+        // after the most recent road class in the same group. Sessions 1–3
+        // use the stricter both-directions car-class gap below instead, so a
+        // student can still book 7 or more days before a later class.
         const group = groupForSortie(Number(sortieNumber))
-        if (group) {
+        if (group && !isEarlyCarSession(Number(sortieNumber))) {
           const siblingDates: Date[] = []
           const allPastStudentEvents = allEvents.filter((ev) =>
             isStudentEvent(ev, phoneDigits, nameLower)
@@ -287,6 +300,35 @@ export async function POST(request: NextRequest) {
             }
           }
         }
+
+        if (isEarlyCarSession(gapSession)) {
+          const belonging = allEvents
+            .filter(ev => eventBelongsToStudent(ev, { phone: phoneDigits, name: nameLower }))
+            .map(ev => ({
+              id: ev.id,
+              title: ev.title,
+              notes: ev.notes,
+              startDate: ev.start_dt,
+            }))
+          const dbSortieDates: Array<string | null | undefined> = [
+            dbStudent?.sortie1Date, dbStudent?.sortie2Date, dbStudent?.sortie3Date,
+            dbStudent?.sortie4Date, dbStudent?.sortie5Date, dbStudent?.sortie6Date,
+            dbStudent?.sortie7Date, dbStudent?.sortie8Date, dbStudent?.sortie9Date,
+            dbStudent?.sortie10Date, dbStudent?.sortie11Date, dbStudent?.sortie12Date,
+            dbStudent?.sortie13Date, dbStudent?.sortie14Date, dbStudent?.sortie15Date,
+          ]
+          gapClasses = mergeScheduledCarClasses(belonging, dbSortieDates)
+          const todayIso = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`
+          const todayGap = carClassGapViolation({
+            sessionNumber: gapSession,
+            proposedDate: todayIso,
+            classes: gapClasses,
+          })
+          if (todayGap) {
+            gapMessage = todayGap.message
+            gapEarliestDate = todayGap.earliestDate
+          }
+        }
       } catch (e) {
         console.warn('[Book Availability] Rule lookup failed:', e)
       }
@@ -308,6 +350,16 @@ export async function POST(request: NextRequest) {
         const slotEnd = new Date(slotStart.getTime() + SLOT_MINUTES * 60_000)
 
         if (slotStart < minLead) continue
+
+        if (isEarlyCarSession(gapSession)) {
+          const slotDay = `${slotStart.getFullYear()}-${String(slotStart.getMonth() + 1).padStart(2, '0')}-${String(slotStart.getDate()).padStart(2, '0')}`
+          const blocked = carClassGapViolation({
+            sessionNumber: gapSession,
+            proposedDate: slotDay,
+            classes: gapClasses,
+          })
+          if (blocked) continue
+        }
 
         const overlaps = booked.some(
           (b) => slotStart.getTime() < b.end && slotEnd.getTime() > b.start
@@ -333,6 +385,8 @@ export async function POST(request: NextRequest) {
       slots: slots.slice(0, 200), // cap the payload
       earliestAllowed: earliestAllowed.toISOString(),
       earliestReason,
+      gapMessage,
+      gapEarliestDate,
     })
   } catch (error) {
     console.error('[Book Availability] Error:', error)

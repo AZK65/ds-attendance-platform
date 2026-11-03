@@ -140,6 +140,8 @@ type Availability = {
   slots: Slot[]
   earliestAllowed?: string
   earliestReason?: 'phase1-wait' | 'same-week' | null
+  gapMessage?: string | null
+  gapEarliestDate?: string | null
   reason?: string
   message?: string
 }
@@ -674,6 +676,16 @@ function BookPageInner() {
                         ? `La prochaine plage disponible est après le ${new Date(availability.earliestAllowed).toLocaleDateString('fr-CA', { month: 'long', day: 'numeric' })} — vos deux cours pratiques d'un même groupe doivent être espacés d'au moins une semaine.`
                         : `Next available after ${new Date(availability.earliestAllowed).toLocaleDateString('en-CA', { month: 'long', day: 'numeric' })} — the two road classes in a theory group must be at least one week apart.`)
                     : c.noSlots}
+              </div>
+            )}
+
+            {!availabilityLoading && availability?.teacher && availability.gapMessage && (
+              <div
+                role="alert"
+                data-testid="car-class-gap-message"
+                className="rounded-lg border border-[#E11D2E]/20 bg-[#E11D2E]/5 px-4 py-3 text-[13px] text-ink/80 leading-snug"
+              >
+                {availability.gapMessage}
               </div>
             )}
 

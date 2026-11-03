@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { enforceCarClassGap } from '@/lib/car-class-gap-enforce'
 import { scheduleReminderFromEvent } from '@/lib/in-car-reminders'
 
 const BASE_URL = 'https://api.teamup.com'
@@ -62,6 +63,14 @@ export async function POST(request: NextRequest) {
       return NextResponse.json(
         { error: 'title, startDate, endDate, and subcalendarIds are required' },
         { status: 400 }
+      )
+    }
+
+    const gap = await enforceCarClassGap({ title, notes, startDate })
+    if (!gap.ok) {
+      return NextResponse.json(
+        { error: gap.error, earliestDate: gap.earliestDate, suggestion: gap.suggestion },
+        { status: gap.status },
       )
     }
 
