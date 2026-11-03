@@ -7,7 +7,7 @@
 // 800-line state machine.
 
 import { LangProvider } from '@/app/register/i18n'
-import { RegisterPageInner } from '@/app/register/page'
+import { RegisterPageInner } from '@/app/register/registration-form'
 
 export default function KioskRegisterPage() {
   return (

@@ -1,14 +1,13 @@
 'use client'
 
-import { useMemo, useRef, useState } from 'react'
+import { useMemo, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Card, CardContent } from '@/components/ui/card'
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog'
-import { CheckCircle2, Loader2, RotateCcw, Download, X, Pencil, Users, ArrowLeft, ChevronRight } from 'lucide-react'
-import { SignaturePad as SignatureCanvas, type SignaturePadHandle } from '@/components/SignaturePad'
+import { CheckCircle2, Loader2, RotateCcw, X, Pencil, Users, ArrowLeft, ChevronRight } from 'lucide-react'
 import { InstructorSignatureDialog } from '@/components/InstructorSignatureDialog'
+import { StudentSignatureDialog, type StudentSignTarget } from '@/components/StudentSignatureDialog'
 import { CLASS1_THEORY_REQUIRED_SESSIONS, signInTheoryLabel } from '@/lib/theory-hours'
 
 interface TeamupEvent {
@@ -49,15 +48,8 @@ interface GroupClass {
 }
 
 // A single thing a student can sign for — an in-car Teamup event or a member
-// of a group class. The SignaturePad works off this, not the raw event.
-interface SignTarget {
-  eventId: string
-  studentName: string
-  phone: string | null
-  sessionLabel: string
-  subtitle: string
-  moduleNumber: number | null
-  sortieNumber: number | null
+// of a group class. The signature dialog works off this, not the raw event.
+interface SignTarget extends StudentSignTarget {
   lessonKind: 'theory' | 'practical' | 'other'
   subcalendarId: number | null
 }
@@ -575,7 +567,8 @@ export default function SignInMode({ onExit }: { onExit: () => void }) {
       {view === 'roster' && rosterView}
 
       {signing && (
-        <SignaturePad
+        <StudentSignatureDialog
+          key={signing.eventId}
           target={signing}
           onCancel={() => setSigning(null)}
           onSaved={() => {
@@ -584,6 +577,7 @@ export default function SignInMode({ onExit }: { onExit: () => void }) {
             refetchSigs()
             if (target.lessonKind === 'practical' && target.phone) setInstructorFollowUp(target)
           }}
+          onAlreadySigned={() => refetchSigs()}
         />
       )}
 
@@ -619,113 +613,3 @@ export default function SignInMode({ onExit }: { onExit: () => void }) {
   )
 }
 
-function SignaturePad({
-  target,
-  onCancel,
-  onSaved,
-}: {
-  target: SignTarget
-  onCancel: () => void
-  onSaved: () => void
-}) {
-  const signatureRef = useRef<SignaturePadHandle>(null)
-  const [hasInk, setHasInk] = useState(false)
-  const [saving, setSaving] = useState(false)
-  const [error, setError] = useState<string | null>(null)
-
-  const phone = target.phone
-
-  const clear = () => {
-    signatureRef.current?.clear()
-  }
-
-  const save = async () => {
-    if (!hasInk) {
-      setError('Please sign in the box before saving.')
-      return
-    }
-    if (!phone) {
-      setError('No phone number for this student — cannot save.')
-      return
-    }
-    setError(null)
-    setSaving(true)
-    try {
-      const dataUrl = signatureRef.current?.toDataUrl()
-      if (!dataUrl) throw new Error('Please sign in the box before saving.')
-      const res = await fetch('/api/scheduling/signature', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          eventId: target.eventId,
-          studentPhone: phone,
-          studentName: target.studentName || '(unknown)',
-          signatureDataUrl: dataUrl,
-          sessionLabel: target.sessionLabel,
-          moduleNumber: target.moduleNumber,
-          sortieNumber: target.sortieNumber,
-        }),
-      })
-      if (res.status === 409) {
-        setError('already signed')
-        return
-      }
-      if (!res.ok) {
-        const data = await res.json().catch(() => ({}))
-        throw new Error(data.error || `Save failed (${res.status})`)
-      }
-      onSaved()
-    } catch (e) {
-      setError(e instanceof Error ? e.message : 'Failed to save')
-    } finally {
-      setSaving(false)
-    }
-  }
-
-  return (
-    <Dialog open onOpenChange={(o) => { if (!o) onCancel() }}>
-      <DialogContent className="sm:max-w-2xl">
-        <DialogHeader>
-          <DialogTitle>Sign In — {target.studentName || 'Student'}</DialogTitle>
-          <DialogDescription>{target.subtitle}</DialogDescription>
-        </DialogHeader>
-        <div className="space-y-3">
-          <SignatureCanvas
-            ref={signatureRef}
-            height={256}
-            strokeColor="#0f172a"
-            strokeWidth={2.4}
-            placeholder="Sign inside this box"
-            className="border-dashed bg-muted/20"
-            onChange={(dataUrl) => {
-              setHasInk(!!dataUrl)
-              if (dataUrl) setError(null)
-            }}
-          />
-          {error && <p className="text-sm text-destructive">{error}</p>}
-          <div className="flex items-center justify-between gap-2">
-            <Button variant="ghost" onClick={clear} disabled={!hasInk || saving}>
-              <RotateCcw className="h-4 w-4 mr-1" /> Clear
-            </Button>
-            <div className="flex gap-2">
-              <Button variant="outline" onClick={onCancel} disabled={saving}>Cancel</Button>
-              <Button onClick={save} disabled={!hasInk || saving} className="min-w-[100px]">
-                {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <><CheckCircle2 className="h-4 w-4 mr-1" /> Save</>}
-              </Button>
-            </div>
-          </div>
-          {phone && (
-            <a
-              href={`/api/scheduling/signature/pdf?phone=${encodeURIComponent(phone)}`}
-              target="_blank"
-              rel="noopener"
-              className="text-xs text-muted-foreground hover:underline inline-flex items-center gap-1"
-            >
-              <Download className="h-3 w-3" /> Download this student&apos;s booklet PDF
-            </a>
-          )}
-        </div>
-      </DialogContent>
-    </Dialog>
-  )
-}

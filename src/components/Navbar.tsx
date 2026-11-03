@@ -17,11 +17,11 @@ import { ConnectionStatus } from './ConnectionStatus'
 import { NotificationBell } from './NotificationBell'
 import { InboxAttentionBell } from './InboxAttentionBell'
 import { LeadAttentionBar } from './LeadAttentionBar'
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 
 // Tabs shown directly in the bar — the day-to-day ones.
 const PRIMARY_ITEMS = [
-  { href: '/scheduling', label: 'Home', icon: Home },
+  { href: '/scheduling', label: 'Schedule', icon: Home },
   { href: '/groups', label: 'Groups', icon: Users },
   { href: '/students', label: 'Students', icon: UserPlus },
   { href: '/certificate', label: 'Certificates', icon: Award },
@@ -77,7 +77,7 @@ function ThemeToggle() {
             exit={{ rotate: -90, scale: 0, opacity: 0 }}
             transition={{ duration: 0.25, ease: 'easeInOut' }}
           >
-            <Moon className="h-[18px] w-[18px] text-slate-700" />
+            <Moon className="h-[18px] w-[18px] text-muted-foreground" />
           </motion.div>
         )}
       </AnimatePresence>
@@ -87,6 +87,20 @@ function ThemeToggle() {
 
 export function Navbar() {
   const pathname = usePathname()
+  const navRef = useRef<HTMLElement>(null)
+
+  useEffect(() => {
+    const nav = navRef.current
+    if (!nav) return
+    const observer = new ResizeObserver(() => {
+      document.documentElement.style.setProperty('--platform-header-height', `${nav.getBoundingClientRect().height}px`)
+    })
+    observer.observe(nav)
+    return () => {
+      observer.disconnect()
+      document.documentElement.style.removeProperty('--platform-header-height')
+    }
+  }, [])
 
   // New-lead count for the badge on the Leads tab. Polls so leads coming in
   // from Google Ads surface without a refresh.
@@ -112,12 +126,12 @@ export function Navbar() {
     return pathname.startsWith(href)
   }
   const moreActive = MORE_ITEMS.some(item => isActive(item.href))
+  const currentPage = [...PRIMARY_ITEMS, ...MORE_ITEMS].find(item => isActive(item.href))
 
   return (
-    <nav className="border-b bg-background sticky top-0 z-50">
+    <nav ref={navRef} aria-label="Main navigation" className="platform-nav">
       <LeadAttentionBar count={newLeadCount} unavailable={leadCountError} />
-      <div className="container mx-auto px-4">
-        <div className="grid h-16 grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-center gap-3">
+      <div className="platform-nav-inner">
           {/* Logo */}
           <Link href="/" className="justify-self-start rounded-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2">
             <Image
@@ -125,33 +139,22 @@ export function Navbar() {
               alt="Qazi Driving School"
               width={100}
               height={34}
-              className="h-10 w-auto"
+              className="h-8 w-auto dark:rounded-sm dark:bg-white dark:ring-4 dark:ring-white sm:h-10"
             />
           </Link>
 
           {/* Nav Links */}
-          <div className="flex min-w-0 items-center gap-1 justify-self-center">
+          <div className="platform-nav-links">
             {PRIMARY_ITEMS.map(({ href, label, icon: Icon }) => (
               <Link
                 key={label}
                 href={href}
                 aria-current={isActive(href) ? 'page' : undefined}
-                className={`relative flex h-9 items-center gap-1.5 rounded-md px-2.5 text-sm font-medium whitespace-nowrap transition-[color,background-color] duration-200 ease-[cubic-bezier(0.2,0.8,0.2,1)] ${
-                  isActive(href)
-                    ? 'text-primary-foreground'
-                    : 'text-muted-foreground hover:text-foreground hover:bg-muted'
-                }`}
+                className="platform-nav-link"
               >
-                {isActive(href) && (
-                  <motion.div
-                    layoutId="activeNavTab"
-                    className="absolute inset-0 bg-primary rounded-md"
-                    transition={{ type: 'spring', duration: 0.4, bounce: 0.15 }}
-                  />
-                )}
                 <span className="relative z-10 flex items-center gap-1.5">
                   <Icon className="h-4 w-4" />
-                  <span className="hidden 2xl:inline">{label}</span>
+                  <span>{label}</span>
                 </span>
               </Link>
             ))}
@@ -160,14 +163,12 @@ export function Navbar() {
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
                 <button
-                  className={`relative flex h-9 items-center gap-1.5 rounded-md px-2.5 text-sm font-medium whitespace-nowrap transition-[color,background-color] duration-200 ease-[cubic-bezier(0.2,0.8,0.2,1)] ${
-                    moreActive
-                      ? 'bg-primary text-primary-foreground'
-                      : 'text-muted-foreground hover:text-foreground hover:bg-muted'
-                  }`}
+                  className="platform-nav-link"
+                  data-active={moreActive}
+                  aria-label="More pages"
                 >
                   <MoreHorizontal className="h-4 w-4" />
-                  <span className="hidden 2xl:inline">More</span>
+                  <span>More</span>
                   <ChevronDown className="h-3 w-3 opacity-70" />
                   {/* Red dot so new leads are noticeable without opening the menu */}
                   {newLeadCount > 0 && (
@@ -175,7 +176,7 @@ export function Navbar() {
                   )}
                 </button>
               </DropdownMenuTrigger>
-              <DropdownMenuContent align="end">
+              <DropdownMenuContent align="end" className="min-w-48 p-2">
                 {MORE_ITEMS.map(({ href, label, icon: Icon }) => (
                   <DropdownMenuItem key={label} asChild>
                     <Link
@@ -198,27 +199,45 @@ export function Navbar() {
             </DropdownMenu>
           </div>
 
+          <div className="platform-mobile-nav">
+            <span className="text-sm font-semibold">{currentPage?.label || 'Qazi platform'}</span>
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <button className="platform-nav-link" aria-label="Browse all pages">All pages<ChevronDown className="h-4 w-4" /></button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end" className="w-64 p-2">
+                {[...PRIMARY_ITEMS, ...MORE_ITEMS].map(({ href, label, icon: Icon }) => (
+                  <DropdownMenuItem key={href} asChild>
+                    <Link href={href} aria-current={isActive(href) ? 'page' : undefined} className={`min-h-10 gap-3 ${isActive(href) ? 'bg-muted font-semibold' : ''}`}>
+                      <Icon className="h-4 w-4" />{label}
+                      {href === '/leads' && newLeadCount > 0 && <span className="ml-auto text-xs">{newLeadCount} new</span>}
+                    </Link>
+                  </DropdownMenuItem>
+                ))}
+              </DropdownMenuContent>
+            </DropdownMenu>
+          </div>
+
           {/* Theme Toggle + Notification Bell + Connection Status */}
-          <div className="flex items-center gap-1 justify-self-end">
+          <div className="platform-nav-tools">
             <button
               type="button"
               onClick={() => window.dispatchEvent(new Event('qazi:open-search'))}
-              className="group flex h-10 w-10 items-center justify-center gap-2 rounded-lg border bg-background px-2.5 text-sm text-muted-foreground shadow-sm transition-[width,color,background-color,border-color] duration-200 ease-[cubic-bezier(0.2,0.8,0.2,1)] hover:border-foreground/20 hover:bg-muted/70 hover:text-foreground 2xl:w-48 2xl:justify-between"
+              className="platform-search-trigger"
               aria-label="Search everything"
               title="Search everything (Command K)"
             >
               <span className="flex min-w-0 items-center gap-2">
                 <Search className="h-4 w-4 shrink-0" />
-                <span className="hidden truncate 2xl:inline">Search anything</span>
+                <span className="platform-search-label">Search anything</span>
               </span>
-              <kbd className="hidden shrink-0 rounded border bg-muted px-1.5 py-0.5 font-mono text-[10px] text-muted-foreground 2xl:inline">⌘K</kbd>
+              <kbd className="platform-search-shortcut">⌘ K</kbd>
             </button>
             <ThemeToggle />
             <InboxAttentionBell />
             <NotificationBell />
             <ConnectionStatus />
           </div>
-        </div>
       </div>
     </nav>
   )

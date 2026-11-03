@@ -218,12 +218,10 @@ export default function KiosksPage() {
         initial={{ opacity: 0, y: -10 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ duration: 0.25 }}
-        className="flex items-start justify-between gap-4"
+        className="platform-page-heading"
       >
         <div>
-          <h1 className="text-2xl font-bold flex items-center gap-2">
-            <Monitor className="h-6 w-6" /> Kiosks
-          </h1>
+          <h1>Kiosks</h1>
           <p className="text-muted-foreground text-sm mt-1">
             Live view and remote control of your registration kiosks.
           </p>

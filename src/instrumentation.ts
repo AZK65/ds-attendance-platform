@@ -3,6 +3,9 @@
 // so these run reliably regardless of whether any browser has the app open.
 
 export async function register() {
+  // Isolated UI previews/tests must not connect WhatsApp or send reminders.
+  // Unset in production; authentication and API permissions are unchanged.
+  if (process.env.QAZI_DISABLE_BACKGROUND_JOBS === '1') return
   // Only run on the server (Node.js runtime), not during build or in edge runtime
   if (process.env.NEXT_RUNTIME === 'nodejs') {
     const BASE_URL = `http://localhost:${process.env.PORT || 3000}`
@@ -35,6 +38,8 @@ export async function register() {
     let isProcessing = false
     let isPolling = false
     let isReconcilingZoom = false
+    let isRemindingUnpaidClass5 = false
+    let isEmailingUnpaidClass5 = false
 
     // Process scheduled messages every 30 seconds
     async function processScheduledMessages() {
@@ -105,11 +110,58 @@ export async function register() {
       }
     }
 
+    // One WhatsApp reminder for a Class 5 checkout that is still unpaid.
+    // The route no-ops while the Settings switch is off or WhatsApp is down.
+    async function remindUnpaidClass5() {
+      if (isRemindingUnpaidClass5) return
+      isRemindingUnpaidClass5 = true
+      try {
+        const res = await fetch(`${BASE_URL}/api/class5-payment-reminders/process`, {
+          method: 'POST',
+          headers: { 'x-internal': '1' },
+        })
+        if (res.ok) {
+          const data = await res.json()
+          if (data.sent > 0) {
+            console.log(`[Class5Reminder] Sent ${data.sent} unpaid checkout reminder(s)`)
+          }
+        }
+      } catch {
+        // Server might not be ready yet — the next interval retries.
+      } finally {
+        isRemindingUnpaidClass5 = false
+      }
+    }
+
+    // Email version of the Class 5 unpaid-checkout reminder. Its own route and
+    // lock, so a disconnected WhatsApp client cannot block it.
+    async function emailUnpaidClass5() {
+      if (isEmailingUnpaidClass5) return
+      isEmailingUnpaidClass5 = true
+      try {
+        const res = await fetch(`${BASE_URL}/api/class5-payment-reminders/email/process`, {
+          method: 'POST',
+          headers: { 'x-internal': '1' },
+        })
+        if (res.ok) {
+          const data = await res.json()
+          if (data.sent > 0) {
+            console.log(`[Class5ReminderEmail] Sent ${data.sent} unpaid checkout email(s)`)
+          }
+        }
+      } catch {
+        // Server might not be ready yet — the next interval retries.
+      } finally {
+        isEmailingUnpaidClass5 = false
+      }
+    }
+
     // Wait for the server to be ready before starting intervals
     const STARTUP_DELAY = 10_000 // 10 seconds
     const MESSAGE_INTERVAL = 30_000 // 30 seconds
     const POLL_INTERVAL = 15_000 // 15 seconds
     const ZOOM_RECONCILE_INTERVAL = 60_000 // 1 minute
+    const CLASS5_REMINDER_INTERVAL = 3 * 60 * 1000 // 3 minutes
 
     setTimeout(async () => {
       // Rehydrate live Zoom store from the persisted snapshot so a server
@@ -141,6 +193,12 @@ export async function register() {
       setInterval(processScheduledMessages, MESSAGE_INTERVAL)
       reconcileZoomAttendance()
       setInterval(reconcileZoomAttendance, ZOOM_RECONCILE_INTERVAL)
+      console.log('[Class5Reminder] Starting unpaid Class 5 checkout reminder (every 3 min)')
+      remindUnpaidClass5()
+      setInterval(remindUnpaidClass5, CLASS5_REMINDER_INTERVAL)
+      console.log('[Class5ReminderEmail] Starting unpaid Class 5 checkout email (every 3 min)')
+      emailUnpaidClass5()
+      setInterval(emailUnpaidClass5, CLASS5_REMINDER_INTERVAL)
 
       // Stagger the poller start by 15 seconds so they don't overlap on startup
       setTimeout(() => {

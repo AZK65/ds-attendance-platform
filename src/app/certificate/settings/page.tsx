@@ -8,6 +8,11 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { ArrowLeft, Save, Loader2, Settings, FileText, Upload, CheckCircle2 } from 'lucide-react'
 import Link from 'next/link'
+import {
+  CLASS1_DEFAULT_CIRCUIT_ADDRESS,
+  CLASS1_DEFAULT_ROAD_ADDRESS,
+  CLASS1_DEFAULT_THEORY_ADDRESS,
+} from '@/lib/class1-contract-locations'
 
 interface CertificateSettings {
   id: string
@@ -338,8 +343,7 @@ export default function CertificateSettingsPage() {
             <CardHeader>
               <CardTitle>Class 1 (Truck) Service Contract</CardTitle>
               <CardDescription>
-                Training addresses surfaced in the SAAQ Class 1 service contract PDF.
-                Leave blank to print a dash on the contract.
+                Training addresses on the Class 1 service contract. Leave a field blank to print its default. A saved address replaces that default.
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-3">
@@ -349,8 +353,9 @@ export default function CertificateSettingsPage() {
                   id="truckTheoryAddress"
                   value={formData.truckTheoryAddress || ''}
                   onChange={(e) => handleInputChange('truckTheoryAddress', e.target.value)}
-                  placeholder="786 rue Jean-Talon Ouest, Montréal QC"
+                  placeholder={CLASS1_DEFAULT_THEORY_ADDRESS}
                 />
+                <p className="text-xs text-muted-foreground mt-1">Blank prints: {CLASS1_DEFAULT_THEORY_ADDRESS}</p>
               </div>
               <div>
                 <Label htmlFor="truckRoadAddress">Road training start address</Label>
@@ -358,17 +363,19 @@ export default function CertificateSettingsPage() {
                   id="truckRoadAddress"
                   value={formData.truckRoadAddress || ''}
                   onChange={(e) => handleInputChange('truckRoadAddress', e.target.value)}
-                  placeholder="Where in-truck sessions depart from"
+                  placeholder={CLASS1_DEFAULT_ROAD_ADDRESS}
                 />
+                <p className="text-xs text-muted-foreground mt-1">Blank prints: {CLASS1_DEFAULT_ROAD_ADDRESS}</p>
               </div>
               <div>
-                <Label htmlFor="truckCircuitAddress">Closed circuit address (if applicable)</Label>
+                <Label htmlFor="truckCircuitAddress">Closed circuit address</Label>
                 <Input
                   id="truckCircuitAddress"
                   value={formData.truckCircuitAddress || ''}
                   onChange={(e) => handleInputChange('truckCircuitAddress', e.target.value)}
-                  placeholder="Optional"
+                  placeholder={CLASS1_DEFAULT_CIRCUIT_ADDRESS}
                 />
+                <p className="text-xs text-muted-foreground mt-1">Blank prints: {CLASS1_DEFAULT_CIRCUIT_ADDRESS}</p>
               </div>
             </CardContent>
           </Card>

@@ -7,6 +7,7 @@ export async function sendEmailViaResend(payload: {
   to: string[]
   subject: string
   html: string
+  text?: string
   attachments?: { filename: string; content: string }[]
 }) {
   const apiKey = process.env.RESEND_API_KEY

@@ -129,6 +129,7 @@ export async function createRegistrationInvoice(
       notes,
       paymentMethod,
       paymentStatus,
+      paidAt: paymentStatus === 'paid' ? registration.paymentCapturedAt || new Date() : null,
       cloverPaymentUrl: null,
       cloverOrderId: null,
       cloverPaid: paymentMethod === 'card' && paymentStatus === 'paid',

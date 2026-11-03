@@ -3,10 +3,11 @@
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import { Button } from '@/components/ui/button'
-import { ArrowLeft, DollarSign, Laptop, GraduationCap } from 'lucide-react'
+import { ArrowLeft, DollarSign, Laptop, GraduationCap, MessageCircle } from 'lucide-react'
 
 const TABS = [
   { href: '/settings/pricing', label: 'Pricing', icon: DollarSign },
+  { href: '/settings/reminders', label: 'Reminders', icon: MessageCircle },
   { href: '/settings/devices', label: 'Devices', icon: Laptop },
   { href: '/settings/instructors', label: 'Instructors', icon: GraduationCap },
 ]
@@ -16,11 +17,11 @@ export default function SettingsLayout({ children }: { children: React.ReactNode
 
   return (
     <main className="max-w-4xl mx-auto p-4 sm:p-6 space-y-6">
-      <div className="flex items-center gap-3">
+      <div className="platform-page-heading">
+        <div><h1>Settings</h1><p>Manage pricing, reminders, connected devices and instructors.</p></div>
         <Link href="/scheduling">
-          <Button variant="ghost" size="icon"><ArrowLeft className="h-4 w-4" /></Button>
+          <Button variant="outline" size="sm"><ArrowLeft className="h-4 w-4" />Schedule</Button>
         </Link>
-        <h1 className="text-xl font-semibold">Settings</h1>
       </div>
 
       <div className="flex gap-1 border-b overflow-x-auto">
@@ -30,6 +31,7 @@ export default function SettingsLayout({ children }: { children: React.ReactNode
             <Link
               key={t.href}
               href={t.href}
+              aria-current={active ? 'page' : undefined}
               className={`flex items-center gap-2 px-4 py-2 text-sm font-medium border-b-2 -mb-px whitespace-nowrap transition-colors ${
                 active
                   ? 'border-primary text-foreground'

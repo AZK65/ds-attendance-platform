@@ -4,13 +4,14 @@ import { useEffect, useMemo, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { useQuery } from '@tanstack/react-query'
 import {
-  ArrowUpRight, CalendarDays, FileText, GraduationCap, LayoutDashboard, Loader2,
+  ArrowUpRight, CalendarDays, FileText, GraduationCap, LayoutDashboard, AlertCircle,
   Receipt, Search, Settings, Target, UserRound, Users, X,
 } from 'lucide-react'
 import {
   CommandDialog, CommandEmpty, CommandGroup, CommandInput, CommandItem,
   CommandList, CommandSeparator,
 } from '@/components/ui/command'
+import { Button } from '@/components/ui/button'
 
 type GlobalSearchResult = {
   id: string
@@ -76,16 +77,19 @@ export function GlobalSearch() {
     }
   }, [])
 
-  const { data, isFetching } = useQuery<{ results: GlobalSearchResult[] }>({
+  const { data, isFetching, isError, refetch } = useQuery<{ results: GlobalSearchResult[] }>({
     queryKey: ['global-search', debouncedQuery],
-    queryFn: async () => {
-      const response = await fetch(`/api/search?q=${encodeURIComponent(debouncedQuery)}`)
+    queryFn: async ({ signal }) => {
+      const response = await fetch(`/api/search?q=${encodeURIComponent(debouncedQuery)}`, { signal })
       if (!response.ok) throw new Error('Search failed')
       return response.json()
     },
     enabled: open && debouncedQuery.length >= 2,
     staleTime: 20_000,
+    retry: 1,
   })
+  const isDebouncing = query.trim() !== debouncedQuery
+  const isSearching = isDebouncing || isFetching
 
   const grouped = useMemo(() => {
     const map = new Map<string, GlobalSearchResult[]>()
@@ -119,37 +123,39 @@ export function GlobalSearch() {
       description="Search students, groups, invoices, registrations and leads"
       shouldFilter={false}
       showCloseButton={false}
-      className="top-[8vh] w-[calc(100%-1.5rem)] max-w-3xl translate-y-0 overflow-hidden rounded-2xl border-foreground/10 shadow-2xl sm:top-[12vh]"
+      className="top-[8dvh] flex w-[calc(100%-1.5rem)] max-h-[84dvh] flex-col gap-0 max-w-3xl translate-y-0 overflow-hidden rounded-2xl border-foreground/10 shadow-2xl sm:top-[12dvh] sm:max-w-3xl"
     >
-      <div className="relative border-b bg-background">
+      <div className="relative shrink-0 bg-popover">
         <CommandInput
           value={query}
           onValueChange={setQuery}
           placeholder="Search students, phone numbers, groups, invoices…"
-          className="h-14 pr-12 text-base"
+          className="h-14 pr-28 text-base"
+          aria-label="Search students, groups, invoices and leads"
         />
-        {isFetching ? (
-          <Loader2 className="absolute right-4 top-4 h-5 w-5 animate-spin text-muted-foreground" />
-        ) : query ? (
+        {query && (
           <button
             type="button"
             onClick={() => setQuery('')}
-            className="absolute right-3 top-2.5 flex h-8 w-8 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+            className="absolute right-12 top-2 flex h-8 items-center justify-center rounded-md px-2 text-xs text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
             aria-label="Clear search"
           >
-            <X className="h-4 w-4" />
+            Clear
           </button>
-        ) : null}
+        )}
+        <button type="button" onClick={() => handleOpenChange(false)} aria-label="Close search" className="absolute right-2 top-2 flex h-8 w-8 items-center justify-center rounded-md text-muted-foreground hover:bg-muted hover:text-foreground">
+          <X className="h-4 w-4" />
+        </button>
       </div>
-      <CommandList className="max-h-[min(560px,70vh)]">
+      <CommandList className="min-h-0 max-h-[60dvh] flex-1" aria-busy={isSearching}>
         {query.trim().length === 0 ? (
           <CommandGroup
             heading="Quick access"
-            className="p-3 [&_[cmdk-group-heading]]:px-1 [&_[cmdk-group-heading]]:pb-2 [&_[cmdk-group-heading]]:text-[11px] [&_[cmdk-group-heading]]:font-semibold [&_[cmdk-group-heading]]:uppercase [&_[cmdk-group-heading]]:tracking-[0.16em] sm:[&_[cmdk-group-items]]:grid sm:[&_[cmdk-group-items]]:grid-cols-2 sm:[&_[cmdk-group-items]]:gap-1"
+            className="p-3 [&_[cmdk-group-heading]]:px-2 [&_[cmdk-group-heading]]:pb-2 [&_[cmdk-group-heading]]:text-xs [&_[cmdk-group-heading]]:font-medium sm:[&_[cmdk-group-items]]:grid sm:[&_[cmdk-group-items]]:grid-cols-2 sm:[&_[cmdk-group-items]]:gap-1"
           >
             {QUICK_LINKS.map(item => (
               <CommandItem key={item.href} value={item.href} onSelect={() => go(item.href)} className="group gap-3 rounded-xl px-3 py-3">
-                <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg border bg-background shadow-sm">
+                <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-muted">
                   <item.icon className="h-4 w-4" />
                 </span>
                 <span className="min-w-0 flex-1">
@@ -168,10 +174,22 @@ export function GlobalSearch() {
             <p className="font-medium">Keep typing</p>
             <p className="mt-1 text-sm text-muted-foreground">Enter at least two characters to search every record.</p>
           </div>
-        ) : isFetching && grouped.length === 0 ? (
-          <div className="flex min-h-52 flex-col items-center justify-center gap-3 text-sm text-muted-foreground">
-            <Loader2 className="h-6 w-6 animate-spin" />
-            Searching across Qazi…
+        ) : isSearching ? (
+          <div className="space-y-2 p-4" role="status">
+            <span className="sr-only">Searching across Qazi</span>
+            {[ 'w-2/3', 'w-1/2', 'w-3/4' ].map((width) => (
+              <div key={width} className="flex items-center gap-3 rounded-lg p-3 motion-safe:animate-pulse" aria-hidden="true">
+                <div className="h-10 w-10 shrink-0 rounded-lg bg-muted" />
+                <div className="flex-1 space-y-2"><div className={`h-3 rounded bg-muted ${width}`} /><div className="h-2 w-1/3 rounded bg-muted" /></div>
+              </div>
+            ))}
+          </div>
+        ) : isError ? (
+          <div className="flex min-h-52 flex-col items-center justify-center gap-3 px-6 text-center" role="alert">
+            <AlertCircle className="h-6 w-6 text-muted-foreground" />
+            <p className="font-medium">Search is unavailable</p>
+            <p className="text-sm text-muted-foreground">Your records haven’t changed. Try connecting again.</p>
+            <Button variant="outline" onClick={() => void refetch()}>Try again</Button>
           </div>
         ) : (
           <>
@@ -189,7 +207,7 @@ export function GlobalSearch() {
                 {groupIndex > 0 && <CommandSeparator />}
                 <CommandGroup
                   heading={`${label} · ${results.length}`}
-                  className="p-2 [&_[cmdk-group-heading]]:px-2 [&_[cmdk-group-heading]]:text-[11px] [&_[cmdk-group-heading]]:font-semibold [&_[cmdk-group-heading]]:uppercase [&_[cmdk-group-heading]]:tracking-[0.14em]"
+                  className="p-2 [&_[cmdk-group-heading]]:px-2 [&_[cmdk-group-heading]]:text-xs [&_[cmdk-group-heading]]:font-medium"
                 >
                   {results.map(result => {
                     const Icon = resultIcons[result.type]
@@ -200,7 +218,7 @@ export function GlobalSearch() {
                         onSelect={() => go(result.href)}
                         className="group gap-3 rounded-xl px-3 py-3"
                       >
-                        <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg border bg-background shadow-sm">
+                        <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-muted">
                           <Icon className="h-4 w-4" />
                         </span>
                         <span className="min-w-0 flex-1">
@@ -208,7 +226,7 @@ export function GlobalSearch() {
                           <span className="block truncate text-xs text-muted-foreground">{result.subtitle}</span>
                         </span>
                         {result.meta && (
-                          <span className="hidden max-w-32 truncate rounded-full bg-muted px-2 py-1 text-[10px] capitalize text-muted-foreground sm:block">
+                          <span className="hidden max-w-32 truncate text-xs capitalize text-muted-foreground sm:block" title={result.meta}>
                             {result.meta}
                           </span>
                         )}
@@ -222,7 +240,7 @@ export function GlobalSearch() {
           </>
         )}
       </CommandList>
-      <div className="flex items-center justify-between border-t bg-muted/30 px-3 py-2 text-[11px] text-muted-foreground">
+      <div className="flex shrink-0 items-center justify-between border-t bg-muted/30 px-4 py-3 text-xs text-muted-foreground">
         <span className="flex items-center gap-1.5"><LayoutDashboard className="h-3 w-3" /> Search across Qazi</span>
         <span className="hidden items-center gap-2 sm:flex"><kbd className="rounded border bg-background px-1.5 py-0.5">↑↓</kbd> navigate <kbd className="rounded border bg-background px-1.5 py-0.5">↵</kbd> open <kbd className="rounded border bg-background px-1.5 py-0.5">Esc</kbd> close</span>
       </div>

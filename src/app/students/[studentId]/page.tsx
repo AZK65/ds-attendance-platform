@@ -557,7 +557,7 @@ export default function StudentProfilePage() {
           <Link href="/students"><ArrowLeft className="h-4 w-4 mr-1" /> Back to Students</Link>
         </Button>
 
-        <section className="overflow-hidden rounded-xl bg-muted/40">
+        <section className="overflow-hidden rounded-xl border bg-card">
           <div className="flex flex-col gap-6 p-6 sm:flex-row sm:items-center sm:justify-between">
           <div className="flex items-center gap-4 min-w-0">
             <StudentAvatar
@@ -568,8 +568,8 @@ export default function StudentProfilePage() {
               zoomable
             />
             <div className="min-w-0">
-              <div className="flex items-center gap-2 min-w-0">
-                <h1 className="text-3xl font-semibold tracking-tight truncate">{displayName}</h1>
+              <div className="flex flex-wrap items-center gap-2 min-w-0">
+                <h1 className="text-2xl sm:text-3xl font-semibold tracking-tight break-words max-w-full">{displayName}</h1>
                 {data?.vehicleType === 'truck' ? (
                   <Badge variant="outline" className="border-foreground/15 bg-background text-foreground font-medium shrink-0">
                     <Truck className="h-3.5 w-3.5 mr-1" /> Truck

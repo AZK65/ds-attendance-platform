@@ -972,18 +972,15 @@ function InvoicePage() {
             initial={{ opacity: 0, y: -10 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.25 }}
-            className="flex items-center justify-between mb-8"
+            className="platform-page-heading"
           >
             <div>
-              <h2 className="text-2xl font-bold flex items-center gap-2">
-                <Receipt className="h-6 w-6" />
-                Create Invoice
-              </h2>
+              <h1>Create invoice</h1>
               <p className="text-muted-foreground mt-1">
                 Generate professional invoices for students
               </p>
             </div>
-            <div className="flex gap-2">
+            <div className="platform-page-actions">
               <Link href="/invoice/history">
                 <Button variant="outline" size="sm">
                   <FileText className="h-4 w-4 mr-1" />
