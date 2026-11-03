@@ -2,8 +2,12 @@ import { NextRequest, NextResponse } from 'next/server'
 import React from 'react'
 import { renderToBuffer } from '@react-pdf/renderer'
 import { Document, Page, View, Text, Image, StyleSheet } from '@react-pdf/renderer'
-import fs from 'fs'
-import path from 'path'
+import { BRAND, logoHeightForWidth } from '@/lib/brand'
+import { logoDataUrl } from '@/lib/brand-assets'
+import { findInvoicesForStudent } from '@/lib/invoice-lookup'
+import { listPriorPayments, printedRemainingBalance, type PaymentHistory } from '@/lib/invoice-payments'
+import { parseExternalStudentId } from '@/lib/invoice-student-id'
+import { prisma } from '@/lib/db'
 
 interface LineItem {
   description: string
@@ -43,6 +47,16 @@ interface InvoiceData {
   taxesEnabled: boolean
   notes: string
   remainingBalance?: number
+  /** MySQL student id, when the caller already has it. Used only to find prior invoices. */
+  externalStudentId?: number | null
+  /**
+   * Prior paid invoices. The POST handler fills this from the database.
+   * Null means the lookup failed and the section is omitted.
+   * An empty list means there are no payments yet.
+   */
+  paymentHistory?: PaymentHistory | null
+  /** Saved payment status. "paid" prints the PAID marker. */
+  paymentStatus?: string | null
 }
 
 // Styles for the invoice PDF
@@ -51,8 +65,18 @@ const styles = StyleSheet.create({
     padding: 40,
     fontSize: 10,
     fontFamily: 'Helvetica',
-    color: '#333',
+    color: BRAND.ink,
   },
+  stripe: {
+    flexDirection: 'row',
+    height: 6,
+    marginHorizontal: -40,
+    marginTop: -40,
+    marginBottom: 16,
+  },
+  stripeBlue: { flex: 1, backgroundColor: BRAND.blue },
+  stripeRed: { flex: 1, backgroundColor: BRAND.red },
+  stripeGreen: { flex: 1, backgroundColor: BRAND.green },
   // Header
   header: {
     flexDirection: 'row',
@@ -65,13 +89,13 @@ const styles = StyleSheet.create({
     gap: 12,
   },
   logo: {
-    width: 80,
-    height: 30,
+    width: 118,
+    height: logoHeightForWidth(118),
   },
   invoiceTitle: {
     fontSize: 28,
     fontWeight: 'bold',
-    color: '#1a1a1a',
+    color: BRAND.blue,
     letterSpacing: 2,
   },
   // School & Invoice Info
@@ -111,7 +135,7 @@ const styles = StyleSheet.create({
   },
   dividerThick: {
     borderBottomWidth: 2,
-    borderBottomColor: '#333',
+    borderBottomColor: BRAND.blue,
     marginBottom: 20,
   },
   // Bill To
@@ -121,7 +145,7 @@ const styles = StyleSheet.create({
   billToLabel: {
     fontSize: 9,
     fontWeight: 'bold',
-    color: '#888',
+    color: BRAND.blue,
     textTransform: 'uppercase',
     letterSpacing: 1,
     marginBottom: 6,
@@ -139,7 +163,7 @@ const styles = StyleSheet.create({
   // Table
   tableHeader: {
     flexDirection: 'row',
-    backgroundColor: '#f5f5f5',
+    backgroundColor: BRAND.blue700,
     borderBottomWidth: 1,
     borderBottomColor: '#ddd',
     paddingVertical: 8,
@@ -175,7 +199,7 @@ const styles = StyleSheet.create({
     fontWeight: 'bold',
     fontSize: 9,
     textTransform: 'uppercase',
-    color: '#555',
+    color: BRAND.onBlue,
     letterSpacing: 0.5,
   },
   // Totals
@@ -205,7 +229,7 @@ const styles = StyleSheet.create({
     width: 250,
     paddingVertical: 6,
     borderTopWidth: 2,
-    borderTopColor: '#333',
+    borderTopColor: BRAND.blue,
     marginTop: 3,
   },
   totalFinalLabel: {
@@ -223,15 +247,15 @@ const styles = StyleSheet.create({
   },
   // Notes
   notesSection: {
-    marginTop: 40,
-    paddingTop: 15,
+    marginTop: 18,
+    paddingTop: 12,
     borderTopWidth: 1,
     borderTopColor: '#e0e0e0',
   },
   notesLabel: {
     fontSize: 9,
     fontWeight: 'bold',
-    color: '#888',
+    color: BRAND.blue,
     textTransform: 'uppercase',
     letterSpacing: 1,
     marginBottom: 5,
@@ -240,6 +264,77 @@ const styles = StyleSheet.create({
     fontSize: 10,
     color: '#555',
     lineHeight: 1.5,
+  },
+  paymentSection: {
+    marginTop: 16,
+  },
+  paymentTitle: {
+    fontSize: 9,
+    fontWeight: 'bold',
+    color: BRAND.blue,
+    letterSpacing: 0.6,
+    textTransform: 'uppercase',
+    marginBottom: 6,
+  },
+  paymentEmpty: {
+    fontSize: 9,
+    color: BRAND.ink70,
+    marginBottom: 8,
+  },
+  paymentHead: {
+    flexDirection: 'row',
+    backgroundColor: BRAND.surfaceMuted,
+    paddingVertical: 4,
+    paddingLeft: 8,
+    paddingRight: 0,
+  },
+  paymentHeadText: {
+    fontSize: 8,
+    fontWeight: 'bold',
+    color: BRAND.ink70,
+    letterSpacing: 0.4,
+  },
+  paymentLine: {
+    flexDirection: 'row',
+    borderBottomWidth: 0.4,
+    borderBottomColor: BRAND.rule,
+    paddingVertical: 3,
+    paddingLeft: 8,
+    paddingRight: 0,
+  },
+  paymentDate: { flex: 2.2, fontSize: 9, color: BRAND.ink },
+  paymentMethod: { flex: 1.3, fontSize: 9, color: BRAND.ink },
+  paymentAmount: { flex: 1.5, fontSize: 9, color: BRAND.ink, textAlign: 'right' },
+  paymentBalance: { flex: 1.6, fontSize: 9, color: BRAND.ink, textAlign: 'right' },
+  paidMark: {
+    marginTop: 6,
+    alignSelf: 'flex-end',
+    backgroundColor: BRAND.green,
+    borderRadius: 2,
+    paddingVertical: 3,
+    paddingHorizontal: 8,
+  },
+  paidMarkText: {
+    color: '#ffffff',
+    fontSize: 10,
+    fontWeight: 'bold',
+    letterSpacing: 0.4,
+  },
+  paymentSummary: {
+    alignItems: 'flex-end',
+    marginTop: 6,
+  },
+  paymentSummaryRow: {
+    flexDirection: 'row',
+    justifyContent: 'flex-end',
+    width: 250,
+    paddingVertical: 2,
+  },
+  paymentSummaryFirst: {
+    borderTopWidth: 0.6,
+    borderTopColor: BRAND.rule,
+    marginTop: 2,
+    paddingTop: 5,
   },
   // Footer
   footer: {
@@ -257,22 +352,54 @@ function formatCurrency(amount: number): string {
   return `$${amount.toFixed(2)}`
 }
 
+function paymentMethodLabel(method: string | null): string {
+  if (!method) return '\u2014'
+  if (method === 'cash') return 'Cash'
+  if (method === 'card') return 'Card'
+  if (method === 'online') return 'Online'
+  return method
+}
+
+function formatPaymentDate(value: string): string {
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value)
+  if (!match) return value
+  const date = new Date(Date.UTC(Number(match[1]), Number(match[2]) - 1, Number(match[3])))
+  return new Intl.DateTimeFormat('en-US', {
+    month: 'short',
+    day: 'numeric',
+    year: 'numeric',
+    timeZone: 'UTC',
+  }).format(date)
+}
+
 function InvoiceDocument({ data, logoSrc }: { data: InvoiceData; logoSrc: string | null }) {
   return React.createElement(Document, null,
     React.createElement(Page, { size: 'LETTER', style: styles.page },
+      React.createElement(View, { style: styles.stripe, fixed: true },
+        React.createElement(View, { style: styles.stripeBlue }),
+        React.createElement(View, { style: styles.stripeRed }),
+        React.createElement(View, { style: styles.stripeGreen }),
+      ),
       // Header
       React.createElement(View, { style: styles.header },
         React.createElement(View, { style: styles.headerLeft },
           logoSrc ? React.createElement(Image, { src: logoSrc, style: styles.logo }) : null,
         ),
-        React.createElement(Text, { style: styles.invoiceTitle }, 'INVOICE'),
+        React.createElement(View, { style: { alignItems: 'flex-end' } },
+          React.createElement(Text, { style: styles.invoiceTitle }, 'INVOICE'),
+          data.paymentStatus === 'paid'
+            ? React.createElement(View, { style: styles.paidMark },
+                React.createElement(Text, { style: styles.paidMarkText }, 'PAID'),
+              )
+            : null,
+        ),
       ),
 
       // School info + Invoice info
       React.createElement(View, { style: styles.infoRow },
         // School info (left)
         React.createElement(View, { style: styles.schoolInfo },
-          React.createElement(Text, { style: { fontWeight: 'bold', fontSize: 11, marginBottom: 3, color: '#333' } }, data.schoolName),
+          React.createElement(Text, { style: { fontWeight: 'bold', fontSize: 11, marginBottom: 3, color: BRAND.ink } }, data.schoolName),
           React.createElement(Text, null, data.schoolAddress),
           React.createElement(Text, null, `${data.schoolCity}, ${data.schoolProvince} ${data.schoolPostalCode}`),
           data.gstNumber ? React.createElement(Text, { style: { marginTop: 4 } }, `TPS/GST: ${data.gstNumber}`) : null,
@@ -348,14 +475,48 @@ function InvoiceDocument({ data, logoSrc }: { data: InvoiceData; logoSrc: string
           React.createElement(Text, { style: styles.totalFinalLabel }, 'Total:'),
           React.createElement(Text, { style: styles.totalFinalValue }, formatCurrency(data.total)),
         ),
-        // Remaining Balance (if provided)
-        data.remainingBalance !== undefined && data.remainingBalance > 0
+        // If payment history could not be read, the stored balance still appears once, here.
+        !data.paymentHistory && printedRemainingBalance(data.remainingBalance) != null
           ? React.createElement(View, { style: { flexDirection: 'row', justifyContent: 'flex-end', width: 250, paddingVertical: 4, marginTop: 4 } },
-              React.createElement(Text, { style: { flex: 1, textAlign: 'right', paddingRight: 15, color: '#b45309', fontSize: 10, fontWeight: 'bold' } }, 'Remaining Balance:'),
-              React.createElement(Text, { style: { width: 100, textAlign: 'right', color: '#b45309', fontSize: 10, fontWeight: 'bold' } }, formatCurrency(data.remainingBalance)),
+              React.createElement(Text, { style: { flex: 1, textAlign: 'right', paddingRight: 15, color: BRAND.red, fontSize: 10, fontWeight: 'bold' } }, 'Remaining balance:'),
+              React.createElement(Text, { style: { width: 100, textAlign: 'right', color: BRAND.red, fontSize: 10, fontWeight: 'bold' } }, formatCurrency(printedRemainingBalance(data.remainingBalance) as number)),
             )
           : null,
       ),
+
+      data.paymentHistory ? React.createElement(View, { style: styles.paymentSection },
+        React.createElement(Text, { style: styles.paymentTitle }, 'Payment history'),
+        data.paymentHistory.payments.length === 0
+          ? React.createElement(Text, { style: styles.paymentEmpty }, 'No payments yet')
+          : React.createElement(View, null,
+              React.createElement(View, { style: styles.paymentHead },
+                React.createElement(Text, { style: [styles.paymentDate, styles.paymentHeadText] }, 'Date'),
+                React.createElement(Text, { style: [styles.paymentMethod, styles.paymentHeadText] }, 'Method'),
+                React.createElement(Text, { style: [styles.paymentAmount, styles.paymentHeadText] }, 'Amount'),
+                React.createElement(Text, { style: [styles.paymentBalance, styles.paymentHeadText] }, 'Balance'),
+              ),
+              ...data.paymentHistory.payments.map((payment) =>
+                React.createElement(View, { key: payment.invoiceNumber, style: styles.paymentLine, wrap: false },
+                  React.createElement(Text, { style: styles.paymentDate }, formatPaymentDate(payment.date)),
+                  React.createElement(Text, { style: styles.paymentMethod }, paymentMethodLabel(payment.method)),
+                  React.createElement(Text, { style: styles.paymentAmount }, formatCurrency(payment.amount)),
+                  React.createElement(Text, { style: styles.paymentBalance }, payment.balanceAfter == null ? '\u2014' : formatCurrency(payment.balanceAfter)),
+                ),
+              ),
+            ),
+        React.createElement(View, { style: styles.paymentSummary },
+          React.createElement(View, { style: [styles.paymentSummaryRow, styles.paymentSummaryFirst] },
+            React.createElement(Text, { style: styles.totalLabel }, 'Total paid:'),
+            React.createElement(Text, { style: styles.totalValue }, formatCurrency(data.paymentHistory.totalPaid)),
+          ),
+          printedRemainingBalance(data.remainingBalance) != null
+            ? React.createElement(View, { style: styles.paymentSummaryRow },
+                React.createElement(Text, { style: { flex: 1, textAlign: 'right', paddingRight: 15, color: BRAND.red, fontSize: 11, fontWeight: 'bold' } }, 'Remaining balance:'),
+                React.createElement(Text, { style: { width: 100, textAlign: 'right', color: BRAND.red, fontSize: 11, fontWeight: 'bold' } }, formatCurrency(printedRemainingBalance(data.remainingBalance) as number)),
+              )
+            : null,
+        ),
+      ) : null,
 
       // Notes
       data.notes ? React.createElement(View, { style: styles.notesSection },
@@ -371,6 +532,39 @@ function InvoiceDocument({ data, logoSrc }: { data: InvoiceData; logoSrc: string
   )
 }
 
+export async function buildInvoicePdf(body: InvoiceData) {
+  const element = InvoiceDocument({ data: body, logoSrc: logoDataUrl() })
+  return renderToBuffer(element)
+}
+
+/** Read prior paid invoices for this student. Does not write. */
+export async function loadPaymentHistory(body: Pick<InvoiceData, 'invoiceNumber' | 'invoiceDate' | 'studentName' | 'studentPhone' | 'externalStudentId' | 'paymentStatus'>): Promise<{ history: PaymentHistory | null; paymentStatus: string | null }> {
+  try {
+    const saved = await prisma.invoice.findUnique({
+      where: { invoiceNumber: body.invoiceNumber },
+      select: { externalStudentId: true, paymentStatus: true },
+    })
+    const externalStudentId = parseExternalStudentId(body.externalStudentId) ?? saved?.externalStudentId ?? null
+    const phone = body.studentPhone || ''
+    const name = body.studentName || ''
+    const paymentStatus = saved?.paymentStatus ?? body.paymentStatus ?? null
+    if (externalStudentId == null && !phone && !name) return { history: { payments: [], totalPaid: 0 }, paymentStatus }
+    const invoices = await findInvoicesForStudent({ externalStudentId, phone, name })
+    return {
+      history: listPriorPayments(invoices, {
+        invoiceNumber: body.invoiceNumber,
+        externalStudentId,
+        phone,
+        name,
+      }),
+      paymentStatus,
+    }
+  } catch (error) {
+    console.warn('[Invoice] Payment history lookup failed:', error)
+    return { history: null, paymentStatus: body.paymentStatus ?? null }
+  }
+}
+
 export async function POST(request: NextRequest) {
   try {
     const body: InvoiceData = await request.json()
@@ -382,20 +576,12 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    // Try to load the logo
-    let logoSrc: string | null = null
-    try {
-      const logoPath = path.join(process.cwd(), 'public', 'qazi-logo.png')
-      if (fs.existsSync(logoPath)) {
-        const logoBuffer = fs.readFileSync(logoPath)
-        logoSrc = `data:image/png;base64,${logoBuffer.toString('base64')}`
-      }
-    } catch (err) {
-      console.warn('[Invoice] Could not load logo:', err)
-    }
-
-    const element = InvoiceDocument({ data: body, logoSrc })
-    const buffer = await renderToBuffer(element)
+    const loaded = await loadPaymentHistory(body)
+    const buffer = await buildInvoicePdf({
+      ...body,
+      paymentHistory: loaded.history,
+      paymentStatus: loaded.paymentStatus,
+    })
     const uint8Array = new Uint8Array(buffer)
 
     return new NextResponse(uint8Array, {

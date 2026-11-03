@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import PDFDocument from 'pdfkit'
-import path from 'path'
-import fs from 'fs'
+import { BRAND } from '@/lib/brand'
+import { drawPdfKitLetterhead, usePdfKitChrome } from '@/lib/brand-assets'
 
 // School information constants
 const SCHOOL_INFO = {
@@ -41,23 +41,8 @@ export async function POST(request: NextRequest) {
     const chunks: Buffer[] = []
 
     doc.on('data', (chunk) => chunks.push(chunk))
-
-    // Try to add logo if it exists - centered
-    const logoPath = path.join(process.cwd(), 'public', 'qazi-logo.png')
-    if (fs.existsSync(logoPath)) {
-      // Center the logo: page width is 595 (A4), logo width is 150, so x = (595 - 150) / 2 = 222.5
-      doc.image(logoPath, 222.5, 30, { width: 150 })
-      doc.moveDown(3.5)
-    } else {
-      // Text-based header if no logo - red theme
-      doc.fontSize(18).font('Helvetica-Bold').fillColor('#b91c1c').text(SCHOOL_INFO.nameFr, {
-        align: 'center'
-      })
-      doc.fontSize(16).fillColor('#b91c1c').text(SCHOOL_INFO.name, {
-        align: 'center'
-      })
-      doc.moveDown(0.3)
-    }
+    usePdfKitChrome(doc)
+    drawPdfKitLetterhead(doc)
 
     // School info line
     doc.fontSize(10).font('Helvetica').fillColor('#374151')
@@ -72,13 +57,13 @@ export async function POST(request: NextRequest) {
     doc.moveDown(0.5)
 
     // Title
-    doc.fontSize(16).font('Helvetica-Bold').fillColor('#000000').text('Zoom Class Attendance Report', {
+    doc.fontSize(16).font('Helvetica-Bold').fillColor(BRAND.blue).text('Zoom Class Attendance Report', {
       align: 'center'
     })
     doc.moveDown(0.3)
 
     // Group name
-    doc.fontSize(12).font('Helvetica').text(groupName, {
+    doc.fontSize(12).font('Helvetica').fillColor(BRAND.ink).text(groupName, {
       align: 'center'
     })
     doc.moveDown(0.3)
@@ -95,7 +80,7 @@ export async function POST(request: NextRequest) {
     // Module info if provided
     if (moduleNumber) {
       doc.moveDown(0.2)
-      doc.fontSize(11).font('Helvetica-Bold').fillColor('#1f2937').text(`Module ${moduleNumber}`, { align: 'center' })
+      doc.fontSize(11).font('Helvetica-Bold').fillColor(BRAND.blue700).text(`Module ${moduleNumber}`, { align: 'center' })
     }
     doc.moveDown(0.5)
 
@@ -105,7 +90,7 @@ export async function POST(request: NextRequest) {
 
     doc
       .fontSize(11)
-      .fillColor('#000000')
+      .fillColor(BRAND.ink)
       .font('Helvetica-Bold')
       .text(
         `Total: ${records.length}  |  Present: ${presentCount}  |  Absent: ${absentCount}`,
@@ -128,10 +113,10 @@ export async function POST(request: NextRequest) {
     const rowHeight = 22
 
     // Header row - black theme
-    doc.fillColor('#1f2937')
+    doc.fillColor(BRAND.blue700)
     doc.rect(tableLeft, tableTop, totalWidth, rowHeight).fill()
 
-    doc.fillColor('#ffffff').fontSize(9).font('Helvetica-Bold')
+    doc.fillColor(BRAND.onBlue).fontSize(9).font('Helvetica-Bold')
     let x = tableLeft + 3
     doc.text('#', x, tableTop + 7, { width: colWidths.index })
     x += colWidths.index
@@ -158,10 +143,10 @@ export async function POST(request: NextRequest) {
 
     // Helper to draw header on new page
     const drawHeader = (yPos: number) => {
-      doc.fillColor('#1f2937')
+      doc.fillColor(BRAND.blue700)
       doc.rect(tableLeft, yPos, totalWidth, rowHeight).fill()
 
-      doc.fillColor('#ffffff').fontSize(9).font('Helvetica-Bold')
+      doc.fillColor(BRAND.onBlue).fontSize(9).font('Helvetica-Bold')
       let hx = tableLeft + 3
       doc.text('#', hx, yPos + 7, { width: colWidths.index })
       hx += colWidths.index
@@ -188,7 +173,7 @@ export async function POST(request: NextRequest) {
 
       // Alternating row colors
       if (index % 2 === 0) {
-        doc.fillColor('#f9fafb')
+        doc.fillColor(BRAND.surfaceMuted)
         doc.rect(tableLeft, y, totalWidth, rowHeight).fill()
       }
 
@@ -198,7 +183,7 @@ export async function POST(request: NextRequest) {
         doc.rect(tableLeft, y, totalWidth, rowHeight).fill()
       }
 
-      doc.fillColor('#000000')
+      doc.fillColor(BRAND.ink)
       x = tableLeft + 3
 
       // Index
@@ -246,10 +231,10 @@ export async function POST(request: NextRequest) {
 
       // Status with color
       if (record.status === 'present') {
-        doc.fillColor('#16a34a').font('Helvetica-Bold')
+        doc.fillColor(BRAND.green).font('Helvetica-Bold')
         doc.text('Present', x, y + 7, { width: colWidths.status })
       } else {
-        doc.fillColor('#dc2626').font('Helvetica-Bold')
+        doc.fillColor(BRAND.red).font('Helvetica-Bold')
         doc.text('Absent', x, y + 7, { width: colWidths.status })
       }
       doc.font('Helvetica')

@@ -3,6 +3,8 @@ import { prisma } from '@/lib/db'
 import { createRegistrationInvoice } from '@/lib/registration-invoice'
 import { getDepositCents } from '@/lib/pricing'
 import { sendEmailViaResend, getEmailSender } from '@/lib/email'
+import { emailLogoAttachment } from '@/lib/brand-assets'
+import { registrationReceivedEmailHtml } from '@/lib/document-emails'
 import { rateLimit, clientIp, tooManyRequests } from '@/lib/rate-limit'
 import { verifyHuman, rejectBot } from '@/lib/bot-guard'
 import { makeRegistrationTermsSnapshot, REGISTRATION_TERMS_VERSION } from '@/lib/registration-terms'
@@ -238,44 +240,17 @@ export async function POST(request: NextRequest) {
             from: sender.from,
             to: [registration.email],
             subject: `We received your registration — ${sender.schoolName}`,
-            html: `
-              <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; color:#0B0B0F;">
-                <h2 style="color:#0B0B0F;margin-bottom:6px;">Registration received</h2>
-                <p style="color:#555;margin-top:0;">Pending approval — usually within 72 hours.</p>
-
-                <p>Hi ${firstName || 'there'},</p>
-                <p>Thanks for registering with <strong>${sender.schoolName}</strong>. Our team is reviewing your file and will confirm once your spot is secured. You'll get a second email the moment your registration is approved.</p>
-
-                <table style="width:100%;border-collapse:collapse;margin:16px 0;font-size:14px;">
-                  <tr><td style="padding:6px 0;color:#777;width:140px;">Program</td><td style="padding:6px 0;"><strong>${courseNameEn}</strong></td></tr>
-                  <tr><td style="padding:6px 0;color:#777;">Name</td><td style="padding:6px 0;">${registration.fullName || ''}</td></tr>
-                  <tr><td style="padding:6px 0;color:#777;">Submitted</td><td style="padding:6px 0;">${submittedEn}</td></tr>
-                  <tr><td style="padding:6px 0;color:#777;">Deposit on file</td><td style="padding:6px 0;">$${depositDollars} CAD <span style="color:#777;">(authorized only — no charge until approved)</span></td></tr>
-                </table>
-
-                <p style="color:#555;">Questions in the meantime? Just reply to this email, or call us at <strong>(514) 274-6948</strong>.</p>
-
-                <hr style="border:none;border-top:1px solid #eee;margin:24px 0;" />
-
-                <h3 style="color:#0B0B0F;margin-bottom:6px;">Inscription reçue</h3>
-                <p style="color:#555;margin-top:0;">En attente d'approbation — habituellement dans les 72 heures.</p>
-
-                <p>Bonjour ${firstName || ''},</p>
-                <p>Merci pour votre inscription à <strong>${sender.schoolName}</strong>. Notre équipe examine votre dossier et confirmera votre place dès que possible. Vous recevrez un deuxième courriel dès l'approbation.</p>
-
-                <table style="width:100%;border-collapse:collapse;margin:16px 0;font-size:14px;">
-                  <tr><td style="padding:6px 0;color:#777;width:140px;">Programme</td><td style="padding:6px 0;"><strong>${courseNameFr}</strong></td></tr>
-                  <tr><td style="padding:6px 0;color:#777;">Nom</td><td style="padding:6px 0;">${registration.fullName || ''}</td></tr>
-                  <tr><td style="padding:6px 0;color:#777;">Soumis le</td><td style="padding:6px 0;">${submittedFr}</td></tr>
-                  <tr><td style="padding:6px 0;color:#777;">Dépôt au dossier</td><td style="padding:6px 0;">${depositDollars} $ CAD <span style="color:#777;">(autorisation seulement — aucun débit avant l'approbation)</span></td></tr>
-                </table>
-
-                <p style="color:#555;">Des questions ? Répondez simplement à ce courriel, ou appelez-nous au <strong>(514) 274-6948</strong>.</p>
-
-                <br/>
-                <p>Merci / Thank you,<br/><strong>${sender.schoolName}</strong></p>
-              </div>
-            `,
+            attachments: [emailLogoAttachment()],
+            html: registrationReceivedEmailHtml({
+              firstName,
+              schoolName: sender.schoolName,
+              fullName: registration.fullName || '',
+              courseNameEn,
+              courseNameFr,
+              submittedEn,
+              submittedFr,
+              depositDollars,
+            }),
           })
           console.log(`[register] Pending-approval email sent to ${registration.email}`)
         } else {

@@ -644,6 +644,7 @@ function InvoicePage() {
         taxesEnabled,
         notes: formData.notes,
         remainingBalance,
+        externalStudentId,
       }
 
       const res = await fetch('/api/invoice/generate', {

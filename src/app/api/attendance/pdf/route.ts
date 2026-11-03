@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/db'
 import PDFDocument from 'pdfkit'
+import { BRAND } from '@/lib/brand'
+import { drawPdfKitLetterhead, usePdfKitChrome } from '@/lib/brand-assets'
 
 export async function GET(request: NextRequest) {
   const searchParams = request.nextUrl.searchParams
@@ -33,13 +35,15 @@ export async function GET(request: NextRequest) {
     const chunks: Buffer[] = []
 
     doc.on('data', (chunk) => chunks.push(chunk))
+    usePdfKitChrome(doc)
+    drawPdfKitLetterhead(doc)
 
-    doc.fontSize(20).font('Helvetica-Bold').text('Attendance Sheet', {
+    doc.fontSize(20).font('Helvetica-Bold').fillColor(BRAND.blue).text('Attendance Sheet', {
       align: 'center'
     })
     doc.moveDown(0.5)
 
-    doc.fontSize(14).font('Helvetica').text(sheet.group.name, {
+    doc.fontSize(14).font('Helvetica').fillColor(BRAND.ink).text(sheet.group.name, {
       align: 'center'
     })
     doc.moveDown(0.3)
@@ -50,7 +54,7 @@ export async function GET(request: NextRequest) {
       month: 'long',
       day: 'numeric'
     })
-    doc.fontSize(10).fillColor('#666666').text(today, { align: 'center' })
+    doc.fontSize(10).fillColor(BRAND.ink70).text(today, { align: 'center' })
     doc.moveDown(1)
 
     const presentCount = sheet.records.filter((r) => r.status === 'present').length
@@ -59,7 +63,7 @@ export async function GET(request: NextRequest) {
 
     doc
       .fontSize(10)
-      .fillColor('#000000')
+      .fillColor(BRAND.ink)
       .text(
         `Total: ${sheet.records.length}  |  Present: ${presentCount}  |  Absent: ${absentCount}  |  Excused: ${excusedCount}`,
         { align: 'center' }
@@ -77,10 +81,10 @@ export async function GET(request: NextRequest) {
     }
     const rowHeight = 25
 
-    doc.fillColor('#f3f4f6')
+    doc.fillColor(BRAND.blue700)
     doc.rect(tableLeft, tableTop, 495, rowHeight).fill()
 
-    doc.fillColor('#000000').fontSize(10).font('Helvetica-Bold')
+    doc.fillColor(BRAND.onBlue).fontSize(10).font('Helvetica-Bold')
     let x = tableLeft + 5
     doc.text('#', x, tableTop + 8, { width: colWidths.index })
     x += colWidths.index
@@ -110,11 +114,11 @@ export async function GET(request: NextRequest) {
       }
 
       if (index % 2 === 1) {
-        doc.fillColor('#f9fafb')
+        doc.fillColor(BRAND.surfaceMuted)
         doc.rect(tableLeft, y, 495, rowHeight).fill()
       }
 
-      doc.fillColor('#000000')
+      doc.fillColor(BRAND.ink)
       x = tableLeft + 5
 
       doc.text(String(index + 1), x, y + 8, { width: colWidths.index })
@@ -131,13 +135,13 @@ export async function GET(request: NextRequest) {
       doc.text(record.contact.phone, x, y + 8, { width: colWidths.phone })
       x += colWidths.phone
 
-      let statusColor = '#000000'
+      let statusColor: string = BRAND.ink
       let statusText = record.status
       if (record.status === 'present') {
-        statusColor = '#16a34a'
+        statusColor = BRAND.green
         statusText = 'Present'
       } else if (record.status === 'absent') {
-        statusColor = '#dc2626'
+        statusColor = BRAND.red
         statusText = 'Absent'
       } else if (record.status === 'excused') {
         statusColor = '#6b7280'
@@ -148,7 +152,7 @@ export async function GET(request: NextRequest) {
       })
       x += colWidths.status
 
-      doc.fillColor('#000000').text(record.notes || '-', x, y + 8, {
+      doc.fillColor(BRAND.ink).text(record.notes || '-', x, y + 8, {
         width: colWidths.notes,
         ellipsis: true
       })

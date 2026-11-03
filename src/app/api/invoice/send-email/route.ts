@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/db'
+import { emailLogoAttachment } from '@/lib/brand-assets'
+import { invoiceEmailHtml } from '@/lib/document-emails'
 
 // Use Resend REST API directly to avoid SDK build-time instantiation issues
 async function sendEmailViaResend(apiKey: string, payload: {
@@ -7,7 +9,7 @@ async function sendEmailViaResend(apiKey: string, payload: {
   to: string[]
   subject: string
   html: string
-  attachments: { filename: string; content: string }[]
+  attachments: { filename: string; content: string; content_id?: string }[]
 }) {
   const res = await fetch('https://api.resend.com/emails', {
     method: 'POST',
@@ -70,18 +72,9 @@ export async function POST(request: NextRequest) {
       from: `${schoolName} <${senderEmail}>`,
       to: [to],
       subject: `Invoice ${invoiceNumber} - ${schoolName}`,
-      html: `
-        <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
-          <h2 style="color: #333;">Invoice ${invoiceNumber}</h2>
-          <p>Bonjour ${studentName || ''},</p>
-          <p>Please find your invoice <strong>${invoiceNumber}</strong> attached to this email.</p>
-          <p>If you have any questions about this invoice, please don't hesitate to contact us.</p>
-          <br />
-          <p>Merci / Thank you,</p>
-          <p><strong>${schoolName}</strong></p>
-        </div>
-      `,
+      html: invoiceEmailHtml({ studentName, invoiceNumber, schoolName }),
       attachments: [
+        emailLogoAttachment(),
         {
           filename: `invoice-${invoiceNumber}.pdf`,
           content: pdfBase64,
