@@ -358,9 +358,30 @@ model Invoice {
   // before this column existed; those still match by phone or exact name.
   externalStudentId Int?
 
+  onlinePaymentReceiptEmail OnlinePaymentInvoiceEmail?
+
   @@index([studentName])
   @@index([invoiceNumber])
   @@index([externalStudentId])
+}
+
+// Receipt email for one invoice. A row is inserted only when a Clover hosted
+// checkout has just been confirmed and the receipt-email switch is on.
+// No row means do not email: older invoices, payments confirmed while the
+// switch was off, and anything that was not that online checkout.
+// New table only — startup uses `prisma db push --accept-data-loss`.
+model OnlinePaymentInvoiceEmail {
+  invoiceId  String    @id
+  invoice    Invoice   @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+  eligibleAt DateTime  @default(now())
+  // Set immediately before the send and cleared if that send fails.
+  // A fresh claim blocks a second send. A claim older than the lease can be
+  // taken over after a restart that died before the message was accepted.
+  claimedAt  DateTime?
+  // Set only after Resend accepts the message. Once set, the invoice is never emailed again.
+  sentAt     DateTime?
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
 }
 
 model InvoiceService {

@@ -2,7 +2,7 @@
 
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
-import { Loader2, Mail, MessageCircle } from 'lucide-react'
+import { Loader2, Mail, MessageCircle, Receipt } from 'lucide-react'
 
 function ReminderSwitch({
   queryKey,
@@ -116,6 +116,23 @@ export default function ReminderSettingsPage() {
         icon={Mail}
         description="Send the same payment link by email, once per registration. This does not wait for WhatsApp, and a WhatsApp reminder does not replace it."
         detail="Sent through the school’s Resend address. Registrations with no email address, and registrations older than 24 hours, are left alone."
+      />
+
+      <div>
+        <h2 className="text-lg font-semibold">Online payment receipt</h2>
+        <p className="text-sm text-muted-foreground">
+          Email the branded invoice after Clover confirms an online registration payment. This stays off until you turn it on.
+        </p>
+      </div>
+
+      <ReminderSwitch
+        queryKey="invoice-email-after-online-payment"
+        href="/api/settings/invoice-email-after-online-payment"
+        label="Email the invoice after an online payment"
+        title="Invoice email after online payment"
+        icon={Receipt}
+        description="When a student finishes the online registration checkout and the payment is confirmed, email them the branded invoice PDF. Each invoice is sent once."
+        detail="Uses the school’s Resend address. Only a checkout confirmed while this switch is on is emailed."
       />
     </div>
   )

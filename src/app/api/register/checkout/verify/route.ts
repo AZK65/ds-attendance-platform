@@ -1,7 +1,18 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/db'
 import { createRegistrationInvoice } from '@/lib/registration-invoice'
+import { scheduleOnlinePaymentInvoiceEmail } from '@/lib/online-payment-invoice-email-job'
 import { clientIp, rateLimit, tooManyRequests } from '@/lib/rate-limit'
+
+// The receipt email runs after the response is sent. A failure here must not
+// change the payment result the student is waiting on.
+function queueReceiptEmail(input: { registrationId: string; invoiceId?: string; justConfirmed: boolean }) {
+  try {
+    scheduleOnlinePaymentInvoiceEmail(input)
+  } catch (error) {
+    console.error('[OnlinePaymentInvoiceEmail] Could not schedule:', error)
+  }
+}
 
 const CLOVER_BASE = process.env.CLOVER_SANDBOX === 'true'
   ? 'https://sandbox.dev.clover.com'
@@ -49,6 +60,9 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Payment return not found' }, { status: 404 })
     }
     if (registration.paymentStatus === 'captured') {
+      // A retry of this return can finish a receipt that was armed and not sent.
+      // It does not arm invoices that were paid before the switch was on.
+      queueReceiptEmail({ registrationId: registration.id, justConfirmed: false })
       return NextResponse.json({ success: true, status: 'captured', alreadyVerified: true })
     }
     if (registration.paymentStatus !== 'checkout_pending' || !registration.paymentCheckoutCreatedAt) {
@@ -128,6 +142,12 @@ export async function POST(request: NextRequest) {
       // an admin retry; never tell the student a successful payment failed.
       console.error('[Register Checkout Verify] Auto-invoice failed:', error)
     }
+
+    queueReceiptEmail({
+      registrationId: registration.id,
+      invoiceId,
+      justConfirmed: true,
+    })
 
     return NextResponse.json({ success: true, status: 'captured', invoiceId })
   } catch (error) {
