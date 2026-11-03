@@ -22,6 +22,7 @@ import {
 import {
   CLASS1_PRACTICAL_CLASS_COUNT,
   CLASS1_PRACTICAL_HOURS,
+  CROSS_BOOKING_UNIT,
   affectedLongSignedBookings,
   bookletRowsFromClasses,
   durationMinutes,
@@ -128,21 +129,22 @@ test('a cancelled booking is skipped and an odd duration is flagged', () => {
   assert.equal(oddClass.hours, 2)
   assert.equal(oddClass.startTime, '09:00')
   assert.equal(oddClass.endTime, '11:00')
+  assert.equal(expandPracticalClasses([SAMPLE_ODD_BOOKING]).trailingMinutes, 60)
 })
 
-test('an existing signature on a 4h booking stays on the first class only', () => {
+test('one signature on a 4h booking covers both classes, by reference', () => {
   const summary = summarizePractical(SAMPLE_PROFILE_BOOKINGS, SAMPLE_LEGACY_SIGNATURES)
-  assert.equal(summary.classes.length, 21)
-  assert.equal(summary.signedCount, 5)
-  assert.equal(summary.signedHours, 10)
-  assert.equal(summary.programHours, 10)
+  assert.equal(summary.classes.length, 23)
+  assert.equal(summary.signedCount, 10)
+  assert.equal(summary.signedHours, 20)
+  assert.equal(summary.programHours, 20)
   for (const eventId of SAMPLE_SIGNED_BOOKING_IDS) {
-    const units = summary.classes.filter(unit => unit.eventId === eventId)
+    const units = summary.classes.filter(unit => unit.eventId === eventId && !unit.spansBookings)
     assert.equal(units.length, 2)
     const first = signatureForClass(units[0], SAMPLE_LEGACY_SIGNATURES)
     const second = signatureForClass(units[1], SAMPLE_LEGACY_SIGNATURES)
     assert.equal(first?.signatureDataUrl, SAMPLE_SIGNATURE_PNG)
-    assert.equal(second, null)
+    assert.equal(second, first)
   }
   const legacy = legacyPracticalCards(SAMPLE_THIRTEEN_BOOKINGS, SAMPLE_SIGNED_BOOKING_IDS)
   assert.equal(legacy.length, 13)
@@ -170,11 +172,12 @@ test('the booklet prints 25 rows of 2 hours and does not copy a signature', () =
   })
   assert.equal(rows.length, 25)
   assert.ok(rows.every(row => row.netLabel === '2h00'))
-  assert.equal(rows.filter(row => row.studentSignature).length, 5)
+  assert.equal(rows.filter(row => row.studentSignature).length, 10)
   assert.equal(rows[0].studentSignature, SAMPLE_SIGNATURE_PNG)
   assert.equal(rows[0].instructorSignature, SAMPLE_SIGNATURE_PNG)
-  assert.equal(rows[1].studentSignature, null)
-  assert.equal(rows[1].instructorSignature, null)
+  assert.equal(rows[1].studentSignature, rows[0].studentSignature)
+  assert.equal(rows[1].instructorSignature, rows[0].instructorSignature)
+  assert.match(rows[0].note || '', /covers 2 classes \/ 4h session/)
   assert.equal(rows[1].label, 'Practical class 2')
   assert.match(rows[0].when, /Sep 2, 2026, 9:00 a\.m\./)
   assert.match(rows[1].when, /Sep 2, 2026, 11:00 a\.m\./)
@@ -221,8 +224,9 @@ test('the Class 1 booklet keeps separate counts and does not print an instructor
   assert.equal(pdf.subarray(0, 5).toString(), '%PDF-')
   const text = pdftotext(Buffer.from(pdf))
   assert.ok(text, 'pdftotext is required to check the booklet')
-  assert.match(text, /1 theory · 5 practical/)
-  assert.match(text, /5 \/ 25 classes/)
+  assert.match(text, /1 theory · 10 practical/)
+  assert.match(text, /10 \/ 25 classes/)
+  assert.match(text, /covers 2/)
   assert.match(text, /50 hours required/)
   assert.match(text, /Practical class 1/)
   assert.match(text, /Practical class 25/)
@@ -230,6 +234,83 @@ test('the Class 1 booklet keeps separate counts and does not print an instructor
   assert.doesNotMatch(text, /signed on/i)
   assert.doesNotMatch(text, /Oct 28, 2026/)
   assert.equal(text.includes('6 theory'), false)
+})
+
+function truck(id: string, start: string, end: string, subcalendarId: number | null = null) {
+  return { id, title: 'Truck Class 1 (Auto) - Test', start, end, subcalendarId }
+}
+
+test('leftover hours carry into the next booking, and a final leftover is not a class', () => {
+  const pair = expandPracticalClasses([
+    truck('a', '2026-10-16T09:00:00-04:00', '2026-10-16T12:00:00-04:00', 1),
+    truck('b', '2026-10-18T09:00:00-04:00', '2026-10-18T12:00:00-04:00', 2),
+  ])
+  assert.equal(pair.classes.length, 3)
+  assert.equal(pair.trailingMinutes, 0)
+  assert.equal(pair.oddBookings.length, 2)
+  assert.equal(pair.classes[0].spansBookings, false)
+  assert.equal(pair.classes[0].eventId, 'a')
+  assert.equal(pair.classes[0].startTime, '09:00')
+  assert.equal(pair.classes[0].endTime, '11:00')
+  assert.equal(pair.classes[1].spansBookings, true)
+  assert.equal(pair.classes[1].spanLabel, '1h Oct 16 + 1h Oct 18')
+  assert.equal(pair.classes[1].date, '2026-10-18')
+  assert.equal(pair.classes[1].startTime, '09:00')
+  assert.equal(pair.classes[1].endTime, '10:00')
+  assert.equal(pair.classes[1].eventId, 'b')
+  assert.equal(pair.classes[1].subcalendarId, 2)
+  assert.equal(pair.classes[2].spansBookings, false)
+  assert.equal(pair.classes[2].startTime, '10:00')
+  assert.equal(pair.classes[2].endTime, '12:00')
+  const drawings = [
+    { eventId: 'a', unitIndex: null, signatureDataUrl: 'FIRST' },
+    { eventId: 'b', unitIndex: null, signatureDataUrl: 'SECOND' },
+  ]
+  assert.equal(signatureForClass(pair.classes[0], drawings)?.signatureDataUrl, 'FIRST')
+  assert.equal(signatureForClass(pair.classes[1], drawings), null)
+  assert.equal(signatureForClass(pair.classes[2], drawings)?.signatureDataUrl, 'SECOND')
+
+  const chain = expandPracticalClasses([
+    truck('p', '2026-10-01T09:00:00-04:00', '2026-10-01T12:00:00-04:00'),
+    truck('q', '2026-10-02T09:00:00-04:00', '2026-10-02T11:00:00-04:00'),
+    truck('r', '2026-10-03T09:00:00-04:00', '2026-10-03T12:00:00-04:00'),
+  ])
+  assert.equal(chain.classes.length, 4)
+  assert.equal(chain.trailingMinutes, 0)
+  assert.equal(chain.classes[1].spanLabel, '1h Oct 1 + 1h Oct 2')
+  assert.equal(chain.classes[1].date, '2026-10-02')
+  assert.equal(chain.classes[2].spanLabel, '1h Oct 2 + 1h Oct 3')
+  assert.equal(chain.classes[2].date, '2026-10-03')
+  assert.equal(chain.classes[2].eventId, 'r')
+  assert.equal(chain.classes[3].eventId, 'r')
+  assert.equal(chain.classes[3].startTime, '10:00')
+  assert.equal(chain.classes[3].endTime, '12:00')
+  assert.equal(chain.classes[3].spansBookings, false)
+
+  const hour = expandPracticalClasses([
+    truck('h1', '2026-10-04T09:00:00-04:00', '2026-10-04T10:00:00-04:00'),
+    truck('h2', '2026-10-05T13:00:00-04:00', '2026-10-05T14:00:00-04:00'),
+  ])
+  assert.equal(hour.classes.length, 1)
+  assert.equal(hour.trailingMinutes, 0)
+  assert.equal(hour.classes[0].spanLabel, '1h Oct 4 + 1h Oct 5')
+  assert.equal(hour.classes[0].startTime, '13:00')
+  assert.equal(hour.classes[0].date, '2026-10-05')
+
+  const alone = expandPracticalClasses([
+    truck('solo', '2026-10-06T09:00:00-04:00', '2026-10-06T10:00:00-04:00'),
+  ])
+  assert.equal(alone.classes.length, 0)
+  assert.equal(alone.trailingMinutes, 60)
+  assert.equal(alone.oddBookings.length, 1)
+
+  const partial = expandPracticalClasses([
+    truck('m', '2026-10-07T09:00:00-04:00', '2026-10-07T10:30:00-04:00'),
+    truck('n', '2026-10-08T09:00:00-04:00', '2026-10-08T10:30:00-04:00'),
+  ])
+  assert.equal(partial.classes.length, 1)
+  assert.equal(partial.classes[0].spanLabel, '1h30 Oct 7 + 30m Oct 8')
+  assert.equal(partial.trailingMinutes, 60)
 })
 
 test('a later 2-hour class is signed by itself and a second signature is rejected', async () => {
@@ -255,28 +336,39 @@ test('a later 2-hour class is signed by itself and a second signature is rejecte
     sessionLabel: 'Practical class 2',
     practicalUnitIndex: 1,
   }))
-  assert.equal(first.status, 200)
-
-  const again = await signPost(post('http://localhost/api/scheduling/signature', {
-    eventId: 'booking-1',
-    studentPhone: PHONE,
-    studentName: 'Manpreet Kaur',
-    signatureDataUrl: SAMPLE_SIGNATURE_PNG,
-    sessionLabel: 'Practical class 2',
-    practicalUnitIndex: 1,
-  }))
-  assert.equal(again.status, 409)
-  assert.equal((await again.json()).error, 'already signed')
+  assert.equal(first.status, 409)
 
   const legacyAfter = await prisma.classSignature.findUniqueOrThrow({
     where: { eventId_studentPhone: { eventId: 'booking-1', studentPhone: PHONE } },
   })
   assert.equal(legacyAfter.signatureDataUrl, SAMPLE_SIGNATURE_PNG)
   assert.equal(legacyAfter.signedAt.toISOString(), legacyBefore.signedAt.toISOString())
-  const slices = await prisma.practicalClassUnitSignature.findMany({ where: { eventId: 'booking-1' } })
+  assert.equal(await prisma.practicalClassUnitSignature.count({ where: { eventId: 'booking-1' } }), 0)
+
+  const spanned = await signPost(post('http://localhost/api/scheduling/signature', {
+    eventId: 'booking-span',
+    studentPhone: PHONE,
+    studentName: 'Manpreet Kaur',
+    signatureDataUrl: OTHER_PNG,
+    sessionLabel: 'Practical class span',
+    practicalUnitIndex: CROSS_BOOKING_UNIT,
+    crossBooking: true,
+  }))
+  assert.equal(spanned.status, 200)
+  const spanAgain = await signPost(post('http://localhost/api/scheduling/signature', {
+    eventId: 'booking-span',
+    studentPhone: PHONE,
+    studentName: 'Manpreet Kaur',
+    signatureDataUrl: SAMPLE_SIGNATURE_PNG,
+    practicalUnitIndex: CROSS_BOOKING_UNIT,
+    crossBooking: true,
+  }))
+  assert.equal(spanAgain.status, 409)
+  const slices = await prisma.practicalClassUnitSignature.findMany({ where: { eventId: 'booking-span' } })
   assert.equal(slices.length, 1)
-  assert.equal(slices[0].unitIndex, 1)
+  assert.equal(slices[0].unitIndex, CROSS_BOOKING_UNIT)
   assert.equal(slices[0].signatureDataUrl, OTHER_PNG)
+  assert.equal(await prisma.classSignature.count({ where: { eventId: 'booking-span' } }), 0)
 
   const blockedFirst = await signPost(post('http://localhost/api/scheduling/signature', {
     eventId: 'booking-1',
@@ -306,7 +398,8 @@ test('instructor sign-off on the second class requires that class signature and 
     studentPhones: [PHONE],
     signatureDataUrl: OTHER_PNG,
     instructorId: instructor.id,
-    practicalUnitIndex: 1,
+    practicalUnitIndex: CROSS_BOOKING_UNIT,
+    crossBooking: true,
     addedLater: true,
   }))
   assert.equal(missing.status, 400)
@@ -315,7 +408,7 @@ test('instructor sign-off on the second class requires that class signature and 
     data: {
       eventId: 'booking-2',
       studentPhone: PHONE,
-      unitIndex: 1,
+      unitIndex: CROSS_BOOKING_UNIT,
       studentName: 'Manpreet Kaur',
       sessionLabel: 'Practical class',
       signatureDataUrl: OTHER_PNG,
@@ -326,7 +419,8 @@ test('instructor sign-off on the second class requires that class signature and 
     studentPhones: [PHONE],
     signatureDataUrl: SAMPLE_SIGNATURE_PNG,
     instructorId: instructor.id,
-    practicalUnitIndex: 1,
+    practicalUnitIndex: CROSS_BOOKING_UNIT,
+    crossBooking: true,
     lessonStartAt: '2026-09-04 11:00',
     addedLater: true,
   }))
@@ -336,18 +430,19 @@ test('instructor sign-off on the second class requires that class signature and 
     studentPhones: [PHONE],
     signatureDataUrl: OTHER_PNG,
     instructorId: instructor.id,
-    practicalUnitIndex: 1,
+    practicalUnitIndex: CROSS_BOOKING_UNIT,
+    crossBooking: true,
     addedLater: true,
   }))
   assert.equal(repeat.status, 409)
   const rows = await prisma.practicalClassInstructorSignature.findMany({ where: { eventId: 'booking-2' } })
   assert.equal(rows.length, 1)
   assert.equal(rows[0].signatureDataUrl, SAMPLE_SIGNATURE_PNG)
-  assert.equal(rows[0].unitIndex, 1)
+  assert.equal(rows[0].unitIndex, CROSS_BOOKING_UNIT)
   const legacyInstructor = await prisma.lessonInstructorSignature.findMany({ where: { eventId: 'booking-2' } })
   assert.equal(legacyInstructor.length, 0)
   const studentSlice = await prisma.practicalClassUnitSignature.findFirstOrThrow({
-    where: { eventId: 'booking-2', unitIndex: 1 },
+    where: { eventId: 'booking-2', unitIndex: CROSS_BOOKING_UNIT },
   })
   assert.equal(studentSlice.signatureDataUrl, OTHER_PNG)
 })

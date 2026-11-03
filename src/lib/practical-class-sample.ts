@@ -9,6 +9,7 @@ import type { PracticalBookingInput, UnitSignOff, UnitSignature } from '@/lib/pr
 export const SAMPLE_STUDENT_NAME = 'Manpreet Kaur'
 export const SAMPLE_STUDENT_PHONE = '5145550177'
 export const SAMPLE_INSTRUCTOR_SUBCALENDAR = 15664319
+export const SAMPLE_OTHER_SUBCALENDAR = 20000002
 export const SAMPLE_NOW = new Date('2026-11-03T15:00:00-05:00')
 
 const PNG = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg=='
@@ -64,10 +65,17 @@ export const SAMPLE_ODD_BOOKING: PracticalBookingInput = booking(
   '2026-10-16T12:00:00-04:00',
 )
 
+/** A second 3h booking so the leftover hour of Oct 16 becomes a real class. */
+export const SAMPLE_ODD_FOLLOWUP: PracticalBookingInput = {
+  ...booking('booking-odd-2', 16, '2026-10-18T09:00:00-04:00', '2026-10-18T12:00:00-04:00'),
+  subcalendarId: SAMPLE_OTHER_SUBCALENDAR,
+}
+
 export const SAMPLE_PROFILE_BOOKINGS: PracticalBookingInput[] = [
   ...SAMPLE_THIRTEEN_BOOKINGS,
   SAMPLE_CANCELLED_BOOKING,
   SAMPLE_ODD_BOOKING,
+  SAMPLE_ODD_FOLLOWUP,
 ]
 
 export const SAMPLE_LEGACY_SIGNATURES: UnitSignature[] = SAMPLE_SIGNED_BOOKING_IDS.map(eventId => ({

@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/db'
+import { CROSS_BOOKING_UNIT } from '@/lib/practical-classes'
 
 function isUniqueConflict(error: unknown): boolean {
   return typeof error === 'object' && error !== null && 'code' in error && (error as { code: string }).code === 'P2002'
@@ -30,6 +31,7 @@ export async function POST(request: NextRequest) {
       addedLater,
       practicalUnitIndex,
       lessonStartAt: requestedLessonStart,
+      crossBooking,
     } = body as {
       eventId?: string
       studentPhone?: string
@@ -39,6 +41,7 @@ export async function POST(request: NextRequest) {
       addedLater?: boolean
       practicalUnitIndex?: number | null
       lessonStartAt?: string | null
+      crossBooking?: boolean
     }
 
     const phones = [...new Set(
@@ -76,13 +79,13 @@ export async function POST(request: NextRequest) {
     }
 
     const unitIndex = practicalUnitIndex == null ? null : Number(practicalUnitIndex)
-    if (unitIndex != null && (!Number.isInteger(unitIndex) || unitIndex < 0 || unitIndex > 60)) {
-      return NextResponse.json({ error: 'practicalUnitIndex is not a class in this booking' }, { status: 400 })
-    }
 
-    // Sign-off for a later 2-hour slice. The booking-level instructor
-    // signature is not copied here, and it is not treated as this class.
-    if (unitIndex != null && unitIndex > 0) {
+    // Sign-off for a class that spans two bookings. It does not cover the
+    // booking, and the booking sign-off does not cover this class.
+    if (crossBooking === true) {
+      if (unitIndex !== CROSS_BOOKING_UNIT) {
+        return NextResponse.json({ error: 'practicalUnitIndex is not a spanned class' }, { status: 400 })
+      }
       const unitSignatures = await prisma.practicalClassUnitSignature.findMany({
         where: { eventId, unitIndex },
         select: { id: true, studentPhone: true },

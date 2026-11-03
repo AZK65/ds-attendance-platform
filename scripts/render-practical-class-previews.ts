@@ -15,6 +15,7 @@ import {
   SAMPLE_SIGNATURE_PNG,
   SAMPLE_STUDENT_NAME,
   SAMPLE_STUDENT_PHONE,
+  SAMPLE_PROFILE_BOOKINGS,
   SAMPLE_THIRTEEN_BOOKINGS,
 } from '../src/lib/practical-class-sample'
 import { bookletRowsFromClasses, summarizePractical } from '../src/lib/practical-classes'
@@ -95,7 +96,7 @@ async function legacyRenderer() {
 async function main() {
   const outDir = path.resolve(argValue('--out') || path.join(root, 'tmp/practical-class-previews'))
   mkdirSync(outDir, { recursive: true })
-  const summary = summarizePractical(SAMPLE_THIRTEEN_BOOKINGS, SAMPLE_LEGACY_SIGNATURES)
+  const summary = summarizePractical(SAMPLE_PROFILE_BOOKINGS, SAMPLE_LEGACY_SIGNATURES)
   const afterInput: AttendancePdfInput = {
     studentName: SAMPLE_STUDENT_NAME,
     phone: SAMPLE_STUDENT_PHONE,

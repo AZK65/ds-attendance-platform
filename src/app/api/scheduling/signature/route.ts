@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/db'
+import { CROSS_BOOKING_UNIT } from '@/lib/practical-classes'
 import { signInTheoryLabel } from '@/lib/theory-hours'
 
 function isUniqueConflict(error: unknown): boolean {
@@ -25,6 +26,7 @@ export async function POST(request: NextRequest) {
       moduleNumber,
       sortieNumber,
       practicalUnitIndex,
+      crossBooking,
     } = body as {
       eventId?: string
       studentPhone?: string
@@ -34,6 +36,7 @@ export async function POST(request: NextRequest) {
       moduleNumber?: number
       sortieNumber?: number
       practicalUnitIndex?: number | null
+      crossBooking?: boolean
     }
 
     if (!eventId || !studentPhone || !studentName || !signatureDataUrl) {
@@ -57,17 +60,16 @@ export async function POST(request: NextRequest) {
 
     const cleanedPhone = studentPhone.replace(/\D/g, '')
     const unitIndex = practicalUnitIndex == null ? null : Number(practicalUnitIndex)
-    if (unitIndex != null && (!Number.isInteger(unitIndex) || unitIndex < 0 || unitIndex > 60)) {
-      return NextResponse.json({ error: 'practicalUnitIndex is not a class in this booking' }, { status: 400 })
-    }
 
-    // A later 2-hour slice of a practical booking. The drawing in the body
-    // is the only ink stored. Nothing is read from another class or from
-    // the booking-level ClassSignature, and that row is not updated.
-    if (unitIndex != null && unitIndex > 0) {
+    // A class that spans two bookings. One row, for this class only.
+    // The booking-level ClassSignature is not read and is not written.
+    if (crossBooking === true) {
+      if (unitIndex !== CROSS_BOOKING_UNIT) {
+        return NextResponse.json({ error: 'practicalUnitIndex is not a spanned class' }, { status: 400 })
+      }
       const existing = await prisma.practicalClassUnitSignature.findUnique({
         where: {
-          eventId_studentPhone_unitIndex: { eventId, studentPhone: cleanedPhone, unitIndex },
+          eventId_studentPhone_unitIndex: { eventId, studentPhone: cleanedPhone, unitIndex: CROSS_BOOKING_UNIT },
         },
         select: { id: true },
       })
@@ -79,13 +81,13 @@ export async function POST(request: NextRequest) {
           data: {
             eventId,
             studentPhone: cleanedPhone,
-            unitIndex,
+            unitIndex: CROSS_BOOKING_UNIT,
             studentName,
             sessionLabel: sessionLabel || null,
             signatureDataUrl,
           },
         })
-        return NextResponse.json({ success: true, id: created.id, signedAt: created.signedAt, unitIndex })
+        return NextResponse.json({ success: true, id: created.id, signedAt: created.signedAt, unitIndex: CROSS_BOOKING_UNIT })
       } catch (error) {
         if (isUniqueConflict(error)) {
           return NextResponse.json({ error: 'already signed' }, { status: 409 })

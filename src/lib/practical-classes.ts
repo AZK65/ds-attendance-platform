@@ -1,28 +1,27 @@
 /**
  * Class 1 practical classes are 2 hours. The program is 25 classes (50 h).
  *
- * A Teamup booking that runs longer is several classes: floor(minutes / 120).
- * A 4 hour booking is 2 classes. A 6 hour booking is 3. A remainder (a 3 hour
- * booking leaves 1 hour) is flagged in the profile and the booklet. It is
- * not rounded into another class and it is not dropped silently.
+ * Bookings are walked in date order. A 4 hour booking is two classes. A
+ * remainder is not rounded away: it carries forward and combines with the
+ * next booking. 3h then 3h is three classes, and the middle class is the
+ * last hour of the first booking plus the first hour of the second. A
+ * leftover with no later booking is flagged and is not a class. Odd lengths
+ * are not supposed to happen, so each one keeps a warning.
  *
- * Carry-over for signatures that already exist
- * --------------------------------------------
- * ClassSignature is one drawing per booking per student. It has no unit.
- * That drawing attaches to the first 2-hour class of the booking only.
- * It is never copied onto a later class, never updated, and never deleted.
- * The later classes stay unsigned until the student signs that class.
- * The same rule applies to a LessonInstructorSignature on the booking:
- * it signs off the first class only.
+ * Signatures
+ * ----------
+ * One student drawing and one instructor sign-off on a booking cover every
+ * 2-hour class that sits wholly inside that same booking. The drawing is
+ * read by reference. It is not copied into another row, and it never covers
+ * a different booking. Signing any class of the booking signs the booking.
+ * The iPad already stores one ClassSignature per booking, so that flow is
+ * unchanged.
  *
- * This is a decision for Ars. The alternative (copying the drawing onto
- * every class inside the booking) would put a signature on a class the
- * student did not sign.
- *
- * How many signed bookings of 4 hours or longer this affects cannot be
- * read from the schema. ClassSignature stores no start, no end, and no
- * duration. Those live on the Teamup event. affectedLongSignedBookings
- * is the rule; it needs the bookings and the signed event ids together.
+ * A class that uses hours from two bookings is not covered by either
+ * booking's signature. It is dated, and it may be signed, on the booking
+ * where it finishes. Its own row lives in PracticalClassUnitSignature
+ * (unit 1000). Existing ClassSignature and LessonInstructorSignature rows
+ * are never updated or deleted.
  *
  * SAAQ practical attestations are uploaded files (kind "practical").
  * They are not recomputed from bookings. The contracted practical total
@@ -37,6 +36,8 @@ export const PRACTICAL_CLASS_MINUTES = 120
 export const CLASS1_PRACTICAL_CLASS_HOURS = 2
 export const CLASS1_PRACTICAL_CLASS_COUNT = 25
 export const CLASS1_PRACTICAL_HOURS = CLASS1_PRACTICAL_CLASS_COUNT * CLASS1_PRACTICAL_CLASS_HOURS
+/** Stored only for a class that spans two bookings. Never a whole-booking signature. */
+export const CROSS_BOOKING_UNIT = 1000
 
 export interface PracticalBookingInput {
   id: string
@@ -48,8 +49,23 @@ export interface PracticalBookingInput {
   subcalendarId?: number | null
 }
 
+export interface ClassSegment {
+  eventId: string
+  minutes: number
+  /** America/Toronto calendar day, YYYY-MM-DD. */
+  date: string
+  startTime: string
+  endTime: string
+  subcalendarId: number | null
+}
+
 export interface PracticalClassUnit {
   classNumber: number
+  /**
+   * Wholly inside one booking: that booking.
+   * Spans bookings: the booking where the class finishes. The signature
+   * for a spanned class is stored on this event, and only for that class.
+   */
   eventId: string
   unitIndex: number
   partIndex: number
@@ -57,11 +73,16 @@ export interface PracticalClassUnit {
   bookingMinutes: number
   remainderMinutes: number
   odd: boolean
+  /** True when the class uses hours from more than one booking. */
+  spansBookings: boolean
+  segments: ClassSegment[]
+  /** "1h Oct 16 + 1h Oct 18". Null when the class is inside one booking. */
+  spanLabel: string | null
   start: string
   end: string
-  /** America/Toronto calendar day, YYYY-MM-DD. */
+  /** America/Toronto calendar day of the official start. YYYY-MM-DD. */
   date: string
-  /** America/Toronto start, HH:mm. */
+  /** America/Toronto start, HH:mm. For a spanned class, the finishing booking. */
   startTime: string
   /** America/Toronto end, HH:mm. */
   endTime: string
@@ -178,12 +199,43 @@ function friendlyDate(iso: string): string {
 export function oddBookingMessage(booking: OddPracticalBooking): string {
   const when = friendlyDate(booking.date)
   const length = formatDurationHours(booking.durationMinutes)
-  const leftover = formatDurationHours(booking.remainderMinutes)
-  if (booking.countedClasses === 0) {
-    return `A ${length} booking on ${when} is not a class. A practical class is 2 hours, and this leftover is flagged rather than rounded.`
+  return `A ${length} booking on ${when} is not a standard Class 1 length. Practical classes are 2 hours, and odd lengths are not supposed to happen.`
+}
+
+export function trailingLeftoverMessage(minutes: number): string {
+  return `${formatSpanAmount(minutes)} is left over after the last booking and is not counted as a class.`
+}
+
+function shortMonthDay(iso: string): string {
+  const [year, month, day] = iso.split('-').map(Number)
+  if (!year || !month || !day) return iso
+  const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
+  return `${months[month - 1]} ${day}`
+}
+
+export function formatSpanAmount(minutes: number): string {
+  if (minutes <= 0) return '0m'
+  if (minutes < 60) return `${minutes}m`
+  if (minutes % 60 === 0) return `${minutes / 60}h`
+  const hours = Math.floor(minutes / 60)
+  const rest = minutes % 60
+  return `${hours}h${String(rest).padStart(2, '0')}`
+}
+
+export function formatSpanLabel(segments: Array<Pick<ClassSegment, 'minutes' | 'date'>>): string {
+  return segments.map(segment => `${formatSpanAmount(segment.minutes)} ${shortMonthDay(segment.date)}`).join(' + ')
+}
+
+export function practicalClassKey(unit: Pick<PracticalClassUnit, 'eventId' | 'unitIndex' | 'spansBookings'>): string {
+  return unit.spansBookings ? `${unit.eventId}:cross` : `${unit.eventId}:${unit.unitIndex}`
+}
+
+export function classCoverageNote(unit: Pick<PracticalClassUnit, 'spansBookings' | 'spanLabel' | 'partCount' | 'bookingMinutes'>): string | null {
+  if (unit.spansBookings) return unit.spanLabel
+  if (unit.partCount > 1) {
+    return `covers ${unit.partCount} classes / ${formatDurationHours(unit.bookingMinutes)} session`
   }
-  const noun = booking.countedClasses === 1 ? 'class' : 'classes'
-  return `A ${length} booking on ${when} counts as ${booking.countedClasses} ${noun} of 2 hours. ${leftover} is left over and is not a class.`
+  return null
 }
 
 export function bookingPartLabel(unit: Pick<PracticalClassUnit, 'partIndex' | 'partCount' | 'bookingMinutes'>): string | null {
@@ -191,9 +243,28 @@ export function bookingPartLabel(unit: Pick<PracticalClassUnit, 'partIndex' | 'p
   return `${unit.partIndex} of ${unit.partCount} from a ${formatDurationHours(unit.bookingMinutes)} booking`
 }
 
+function segmentFrom(booking: PracticalBookingInput, offsetMinutes: number, lengthMinutes: number): ClassSegment & { startIso: string; endIso: string } {
+  const startMs = new Date(booking.start).getTime() + offsetMinutes * 60_000
+  const endMs = startMs + lengthMinutes * 60_000
+  const startParts = torontoParts(new Date(startMs))
+  const endParts = torontoParts(new Date(endMs))
+  return {
+    eventId: String(booking.id),
+    minutes: lengthMinutes,
+    date: startParts.date,
+    startTime: startParts.time,
+    endTime: endParts.time,
+    subcalendarId: booking.subcalendarId ?? null,
+    startIso: new Date(startMs).toISOString(),
+    endIso: new Date(endMs).toISOString(),
+  }
+}
+
 export function expandPracticalClasses(bookings: PracticalBookingInput[]): {
   classes: PracticalClassUnit[]
   oddBookings: OddPracticalBooking[]
+  /** Minutes still unmatched after the last booking. Not a class. */
+  trailingMinutes: number
 } {
   const ordered = bookings
     .filter(isCountablePracticalBooking)
@@ -206,65 +277,111 @@ export function expandPracticalClasses(bookings: PracticalBookingInput[]): {
 
   const classes: PracticalClassUnit[] = []
   const oddBookings: OddPracticalBooking[] = []
+  const wholeIndex = new Map<string, number>()
   let classNumber = 0
+  let carry: Array<ClassSegment & { startIso: string; endIso: string }> = []
+  const carryMinutes = () => carry.reduce((total, segment) => total + segment.minutes, 0)
+
+  const pushClass = (segments: Array<ClassSegment & { startIso: string; endIso: string }>, bookingMinutes: number, spans: boolean) => {
+    const official = spans ? segments[segments.length - 1] : segments[0]
+    const eventId = official.eventId
+    const unitIndex = spans ? CROSS_BOOKING_UNIT : (wholeIndex.get(eventId) || 0)
+    if (!spans) wholeIndex.set(eventId, unitIndex + 1)
+    classNumber += 1
+    classes.push({
+      classNumber,
+      eventId,
+      unitIndex,
+      partIndex: spans ? 1 : unitIndex + 1,
+      partCount: 1,
+      bookingMinutes,
+      remainderMinutes: 0,
+      odd: false,
+      spansBookings: spans,
+      segments: segments.map(({ startIso: _start, endIso: _end, ...segment }) => segment),
+      spanLabel: spans ? formatSpanLabel(segments) : null,
+      start: official.startIso,
+      end: official.endIso,
+      date: official.date,
+      startTime: official.startTime,
+      endTime: official.endTime,
+      subcalendarId: official.subcalendarId,
+      hours: 2,
+    })
+  }
 
   for (const booking of ordered) {
-    const minutes = durationMinutes(booking.start, booking.end)
-    const split = splitPracticalDuration(minutes)
+    const total = durationMinutes(booking.start, booking.end)
+    if (total <= 0) continue
     const startMs = new Date(booking.start).getTime()
-    if (split.odd) {
+    if (total % PRACTICAL_CLASS_MINUTES !== 0) {
       oddBookings.push({
         eventId: String(booking.id),
         title: booking.title,
         start: booking.start,
         date: torontoParts(new Date(startMs)).date,
-        durationMinutes: minutes,
-        countedClasses: split.units,
-        remainderMinutes: split.remainderMinutes,
+        durationMinutes: total,
+        countedClasses: 0,
+        remainderMinutes: total % PRACTICAL_CLASS_MINUTES,
       })
     }
-    for (let unitIndex = 0; unitIndex < split.units; unitIndex += 1) {
-      const sliceStart = new Date(startMs + unitIndex * PRACTICAL_CLASS_MINUTES * 60_000)
-      const sliceEnd = new Date(sliceStart.getTime() + PRACTICAL_CLASS_MINUTES * 60_000)
-      const startParts = torontoParts(sliceStart)
-      const endParts = torontoParts(sliceEnd)
-      classNumber += 1
-      classes.push({
-        classNumber,
-        eventId: String(booking.id),
-        unitIndex,
-        partIndex: unitIndex + 1,
-        partCount: split.units,
-        bookingMinutes: minutes,
-        remainderMinutes: split.remainderMinutes,
-        odd: split.odd,
-        start: sliceStart.toISOString(),
-        end: sliceEnd.toISOString(),
-        date: startParts.date,
-        startTime: startParts.time,
-        endTime: endParts.time,
-        subcalendarId: booking.subcalendarId ?? null,
-        hours: 2,
-      })
+    let offset = 0
+    let available = total
+    while (available > 0) {
+      const pending = carryMinutes()
+      if (pending > 0) {
+        const need = PRACTICAL_CLASS_MINUTES - pending
+        if (available >= need) {
+          const piece = segmentFrom(booking, offset, need)
+          pushClass([...carry, piece], total, true)
+          carry = []
+          offset += need
+          available -= need
+        } else {
+          carry.push(segmentFrom(booking, offset, available))
+          available = 0
+        }
+      } else if (available >= PRACTICAL_CLASS_MINUTES) {
+        pushClass([segmentFrom(booking, offset, PRACTICAL_CLASS_MINUTES)], total, false)
+        offset += PRACTICAL_CLASS_MINUTES
+        available -= PRACTICAL_CLASS_MINUTES
+      } else {
+        carry.push(segmentFrom(booking, offset, available))
+        available = 0
+      }
     }
   }
 
-  return { classes, oddBookings }
+  const wholeCount = new Map<string, number>()
+  for (const unit of classes) {
+    if (unit.spansBookings) continue
+    wholeCount.set(unit.eventId, (wholeCount.get(unit.eventId) || 0) + 1)
+  }
+  for (const unit of classes) {
+    if (unit.spansBookings) continue
+    unit.partCount = wholeCount.get(unit.eventId) || 1
+  }
+  for (const odd of oddBookings) {
+    odd.countedClasses = classes.filter(unit => !unit.spansBookings && unit.eventId === odd.eventId).length
+  }
+
+  return { classes, oddBookings, trailingMinutes: carryMinutes() }
 }
 
 /**
- * The drawing for this 2-hour class, or null.
- * A legacy signature (unitIndex null) is the first class only.
+ * The drawing that covers this class, or null.
+ * A booking-level signature (no unit) covers every class wholly inside
+ * that booking. A spanned class uses only its own cross-booking row.
  */
 export function signatureForClass<T extends UnitSignature>(
-  unit: { eventId: string; unitIndex: number },
+  unit: { eventId: string; unitIndex: number; spansBookings?: boolean },
   signatures: T[],
 ): T | null {
   const rows = signatures.filter(signature => String(signature.eventId) === String(unit.eventId))
-  const explicit = rows.find(signature => signature.unitIndex === unit.unitIndex) || null
-  if (unit.unitIndex !== 0) return explicit
-  const legacy = rows.find(signature => signature.unitIndex == null) || null
-  return legacy || explicit
+  if (unit.spansBookings) {
+    return rows.find(signature => signature.unitIndex === CROSS_BOOKING_UNIT) || null
+  }
+  return rows.find(signature => signature.unitIndex == null || signature.unitIndex === 0) || null
 }
 
 export function affectedLongSignedBookings(
@@ -283,6 +400,7 @@ export function affectedLongSignedBookings(
 export interface PracticalSummary {
   classes: PracticalClassUnit[]
   oddBookings: OddPracticalBooking[]
+  trailingMinutes: number
   signedCount: number
   scheduledCount: number
   /** Signed classes × 2. Not capped. */
@@ -295,12 +413,13 @@ export function summarizePractical(
   bookings: PracticalBookingInput[],
   signatures: UnitSignature[],
 ): PracticalSummary {
-  const { classes, oddBookings } = expandPracticalClasses(bookings)
+  const { classes, oddBookings, trailingMinutes } = expandPracticalClasses(bookings)
   const signedCount = classes.filter(unit => signatureForClass(unit, signatures)).length
   const signedHours = signedCount * CLASS1_PRACTICAL_CLASS_HOURS
   return {
     classes,
     oddBookings,
+    trailingMinutes,
     signedCount,
     scheduledCount: classes.length,
     signedHours,
@@ -351,9 +470,6 @@ export function bookletRowsFromClasses(input: {
     }
     const student = signatureForClass(unit, input.studentSignatures)
     const instructor = signatureForClass(unit, input.instructorSignatures || [])
-    const leftover = unit.odd && unit.unitIndex === unit.partCount - 1
-      ? `${formatDurationHours(unit.remainderMinutes)} left over from a ${formatDurationHours(unit.bookingMinutes)} booking`
-      : null
     rows.push({
       classNumber,
       label: `Practical class ${classNumber}`,
@@ -363,7 +479,7 @@ export function bookletRowsFromClasses(input: {
       instructorNo: instructor?.number ?? null,
       instructorSignature: instructor?.signatureDataUrl || null,
       netLabel: '2h00',
-      note: leftover,
+      note: classCoverageNote(unit),
     })
   }
   return rows

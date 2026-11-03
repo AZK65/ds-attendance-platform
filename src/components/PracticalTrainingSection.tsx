@@ -13,12 +13,16 @@ import { showStudentSignsNow } from '@/lib/student-sign-now'
 import {
   CLASS1_PRACTICAL_CLASS_COUNT,
   CLASS1_PRACTICAL_HOURS,
+  CROSS_BOOKING_UNIT,
   bookingPartLabel,
   classTimingStatus,
   oddBookingMessage,
+  practicalClassKey,
   signatureForClass,
   summarizePractical,
+  trailingLeftoverMessage,
   type PracticalBookingInput,
+  type PracticalClassUnit,
   type UnitSignOff,
   type UnitSignature,
 } from '@/lib/practical-classes'
@@ -53,6 +57,31 @@ function formatSliceClock(hhmm: string): string {
   const period = hour >= 12 ? 'p.m.' : 'a.m.'
   const hour12 = hour % 12 === 0 ? 12 : hour % 12
   return `${hour12}:${minute} ${period}`
+}
+
+function shortMonthDay(iso: string): string {
+  const [year, month, day] = iso.split('-').map(Number)
+  if (!year || !month || !day) return iso
+  return new Date(Date.UTC(year, month - 1, day)).toLocaleDateString('en-CA', {
+    timeZone: 'UTC',
+    month: 'short',
+    day: 'numeric',
+  })
+}
+
+function instructorDifferenceNote(
+  unit: PracticalClassUnit,
+  calendars: Array<{ id: number; name: string }>,
+): string | null {
+  if (!unit.spansBookings) return null
+  const named = unit.segments.map(segment => ({
+    name: instructorFirstName(calendars, segment.subcalendarId) || 'Unknown',
+    date: shortMonthDay(segment.date),
+  }))
+  if (new Set(named.map(item => item.name)).size <= 1) return null
+  const earlier = named.slice(0, -1).map(item => `${item.name} (${item.date})`).join(', ')
+  const last = named[named.length - 1]
+  return `Earlier: ${earlier}. Sign-off uses ${last.name}, the instructor on ${last.date}.`
 }
 
 function instructorFirstName(subcalendars: Array<{ id: number; name: string }>, subcalendarId: number | null): string | null {
@@ -103,17 +132,19 @@ export function PracticalTrainingSection({
   const [studentSigning, setStudentSigning] = useState<{
     eventId: string
     unitIndex: number
+    crossBooking: boolean
     label: string
     subtitle: string
   } | null>(null)
   const [addingInstructor, setAddingInstructor] = useState<{
     eventId: string
     unitIndex: number
+    crossBooking: boolean
     subcalendarId: number | null
     lessonStartAt: string
   } | null>(null)
 
-  const openClass = summary.classes.find(unit => `${unit.eventId}:${unit.unitIndex}` === openKey) || null
+  const openClass = summary.classes.find(unit => practicalClassKey(unit) === openKey) || null
   const openSignature = openClass ? signatureForClass(openClass, studentSignatures) : null
   const openInstructor = openClass ? signatureForClass(openClass, instructorSignatures) : null
   const openStatus = openClass ? classTimingStatus(openClass, openSignature, clock) : null
@@ -152,7 +183,7 @@ export function PracticalTrainingSection({
       <div className="mb-3 flex flex-wrap items-end justify-between gap-2">
         <div>
           <h3 id="truck-practical-progress" className="font-semibold">Practical training</h3>
-          <p className="text-sm text-muted-foreground">Each class is 2 hours. A longer booking is split into 2-hour classes.</p>
+          <p className="text-sm text-muted-foreground">Each class is 2 hours. A leftover hour carries into the next booking.</p>
         </div>
         <div className="text-right">
           <p className="font-semibold tabular-nums" data-testid="practical-progress">
@@ -166,29 +197,36 @@ export function PracticalTrainingSection({
           {oddBookingMessage(booking)}
         </p>
       ))}
+      {summary.trailingMinutes > 0 && (
+        <p className="mb-3 rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-950" data-testid="practical-trailing-leftover">
+          {trailingLeftoverMessage(summary.trailingMinutes)}
+        </p>
+      )}
       {summary.classes.length ? (
         <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-5">
           {summary.classes.map(unit => {
             const signature = signatureForClass(unit, studentSignatures)
             const instructor = signatureForClass(unit, instructorSignatures)
             const status = classTimingStatus(unit, signature, clock)
-            const part = bookingPartLabel(unit)
+            const part = unit.spansBookings ? unit.spanLabel : bookingPartLabel(unit)
             const teacher = instructorFirstName(calendars, unit.subcalendarId)
+            const differ = instructorDifferenceNote(unit, calendars)
             return (
               <button
-                key={`${unit.eventId}:${unit.unitIndex}`}
+                key={practicalClassKey(unit)}
                 type="button"
                 data-testid="practical-class"
                 data-class-number={unit.classNumber}
                 data-status={status}
-                onClick={() => setOpenKey(`${unit.eventId}:${unit.unitIndex}`)}
+                onClick={() => setOpenKey(practicalClassKey(unit))}
                 className={`rounded-lg border p-3 text-left transition-all duration-700 ease-[cubic-bezier(0.32,0.72,0,1)] hover:-translate-y-0.5 hover:border-foreground/30 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring ${statusClasses[status]}`}
               >
                 <span className="block text-sm font-semibold tabular-nums">Practical class {unit.classNumber}</span>
-                <span className="mt-1 block text-xs opacity-80">{formatSliceDate(unit.date)} · 2 h</span>
-                {part && <span className="mt-1 block text-[11px] opacity-80">{part}</span>}
+                <span className="mt-1 block text-xs opacity-80">{unit.spansBookings ? `Finishes ${formatSliceDate(unit.date)}` : `${formatSliceDate(unit.date)} · 2 h`}</span>
+                {part && <span className="mt-1 block text-[11px] opacity-80" data-testid={unit.spansBookings ? 'practical-span' : undefined}>{part}</span>}
                 <span className="mt-2 block text-xs font-medium">{statusText[status]}</span>
                 {teacher && <span className="mt-1 block text-[11px] opacity-80">Instructor: {teacher}</span>}
+                {differ && <span className="mt-1 block text-[11px] opacity-80">{differ}</span>}
                 {status === 'signed' && (
                   <span className="mt-1 block text-[11px] font-medium">
                     {instructor ? 'Instructor signed' : 'needs instructor sign-off'}
@@ -237,37 +275,36 @@ export function PracticalTrainingSection({
                 <p className="text-xs text-muted-foreground">Attendance</p>
                 <Badge variant="outline" className={statusClasses[openStatus]}>{statusText[openStatus]}</Badge>
               </div>
-              {bookingPartLabel(openClass) && (
-                <p className="col-span-2 text-sm text-muted-foreground">{bookingPartLabel(openClass)}</p>
-              )}
-              {openClass.odd && openClass.unitIndex === openClass.partCount - 1 && (
-                <p className="col-span-2 text-sm text-amber-800" data-testid="practical-odd-duration">
-                  {oddBookingMessage({
-                    eventId: openClass.eventId,
-                    title: '',
-                    start: openClass.start,
-                    date: openClass.date,
-                    durationMinutes: openClass.bookingMinutes,
-                    countedClasses: openClass.partCount,
-                    remainderMinutes: openClass.remainderMinutes,
-                  })}
+              {(openClass.spansBookings ? openClass.spanLabel : bookingPartLabel(openClass)) && (
+                <p className="col-span-2 text-sm text-muted-foreground" data-testid={openClass.spansBookings ? 'practical-span' : undefined}>
+                  {openClass.spansBookings ? openClass.spanLabel : bookingPartLabel(openClass)}
                 </p>
               )}
               <p className="col-span-2 text-sm">
-                Instructor on this booking: {instructorFirstName(calendars, openClass.subcalendarId) || 'the Teamup calendar for this class'}
+                Instructor: {instructorFirstName(calendars, openClass.subcalendarId) || 'the Teamup calendar for this class'}
               </p>
+              {instructorDifferenceNote(openClass, calendars) && (
+                <p className="col-span-2 text-sm text-amber-800">{instructorDifferenceNote(openClass, calendars)}</p>
+              )}
               {showStudentSign && (
                 <div className="col-span-2 space-y-2">
-                  <p className="text-sm text-muted-foreground">The instructor signs this class off after the student. That sign-off is kept on this class only.</p>
+                  <p className="text-sm text-muted-foreground">
+                    {openClass.spansBookings
+                      ? 'This class uses hours from more than one booking, so it needs its own signature. It is not covered by either booking.'
+                      : 'One signature covers every 2-hour class in this booking. The instructor signs off after the student.'}
+                  </p>
                   <Button
                     type="button"
                     size="sm"
                     data-testid="student-signs-now"
                     onClick={() => setStudentSigning({
                       eventId: openClass.eventId,
-                      unitIndex: openClass.unitIndex,
+                      unitIndex: openClass.spansBookings ? CROSS_BOOKING_UNIT : 0,
+                      crossBooking: openClass.spansBookings,
                       label: `Practical class ${openClass.classNumber}`,
-                      subtitle: `Practical class ${openClass.classNumber} · ${formatSliceDate(openClass.date)} ${formatSliceClock(openClass.startTime)}–${formatSliceClock(openClass.endTime)}`,
+                      subtitle: openClass.spanLabel
+                        ? `Practical class ${openClass.classNumber} · ${openClass.spanLabel}`
+                        : `Practical class ${openClass.classNumber} · ${formatSliceDate(openClass.date)} ${formatSliceClock(openClass.startTime)}–${formatSliceClock(openClass.endTime)}`,
                     })}
                   >
                     <FileSignature className="h-4 w-4" /> Student signs now
@@ -293,7 +330,8 @@ export function PracticalTrainingSection({
                       data-testid="add-instructor-signature"
                       onClick={() => setAddingInstructor({
                         eventId: openClass.eventId,
-                        unitIndex: openClass.unitIndex,
+                        unitIndex: openClass.spansBookings ? CROSS_BOOKING_UNIT : 0,
+                        crossBooking: openClass.spansBookings,
                         subcalendarId: openClass.subcalendarId,
                         lessonStartAt: `${openClass.date} ${openClass.startTime}`,
                       })}
@@ -325,7 +363,8 @@ export function PracticalTrainingSection({
             subtitle: studentSigning.subtitle,
             moduleNumber: null,
             sortieNumber: null,
-            practicalUnitIndex: studentSigning.unitIndex,
+            practicalUnitIndex: studentSigning.crossBooking ? studentSigning.unitIndex : null,
+            crossBooking: studentSigning.crossBooking,
           }}
           onCancel={() => setStudentSigning(null)}
           onSaved={() => {
@@ -342,8 +381,9 @@ export function PracticalTrainingSection({
           studentPhones={[studentPhone]}
           suggestSubcalendarId={addingInstructor.subcalendarId}
           addedLater
-          practicalUnitIndex={addingInstructor.unitIndex}
+          practicalUnitIndex={addingInstructor.crossBooking ? addingInstructor.unitIndex : null}
           lessonStartAt={addingInstructor.lessonStartAt}
+          crossBooking={addingInstructor.crossBooking}
           title="Add instructor signature"
           onClose={() => setAddingInstructor(null)}
           onSaved={() => {

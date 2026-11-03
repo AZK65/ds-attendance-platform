@@ -8,13 +8,14 @@ import {
   SAMPLE_INSTRUCTOR_SUBCALENDAR,
   SAMPLE_LEGACY_SIGNATURES,
   SAMPLE_NOW,
+  SAMPLE_OTHER_SUBCALENDAR,
   SAMPLE_PROFILE_BOOKINGS,
   SAMPLE_SIGNED_BOOKING_IDS,
   SAMPLE_STUDENT_NAME,
   SAMPLE_STUDENT_PHONE,
   SAMPLE_THIRTEEN_BOOKINGS,
 } from '@/lib/practical-class-sample'
-import { legacyPracticalCards } from '@/lib/practical-classes'
+import { expandPracticalClasses, legacyPracticalCards, practicalClassKey } from '@/lib/practical-classes'
 
 const statusClasses = {
   signed: 'border-green-200 bg-green-50 text-green-800',
@@ -71,6 +72,7 @@ function BeforeSection() {
 function PreviewBody() {
   const params = useSearchParams()
   const view = params.get('view') || 'after'
+  const span = expandPracticalClasses(SAMPLE_PROFILE_BOOKINGS).classes.find(unit => unit.spansBookings)
   return (
     <main className="mx-auto max-w-5xl bg-background p-6 text-foreground">
       <p className="text-xs font-medium uppercase tracking-wider text-red-600">Class 1 program</p>
@@ -84,9 +86,12 @@ function PreviewBody() {
           instructorSignatures={SAMPLE_INSTRUCTOR_SIGNOFFS}
           studentName={SAMPLE_STUDENT_NAME}
           studentPhone={SAMPLE_STUDENT_PHONE}
-          subcalendars={[{ id: SAMPLE_INSTRUCTOR_SUBCALENDAR, name: 'Ahmed Truck' }]}
+          subcalendars={[
+            { id: SAMPLE_INSTRUCTOR_SUBCALENDAR, name: 'Ahmed Truck' },
+            { id: SAMPLE_OTHER_SUBCALENDAR, name: 'Karim Truck' },
+          ]}
           now={SAMPLE_NOW}
-          initialOpenKey={view === 'dialog' ? 'booking-1:1' : null}
+          initialOpenKey={view === 'dialog' && span ? practicalClassKey(span) : null}
         />
       )}
     </main>
