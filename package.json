@@ -15,6 +15,7 @@
     "test:student-sign": "tsx --test src/lib/student-sign-now.test.ts",
     "test:class1-contract": "tsx --test src/lib/class1-contract-payments.test.ts src/lib/class1-contract-signed-date.test.ts src/lib/class1-contract-pdf.test.ts src/lib/invoice-paid-at.test.ts",
     "test:class5-reminder": "tsx --test src/lib/class5-payment-reminder.test.ts",
+    "test:car-class-gap": "tsx --test src/lib/car-class-gap.test.ts",
     "test:class5-reminder-email": "tsx --test src/lib/class5-payment-reminder-email.test.ts",
     "contract:render": "tsx scripts/render-class1-contract.ts",
     "postinstall": "patch-package"
