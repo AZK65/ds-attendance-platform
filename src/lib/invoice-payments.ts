@@ -1,3 +1,4 @@
+import { contractPaymentDate } from '@/lib/class1-contract-payments'
 import { invoiceBelongsToStudent, roundMoney, type StudentIdentity } from '@/lib/invoice-match'
 
 /**
@@ -12,7 +13,11 @@ import { invoiceBelongsToStudent, roundMoney, type StudentIdentity } from '@/lib
 export interface StoredInvoicePayment {
   invoiceNumber: string
   invoiceDate: string
+  /** Receipt timestamp. Older paid invoices fall back to invoiceDate. */
+  paidAt?: string | Date | null
   total: number
+  /** Balance stored on that invoice after the payment. Null when none was recorded. */
+  remainingBalance?: number | null
   paymentMethod?: string | null
   paymentStatus?: string | null
   externalStudentId?: number | null
@@ -22,10 +27,13 @@ export interface StoredInvoicePayment {
 }
 
 export interface ListedPayment {
+  /** YYYY-MM-DD receipt date, or the invoice date when no receipt date was stored. */
   date: string
   amount: number
   /** Null when the invoice has no paymentMethod stored. */
   method: string | null
+  /** Null when that invoice never stored a remaining balance. */
+  balanceAfter: number | null
   invoiceNumber: string
 }
 
@@ -34,8 +42,6 @@ export interface PaymentHistory {
   totalPaid: number
 }
 
-const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/
-
 function createdAtMs(value: Date | string | number | null | undefined): number {
   if (value == null || value === '') return 0
   if (typeof value === 'number') return Number.isNaN(value) ? 0 : value
@@ -43,43 +49,41 @@ function createdAtMs(value: Date | string | number | null | undefined): number {
   return Number.isNaN(time) ? 0 : time
 }
 
-/** Earlier than this document, or the same calendar day. A later date is not a previous payment. */
-function isPreviousPayment(candidateDate: string, currentDate: string): boolean {
-  if (!ISO_DATE.test(currentDate) || !ISO_DATE.test(candidateDate)) return true
-  return candidateDate <= currentDate
-}
-
 /**
  * Paid invoices for this student, excluding the invoice being printed.
- * Unpaid and refunded rows are not payments. The returned total is only the
- * sum of the listed rows. It is not a remaining balance.
+ * Refunded and unpaid rows are left out. Matching is invoiceBelongsToStudent:
+ * MySQL student id when both sides have one, otherwise phone last-10,
+ * otherwise the exact name only when neither side has a phone.
+ * The returned total is only the sum of the listed amounts. It does not
+ * replace the remaining balance stored on the invoice being printed.
  */
 export function listPriorPayments(
   invoices: readonly StoredInvoicePayment[],
-  current: StudentIdentity & { invoiceNumber: string; invoiceDate?: string | null },
+  current: StudentIdentity & { invoiceNumber: string },
 ): PaymentHistory {
   const student: StudentIdentity = {
     externalStudentId: current.externalStudentId,
     phone: current.phone,
     name: current.name,
   }
-  const currentDate = current.invoiceDate || ''
   const payments = invoices
     .filter((invoice) => invoice.invoiceNumber !== current.invoiceNumber)
     .filter((invoice) => invoice.paymentStatus === 'paid')
     .filter((invoice) => invoiceBelongsToStudent(invoice, student))
-    .filter((invoice) => isPreviousPayment(invoice.invoiceDate || '', currentDate))
     .sort((a, b) => {
-      const byDate = (a.invoiceDate || '').localeCompare(b.invoiceDate || '')
+      const byDate = contractPaymentDate(a).localeCompare(contractPaymentDate(b))
       if (byDate !== 0) return byDate
       const byCreated = createdAtMs(a.createdAt) - createdAtMs(b.createdAt)
       if (byCreated !== 0) return byCreated
       return a.invoiceNumber.localeCompare(b.invoiceNumber)
     })
     .map((invoice) => ({
-      date: invoice.invoiceDate || '',
+      date: contractPaymentDate(invoice),
       amount: roundMoney(invoice.total),
       method: invoice.paymentMethod?.trim() ? invoice.paymentMethod.trim() : null,
+      balanceAfter: typeof invoice.remainingBalance === 'number' && Number.isFinite(invoice.remainingBalance)
+        ? roundMoney(invoice.remainingBalance)
+        : null,
       invoiceNumber: invoice.invoiceNumber,
     }))
 

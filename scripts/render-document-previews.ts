@@ -137,7 +137,6 @@ async function invoice() {
   ]
   const withPayments = listPriorPayments(prior, {
     invoiceNumber: body.invoiceNumber,
-    invoiceDate: body.invoiceDate,
     externalStudentId: 42,
     phone: body.studentPhone,
     name: body.studentName,
@@ -217,32 +216,32 @@ async function terms() {
 }
 
 async function contract() {
-  const { ContractPage } = await import('../src/app/api/register/contract/route')
-  const React = (await import('react')).default
-  const { Document, renderToBuffer } = await import('@react-pdf/renderer')
-  const school = {
+  const { renderClass1ContractPdf } = await import('../src/lib/class1-contract-pdf')
+  const { buildContractInstallmentRows } = await import('../src/lib/class1-contract-payments')
+  save('service-contract.pdf', await renderClass1ContractPdf({
+    lang: 'en',
+    pricing: DEFAULT_TRUCK_CONTRACT,
+    rows: buildContractInstallmentRows([]),
+    school: {
       name: 'Qazi Driving School',
       address: '786 Jean-Talon St W, Montreal, QC, H3N 1S2',
       phone: '514 274 6948',
       email: 'info@qazi.ca',
       saaqNumber: 'L526',
-      gstNumber: '123456789 RT0001',
-      qstNumber: '1234567890 TQ0001',
       truckTheoryAddress: '786 Jean-Talon St W, Montreal',
       truckRoadAddress: '786 Jean-Talon St W, Montreal',
       truckCircuitAddress: 'Closed circuit, Laval',
-    }
-    const data = {
+    },
+    data: {
       contractNumber: 'C1-2026-0142',
-      contractDate: 'October 1, 2026',
       fullName: 'Sample Student',
       dob: '2004-05-12',
       permitNumber: 'S0000-000000-00',
       address: '100 Example Street, Montreal, H2X 1Y4',
       phone: '514-555-0199',
       email: 'sample.student@example.com',
-      firstCourseDate: 'October 7, 2026',
-      maxCompletionDate: 'April 7, 2028',
+      firstCourseDate: '2026-10-07',
+      maxCompletionDate: '2028-04-07',
       signedAtPlace: 'Montreal, QC',
       consentSaaq: true,
       consentTransfer: true,
@@ -250,14 +249,10 @@ async function contract() {
       studentSignature: PNG,
       repSignature: null,
       repName: 'School Representative',
-      repSignedDate: 'October 1, 2026',
-    }
-  const element = React.createElement(
-    Document,
-    null,
-    React.createElement(ContractPage, { lang: 'en', data, school, pricing: DEFAULT_TRUCK_CONTRACT }),
-  )
-  save('service-contract.pdf', await renderToBuffer(element))
+      repSignedAt: new Date('2026-10-01T16:00:00.000Z'),
+      studentSignedAt: new Date('2026-10-01T16:00:00.000Z'),
+    },
+  }))
 }
 
 function emails() {

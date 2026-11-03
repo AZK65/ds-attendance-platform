@@ -55,6 +55,8 @@ interface InvoiceData {
    * An empty list means there are no payments yet.
    */
   paymentHistory?: PaymentHistory | null
+  /** Saved payment status. "paid" prints the PAID marker. */
+  paymentStatus?: string | null
 }
 
 // Styles for the invoice PDF
@@ -300,9 +302,24 @@ const styles = StyleSheet.create({
     paddingLeft: 8,
     paddingRight: 0,
   },
-  paymentDate: { flex: 2, fontSize: 9, color: BRAND.ink },
-  paymentMethod: { flex: 2, fontSize: 9, color: BRAND.ink },
-  paymentAmount: { flex: 2, fontSize: 9, color: BRAND.ink, textAlign: 'right' },
+  paymentDate: { flex: 2.2, fontSize: 9, color: BRAND.ink },
+  paymentMethod: { flex: 1.3, fontSize: 9, color: BRAND.ink },
+  paymentAmount: { flex: 1.5, fontSize: 9, color: BRAND.ink, textAlign: 'right' },
+  paymentBalance: { flex: 1.6, fontSize: 9, color: BRAND.ink, textAlign: 'right' },
+  paidMark: {
+    marginTop: 6,
+    alignSelf: 'flex-end',
+    backgroundColor: BRAND.green,
+    borderRadius: 2,
+    paddingVertical: 3,
+    paddingHorizontal: 8,
+  },
+  paidMarkText: {
+    color: '#ffffff',
+    fontSize: 10,
+    fontWeight: 'bold',
+    letterSpacing: 0.4,
+  },
   paymentSummary: {
     alignItems: 'flex-end',
     marginTop: 6,
@@ -368,7 +385,14 @@ function InvoiceDocument({ data, logoSrc }: { data: InvoiceData; logoSrc: string
         React.createElement(View, { style: styles.headerLeft },
           logoSrc ? React.createElement(Image, { src: logoSrc, style: styles.logo }) : null,
         ),
-        React.createElement(Text, { style: styles.invoiceTitle }, 'INVOICE'),
+        React.createElement(View, { style: { alignItems: 'flex-end' } },
+          React.createElement(Text, { style: styles.invoiceTitle }, 'INVOICE'),
+          data.paymentStatus === 'paid'
+            ? React.createElement(View, { style: styles.paidMark },
+                React.createElement(Text, { style: styles.paidMarkText }, 'PAID'),
+              )
+            : null,
+        ),
       ),
 
       // School info + Invoice info
@@ -469,12 +493,14 @@ function InvoiceDocument({ data, logoSrc }: { data: InvoiceData; logoSrc: string
                 React.createElement(Text, { style: [styles.paymentDate, styles.paymentHeadText] }, 'Date'),
                 React.createElement(Text, { style: [styles.paymentMethod, styles.paymentHeadText] }, 'Method'),
                 React.createElement(Text, { style: [styles.paymentAmount, styles.paymentHeadText] }, 'Amount'),
+                React.createElement(Text, { style: [styles.paymentBalance, styles.paymentHeadText] }, 'Balance'),
               ),
               ...data.paymentHistory.payments.map((payment) =>
                 React.createElement(View, { key: payment.invoiceNumber, style: styles.paymentLine, wrap: false },
                   React.createElement(Text, { style: styles.paymentDate }, formatPaymentDate(payment.date)),
                   React.createElement(Text, { style: styles.paymentMethod }, paymentMethodLabel(payment.method)),
                   React.createElement(Text, { style: styles.paymentAmount }, formatCurrency(payment.amount)),
+                  React.createElement(Text, { style: styles.paymentBalance }, payment.balanceAfter == null ? '\u2014' : formatCurrency(payment.balanceAfter)),
                 ),
               ),
             ),
@@ -512,27 +538,30 @@ export async function buildInvoicePdf(body: InvoiceData) {
 }
 
 /** Read prior paid invoices for this student. Does not write. */
-export async function loadPaymentHistory(body: Pick<InvoiceData, 'invoiceNumber' | 'invoiceDate' | 'studentName' | 'studentPhone' | 'externalStudentId'>): Promise<PaymentHistory | null> {
+export async function loadPaymentHistory(body: Pick<InvoiceData, 'invoiceNumber' | 'invoiceDate' | 'studentName' | 'studentPhone' | 'externalStudentId' | 'paymentStatus'>): Promise<{ history: PaymentHistory | null; paymentStatus: string | null }> {
   try {
     const saved = await prisma.invoice.findUnique({
       where: { invoiceNumber: body.invoiceNumber },
-      select: { externalStudentId: true },
+      select: { externalStudentId: true, paymentStatus: true },
     })
     const externalStudentId = parseExternalStudentId(body.externalStudentId) ?? saved?.externalStudentId ?? null
     const phone = body.studentPhone || ''
     const name = body.studentName || ''
-    if (externalStudentId == null && !phone && !name) return { payments: [], totalPaid: 0 }
+    const paymentStatus = saved?.paymentStatus ?? body.paymentStatus ?? null
+    if (externalStudentId == null && !phone && !name) return { history: { payments: [], totalPaid: 0 }, paymentStatus }
     const invoices = await findInvoicesForStudent({ externalStudentId, phone, name })
-    return listPriorPayments(invoices, {
-      invoiceNumber: body.invoiceNumber,
-      invoiceDate: body.invoiceDate,
-      externalStudentId,
-      phone,
-      name,
-    })
+    return {
+      history: listPriorPayments(invoices, {
+        invoiceNumber: body.invoiceNumber,
+        externalStudentId,
+        phone,
+        name,
+      }),
+      paymentStatus,
+    }
   } catch (error) {
     console.warn('[Invoice] Payment history lookup failed:', error)
-    return null
+    return { history: null, paymentStatus: body.paymentStatus ?? null }
   }
 }
 
@@ -547,8 +576,12 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    const paymentHistory = await loadPaymentHistory(body)
-    const buffer = await buildInvoicePdf({ ...body, paymentHistory })
+    const loaded = await loadPaymentHistory(body)
+    const buffer = await buildInvoicePdf({
+      ...body,
+      paymentHistory: loaded.history,
+      paymentStatus: loaded.paymentStatus,
+    })
     const uint8Array = new Uint8Array(buffer)
 
     return new NextResponse(uint8Array, {
