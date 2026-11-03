@@ -19,6 +19,7 @@ const candidateSelect = {
   fullName: true,
   email: true,
   paymentStatus: true,
+  paymentAmount: true,
   paymentCapturedAt: true,
   paymentReturnToken: true,
   paymentCheckoutCreatedAt: true,

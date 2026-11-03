@@ -1,7 +1,6 @@
 import {
   CLASS5_REMINDER_MIN_AGE_MS,
   CLASS5_REMINDER_MAX_AGE_MS,
-  buildClass5PaymentReminderMessage,
   class5PaymentRetryUrl,
   class5ReminderSkipReason,
   formatClass5FirstPaymentLabel,
@@ -32,8 +31,6 @@ export const CLASS5_REMINDER_BRAND = {
   rule: '#e5e7ec',
 } as const
 
-const LITERAL_FIRST_PAYMENT = '$250'
-
 export interface Class5ReminderEmailRegistration {
   id: string
   vehicleType: string | null
@@ -41,11 +38,23 @@ export interface Class5ReminderEmailRegistration {
   fullName: string | null
   email: string | null
   paymentStatus: string | null
+  paymentAmount: number | null
   paymentCapturedAt: Date | null
   paymentReturnToken: string | null
   paymentCheckoutCreatedAt: Date | null
   paymentReminderEmailSentAt: Date | null
   createdAt: Date
+}
+
+// Address and phone stored for certificates and the school knowledge base.
+export const CLASS5_REMINDER_SCHOOL_ADDRESS = '786 rue Jean-Talon Ouest, Montréal, QC H3N 1S2'
+export const CLASS5_REMINDER_SCHOOL_PHONE = '(514) 274-6948'
+
+// A label only when the cents value is a real deposit. The literal "$250"
+// fallback used in the sentence is not treated as a known amount.
+export function knownFirstPaymentLabel(cents: number | null | undefined): string | null {
+  if (typeof cents !== 'number' || !Number.isInteger(cents) || cents <= 0 || cents > 1_000_000) return null
+  return formatClass5FirstPaymentLabel(cents)
 }
 
 export type Class5ReminderEmailSkipReason = Class5ReminderSkipReason | 'missing-email'
@@ -96,64 +105,118 @@ export interface Class5PaymentReminderEmail {
   html: string
 }
 
-// Plain text stays the approved sentence. HTML adds the logo, the brand
-// colours, and a payment button without changing those words.
+// Plain text carries the approved wording, split into short paragraphs, plus
+// the link. HTML keeps those words and puts the link on the button.
 export function buildClass5PaymentReminderEmail(input: {
   firstName: string
   amountLabel: string
+  knownAmountLabel?: string | null
   retryUrl: string
 }): Class5PaymentReminderEmail {
-  const text = buildClass5PaymentReminderMessage(input)
+  const known = input.knownAmountLabel?.trim() || null
+  const buttonLabel = known ? `Complete your ${known} payment` : 'Complete your payment'
+  const summary = known
+    ? `Class 5 registration · First payment ${known}`
+    : 'Class 5 registration'
   const safeUrl = escapeHtml(input.retryUrl)
-  const brand = CLASS5_REMINDER_BRAND
-  const sentence = `Hi ${escapeHtml(input.firstName)}, this is Qazi Driving School. We saw your Class 5 registration but the first ${escapeHtml(input.amountLabel)} payment didn't go through. If you couldn't pay, you can use this link: <a href="${safeUrl}" style="color:${brand.blue};text-decoration:underline;">${safeUrl}</a>. Let us know if you have any issues.`
+  const safeButton = escapeHtml(buttonLabel)
+  const safeSummary = escapeHtml(summary)
+  const safeName = escapeHtml(input.firstName)
+  const safeAmount = escapeHtml(input.amountLabel)
+  const ink = CLASS5_REMINDER_BRAND.ink
+  const blue = CLASS5_REMINDER_BRAND.blue
+  const muted = '#6b7280'
+  const text = [
+    `Hi ${input.firstName},`,
+    '',
+    `This is Qazi Driving School. We saw your Class 5 registration but the first ${input.amountLabel} payment didn't go through.`,
+    '',
+    'If you couldn\'t pay, you can use this link:',
+    input.retryUrl,
+    '',
+    'Let us know if you have any issues.',
+    '',
+    'Qazi Driving School',
+    CLASS5_REMINDER_SCHOOL_ADDRESS,
+    CLASS5_REMINDER_SCHOOL_PHONE,
+  ].join('\n')
+
   const html = `<!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="x-apple-disable-message-reformatting">
 <title>${escapeHtml(CLASS5_PAYMENT_REMINDER_EMAIL_SUBJECT)}</title>
+<style>
+  @media screen and (max-width: 480px) {
+    .email-pad { padding-left: 24px !important; padding-right: 24px !important; }
+  }
+</style>
 </head>
-<body style="margin:0;padding:0;background:${brand.surface};">
-  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:${brand.surface};">
+<body style="margin:0;padding:0;background:#f4f5f8;">
+  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="background:#f4f5f8;">
     <tr>
-      <td align="center" style="padding:24px 12px;">
-        <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:560px;background:#ffffff;border-radius:16px;">
+      <td align="center" style="padding:32px 16px;">
+        <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="max-width:560px;background:#ffffff;border:1px solid #e6ebf1;border-radius:8px;">
           <tr>
-            <td style="padding:0;font-size:0;line-height:0;">
-              <table role="presentation" width="100%" cellpadding="0" cellspacing="0">
+            <td class="email-pad" align="center" style="padding:40px 40px 8px;background:#ffffff;">
+              <img src="${CLASS5_REMINDER_EMAIL_LOGO_URL}" alt="Qazi Driving School" width="220" style="display:block;width:220px;max-width:80%;height:auto;border:0;outline:none;text-decoration:none;">
+            </td>
+          </tr>
+          <tr>
+            <td class="email-pad" style="padding:28px 40px 0;font-family:Arial,Helvetica,sans-serif;font-size:16px;line-height:1.6;color:${ink};">
+              <p style="margin:0 0 16px;">Hi ${safeName},</p>
+              <p style="margin:0 0 16px;">This is Qazi Driving School. We saw your Class 5 registration but the first ${safeAmount} payment didn't go through.</p>
+              <p style="margin:0;">If you couldn't pay, you can use this link.</p>
+            </td>
+          </tr>
+          <tr>
+            <td class="email-pad" align="center" style="padding:28px 40px 8px;">
+              <table role="presentation" cellpadding="0" cellspacing="0" border="0" align="center">
                 <tr>
-                  <td width="34%" height="8" style="background:${brand.red};font-size:0;line-height:0;">&nbsp;</td>
-                  <td width="33%" height="8" style="background:${brand.blue};font-size:0;line-height:0;">&nbsp;</td>
-                  <td width="33%" height="8" style="background:${brand.green};font-size:0;line-height:0;">&nbsp;</td>
-                </tr>
-              </table>
-            </td>
-          </tr>
-          <tr>
-            <td align="center" style="padding:28px 24px 4px;">
-              <img src="${CLASS5_REMINDER_EMAIL_LOGO_URL}" alt="Qazi Driving School" width="168" style="display:block;width:168px;max-width:70%;height:auto;border:0;">
-            </td>
-          </tr>
-          <tr>
-            <td style="padding:16px 24px 8px;font-family:Arial,Helvetica,sans-serif;font-size:16px;line-height:1.6;color:${brand.ink};overflow-wrap:anywhere;">
-              ${sentence}
-            </td>
-          </tr>
-          <tr>
-            <td style="padding:8px 24px 28px;">
-              <table role="presentation" width="100%" cellpadding="0" cellspacing="0">
-                <tr>
-                  <td align="center" bgcolor="${brand.red}" style="border-radius:999px;background:${brand.red};">
-                    <a href="${safeUrl}" style="display:block;padding:14px 20px;font-family:Arial,Helvetica,sans-serif;font-size:16px;line-height:1.3;font-weight:bold;color:#ffffff;text-decoration:none;">Complete your payment</a>
+                  <td align="center" bgcolor="${blue}" style="background:${blue};border-radius:6px;">
+                    <!--[if mso]>
+                    <v:roundrect xmlns:v="urn:schemas-microsoft-com:vml" xmlns:w="urn:schemas-microsoft-com:office:word" href="${safeUrl}" style="height:48px;v-text-anchor:middle;width:280px;" arcsize="8%" strokecolor="${blue}" fillcolor="${blue}">
+                      <w:anchorlock/>
+                      <center style="color:#ffffff;font-family:Arial,sans-serif;font-size:16px;font-weight:bold;">${safeButton}</center>
+                    </v:roundrect>
+                    <![endif]-->
+                    <!--[if !mso]><!-->
+                    <a href="${safeUrl}" style="display:inline-block;padding:14px 28px;font-family:Arial,Helvetica,sans-serif;font-size:16px;line-height:1.2;font-weight:bold;color:#ffffff;text-decoration:none;border-radius:6px;background:${blue};white-space:nowrap;">${safeButton}</a>
+                    <!--<![endif]-->
                   </td>
                 </tr>
               </table>
             </td>
           </tr>
           <tr>
-            <td style="padding:14px 24px;background:${brand.cream};border-top:1px solid ${brand.rule};font-family:Arial,Helvetica,sans-serif;font-size:12px;line-height:1.5;color:${brand.muted};">
-              Qazi Driving School
+            <td class="email-pad" align="center" style="padding:8px 40px 0;">
+              <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0">
+                <tr>
+                  <td align="center" style="padding:12px 16px;background:#f4f5f8;border-radius:8px;font-family:Arial,Helvetica,sans-serif;font-size:14px;line-height:1.5;color:${CLASS5_REMINDER_BRAND.muted};">
+                    ${safeSummary}
+                  </td>
+                </tr>
+              </table>
+            </td>
+          </tr>
+          <tr>
+            <td class="email-pad" style="padding:20px 40px 0;font-family:Arial,Helvetica,sans-serif;font-size:16px;line-height:1.6;color:${ink};">
+              <p style="margin:0;">Let us know if you have any issues.</p>
+            </td>
+          </tr>
+          <tr>
+            <td class="email-pad" style="padding:28px 40px 8px;font-family:Arial,Helvetica,sans-serif;font-size:12px;line-height:1.6;color:${muted};">
+              Qazi Driving School<br>
+              ${escapeHtml(CLASS5_REMINDER_SCHOOL_ADDRESS)}<br>
+              ${escapeHtml(CLASS5_REMINDER_SCHOOL_PHONE)}
+            </td>
+          </tr>
+          <tr>
+            <td class="email-pad" style="padding:8px 40px 36px;font-family:Arial,Helvetica,sans-serif;font-size:12px;line-height:1.5;color:#9aa1ab;">
+              Button not working? Copy this link:<br>
+              <a href="${safeUrl}" style="color:#9aa1ab;text-decoration:underline;word-break:break-all;">${safeUrl}</a>
             </td>
           </tr>
         </table>
@@ -248,12 +311,13 @@ export async function processClass5PaymentReminderEmails(
   const createdAfter = new Date(now.getTime() - CLASS5_REMINDER_MAX_AGE_MS)
   const candidates = await deps.listCandidates({ createdAfter, createdBefore })
 
-  let amountLabel = LITERAL_FIRST_PAYMENT
+  let settingCents: number | null = null
   try {
-    amountLabel = formatClass5FirstPaymentLabel(await deps.depositCents())
+    settingCents = await deps.depositCents()
   } catch (error) {
-    console.error('[Class5ReminderEmail] Pricing read failed, using $250:', error)
+    console.error('[Class5ReminderEmail] Pricing read failed, using $250 in the sentence only:', error)
   }
+  const amountLabel = formatClass5FirstPaymentLabel(settingCents)
 
   let sent = 0
   let failed = 0
@@ -284,7 +348,8 @@ export async function processClass5PaymentReminderEmails(
       continue
     }
 
-    const built = buildClass5PaymentReminderEmail({ firstName, amountLabel, retryUrl })
+    const knownAmountLabel = knownFirstPaymentLabel(reg.paymentAmount) ?? knownFirstPaymentLabel(settingCents)
+    const built = buildClass5PaymentReminderEmail({ firstName, amountLabel, knownAmountLabel, retryUrl })
     try {
       await deps.send({ from, to: email, subject: built.subject, text: built.text, html: built.html })
     } catch (error) {

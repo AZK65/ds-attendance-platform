@@ -29,6 +29,7 @@ function registration(overrides: Partial<Class5ReminderEmailRegistration> = {}):
     fullName: 'Sam Rivera',
     email: EMAIL,
     paymentStatus: 'checkout_pending',
+    paymentAmount: 25000,
     paymentCapturedAt: null,
     paymentReturnToken: TOKEN,
     paymentCheckoutCreatedAt: minutesAgo(25),
@@ -44,25 +45,61 @@ function retryUrl(id = 'cmexample000000000000001'): string {
 
 test('subject and body use the approved wording, price, and retry link', () => {
   const url = retryUrl()
-  const email = buildClass5PaymentReminderEmail({ firstName: 'Sam', amountLabel: '$250', retryUrl: url })
-  const text = `Hi Sam, this is Qazi Driving School. We saw your Class 5 registration but the first $250 payment didn't go through. If you couldn't pay, you can use this link: ${url}. Let us know if you have any issues.`
+  const email = buildClass5PaymentReminderEmail({
+    firstName: 'Sam',
+    amountLabel: '$250',
+    knownAmountLabel: '$250',
+    retryUrl: url,
+  })
   assert.equal(email.subject, CLASS5_PAYMENT_REMINDER_EMAIL_SUBJECT)
   assert.equal(email.subject, 'Your Qazi Driving School registration payment')
-  assert.equal(email.text, text)
-  assert.equal(email.text.includes('Complete your payment'), false)
+  assert.match(email.text, /^Hi Sam,\n\nThis is Qazi Driving School\. We saw your Class 5 registration but the first \$250 payment didn't go through\./)
+  assert.ok(email.text.includes('If you couldn\'t pay, you can use this link:'))
+  assert.ok(email.text.includes(url))
+  assert.ok(email.text.includes('Let us know if you have any issues.'))
+  assert.ok(email.text.includes('786 rue Jean-Talon Ouest, Montréal, QC H3N 1S2'))
+  assert.ok(email.text.includes('(514) 274-6948'))
   assert.match(email.html, /font-family:Arial,Helvetica,sans-serif/)
-  assert.ok(email.html.includes('#e32726'))
+  assert.match(email.html, /font-size:16px/)
+  assert.match(email.html, /line-height:1\.6/)
+  assert.match(email.html, /max-width:560px/)
   assert.ok(email.html.includes('#1e3fcb'))
-  assert.ok(email.html.includes('#2fa94a'))
+  assert.equal(email.html.includes('#e32726'), false)
+  assert.equal(email.html.includes('#2fa94a'), false)
+  assert.ok(email.html.includes('width="220"'))
   assert.ok(email.html.includes('https://qazidriving.ca/qazi-logo.png'))
-  assert.ok(email.html.includes('Complete your payment'))
+  assert.ok(email.html.includes('Complete your $250 payment'))
+  assert.ok(email.html.includes('Class 5 registration · First payment $250'))
+  assert.ok(email.html.includes('v:roundrect'))
+  assert.ok(email.html.includes('Button not working? Copy this link:'))
+  assert.ok(email.html.includes('786 rue Jean-Talon Ouest, Montréal, QC H3N 1S2'))
+  assert.ok(email.html.includes('(514) 274-6948'))
   assert.ok(email.html.includes(`href="${url.replace(/&/g, '&amp;')}"`))
-  assert.ok(email.html.includes('Hi Sam, this is Qazi Driving School.'))
+  assert.equal(email.html.includes('you can use this link:'), false)
+  assert.ok(email.html.includes('Hi Sam,'))
   assert.ok(email.html.includes("the first $250 payment didn't go through."))
   assert.ok(email.html.includes('Let us know if you have any issues.'))
-  const priced = buildClass5PaymentReminderEmail({ firstName: 'Sam', amountLabel: '$300', retryUrl: url })
+
+  const priced = buildClass5PaymentReminderEmail({
+    firstName: 'Sam',
+    amountLabel: '$300',
+    knownAmountLabel: '$300',
+    retryUrl: url,
+  })
   assert.match(priced.text, /first \$300 payment/)
   assert.doesNotMatch(priced.text, /first \$250 payment/)
+  assert.ok(priced.html.includes('Complete your $300 payment'))
+
+  const unknown = buildClass5PaymentReminderEmail({
+    firstName: 'Sam',
+    amountLabel: '$250',
+    knownAmountLabel: null,
+    retryUrl: url,
+  })
+  assert.ok(unknown.html.includes('>Complete your payment<'))
+  assert.equal(unknown.html.includes('Complete your $'), false)
+  assert.equal(unknown.html.includes('First payment'), false)
+  assert.ok(unknown.html.includes('Class 5 registration'))
 })
 
 test('a Class 5 checkout with an email is eligible without a phone, and skips an address that is not usable', () => {
@@ -200,7 +237,8 @@ test('overlapping runs send one email and a later run does not send again', asyn
   assert.equal(run.sends[0].from, 'Qazi Driving School <info@qazidriving.ca>')
   assert.equal(run.sends[0].to, EMAIL)
   assert.equal(run.sends[0].subject, 'Your Qazi Driving School registration payment')
-  assert.match(run.sends[0].text, /^Hi Sam, this is Qazi Driving School\./)
+  assert.match(run.sends[0].text, /^Hi Sam,/)
+  assert.ok(run.sends[0].html.includes('Complete your $250 payment'))
   assert.match(run.sends[0].html, new RegExp(run.row.id))
   assert.equal(run.logs.filter(log => log.status === 'sent').length, 1)
 
