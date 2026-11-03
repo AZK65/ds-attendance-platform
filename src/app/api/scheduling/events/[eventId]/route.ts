@@ -12,6 +12,7 @@ import {
   syncGroupTheoryReminder,
   type GroupTheoryEvent,
 } from '@/lib/group-theory-schedule'
+import { enforceCarClassGap } from '@/lib/car-class-gap-enforce'
 import { prisma } from '@/lib/db'
 
 const BASE_URL = 'https://api.teamup.com'
@@ -53,6 +54,22 @@ export async function PUT(
     // Grab the pre-update event so we can cancel any stale reminder
     // keyed to its old date if the admin moved the class to a new day.
     const previous = await fetchTeamupEvent(eventId)
+
+    const gap = await enforceCarClassGap({
+      title,
+      notes,
+      startDate,
+      excludeEventId: eventId,
+      previousStartDate: previous?.start_dt,
+      previousTitle: previous?.title,
+      previousNotes: previous?.notes,
+    })
+    if (!gap.ok) {
+      return NextResponse.json(
+        { error: gap.error, earliestDate: gap.earliestDate },
+        { status: gap.status },
+      )
+    }
 
     const res = await fetch(`${BASE_URL}/${calendarKey}/events/${eventId}`, {
       method: 'PUT',

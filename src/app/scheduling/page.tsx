@@ -60,6 +60,27 @@ import Link from 'next/link'
 import { ContactSearchAutocomplete, type StudentGroupInfo } from '@/components/ContactSearchAutocomplete'
 import SignInMode from './SignInMode'
 import { PhoneInputWithWhatsAppCheck } from '@/components/PhoneInputWithWhatsAppCheck'
+import {
+  carClassGapViolation,
+  carSessionNumber,
+  eventBelongsToStudent,
+  isEarlyCarSession,
+  type CalendarClass,
+} from '@/lib/car-class-gap'
+
+function GapAlert({ message }: { message: string | null | undefined }) {
+  if (!message) return null
+  return (
+    <div
+      role="alert"
+      data-testid="car-class-gap-message"
+      className="bg-red-50 border border-red-200 rounded-lg p-3 text-sm text-red-800 flex items-start gap-2"
+    >
+      <AlertCircle className="h-4 w-4 flex-shrink-0 mt-0.5" />
+      <span>{message}</span>
+    </div>
+  )
+}
 
 type ViewMode = 'day' | 'week' | 'month'
 
@@ -356,6 +377,7 @@ function SchedulingPage() {
   })
   const [carBulkStep, setCarBulkStep] = useState<'form' | 'preview'>('form')
   const [carBulkCreating, setCarBulkCreating] = useState(false)
+  const [carBulkSubmitError, setCarBulkSubmitError] = useState<string | null>(null)
 
   // Teacher phone management
   const [showTeacherSettings, setShowTeacherSettings] = useState(false)
@@ -456,6 +478,95 @@ function SchedulingPage() {
       return res.json()
     },
   })
+
+  const gapIdentity = showEditDialog || (showCreateDialog && createMode !== 'bulk')
+    ? { phone: formData.studentPhone, name: formData.studentName }
+    : { phone: carBulkForm.studentPhone, name: carBulkForm.studentName }
+  const earlySessionOpen = (showCreateDialog || showEditDialog) && (
+    isEarlyCarSession(carSessionNumber({ module: formData.module, title: formData.title }))
+    || (createMode === 'bulk' && carBulkForm.classes.some(row => isEarlyCarSession(carSessionNumber({ module: row.module }))))
+  )
+  const { data: remoteCarClasses = [] } = useQuery<CalendarClass[]>({
+    queryKey: ['student-car-classes', gapIdentity.phone, gapIdentity.name],
+    enabled: earlySessionOpen && !!(gapIdentity.phone || gapIdentity.name),
+    queryFn: async () => {
+      const params = new URLSearchParams()
+      if (gapIdentity.phone) params.set('phone', gapIdentity.phone)
+      if (gapIdentity.name) params.set('studentName', gapIdentity.name)
+      const res = await fetch(`/api/scheduling/student-car-classes?${params}`)
+      if (!res.ok) throw new Error('Failed to check car class spacing')
+      const data = await res.json()
+      return (data.classes || []) as CalendarClass[]
+    },
+  })
+
+  const gapPhone = gapIdentity.phone
+  const gapName = gapIdentity.name
+  const knownCarClasses = useMemo(() => {
+    const local = events
+      .filter(event => eventBelongsToStudent(event, { phone: gapPhone, name: gapName }))
+      .map(event => ({
+        id: event.id,
+        title: event.title,
+        notes: event.notes,
+        startDate: event.start_dt,
+      }))
+    const seen = new Set<string>()
+    const merged: CalendarClass[] = []
+    for (const item of [...remoteCarClasses, ...local]) {
+      const key = item.id || `${item.startDate}|${item.title || ''}`
+      if (seen.has(key)) continue
+      seen.add(key)
+      merged.push(item)
+    }
+    return merged
+  }, [events, remoteCarClasses, gapPhone, gapName])
+
+  const singleGapViolation = useMemo(() => {
+    if (showCreateDialog && createMode === 'bulk') return null
+    if (!showCreateDialog && !showEditDialog) return null
+    return carClassGapViolation({
+      sessionNumber: carSessionNumber({ module: formData.module, title: formData.title }),
+      proposedDate: formData.date,
+      classes: knownCarClasses,
+      excludeEventId: showEditDialog ? editingEvent?.id : undefined,
+      previousDate: showEditDialog ? editingEvent?.start_dt : undefined,
+      previousSessionNumber: showEditDialog && editingEvent
+        ? carSessionNumber({ title: editingEvent.title, notes: editingEvent.notes })
+        : undefined,
+    })
+  }, [
+    showCreateDialog,
+    showEditDialog,
+    createMode,
+    formData.module,
+    formData.title,
+    formData.date,
+    knownCarClasses,
+    editingEvent,
+  ])
+
+  const bulkGapMessages = useMemo(() => {
+    if (!showCreateDialog || createMode !== 'bulk') return [] as { index: number; message: string }[]
+    return carBulkForm.classes.flatMap((row, index) => {
+      const drafts = carBulkForm.classes.flatMap((other, otherIndex) => {
+        if (otherIndex === index || !other.date) return []
+        const session = carSessionNumber({ module: other.module })
+        return [{
+          id: `draft-${otherIndex}`,
+          title: session ? `Session ${session}` : 'Car class',
+          notes: `Student: ${carBulkForm.studentName}\nPhone: ${carBulkForm.studentPhone}`,
+          startDate: other.date,
+        }]
+      })
+      const violation = carClassGapViolation({
+        sessionNumber: carSessionNumber({ module: row.module }),
+        proposedDate: row.date,
+        classes: [...knownCarClasses, ...drafts],
+      })
+      return violation ? [{ index, message: violation.message }] : []
+    })
+  }, [showCreateDialog, createMode, carBulkForm, knownCarClasses])
 
   // Fetch attendance data for current events
   const { data: attendanceMap = {} } = useQuery<Record<string, boolean>>({
@@ -748,7 +859,10 @@ function SchedulingPage() {
           notes: buildNotes(data),
         }),
       })
-      if (!res.ok) throw new Error('Failed to create event')
+      if (!res.ok) {
+        const body = await res.json().catch(() => null) as { error?: string } | null
+        throw new Error(body?.error || 'Failed to create event')
+      }
       return res.json()
     },
     onSuccess: (_, data) => {
@@ -757,6 +871,9 @@ function SchedulingPage() {
       if (data.studentPhone) sendNotification(data)
       if (data.subcalendarId) notifyTeacher(data.subcalendarId, 'created', data)
       setFormData(initialFormData)
+    },
+    onError: (err) => {
+      setDuplicateError(err instanceof Error ? err.message : 'Failed to create event')
     },
   })
 
@@ -781,7 +898,12 @@ function SchedulingPage() {
       })
       if (!res.ok) {
         const errText = await res.text()
-        throw new Error(`Failed to update event: ${errText}`)
+        let message = errText
+        try {
+          const body = JSON.parse(errText) as { error?: string }
+          if (body?.error) message = body.error
+        } catch { /* Teamup errors are plain text */ }
+        throw new Error(message || 'Failed to update event')
       }
       return res.json()
     },
@@ -821,6 +943,9 @@ function SchedulingPage() {
       }
       setEditingEvent(null)
       setFormData(initialFormData)
+    },
+    onError: (err) => {
+      setDuplicateError(err instanceof Error ? err.message : 'Failed to update event')
     },
   })
 
@@ -1211,8 +1336,10 @@ function SchedulingPage() {
   const handleCarBulkSubmit = async () => {
     if (!carBulkForm.studentName || carBulkForm.classes.length === 0) return
     if (carBulkForm.classes.some(c => !c.date || !c.subcalendarId)) return
+    if (bulkGapMessages.length > 0) return
 
     setCarBulkCreating(true)
+    setCarBulkSubmitError(null)
     let created = 0
     const errors: string[] = []
 
@@ -1255,8 +1382,8 @@ function SchedulingPage() {
             if (classData.studentPhone) sendNotification(classData)
             if (classData.subcalendarId) notifyTeacher(classData.subcalendarId, 'created', classData)
           } else {
-            const text = await res.text()
-            errors.push(`Class on ${cls.date}: ${text}`)
+            const body = await res.json().catch(() => null) as { error?: string } | null
+            errors.push(body?.error || `Class on ${cls.date} could not be booked`)
           }
         } catch (err) {
           errors.push(`Class on ${cls.date}: ${err instanceof Error ? err.message : 'Unknown error'}`)
@@ -1267,15 +1394,20 @@ function SchedulingPage() {
       }
 
       queryClient.invalidateQueries({ queryKey: ['scheduling-events'] })
-      setShowCreateDialog(false)
-      setCarBulkStep('form')
-      setCreateMode('single')
-      setCarBulkForm({
-        studentName: '', studentPhone: '', group: '', lastTheoryModule: null, lastTheoryDate: null,
-        isExtraHours: false, isPaid: false, customNotes: '', classes: [emptyCarRow()],
-      })
+      if (errors.length > 0 && created === 0) {
+        setCarBulkSubmitError(errors.join(' '))
+      } else {
+        setShowCreateDialog(false)
+        setCarBulkStep('form')
+        setCreateMode('single')
+        setCarBulkForm({
+          studentName: '', studentPhone: '', group: '', lastTheoryModule: null, lastTheoryDate: null,
+          isExtraHours: false, isPaid: false, customNotes: '', classes: [emptyCarRow()],
+        })
+      }
       console.log(`Bulk car classes created: ${created}/${carBulkForm.classes.length}${errors.length > 0 ? `, errors: ${errors.length}` : ''}`)
     } catch {
+      setCarBulkSubmitError('Bulk car class creation failed')
       console.error('Bulk car class creation failed')
     } finally {
       setCarBulkCreating(false)
@@ -1753,6 +1885,7 @@ function SchedulingPage() {
     // Time-window guard (car classes only — truck classes use their own form)
     const timeErr = carClassTimeError(formData)
     if (timeErr) { setDuplicateError(timeErr); return }
+    if (singleGapViolation) { setDuplicateError(singleGapViolation.message); return }
     const dup = checkDuplicate(formData)
     if (dup) { setDuplicateError(dup); return }
     createMutation.mutate(formData)
@@ -1772,6 +1905,7 @@ function SchedulingPage() {
       const timeErr = carClassTimeError(data)
       if (timeErr) { setDuplicateError(timeErr); return }
     }
+    if (singleGapViolation) { setDuplicateError(singleGapViolation.message); return }
     const dup = checkDuplicate(data, editingEvent.id)
     if (dup) { setDuplicateError(dup); return }
     // Extract original start time (HH:MM) from editingEvent.start_dt for cancel-reminder matching
@@ -2416,6 +2550,7 @@ function SchedulingPage() {
           </p>
         )
       })()}
+      <GapAlert message={singleGapViolation?.message} />
       <div>
         <Label>Notes (optional)</Label>
         <textarea
@@ -2656,7 +2791,7 @@ function SchedulingPage() {
                     <Button variant="outline" onClick={() => setShowCreateDialog(false)}>Cancel</Button>
                     <Button
                       onClick={handleCreate}
-                      disabled={createMutation.isPending || (!formData.module && !formData.title) || !formData.subcalendarId || !formData.date}
+                      disabled={createMutation.isPending || (!formData.module && !formData.title) || !formData.subcalendarId || !formData.date || !!singleGapViolation}
                     >
                       {createMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : <Plus className="h-4 w-4 mr-2" />}
                       Create
@@ -2809,6 +2944,7 @@ function SchedulingPage() {
                                 />
                               </div>
                             </div>
+                            <GapAlert message={bulkGapMessages.find(item => item.index === idx)?.message} />
                           </div>
                         ))}
                       </div>
@@ -2831,7 +2967,7 @@ function SchedulingPage() {
                     <Button variant="outline" onClick={() => setShowCreateDialog(false)}>Cancel</Button>
                     <Button
                       onClick={() => setCarBulkStep('preview')}
-                      disabled={!carBulkForm.studentName || carBulkForm.classes.some(c => !c.date || !c.subcalendarId)}
+                      disabled={!carBulkForm.studentName || carBulkForm.classes.some(c => !c.date || !c.subcalendarId) || bulkGapMessages.length > 0}
                     >
                       Review Schedule
                       <ChevronRight className="h-4 w-4 ml-1" />
@@ -2935,9 +3071,11 @@ function SchedulingPage() {
                 <Button variant="outline" onClick={() => setCarBulkStep('form')} className="sm:mr-auto">
                   <ArrowLeft className="h-4 w-4 mr-1" />Back
                 </Button>
+                {carBulkSubmitError && <GapAlert message={carBulkSubmitError} />}
+                {bulkGapMessages[0] && <GapAlert message={bulkGapMessages[0].message} />}
                 <Button
                   onClick={handleCarBulkSubmit}
-                  disabled={carBulkCreating}
+                  disabled={carBulkCreating || bulkGapMessages.length > 0}
                 >
                   {carBulkCreating ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : <Check className="h-4 w-4 mr-2" />}
                   Create All ({carBulkForm.classes.length})
@@ -2971,7 +3109,7 @@ function SchedulingPage() {
               <Button variant="outline" onClick={() => setShowEditDialog(false)}>Cancel</Button>
               <Button
                 onClick={handleUpdate}
-                disabled={updateMutation.isPending || !formData.date}
+                disabled={updateMutation.isPending || !formData.date || !!singleGapViolation}
               >
                 {updateMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : null}
                 Save

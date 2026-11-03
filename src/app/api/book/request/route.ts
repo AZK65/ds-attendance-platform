@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/db'
 import { bookingTokenFromRequest } from '@/lib/booking-auth'
+import { enforceCarClassGap } from '@/lib/car-class-gap-enforce'
 
 const TEAMUP_BASE = 'https://api.teamup.com'
 
@@ -35,6 +36,21 @@ export async function POST(request: NextRequest) {
 
     const displayName = student.name.replace(/\s*#\s*\d+\s*$/i, '').trim()
     const studentPhone = auth.phone || student.phone || ''
+
+    const gap = await enforceCarClassGap({
+      title: `Sortie ${sortieNumber} — ${displayName}`,
+      notes: `Student: ${displayName}\nPhone: ${studentPhone}\nRoad Class: #${sortieNumber}`,
+      startDate: slotStart,
+      sortieNumber,
+      phone: studentPhone,
+      studentName: displayName,
+    })
+    if (!gap.ok) {
+      return NextResponse.json(
+        { error: gap.error, earliestDate: gap.earliestDate },
+        { status: gap.status },
+      )
+    }
 
     let teamupEventId: string | null = null
     let teamupError: string | null = null
