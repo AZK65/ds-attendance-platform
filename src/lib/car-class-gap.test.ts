@@ -2,6 +2,7 @@ import assert from 'node:assert/strict'
 import { test } from 'node:test'
 import {
   carClassGapApplies,
+  carClassGapErrorText,
   carClassGapViolation,
   carSessionNumber,
   earlyCarClassGapBeforeMessage,
@@ -9,6 +10,7 @@ import {
   eventBelongsToStudent,
   isCountableCarClass,
   mergeScheduledCarClasses,
+  suggestionButtonLabel,
   type CalendarClass,
 } from './car-class-gap'
 
@@ -255,6 +257,101 @@ test('another student and a different phone do not count', () => {
     proposedDate: '2026-03-03',
     classes: events.filter(event => eventBelongsToStudent(event, { phone: '5145550000', name: 'Sam Rivera' })),
   })?.earliestDate, '2026-03-09')
+})
+
+test('suggests the same time on the earliest day that clears both neighboring car classes', () => {
+  const previous = carClass('2026-03-01')
+  const next = carClass('2026-03-10', { id: 'next', title: 'Session 4 - Jane Doe' })
+  const violation = carClassGapViolation({
+    sessionNumber: 2,
+    proposedDate: '2026-03-06',
+    time: '14:00',
+    classes: [previous, next],
+  })
+  assert.ok(violation?.suggestion)
+  assert.equal(violation.suggestion.date, '2026-03-17')
+  assert.equal(violation.suggestion.time, '14:00')
+  assert.equal(violation.suggestion.adjustedForInstructor, false)
+  assert.equal(violation.suggestion.label, 'Use Tue, Mar 17 at 2:00 PM instead')
+  assert.equal(violation.suggestion.label, suggestionButtonLabel('2026-03-17', '14:00'))
+  assert.equal(carClassGapViolation({
+    sessionNumber: 2,
+    proposedDate: violation.suggestion.date,
+    time: '14:00',
+    classes: [previous, next],
+  }), null)
+  assert.equal(
+    carClassGapErrorText(violation),
+    'Modules 1–3 need at least 7 days between car classes. The earliest date for this student is March 8, 2026. This date is also fewer than 7 days before the car class on March 10, 2026. Suggested: Tue, Mar 17 at 2:00 PM.',
+  )
+})
+
+test('a plain too-early booking suggests 7 days after the previous class at the same time', () => {
+  const violation = carClassGapViolation({
+    sessionNumber: 1,
+    proposedDate: '2026-03-06T14:00:00',
+    classes: [carClass('2026-03-01')],
+  })
+  assert.ok(violation?.suggestion)
+  assert.equal(violation.suggestion.date, '2026-03-08')
+  assert.equal(violation.suggestion.time, '14:00')
+  assert.equal(violation.suggestion.label, 'Use Sun, Mar 8 at 2:00 PM instead')
+  assert.equal(carClassGapViolation({
+    sessionNumber: 1,
+    proposedDate: '2026-03-08',
+    time: '14:00',
+    classes: [carClass('2026-03-01')],
+  }), null)
+})
+
+test('skips a gap-valid day when the instructor is already booked at that time', () => {
+  const classes = [carClass('2026-03-01')]
+  const violation = carClassGapViolation({
+    sessionNumber: 2,
+    proposedDate: '2026-03-06',
+    time: '14:00',
+    classes,
+    isBusy: (date) => date === '2026-03-08',
+  })
+  assert.ok(violation?.suggestion)
+  assert.equal(violation.suggestion.date, '2026-03-09')
+  assert.equal(violation.suggestion.time, '14:00')
+  assert.equal(violation.suggestion.adjustedForInstructor, true)
+  assert.equal(violation.suggestion.label, 'Use Mon, Mar 9 at 2:00 PM instead')
+  assert.equal(carClassGapViolation({
+    sessionNumber: 2,
+    proposedDate: '2026-03-09',
+    time: '14:00',
+    classes,
+  }), null)
+})
+
+test('says so when no same-time day in range is free', () => {
+  const violation = carClassGapViolation({
+    sessionNumber: 3,
+    proposedDate: '2026-03-06',
+    time: '14:00',
+    classes: [carClass('2026-03-01')],
+    horizonDays: 4,
+    isBusy: () => true,
+  })
+  assert.ok(violation)
+  assert.equal(violation.suggestion, null)
+  assert.match(violation.noSuggestion || '', /No free day at 2:00 PM in the next 4 days/)
+  assert.match(violation.noSuggestion || '', /instructor's calendar/)
+})
+
+test('a date that is only too close to a later class suggests the next valid day, not an earlier one', () => {
+  const violation = carClassGapViolation({
+    sessionNumber: 1,
+    proposedDate: '2026-03-04',
+    time: '09:30',
+    classes: [carClass('2026-03-10', { title: 'Session 5 - Jane Doe' })],
+  })
+  assert.ok(violation?.suggestion)
+  assert.equal(violation.suggestion.date, '2026-03-17')
+  assert.equal(violation.suggestion.time, '09:30')
+  assert.equal(violation.suggestion.label, 'Use Tue, Mar 17 at 9:30 AM instead')
 })
 
 test('titles from the scheduler and the student portal parse as car sessions', () => {

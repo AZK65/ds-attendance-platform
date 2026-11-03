@@ -1,6 +1,6 @@
 'use client'
 
-import React, { useState, useMemo, useEffect, useRef, Suspense } from 'react'
+import React, { useState, useMemo, useEffect, useRef, useCallback, Suspense } from 'react'
 import { useSearchParams } from 'next/navigation'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { Button } from '@/components/ui/button'
@@ -66,9 +66,20 @@ import {
   eventBelongsToStudent,
   isEarlyCarSession,
   type CalendarClass,
+  type CarClassSuggestion,
 } from '@/lib/car-class-gap'
 
-function GapAlert({ message }: { message: string | null | undefined }) {
+function GapAlert({
+  message,
+  suggestion,
+  noSuggestion,
+  onUseSuggestion,
+}: {
+  message: string | null | undefined
+  suggestion?: CarClassSuggestion | null
+  noSuggestion?: string | null
+  onUseSuggestion?: () => void
+}) {
   if (!message) return null
   return (
     <div
@@ -77,7 +88,23 @@ function GapAlert({ message }: { message: string | null | undefined }) {
       className="bg-red-50 border border-red-200 rounded-lg p-3 text-sm text-red-800 flex items-start gap-2"
     >
       <AlertCircle className="h-4 w-4 flex-shrink-0 mt-0.5" />
-      <span>{message}</span>
+      <div>
+        <p>{message}</p>
+        {suggestion && onUseSuggestion && (
+          <button
+            type="button"
+            data-testid="car-class-gap-suggestion"
+            onClick={onUseSuggestion}
+            className="mt-2 inline-flex items-center rounded-md border border-red-300 bg-white px-2.5 py-1 text-xs font-medium text-red-800 hover:bg-red-100"
+          >
+            {suggestion.label}
+          </button>
+        )}
+        {suggestion?.adjustedForInstructor && (
+          <p className="mt-1 text-xs text-red-700">That time is taken on an earlier day, so this is the next open one.</p>
+        )}
+        {noSuggestion && <p className="mt-1 text-xs text-red-700">{noSuggestion}</p>}
+      </div>
     </div>
   )
 }
@@ -522,52 +549,6 @@ function SchedulingPage() {
     return merged
   }, [events, remoteCarClasses, gapPhone, gapName])
 
-  const singleGapViolation = useMemo(() => {
-    if (showCreateDialog && createMode === 'bulk') return null
-    if (!showCreateDialog && !showEditDialog) return null
-    return carClassGapViolation({
-      sessionNumber: carSessionNumber({ module: formData.module, title: formData.title }),
-      proposedDate: formData.date,
-      classes: knownCarClasses,
-      excludeEventId: showEditDialog ? editingEvent?.id : undefined,
-      previousDate: showEditDialog ? editingEvent?.start_dt : undefined,
-      previousSessionNumber: showEditDialog && editingEvent
-        ? carSessionNumber({ title: editingEvent.title, notes: editingEvent.notes })
-        : undefined,
-    })
-  }, [
-    showCreateDialog,
-    showEditDialog,
-    createMode,
-    formData.module,
-    formData.title,
-    formData.date,
-    knownCarClasses,
-    editingEvent,
-  ])
-
-  const bulkGapMessages = useMemo(() => {
-    if (!showCreateDialog || createMode !== 'bulk') return [] as { index: number; message: string }[]
-    return carBulkForm.classes.flatMap((row, index) => {
-      const drafts = carBulkForm.classes.flatMap((other, otherIndex) => {
-        if (otherIndex === index || !other.date) return []
-        const session = carSessionNumber({ module: other.module })
-        return [{
-          id: `draft-${otherIndex}`,
-          title: session ? `Session ${session}` : 'Car class',
-          notes: `Student: ${carBulkForm.studentName}\nPhone: ${carBulkForm.studentPhone}`,
-          startDate: other.date,
-        }]
-      })
-      const violation = carClassGapViolation({
-        sessionNumber: carSessionNumber({ module: row.module }),
-        proposedDate: row.date,
-        classes: [...knownCarClasses, ...drafts],
-      })
-      return violation ? [{ index, message: violation.message }] : []
-    })
-  }, [showCreateDialog, createMode, carBulkForm, knownCarClasses])
-
   // Fetch attendance data for current events
   const { data: attendanceMap = {} } = useQuery<Record<string, boolean>>({
     queryKey: ['class-attendance', events.map(e => e.id).join(',')],
@@ -709,6 +690,100 @@ function SchedulingPage() {
     }
     return map
   }, [teacherPhoneData])
+
+  const instructorBusyAt = useCallback((date: string, time: string, subcalendarId: string, excludeEventId?: string) => {
+    if (!date || !time || !subcalendarId) return false
+    const ownKey = subcalendarKeyMap.get(subcalendarId)
+    const conflictSubcalendars = ownKey
+      ? (teacherKeyToSubcalendars.get(ownKey) || new Set([subcalendarId]))
+      : new Set([subcalendarId])
+    return events.some(event => {
+      if (excludeEventId && event.id === excludeEventId) return false
+      const eventDate = event.start_dt.split('T')[0]
+      const eventTime = event.start_dt.slice(11, 16)
+      const eventTeacher = event.subcalendar_ids?.[0]?.toString()
+      return eventDate === date && eventTime === time && eventTeacher !== undefined && conflictSubcalendars.has(eventTeacher)
+    })
+  }, [events, subcalendarKeyMap, teacherKeyToSubcalendars])
+
+  const singleGapViolation = useMemo(() => {
+    if (showCreateDialog && createMode === 'bulk') return null
+    if (!showCreateDialog && !showEditDialog) return null
+    const excludeEventId = showEditDialog ? editingEvent?.id : undefined
+    return carClassGapViolation({
+      sessionNumber: carSessionNumber({ module: formData.module, title: formData.title }),
+      proposedDate: formData.date,
+      time: formData.startTime,
+      classes: knownCarClasses,
+      excludeEventId,
+      previousDate: showEditDialog ? editingEvent?.start_dt : undefined,
+      previousSessionNumber: showEditDialog && editingEvent
+        ? carSessionNumber({ title: editingEvent.title, notes: editingEvent.notes })
+        : undefined,
+      isBusy: (date) => instructorBusyAt(date, formData.startTime, formData.subcalendarId, excludeEventId),
+    })
+  }, [
+    showCreateDialog,
+    showEditDialog,
+    createMode,
+    formData.module,
+    formData.title,
+    formData.date,
+    formData.startTime,
+    formData.subcalendarId,
+    knownCarClasses,
+    editingEvent,
+    instructorBusyAt,
+  ])
+
+  const bulkGapMessages = useMemo(() => {
+    if (!showCreateDialog || createMode !== 'bulk') return [] as Array<{
+      index: number
+      message: string
+      suggestion: CarClassSuggestion | null
+      noSuggestion: string | null
+    }>
+    return carBulkForm.classes.flatMap((row, index) => {
+      const drafts = carBulkForm.classes.flatMap((other, otherIndex) => {
+        if (otherIndex === index || !other.date) return []
+        const session = carSessionNumber({ module: other.module })
+        return [{
+          id: `draft-${otherIndex}`,
+          title: session ? `Session ${session}` : 'Car class',
+          notes: `Student: ${carBulkForm.studentName}\nPhone: ${carBulkForm.studentPhone}`,
+          startDate: other.date,
+        }]
+      })
+      const violation = carClassGapViolation({
+        sessionNumber: carSessionNumber({ module: row.module }),
+        proposedDate: row.date,
+        time: row.startTime,
+        classes: [...knownCarClasses, ...drafts],
+        isBusy: (date) => {
+          const draftClash = carBulkForm.classes.some((other, otherIndex) => (
+            otherIndex !== index
+            && other.date === date
+            && other.startTime === row.startTime
+            && other.subcalendarId
+            && other.subcalendarId === row.subcalendarId
+          ))
+          return draftClash || instructorBusyAt(date, row.startTime, row.subcalendarId)
+        },
+      })
+      return violation ? [{
+        index,
+        message: violation.message,
+        suggestion: violation.suggestion,
+        noSuggestion: violation.noSuggestion,
+      }] : []
+    })
+  }, [
+    showCreateDialog,
+    createMode,
+    carBulkForm,
+    knownCarClasses,
+    instructorBusyAt,
+  ])
 
   // Notify teacher about class change (fire-and-forget)
   const notifyTeacher = (subcalendarId: string, type: 'created' | 'updated' | 'deleted', data: EventFormData) => {
@@ -2550,7 +2625,17 @@ function SchedulingPage() {
           </p>
         )
       })()}
-      <GapAlert message={singleGapViolation?.message} />
+      <GapAlert
+        message={singleGapViolation?.message}
+        suggestion={singleGapViolation?.suggestion}
+        noSuggestion={singleGapViolation?.noSuggestion}
+        onUseSuggestion={singleGapViolation?.suggestion ? () => {
+          const next = singleGapViolation.suggestion
+          if (!next) return
+          setFormData(prev => ({ ...prev, date: next.date, startTime: next.time }))
+          setDuplicateError(null)
+        } : undefined}
+      />
       <div>
         <Label>Notes (optional)</Label>
         <textarea
@@ -2944,7 +3029,16 @@ function SchedulingPage() {
                                 />
                               </div>
                             </div>
-                            <GapAlert message={bulkGapMessages.find(item => item.index === idx)?.message} />
+                            <GapAlert
+                              message={bulkGapMessages.find(item => item.index === idx)?.message}
+                              suggestion={bulkGapMessages.find(item => item.index === idx)?.suggestion}
+                              noSuggestion={bulkGapMessages.find(item => item.index === idx)?.noSuggestion}
+                              onUseSuggestion={() => {
+                                const next = bulkGapMessages.find(item => item.index === idx)?.suggestion
+                                if (!next) return
+                                updateCarClass(idx, { date: next.date, startTime: next.time })
+                              }}
+                            />
                           </div>
                         ))}
                       </div>
@@ -3072,7 +3166,19 @@ function SchedulingPage() {
                   <ArrowLeft className="h-4 w-4 mr-1" />Back
                 </Button>
                 {carBulkSubmitError && <GapAlert message={carBulkSubmitError} />}
-                {bulkGapMessages[0] && <GapAlert message={bulkGapMessages[0].message} />}
+                {bulkGapMessages[0] && (
+                  <GapAlert
+                    message={bulkGapMessages[0].message}
+                    suggestion={bulkGapMessages[0].suggestion}
+                    noSuggestion={bulkGapMessages[0].noSuggestion}
+                    onUseSuggestion={() => {
+                      const next = bulkGapMessages[0]?.suggestion
+                      if (!next) return
+                      updateCarClass(bulkGapMessages[0].index, { date: next.date, startTime: next.time })
+                      setCarBulkStep('form')
+                    }}
+                  />
+                )}
                 <Button
                   onClick={handleCarBulkSubmit}
                   disabled={carBulkCreating || bulkGapMessages.length > 0}

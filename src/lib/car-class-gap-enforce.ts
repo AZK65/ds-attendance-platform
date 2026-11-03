@@ -2,8 +2,10 @@ import { prisma } from '@/lib/db'
 import {
   calendarDate,
   carClassGapApplies,
+  carClassGapErrorText,
   carClassGapViolation,
   carSessionNumber,
+  clockTime,
   eventBelongsToStudent,
   mergeScheduledCarClasses,
   phoneSuffix,
@@ -11,6 +13,7 @@ import {
   stripTeamupText,
   type CalendarClass,
   type CarClassGapViolation,
+  type CarClassSuggestion,
 } from '@/lib/car-class-gap'
 
 const TEAMUP_BASE = 'https://api.teamup.com'
@@ -43,7 +46,13 @@ export interface EnforceCarClassGapArgs {
 
 export type CarClassGapDecision =
   | { ok: true }
-  | { ok: false; status: 409 | 503; error: string; earliestDate: string | null }
+  | {
+    ok: false
+    status: 409 | 503
+    error: string
+    earliestDate: string | null
+    suggestion: CarClassSuggestion | null
+  }
 
 function phoneFromNotes(notes?: string | null): string | null {
   const match = stripTeamupText(notes).match(/(?:^|\n)\s*Phone:\s*([^\n]+)/i)
@@ -211,7 +220,13 @@ function dedupeClasses(lists: CalendarClass[][]): CalendarClass[] {
 
 function violationToDecision(violation: CarClassGapViolation | null): CarClassGapDecision {
   if (!violation) return { ok: true }
-  return { ok: false, status: 409, error: violation.message, earliestDate: violation.earliestDate }
+  return {
+    ok: false,
+    status: 409,
+    error: carClassGapErrorText(violation),
+    earliestDate: violation.earliestDate,
+    suggestion: violation.suggestion,
+  }
 }
 
 /**
@@ -263,9 +278,10 @@ export async function enforceCarClassGap(args: EnforceCarClassGapArgs): Promise<
       ...violationArgs,
       classes,
       excludeEventId: args.excludeEventId,
+      time: clockTime(args.startDate),
     }))
   } catch (error) {
     console.error('[car-class-gap] lookup failed:', error)
-    return { ok: false, status: 503, error: CAR_CLASS_GAP_UNVERIFIED, earliestDate: null }
+    return { ok: false, status: 503, error: CAR_CLASS_GAP_UNVERIFIED, earliestDate: null, suggestion: null }
   }
 }

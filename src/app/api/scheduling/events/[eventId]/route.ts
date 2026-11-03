@@ -66,7 +66,7 @@ export async function PUT(
     })
     if (!gap.ok) {
       return NextResponse.json(
-        { error: gap.error, earliestDate: gap.earliestDate },
+        { error: gap.error, earliestDate: gap.earliestDate, suggestion: gap.suggestion },
         { status: gap.status },
       )
     }

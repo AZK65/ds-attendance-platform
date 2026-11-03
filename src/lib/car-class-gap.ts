@@ -30,10 +30,30 @@ export interface CalendarClass {
   cancelled?: boolean
 }
 
+export const CAR_CLASS_SUGGESTION_HORIZON_DAYS = 84
+
+const WEEKDAYS_SHORT = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
+const MONTHS_SHORT = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
+
+export interface CarClassSuggestion {
+  /** YYYY-MM-DD */
+  date: string
+  /** HH:MM, the time of day the user already picked. */
+  time: string
+  /** "Use Sun, Nov 8 at 2:00 PM instead" */
+  label: string
+  /** An earlier day cleared the 7-day gap but the instructor is already booked then. */
+  adjustedForInstructor: boolean
+}
+
 export interface CarClassGapViolation {
   message: string
   /** YYYY-MM-DD when the block is "too soon after" a car class. */
   earliestDate: string | null
+  /** Next bookable day at the same time, or null when none exists in range. */
+  suggestion: CarClassSuggestion | null
+  /** Shown when no same-time day in range satisfies the gap (and the instructor, if known). */
+  noSuggestion: string | null
 }
 
 export function formatGapDate(isoDate: string): string {
@@ -49,6 +69,48 @@ export function earlyCarClassGapMessage(earliestDate: string): string {
 
 export function earlyCarClassGapBeforeMessage(nextDate: string): string {
   return `Modules 1–3 need at least 7 days between car classes. This date is fewer than 7 days before the car class on ${formatGapDate(nextDate)}.`
+}
+
+export function formatTime12h(hhmm: string): string {
+  const match = hhmm.match(/(\d{1,2}):(\d{2})/)
+  if (!match) return hhmm
+  let hour = Number(match[1])
+  const minute = match[2]
+  const period = hour >= 12 ? 'PM' : 'AM'
+  hour = hour % 12
+  if (hour === 0) hour = 12
+  return `${hour}:${minute} ${period}`
+}
+
+export function clockTime(value: string | null | undefined): string | null {
+  if (!value) return null
+  const match = String(value).match(/(\d{2}):(\d{2})/)
+  if (!match) return null
+  const hour = Number(match[1])
+  const minute = Number(match[2])
+  if (hour > 23 || minute > 59) return null
+  return `${match[1]}:${match[2]}`
+}
+
+/** "Sun, Nov 8 at 2:00 PM" */
+export function formatSuggestionWhen(date: string, time: string): string {
+  const [year, month, day] = date.split('-').map(Number)
+  const utc = new Date(Date.UTC(year, (month || 1) - 1, day || 1))
+  const weekday = WEEKDAYS_SHORT[utc.getUTCDay()] || ''
+  const monthName = MONTHS_SHORT[(month || 1) - 1] || ''
+  return `${weekday}, ${monthName} ${day} at ${formatTime12h(time)}`
+}
+
+export function suggestionButtonLabel(date: string, time: string): string {
+  return `Use ${formatSuggestionWhen(date, time)} instead`
+}
+
+export function carClassGapErrorText(violation: CarClassGapViolation): string {
+  if (violation.suggestion) {
+    return `${violation.message} Suggested: ${formatSuggestionWhen(violation.suggestion.date, violation.suggestion.time)}.`
+  }
+  if (violation.noSuggestion) return `${violation.message} ${violation.noSuggestion}`
+  return violation.message
 }
 
 export function stripTeamupText(value: string | null | undefined): string {
@@ -261,6 +323,80 @@ export function mergeScheduledCarClasses(
   return extra.length ? [...events, ...extra] : events
 }
 
+function countableCarDates(classes: CalendarClass[], excludeEventId?: string): string[] {
+  const dates: string[] = []
+  for (const event of classes) {
+    if (excludeEventId && event.id && event.id === excludeEventId) continue
+    if (!isCountableCarClass(event)) continue
+    const date = calendarDate(event.startDate)
+    if (date) dates.push(date)
+  }
+  return dates
+}
+
+function dateClearsCarClassGap(day: string, carDates: string[]): boolean {
+  return carDates.every(date => Math.abs(calendarDaysBetween(date, day)) >= CAR_CLASS_GAP_DAYS)
+}
+
+/**
+ * Earliest day at the picked time that is at least 7 days from every other
+ * car class. Search starts at the later of the picked day and 7 days after
+ * the previous car class, then walks forward. Days the instructor already
+ * has at that time are skipped when `isBusy` is provided.
+ */
+export function findCarClassSuggestion(args: {
+  proposedDate: string
+  classes: CalendarClass[]
+  excludeEventId?: string
+  time?: string | null
+  isBusy?: (date: string) => boolean
+  horizonDays?: number
+}): { suggestion: CarClassSuggestion } | { noSuggestion: string } {
+  const proposed = calendarDate(args.proposedDate)
+  const time = clockTime(args.time) || clockTime(args.proposedDate) || '09:00'
+  const horizon = args.horizonDays ?? CAR_CLASS_SUGGESTION_HORIZON_DAYS
+  const carDates = countableCarDates(args.classes, args.excludeEventId)
+  if (!proposed) {
+    return { noSuggestion: `No date in the next ${horizon} days is at least 7 days from this student's other car classes.` }
+  }
+
+  let floor = proposed
+  for (const date of carDates) {
+    if (date <= proposed) {
+      const after = addCalendarDays(date, CAR_CLASS_GAP_DAYS)
+      if (after > floor) floor = after
+    }
+  }
+
+  let skippedBusy = false
+  for (let offset = 0; offset < horizon; offset++) {
+    const day = addCalendarDays(floor, offset)
+    if (!dateClearsCarClassGap(day, carDates)) continue
+    if (args.isBusy?.(day)) {
+      skippedBusy = true
+      continue
+    }
+    return {
+      suggestion: {
+        date: day,
+        time,
+        label: suggestionButtonLabel(day, time),
+        adjustedForInstructor: skippedBusy,
+      },
+    }
+  }
+
+  const clock = formatTime12h(time)
+  if (skippedBusy) {
+    return {
+      noSuggestion: `No free day at ${clock} in the next ${horizon} days is at least 7 days from this student's other car classes. The open days at that time are already on the instructor's calendar.`,
+    }
+  }
+  return {
+    noSuggestion: `No date in the next ${horizon} days is at least 7 days from this student's other car classes.`,
+  }
+}
+
 export function carClassGapViolation(args: {
   sessionNumber: number | null
   proposedDate: string
@@ -268,6 +404,9 @@ export function carClassGapViolation(args: {
   excludeEventId?: string
   previousDate?: string | null
   previousSessionNumber?: number | null
+  time?: string | null
+  isBusy?: (date: string) => boolean
+  horizonDays?: number
 }): CarClassGapViolation | null {
   if (!carClassGapApplies(args)) return null
   const proposed = calendarDate(args.proposedDate)
@@ -275,12 +414,9 @@ export function carClassGapViolation(args: {
 
   let previousConflict: string | null = null
   let nextConflict: string | null = null
+  const carDates = countableCarDates(args.classes, args.excludeEventId)
 
-  for (const event of args.classes) {
-    if (args.excludeEventId && event.id && event.id === args.excludeEventId) continue
-    if (!isCountableCarClass(event)) continue
-    const date = calendarDate(event.startDate)
-    if (!date) continue
+  for (const date of carDates) {
     const delta = calendarDaysBetween(date, proposed)
     if (delta >= 0 && delta < CAR_CLASS_GAP_DAYS) {
       if (!previousConflict || date > previousConflict) previousConflict = date
@@ -291,17 +427,23 @@ export function carClassGapViolation(args: {
 
   if (!previousConflict && !nextConflict) return null
 
+  const found = findCarClassSuggestion(args)
+  const suggestion = 'suggestion' in found ? found.suggestion : null
+  const noSuggestion = 'noSuggestion' in found ? found.noSuggestion : null
+
   if (previousConflict) {
     const earliestDate = addCalendarDays(previousConflict, CAR_CLASS_GAP_DAYS)
     let message = earlyCarClassGapMessage(earliestDate)
     if (nextConflict) {
       message += ` This date is also fewer than 7 days before the car class on ${formatGapDate(nextConflict)}.`
     }
-    return { message, earliestDate }
+    return { message, earliestDate, suggestion, noSuggestion }
   }
 
   return {
     message: earlyCarClassGapBeforeMessage(nextConflict as string),
     earliestDate: null,
+    suggestion,
+    noSuggestion,
   }
 }
