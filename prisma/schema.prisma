@@ -503,7 +503,10 @@ model StudentRegistration {
   // Set when an automatic Class 5 unpaid-checkout WhatsApp reminder is claimed.
   // Cleared if that send fails before delivery, so a later run can retry.
   // Left set after a successful send so the registration is reminded at most once.
-  paymentReminderSentAt    DateTime?
+  paymentReminderSentAt      DateTime?
+  // Email follow-up for the same unpaid Class 5 checkout. Separate from the
+  // WhatsApp timestamp so one channel can succeed while the other retries.
+  paymentReminderEmailSentAt DateTime?
 
   source         String? // "qr", "online-registration", etc.
 
