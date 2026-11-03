@@ -10,6 +10,12 @@ import {
 } from '@/lib/booklet-format'
 import { BRAND } from '@/lib/brand'
 import { logoDataUrl } from '@/lib/brand-assets'
+import {
+  CLASS1_PRACTICAL_CLASS_COUNT,
+  CLASS1_PRACTICAL_HOURS,
+  bookletRowsFromSignedLabels,
+  type PracticalBookletRow,
+} from '@/lib/practical-classes'
 
 export interface AttendanceSignatureInput {
   eventId: string
@@ -65,7 +71,14 @@ export interface AttendancePdfInput {
   phone: string
   isTruck: boolean
   theory?: TheoryBooklet | null
+  /**
+   * 25 practical rows of 2 hours. When omitted, signed practical labels
+   * are placed in time order and the rest of the 25 rows stay blank.
+   */
+  practicalRows?: PracticalBookletRow[] | null
 }
+
+export type { PracticalBookletRow }
 
 type CarRow = {
   kind: 'module' | 'sortie' | 'other'
@@ -272,17 +285,59 @@ function theorySessionSigned(session: { basis: string; signatureDataUrl?: string
 export function countClass1SignedLessons(input: {
   theory?: { sessions: Array<{ basis: string; signatureDataUrl?: string | null }> } | null
   signatures: AttendanceSignatureInput[]
+  practicalRows?: PracticalBookletRow[] | null
 }): { theory: number; practical: number } {
   const rows = truckRows(input.signatures)
   const theory = input.theory && input.theory.sessions.length > 0
     ? input.theory.sessions.filter(theorySessionSigned).length
     : rows.theory.length
-  return { theory, practical: rows.practical.length }
+  const practical = input.practicalRows && input.practicalRows.length > 0
+    ? input.practicalRows.filter(row => !!row.studentSignature).length
+    : rows.practical.length
+  return { theory, practical }
 }
 
-const TruckDocument = ({ signatures, studentName, phone, theory }: Omit<AttendancePdfInput, 'isTruck'>) => {
+function resolvePracticalRows(
+  signatures: AttendanceSignatureInput[],
+  provided?: PracticalBookletRow[] | null,
+): PracticalBookletRow[] {
+  if (provided && provided.length > 0) return provided
+  return bookletRowsFromSignedLabels(signatures.map(signature => ({
+    eventId: signature.eventId,
+    sessionLabel: signature.sessionLabel,
+    sortieNumber: signature.sortieNumber,
+    signatureDataUrl: signature.signatureDataUrl,
+    signedAt: signature.signedAt,
+    scheduledStart: signature.scheduledStart,
+    instructorName: signature.instructorName,
+    instructorNo: signature.instructorNo,
+    instructorSignatureDataUrl: signature.instructorSignatureDataUrl,
+  })))
+}
+
+const PracticalClassTable = ({ rows }: { rows: PracticalBookletRow[] }) => React.createElement(View, { style: styles.table },
+  React.createElement(TruckTableHeader),
+  ...rows.map(row => React.createElement(View, { key: `practical-${row.classNumber}`, style: styles.row, wrap: false },
+    classNameCell(row.label, [row.netLabel, row.note].filter(Boolean).join(' · ') || null),
+    React.createElement(Text, { style: styles.truckDate }, row.when || ''),
+    React.createElement(View, { style: styles.truckSig },
+      row.studentSignature
+        ? React.createElement(Image, { src: row.studentSignature, style: styles.truckSigImage })
+        : React.createElement(Text, { style: styles.pending }, ''),
+    ),
+    React.createElement(View, { style: styles.truckInstructor }, row.when ? instructorNameCell(row.instructorName, row.instructorNo) : React.createElement(Text, { style: styles.pending }, '')),
+    React.createElement(View, { style: styles.truckSig }, instructorSignatureCell(row.instructorSignature)),
+  )),
+)
+
+const TruckDocument = ({ signatures, studentName, phone, theory, practicalRows }: Omit<AttendancePdfInput, 'isTruck'>) => {
   const rows = truckRows(signatures)
-  const signedCounts = countClass1SignedLessons({ theory, signatures })
+  const practical = resolvePracticalRows(signatures, practicalRows)
+  const signedPractical = practical.filter(row => !!row.studentSignature).length
+  const signedCounts = {
+    theory: countClass1SignedLessons({ theory, signatures }).theory,
+    practical: signedPractical,
+  }
   const theorySection = theory && theory.sessions.length > 0
     ? React.createElement(View, { style: styles.section },
       React.createElement(View, { style: styles.sectionHeader },
@@ -334,14 +389,12 @@ const TruckDocument = ({ signatures, studentName, phone, theory }: Omit<Attendan
         ),
       ),
       theorySection,
-      React.createElement(View, { style: styles.section, wrap: rows.practical.length > 6 },
+      React.createElement(View, { style: styles.section, wrap: true },
         React.createElement(View, { style: styles.sectionHeader },
           React.createElement(Text, { style: styles.sectionTitle }, 'Practical training'),
-          React.createElement(Text, { style: styles.sectionMeta }, `${rows.practical.length} classes signed - 50 hours required`),
+          React.createElement(Text, { style: styles.sectionMeta }, `${signedPractical} / ${CLASS1_PRACTICAL_CLASS_COUNT} classes · ${CLASS1_PRACTICAL_HOURS} hours required`),
         ),
-        rows.practical.length
-          ? React.createElement(TruckSignatureTable, { rows: rows.practical })
-          : React.createElement(Text, { style: styles.empty }, 'No practical signatures recorded yet.'),
+        React.createElement(PracticalClassTable, { rows: practical }),
       ),
       rows.other.length > 0 && React.createElement(View, { style: styles.section },
         React.createElement(View, { style: styles.sectionHeader },

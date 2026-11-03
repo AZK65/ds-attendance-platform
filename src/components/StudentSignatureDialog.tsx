@@ -17,6 +17,9 @@ export interface StudentSignTarget {
   subtitle: string
   moduleNumber: number | null
   sortieNumber: number | null
+  /** Set only for a class that spans two bookings. */
+  practicalUnitIndex?: number | null
+  crossBooking?: boolean
 }
 
 /**
@@ -77,6 +80,7 @@ export function StudentSignatureDialog({
           sessionLabel: target.sessionLabel,
           moduleNumber: target.moduleNumber,
           sortieNumber: target.sortieNumber,
+          ...(target.crossBooking ? { practicalUnitIndex: target.practicalUnitIndex, crossBooking: true } : {}),
         }),
       })
       if (res.status === 409) {

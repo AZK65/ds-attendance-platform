@@ -5,6 +5,8 @@ import { formatNet } from '@/lib/theory-hours'
 import { InstructorSignatureDialog } from '@/components/InstructorSignatureDialog'
 import { StudentSignatureDialog, type StudentSignTarget } from '@/components/StudentSignatureDialog'
 import { showStudentSignsNow, studentHasClassSignature } from '@/lib/student-sign-now'
+import { PracticalTrainingSection } from '@/components/PracticalTrainingSection'
+import { summarizePractical, type UnitSignOff, type UnitSignature } from '@/lib/practical-classes'
 import { useParams, useRouter } from 'next/navigation'
 import { useState, useMemo, type ReactNode } from 'react'
 import { Button } from '@/components/ui/button'
@@ -458,6 +460,7 @@ interface JourneySignature {
   studentPhone: string
   sessionLabel: string | null
   signedAt: string
+  unitIndex?: number | null
 }
 
 type TruckProgressStatus = 'present' | 'scheduled' | 'absent' | 'unrecorded'
@@ -551,7 +554,7 @@ function TruckJourneyCard({
     enabled: !!studentPhone,
     staleTime: 30_000,
   })
-  const { data: instructorSignData, refetch: refetchInstructorSigs } = useQuery<{ signatures: Array<{ eventId: string; addedLater: boolean }> }>({
+  const { data: instructorSignData, refetch: refetchInstructorSigs } = useQuery<{ signatures: Array<{ eventId: string; addedLater: boolean; unitIndex?: number | null }> }>({
     queryKey: ['instructor-signatures', studentPhone],
     queryFn: async () => {
       const res = await fetch(`/api/scheduling/instructor-signature?phone=${encodeURIComponent(studentPhone)}`)
@@ -562,8 +565,44 @@ function TruckJourneyCard({
     staleTime: 30_000,
   })
   const instructorSignedEvents = useMemo(
-    () => new Set((instructorSignData?.signatures || []).map(row => String(row.eventId))),
+    () => new Set(
+      (instructorSignData?.signatures || [])
+        .filter(row => row.unitIndex == null || row.unitIndex === 0)
+        .map(row => String(row.eventId)),
+    ),
     [instructorSignData],
+  )
+  const practicalBookings = useMemo(() => (
+    studentEvents
+      .filter(event => truckPracticalNumber(event) !== null || /^Truck Class\s+\d+/i.test(event.title || ''))
+      .map(event => ({
+        id: String(event.id),
+        title: event.title,
+        start: event.start_dt,
+        end: event.end_dt,
+        notes: event.notes || '',
+        subcalendarId: event.subcalendar_ids?.[0] ?? null,
+      }))
+  ), [studentEvents])
+  const practicalStudentSignatures = useMemo<UnitSignature[]>(() => (
+    (signatureData?.signatures || []).map(signature => ({
+      id: signature.id,
+      eventId: String(signature.eventId),
+      unitIndex: signature.unitIndex == null ? null : Number(signature.unitIndex),
+      signedAt: signature.signedAt,
+    }))
+  ), [signatureData])
+  const practicalInstructorSignatures = useMemo<UnitSignOff[]>(() => (
+    (instructorSignData?.signatures || []).map(signature => ({
+      eventId: String(signature.eventId),
+      unitIndex: signature.unitIndex == null ? null : Number(signature.unitIndex),
+      signedAt: signature.addedLater ? 'signed' : 'signed',
+      id: String(signature.eventId),
+    }))
+  ), [instructorSignData])
+  const practicalSummary = useMemo(
+    () => summarizePractical(practicalBookings, practicalStudentSignatures),
+    [practicalBookings, practicalStudentSignatures],
   )
 
   const progress = useMemo(() => {
@@ -606,7 +645,7 @@ function TruckJourneyCard({
     const theorySigned = theory.filter(item => item.status === 'present')
     const practicalCompleted = practical.filter(item => item.status === 'present')
     const theoryHours = Math.min(75, theorySigned.reduce((total, item) => total + item.hours, 0))
-    const practicalHours = Math.min(50, practicalCompleted.reduce((total, item) => total + item.hours, 0))
+    const practicalHours = practicalSummary.programHours
     const totalHours = Math.min(125, theoryHours + practicalHours)
 
     return {
@@ -620,7 +659,7 @@ function TruckJourneyCard({
       totalHours,
       overallPercent: Math.round((totalHours / 125) * 100),
     }
-  }, [signatureData, studentEvents, classAttendanceMap])
+  }, [signatureData, studentEvents, classAttendanceMap, practicalSummary.programHours])
 
   const statusClasses: Record<TruckProgressStatus, string> = {
     present: 'border-green-200 bg-green-50 text-green-800 dark:border-green-900 dark:bg-green-950/30 dark:text-green-200',
@@ -785,34 +824,13 @@ function TruckJourneyCard({
               </div>
             )}
 
-            <section aria-labelledby="truck-practical-progress" className="border-t pt-6">
-              <div className="mb-3 flex flex-wrap items-end justify-between gap-2">
-                <div>
-                  <h3 id="truck-practical-progress" className="font-semibold">Practical training</h3>
-                  <p className="text-sm text-muted-foreground">Individual in-cab classes scheduled after theory</p>
-                </div>
-                <div className="text-right">
-                  <p className="font-semibold tabular-nums">{fmtHours(progress.practicalHours)} / 50 h</p>
-                  <p className="text-xs text-muted-foreground">{progress.practicalCompleted} completed classes</p>
-                </div>
-              </div>
-              <SessionGrid
-                items={progress.practical}
-                empty={(
-                  <div className="flex flex-col gap-3 rounded-lg border border-dashed p-6 sm:flex-row sm:items-center sm:justify-between">
-                    <div>
-                      <p className="text-sm font-medium">Practical training has not been scheduled yet</p>
-                      <p className="text-sm text-muted-foreground">The 50 in-cab hours are booked separately for each student.</p>
-                    </div>
-                    <Button variant="outline" size="sm" asChild>
-                      <Link href={`/scheduling?bookFor=${encodeURIComponent(studentName)}&phone=${encodeURIComponent(studentPhone)}`}>
-                        <CalendarDays className="h-4 w-4" /> Schedule practical
-                      </Link>
-                    </Button>
-                  </div>
-                )}
-              />
-            </section>
+            <PracticalTrainingSection
+              bookings={practicalBookings}
+              studentSignatures={practicalStudentSignatures}
+              instructorSignatures={practicalInstructorSignatures}
+              studentName={studentName}
+              studentPhone={studentPhone}
+            />
 
             <section aria-labelledby="truck-exam-progress" className="border-t pt-6">
               <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">

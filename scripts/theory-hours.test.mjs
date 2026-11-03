@@ -117,13 +117,15 @@ const EN = `- 15 theory classes, in person at the school.
   - Saturday, 8:30 AM–5:30 PM.
 - About 5 weeks.
 - The 50-hour practical part is scheduled separately.
+- Practical training is 25 classes of 2 hours.
 - If the verified student context lists the student's own class times, quote those first; they take priority over this standard schedule.`
 
 const FR = `- 15 cours de théorie, en personne à l'école.
   - Mardi et jeudi, de 17 h 30 à 21 h 30.
   - Samedi, de 8 h 30 à 17 h 30.
 - Environ 5 semaines.
-- La partie pratique de 50 heures est planifiée séparément.`
+- La partie pratique de 50 heures est planifiée séparément.
+- La formation pratique compte 25 cours de 2 heures.`
 
 test('the bot schedule is class times and basic info only', () => {
   const text = formatTheoryScheduleForBot()

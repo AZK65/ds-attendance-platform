@@ -6,6 +6,7 @@ import type { ContractInstallmentRow } from '@/lib/class1-contract-payments'
 import { formatContractDate } from '@/lib/class1-contract-signed-date'
 import { BRAND, logoHeightForWidth } from '@/lib/brand'
 import { logoDataUrl } from '@/lib/brand-assets'
+import { formatPracticalContractHours } from '@/lib/practical-classes'
 
 // Class 1 service contract. Moved out of the register route so a script can
 // render it without starting the server. The registration signature images
@@ -328,7 +329,7 @@ function ContractPage({
     sec1Body2: 'Training is provided in accordance with SAAQ requirements.',
     sec1IncludesPre: 'The RSEP Class 1 program includes:',
     theoryHours: `${pricing.theoryHours} hours of theoretical training`,
-    practicalHours: `${pricing.practicalHours} hours of practical training`,
+    practicalHours: formatPracticalContractHours(pricing.practicalHours, 'en'),
     sec2Body: 'A financing option through a partner banking institution is available, subject to approval.',
     sec3Body: `Theory sessions are typically 4 to 6 hours in length. The student must complete all ${pricing.theoryHours} hours of theory before sitting the SAAQ theory exam.`,
     sec3Missed: 'Missed theory hours: $30 per hour. Cancellation of practical lessons within 48 hours: $65.',
@@ -373,7 +374,7 @@ function ContractPage({
     sec1Body2: 'La formation est dispensée conformément aux exigences de la SAAQ.',
     sec1IncludesPre: 'Le programme PESR Classe 1 comprend :',
     theoryHours: `${pricing.theoryHours} heures de formation théorique`,
-    practicalHours: `${pricing.practicalHours} heures de formation pratique`,
+    practicalHours: formatPracticalContractHours(pricing.practicalHours, 'fr'),
     sec2Body: 'Une option de financement avec une institution bancaire partenaire est disponible, sous réserve d’approbation.',
     sec3Body: `Les séances théoriques sont généralement d’une durée de 4 à 6 heures. L’élève doit compléter les ${pricing.theoryHours} heures de théorie avant l’examen SAAQ.`,
     sec3Missed: 'Heures théoriques manquées : 30 $/h. Annulation pratique sans préavis de 48 h : 65 $.',

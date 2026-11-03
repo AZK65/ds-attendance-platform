@@ -30,6 +30,9 @@ export function InstructorSignatureDialog({
   defaultInstructorId,
   addedLater,
   title,
+  practicalUnitIndex,
+  lessonStartAt,
+  crossBooking,
 }: {
   open: boolean
   onClose: () => void
@@ -40,6 +43,9 @@ export function InstructorSignatureDialog({
   defaultInstructorId?: string | null
   addedLater?: boolean
   title?: string
+  practicalUnitIndex?: number | null
+  lessonStartAt?: string | null
+  crossBooking?: boolean
 }) {
   const queryClient = useQueryClient()
   const signatureRef = useRef<SignaturePadHandle>(null)
@@ -95,6 +101,7 @@ export function InstructorSignatureDialog({
           signatureDataUrl: dataUrl,
           instructorId,
           addedLater: addedLater === true,
+          ...(crossBooking ? { practicalUnitIndex, lessonStartAt: lessonStartAt || null, crossBooking: true } : { lessonStartAt: lessonStartAt || null }),
         }),
       })
       const payload = await res.json().catch(() => ({}))

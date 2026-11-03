@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/db'
+import { CROSS_BOOKING_UNIT } from '@/lib/practical-classes'
 
 function isUniqueConflict(error: unknown): boolean {
   return typeof error === 'object' && error !== null && 'code' in error && (error as { code: string }).code === 'P2002'
@@ -28,6 +29,9 @@ export async function POST(request: NextRequest) {
       signatureDataUrl,
       instructorId,
       addedLater,
+      practicalUnitIndex,
+      lessonStartAt: requestedLessonStart,
+      crossBooking,
     } = body as {
       eventId?: string
       studentPhone?: string
@@ -35,6 +39,9 @@ export async function POST(request: NextRequest) {
       signatureDataUrl?: string
       instructorId?: string
       addedLater?: boolean
+      practicalUnitIndex?: number | null
+      lessonStartAt?: string | null
+      crossBooking?: boolean
     }
 
     const phones = [...new Set(
@@ -69,6 +76,74 @@ export async function POST(request: NextRequest) {
     const bookletName = instructor.bookletName?.trim() || instructor.legalName.trim()
     if (!bookletName) {
       return NextResponse.json({ error: 'Instructor full name is required before sign-off' }, { status: 400 })
+    }
+
+    const unitIndex = practicalUnitIndex == null ? null : Number(practicalUnitIndex)
+
+    // Sign-off for a class that spans two bookings. It does not cover the
+    // booking, and the booking sign-off does not cover this class.
+    if (crossBooking === true) {
+      if (unitIndex !== CROSS_BOOKING_UNIT) {
+        return NextResponse.json({ error: 'practicalUnitIndex is not a spanned class' }, { status: 400 })
+      }
+      const unitSignatures = await prisma.practicalClassUnitSignature.findMany({
+        where: { eventId, unitIndex },
+        select: { id: true, studentPhone: true },
+      })
+      const studentByPhone = new Map(unitSignatures.map(row => [last10(row.studentPhone), row]))
+      const missing = phones.filter(phone => !studentByPhone.has(last10(phone)))
+      if (missing.length > 0) {
+        return NextResponse.json(
+          { error: 'Student has not signed this lesson', phones: missing },
+          { status: 400 },
+        )
+      }
+      try {
+        const created = await prisma.$transaction(async (tx) => {
+          const existing = await tx.practicalClassInstructorSignature.findMany({
+            where: { eventId, unitIndex, studentPhone: { in: phones } },
+            select: { studentPhone: true },
+          })
+          if (existing.length > 0) {
+            const conflict = new Error('already signed')
+            ;(conflict as Error & { status: number }).status = 409
+            throw conflict
+          }
+          const rows = []
+          for (const phone of phones) {
+            const student = studentByPhone.get(last10(phone))
+            rows.push(await tx.practicalClassInstructorSignature.create({
+              data: {
+                eventId,
+                studentPhone: phone,
+                unitIndex,
+                classUnitSignatureId: student?.id || null,
+                instructorId: instructor.id,
+                bookletName,
+                lessonStartAt: requestedLessonStart?.trim() || '',
+                signatureDataUrl,
+                method: 'drawn',
+                addedLater: addedLater === true,
+              },
+            }))
+          }
+          return rows
+        })
+        return NextResponse.json({
+          success: true,
+          ids: created.map(row => row.id),
+          count: created.length,
+          unitIndex,
+        })
+      } catch (error) {
+        if (error instanceof Error && error.message === 'already signed') {
+          return NextResponse.json({ error: 'already signed' }, { status: 409 })
+        }
+        if (isUniqueConflict(error)) {
+          return NextResponse.json({ error: 'already signed' }, { status: 409 })
+        }
+        throw error
+      }
     }
 
     const [theory, snapshot, studentSignatures] = await Promise.all([
@@ -166,7 +241,7 @@ export async function GET(request: NextRequest) {
   }
   const includeSignatures = request.nextUrl.searchParams.get('includeSignatures') === '1'
 
-  const [signatures, instructors, theory] = await Promise.all([
+  const [signatures, unitSignatures, instructors, theory] = await Promise.all([
     prisma.lessonInstructorSignature.findMany({
       where,
       orderBy: { signedAt: 'asc' },
@@ -180,6 +255,24 @@ export async function GET(request: NextRequest) {
           instructorId: true,
           bookletName: true,
           lessonKind: true,
+          lessonStartAt: true,
+          addedLater: true,
+          signedAt: true,
+        },
+    }),
+    prisma.practicalClassInstructorSignature.findMany({
+      where,
+      orderBy: { signedAt: 'asc' },
+      select: includeSignatures
+        ? undefined
+        : {
+          id: true,
+          eventId: true,
+          studentPhone: true,
+          unitIndex: true,
+          classUnitSignatureId: true,
+          instructorId: true,
+          bookletName: true,
           lessonStartAt: true,
           addedLater: true,
           signedAt: true,
@@ -200,5 +293,9 @@ export async function GET(request: NextRequest) {
     : null
   const suggestedInstructorId = theory?.instructorId || fromCalendar?.id || null
 
-  return NextResponse.json({ signatures, instructors, suggestedInstructorId })
+  const merged = [
+    ...signatures.map(row => ({ ...row, unitIndex: null as number | null })),
+    ...unitSignatures.map(row => ({ ...row, lessonKind: 'practical' as const })),
+  ]
+  return NextResponse.json({ signatures: merged, instructors, suggestedInstructorId })
 }

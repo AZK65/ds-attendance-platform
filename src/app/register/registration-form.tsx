@@ -1515,7 +1515,7 @@ export function RegisterPageInner({ kiosk = false }: { kiosk?: boolean } = {}) {
                     </p>
                     <ul className="space-y-2 text-[13px] leading-relaxed">
                       {[
-                        { strong: 'Course length', body: '75 hours of theory + 50 hours of practical driving = 125 hours total.' },
+                        { strong: 'Course length', body: '75 hours of theory + 25 practical classes (50 hours) = 125 hours total.' },
                         { strong: 'Contract duration', body: 'You have 18 months from your first class to finish the program.' },
                         { strong: 'Missed theory class', body: '$30 per hour for any theory hour you miss. You must make it up before progressing.' },
                         { strong: 'Cancelling a road class', body: 'Cancel at least 48 hours in advance. Less than 48h notice = $65 fee.' },
