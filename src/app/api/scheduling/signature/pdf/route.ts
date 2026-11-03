@@ -1,8 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/db'
-import { buildSignatureAttendancePdf, type AttendanceSignatureInput, type TheoryBooklet } from '@/lib/signature-attendance-pdf'
+import { buildSignatureAttendancePdf, type AttendancePdfInput, type AttendanceSignatureInput, type TheoryBooklet } from '@/lib/signature-attendance-pdf'
 import { getTheoryProgress } from '@/lib/theory-progress'
 import { lessonNetLabel } from '@/lib/theory-hours'
+import { loadPracticalBookings, practicalRowsForBooklet } from '@/lib/practical-bookings'
+import type { UnitSignOff, UnitSignature } from '@/lib/practical-classes'
 
 function last10(value: string): string {
   const digits = value.replace(/\D/g, '')
@@ -55,6 +57,7 @@ export async function GET(request: NextRequest) {
   const studentName = signatures[0]?.studentName || ''
   let theory: TheoryBooklet | null = null
   let bookletSignatures: AttendanceSignatureInput[] = signatures
+  let practicalRows: AttendancePdfInput['practicalRows'] = null
   if (isTruck) {
     const eventIds = [...new Set(signatures.map(signature => signature.eventId))]
     const [instructorSigs, snapshots, instructors, memberships] = await Promise.all([
@@ -98,6 +101,77 @@ export async function GET(request: NextRequest) {
       ...signature,
       ...fieldsFor(signature.eventId, null),
     }))
+    const [unitSignatures, unitInstructorSignatures, bookings] = await Promise.all([
+      prisma.practicalClassUnitSignature.findMany({
+        where: { studentPhone: { contains: phoneSuffix } },
+      }),
+      prisma.practicalClassInstructorSignature.findMany({
+        where: { studentPhone: { contains: phoneSuffix } },
+      }),
+      loadPracticalBookings(phoneSuffix).catch(() => []),
+    ])
+    const bookingIds = new Set(bookings.map(booking => booking.id))
+    const practicalClassSignatures = signatures.filter(signature => (
+      bookingIds.has(signature.eventId) ||
+      /^(?:Truck|Practical) Class\s+\d+/i.test(signature.sessionLabel || '')
+    ))
+    const studentUnits: UnitSignature[] = [
+      ...practicalClassSignatures
+        .filter(signature => last10(signature.studentPhone) === phoneSuffix)
+        .map(signature => ({
+          eventId: signature.eventId,
+          unitIndex: null,
+          signatureDataUrl: signature.signatureDataUrl,
+          signedAt: signature.signedAt.toISOString(),
+          id: signature.id,
+        })),
+      ...unitSignatures
+        .filter(signature => last10(signature.studentPhone) === phoneSuffix)
+        .map(signature => ({
+          eventId: signature.eventId,
+          unitIndex: signature.unitIndex,
+          signatureDataUrl: signature.signatureDataUrl,
+          signedAt: signature.signedAt.toISOString(),
+          id: signature.id,
+        })),
+    ]
+    const instructorUnits: UnitSignOff[] = [
+      ...instructorSigs
+        .filter(row => last10(row.studentPhone) === phoneSuffix)
+        .filter(row => bookingIds.has(row.eventId) || practicalClassSignatures.some(signature => signature.eventId === row.eventId))
+        .map(row => {
+          const instructor = instructorById.get(row.instructorId)
+          return {
+            eventId: row.eventId,
+            unitIndex: null,
+            signatureDataUrl: row.signatureDataUrl,
+            name: row.bookletName,
+            number: instructor?.saaqInstructorNo || null,
+          }
+        }),
+      ...unitInstructorSignatures
+        .filter(row => last10(row.studentPhone) === phoneSuffix)
+        .map(row => {
+          const instructor = instructorById.get(row.instructorId)
+          return {
+            eventId: row.eventId,
+            unitIndex: row.unitIndex,
+            signatureDataUrl: row.signatureDataUrl,
+            name: row.bookletName,
+            number: instructor?.saaqInstructorNo || null,
+          }
+        }),
+    ]
+    const fallbackStartByEvent: Record<string, string> = {}
+    for (const signature of bookletSignatures) {
+      if (signature.scheduledStart) fallbackStartByEvent[signature.eventId] = signature.scheduledStart
+    }
+    practicalRows = practicalRowsForBooklet({
+      bookings,
+      studentSignatures: studentUnits,
+      instructorSignatures: instructorUnits,
+      fallbackStartByEvent,
+    })
     for (const membership of memberships) {
       const progress = await getTheoryProgress(membership.groupId, phone).catch(() => null)
       if (!progress || progress.sessions.length === 0) continue
@@ -145,6 +219,7 @@ export async function GET(request: NextRequest) {
     phone,
     isTruck,
     theory,
+    practicalRows,
   })
 
   const safeName = studentName.replace(/[^a-zA-Z0-9-]+/g, '-').replace(/-+/g, '-')

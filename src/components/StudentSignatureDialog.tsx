@@ -17,6 +17,8 @@ export interface StudentSignTarget {
   subtitle: string
   moduleNumber: number | null
   sortieNumber: number | null
+  /** 0 is the first 2 hours of a practical booking. Later slices are their own class. */
+  practicalUnitIndex?: number | null
 }
 
 /**
@@ -77,6 +79,7 @@ export function StudentSignatureDialog({
           sessionLabel: target.sessionLabel,
           moduleNumber: target.moduleNumber,
           sortieNumber: target.sortieNumber,
+          ...(typeof target.practicalUnitIndex === 'number' ? { practicalUnitIndex: target.practicalUnitIndex } : {}),
         }),
       })
       if (res.status === 409) {

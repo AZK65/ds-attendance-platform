@@ -2,7 +2,7 @@
  * Class 1 cohort timetable — the THEORY block only.
  *
  * The program is 125 h: 75 net hours of classroom theory (15 classes) and
- * 50 h of in-cab driving. Breaks and lunch are not counted. The net-hour
+ * 50 h of in-cab driving (25 classes of 2 hours). Breaks and lunch are not counted. The net-hour
  * rules live in theory-hours.ts. This file keeps the day-editor types the
  * admin screens already import.
  *
@@ -12,8 +12,8 @@
  *   Sat 8:30 AM–5:30 PM 7h30 net
  * → 15 net hours a week, so 75 h is 15 classes over about 5 weeks.
  *
- * The 50 h of in-cab driving is booked per student afterwards and is not
- * generated here.
+ * The 50 h of in-cab driving (25 classes of 2 hours) is booked per student
+ * afterwards and is not generated here.
  */
 
 import {

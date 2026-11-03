@@ -1057,6 +1057,48 @@ model LessonInstructorSignature {
   @@index([instructorId])
 }
 
+// A 2-hour slice of a Class 1 practical booking, other than the first slice.
+// The first slice stays on ClassSignature so an existing drawing is never
+// rewritten or copied. Startup runs `prisma db push --accept-data-loss`,
+// so this table is additive: nothing above is renamed or dropped.
+model PracticalClassUnitSignature {
+  id               String   @id @default(cuid())
+  eventId          String
+  studentPhone     String
+  // 1 = the second 2 hours of the booking, 2 = the third, and so on.
+  unitIndex        Int
+  studentName      String
+  sessionLabel     String?
+  signatureDataUrl String
+  signedAt         DateTime @default(now())
+
+  @@unique([eventId, studentPhone, unitIndex])
+  @@index([eventId])
+  @@index([studentPhone])
+}
+
+// Instructor sign-off for a practical slice after the first one.
+// The first slice stays on LessonInstructorSignature.
+model PracticalClassInstructorSignature {
+  id                   String   @id @default(cuid())
+  eventId              String
+  studentPhone         String
+  unitIndex            Int
+  classUnitSignatureId String?
+  instructorId         String
+  bookletName          String
+  lessonStartAt        String   @default("")
+  signatureDataUrl     String
+  method               String
+  addedLater           Boolean  @default(false)
+  signedAt             DateTime @default(now())
+
+  @@unique([eventId, studentPhone, unitIndex])
+  @@index([eventId])
+  @@index([studentPhone])
+  @@index([instructorId])
+}
+
 model TheorySession {
   id                String   @id @default(cuid())
   groupId           String

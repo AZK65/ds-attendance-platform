@@ -24,6 +24,7 @@ export async function POST(request: NextRequest) {
       sessionLabel,
       moduleNumber,
       sortieNumber,
+      practicalUnitIndex,
     } = body as {
       eventId?: string
       studentPhone?: string
@@ -32,6 +33,7 @@ export async function POST(request: NextRequest) {
       sessionLabel?: string
       moduleNumber?: number
       sortieNumber?: number
+      practicalUnitIndex?: number | null
     }
 
     if (!eventId || !studentPhone || !studentName || !signatureDataUrl) {
@@ -54,6 +56,43 @@ export async function POST(request: NextRequest) {
     }
 
     const cleanedPhone = studentPhone.replace(/\D/g, '')
+    const unitIndex = practicalUnitIndex == null ? null : Number(practicalUnitIndex)
+    if (unitIndex != null && (!Number.isInteger(unitIndex) || unitIndex < 0 || unitIndex > 60)) {
+      return NextResponse.json({ error: 'practicalUnitIndex is not a class in this booking' }, { status: 400 })
+    }
+
+    // A later 2-hour slice of a practical booking. The drawing in the body
+    // is the only ink stored. Nothing is read from another class or from
+    // the booking-level ClassSignature, and that row is not updated.
+    if (unitIndex != null && unitIndex > 0) {
+      const existing = await prisma.practicalClassUnitSignature.findUnique({
+        where: {
+          eventId_studentPhone_unitIndex: { eventId, studentPhone: cleanedPhone, unitIndex },
+        },
+        select: { id: true },
+      })
+      if (existing) {
+        return NextResponse.json({ error: 'already signed' }, { status: 409 })
+      }
+      try {
+        const created = await prisma.practicalClassUnitSignature.create({
+          data: {
+            eventId,
+            studentPhone: cleanedPhone,
+            unitIndex,
+            studentName,
+            sessionLabel: sessionLabel || null,
+            signatureDataUrl,
+          },
+        })
+        return NextResponse.json({ success: true, id: created.id, signedAt: created.signedAt, unitIndex })
+      } catch (error) {
+        if (isUniqueConflict(error)) {
+          return NextResponse.json({ error: 'already signed' }, { status: 409 })
+        }
+        throw error
+      }
+    }
 
     let resolvedLabel = sessionLabel || null
     try {
@@ -175,6 +214,41 @@ export async function GET(request: NextRequest) {
   // signature data via ?includeSignatures=1 (student profile timeline).
   const includeSignatures = request.nextUrl.searchParams.get('includeSignatures') === '1'
   const includeData = !!eventId || includeSignatures
+  const unitIndexRaw = request.nextUrl.searchParams.get('unitIndex')
+  const unitIndex = unitIndexRaw == null || unitIndexRaw === '' ? null : Number(unitIndexRaw)
+  if (unitIndex != null && (!Number.isInteger(unitIndex) || unitIndex < 0)) {
+    return NextResponse.json({ error: 'unitIndex is invalid' }, { status: 400 })
+  }
+
+  const phoneSuffix = phone
+    ? (phone.replace(/\D/g, '').length >= 10 ? phone.replace(/\D/g, '').slice(-10) : phone.replace(/\D/g, ''))
+    : ''
+
+  // A later slice of a practical booking lives in its own table. Unit 0
+  // stays on ClassSignature, so an event lookup without unitIndex is unchanged.
+  if (unitIndex != null && unitIndex > 0) {
+    const unitWhere: { eventId?: string; unitIndex: number; studentPhone?: { contains: string } } = { unitIndex }
+    if (eventId) unitWhere.eventId = eventId
+    if (phoneSuffix) unitWhere.studentPhone = { contains: phoneSuffix }
+    const unitRows = await prisma.practicalClassUnitSignature.findMany({
+      where: unitWhere,
+      orderBy: { signedAt: 'desc' },
+    })
+    return NextResponse.json({
+      signatures: unitRows.map(row => ({
+        id: row.id,
+        eventId: row.eventId,
+        studentPhone: row.studentPhone,
+        studentName: row.studentName,
+        sessionLabel: row.sessionLabel,
+        moduleNumber: null,
+        sortieNumber: null,
+        signedAt: row.signedAt,
+        unitIndex: row.unitIndex,
+        ...(includeData ? { signatureDataUrl: row.signatureDataUrl } : {}),
+      })),
+    })
+  }
 
   const signatures = await prisma.classSignature.findMany({
     where,
@@ -192,5 +266,27 @@ export async function GET(request: NextRequest) {
           signedAt: true,
         },
   })
-  return NextResponse.json({ signatures })
+
+  const withUnit = signatures.map(row => ({ ...row, unitIndex: null as number | null }))
+  if (eventId || !phoneSuffix) {
+    return NextResponse.json({ signatures: withUnit })
+  }
+
+  const laterSlices = await prisma.practicalClassUnitSignature.findMany({
+    where: { studentPhone: { contains: phoneSuffix } },
+    orderBy: { signedAt: 'desc' },
+  })
+  const extra = laterSlices.map(row => ({
+    id: row.id,
+    eventId: row.eventId,
+    studentPhone: row.studentPhone,
+    studentName: row.studentName,
+    sessionLabel: row.sessionLabel,
+    moduleNumber: null as number | null,
+    sortieNumber: null as number | null,
+    signedAt: row.signedAt,
+    unitIndex: row.unitIndex,
+    ...(includeData ? { signatureDataUrl: row.signatureDataUrl } : {}),
+  }))
+  return NextResponse.json({ signatures: [...withUnit, ...extra] })
 }

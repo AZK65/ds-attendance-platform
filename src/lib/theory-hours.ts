@@ -534,6 +534,11 @@ export function formatTheoryScheduleForBot(
   frLines.push(`- Environ ${weeks} semaines.`)
   enLines.push(`- The ${practicalHours}-hour practical part is scheduled separately.`)
   frLines.push(`- La partie pratique de ${practicalHours} heures est planifiée séparément.`)
+  if (practicalHours > 0 && practicalHours % 2 === 0) {
+    const classes = practicalHours / 2
+    enLines.push(`- Practical training is ${classes} classes of 2 hours.`)
+    frLines.push(`- La formation pratique compte ${classes} cours de 2 heures.`)
+  }
   enLines.push(`- If the verified student context lists the student's own class times, quote those first; they take priority over this standard schedule.`)
 
   return { en: enLines.join('\n'), fr: frLines.join('\n') }
