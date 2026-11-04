@@ -11,6 +11,7 @@ import { invoiceBelongsToStudent, roundMoney, type StudentIdentity } from '@/lib
  * last-10, otherwise exact name only when neither side has a phone.
  */
 export interface StoredInvoicePayment {
+  billingAccountId?: string | null
   invoiceNumber: string
   invoiceDate: string
   /** Receipt timestamp. Older paid invoices fall back to invoiceDate. */
@@ -32,7 +33,7 @@ export interface ListedPayment {
   amount: number
   /** Null when the invoice has no paymentMethod stored. */
   method: string | null
-  /** Null when that invoice never stored a remaining balance. */
+  /** Legacy snapshots are not a verified running balance; currently always null. */
   balanceAfter: number | null
   invoiceNumber: string
 }
@@ -40,6 +41,7 @@ export interface ListedPayment {
 export interface PaymentHistory {
   payments: ListedPayment[]
   totalPaid: number
+  throughDate?: string
 }
 
 function createdAtMs(value: Date | string | number | null | undefined): number {
@@ -50,26 +52,29 @@ function createdAtMs(value: Date | string | number | null | undefined): number {
 }
 
 /**
- * Paid invoices for this student, excluding the invoice being printed.
+ * Confirmed payments through this receipt's date, including this receipt.
  * Refunded and unpaid rows are left out. Matching is invoiceBelongsToStudent:
  * MySQL student id when both sides have one, otherwise phone last-10,
  * otherwise the exact name only when neither side has a phone.
- * The returned total is only the sum of the listed amounts. It does not
- * replace the remaining balance stored on the invoice being printed.
+ * The returned total is only the sum of the listed amounts. The current account
+ * balance is calculated separately and labelled as current on regenerated PDFs.
  */
 export function listPriorPayments(
   invoices: readonly StoredInvoicePayment[],
-  current: StudentIdentity & { invoiceNumber: string },
+  current: StudentIdentity & { billingAccountId?: string | null; invoiceNumber: string; invoiceDate?: string | null; paidAt?: Date | string | null },
 ): PaymentHistory {
   const student: StudentIdentity = {
     externalStudentId: current.externalStudentId,
     phone: current.phone,
     name: current.name,
   }
+  const throughDate = contractPaymentDate(current)
+  const cutoffTimestamp = current.paidAt ? createdAtMs(current.paidAt) : null
   const payments = invoices
-    .filter((invoice) => invoice.invoiceNumber !== current.invoiceNumber)
     .filter((invoice) => invoice.paymentStatus === 'paid')
-    .filter((invoice) => invoiceBelongsToStudent(invoice, student))
+    .filter((invoice) => current.billingAccountId ? invoice.billingAccountId === current.billingAccountId : invoiceBelongsToStudent(invoice, student))
+    .filter((invoice) => !throughDate || contractPaymentDate(invoice) <= throughDate)
+    .filter((invoice) => !cutoffTimestamp || !invoice.paidAt || createdAtMs(invoice.paidAt) <= cutoffTimestamp)
     .sort((a, b) => {
       const byDate = contractPaymentDate(a).localeCompare(contractPaymentDate(b))
       if (byDate !== 0) return byDate
@@ -81,24 +86,23 @@ export function listPriorPayments(
       date: contractPaymentDate(invoice),
       amount: roundMoney(invoice.total),
       method: invoice.paymentMethod?.trim() ? invoice.paymentMethod.trim() : null,
-      balanceAfter: typeof invoice.remainingBalance === 'number' && Number.isFinite(invoice.remainingBalance)
-        ? roundMoney(invoice.remainingBalance)
-        : null,
+      // A historical snapshot may have deducted unpaid invoices. Do not present
+      // it as a verified running balance. Show the account summary separately.
+      balanceAfter: null as number | null,
       invoiceNumber: invoice.invoiceNumber,
     }))
 
   return {
     payments,
     totalPaid: roundMoney(payments.reduce((sum, payment) => sum + payment.amount, 0)),
+    throughDate: throughDate || undefined,
   }
 }
 
 /**
- * The remaining balance the invoice already prints: the stored or
- * caller-supplied figure, and only when it is greater than zero.
- * Payment rows are not allowed to replace it.
+ * Accept finite account balances, including zero and explicit credits.
  */
 export function printedRemainingBalance(value: number | undefined): number | null {
-  if (value === undefined || !(value > 0)) return null
+  if (value === undefined || !Number.isFinite(value)) return null
   return value
 }

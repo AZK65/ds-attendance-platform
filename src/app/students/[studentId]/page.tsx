@@ -1,5 +1,7 @@
 'use client'
 
+import { billingBalanceLabel } from '@/lib/billing-label'
+
 import { useState, useMemo } from 'react'
 import { useParams, useRouter } from 'next/navigation'
 import { useQuery, useQueryClient, useMutation } from '@tanstack/react-query'
@@ -30,7 +32,6 @@ import { PaperExamProfileCard, type PaperExamProfileRecord } from '@/components/
 import { Rsep1ResultsSheetCard } from '@/components/Rsep1ResultsSheetCard'
 import { SaaqAttestationsCard } from '@/components/SaaqAttestationsCard'
 import { TheoryEvaluationsCard } from '@/components/TheoryEvaluationsCard'
-import { selectInvoiceForBalanceEdit } from '@/lib/invoice-match'
 import { ChangePhoneDialog } from '@/components/ChangePhoneDialog'
 import { PhoneChangeHistory } from '@/components/PhoneChangeHistory'
 import { InstructorSignatureDialog } from '@/components/InstructorSignatureDialog'
@@ -76,7 +77,7 @@ interface StudentProfile {
   }>
   paperExams?: PaperExamProfileRecord[]
   summary: {
-    totalInvoiced: number; totalPaid: number; openBalance: number;
+    totalInvoiced: number; totalPaid: number; openBalance: number; creditBalance?: number; needsReview?: boolean;
     invoiceCount: number; certificateCount: number; groupCount: number;
   }
   registration: {
@@ -291,9 +292,6 @@ export default function StudentProfilePage() {
   const studentId = params.studentId as string
   const [expandedInvoice, setExpandedInvoice] = useState<string | null>(null)
   const [editingBalance, setEditingBalance] = useState(false)
-  const [newBalanceInput, setNewBalanceInput] = useState('')
-  const [balanceSaving, setBalanceSaving] = useState(false)
-  const [balanceError, setBalanceError] = useState<string | null>(null)
   const [showLms, setShowLms] = useState(false)
   const [certificateMenuOpen, setCertificateMenuOpen] = useState(false)
   const [phoneDialogOpen, setPhoneDialogOpen] = useState(false)
@@ -388,7 +386,7 @@ export default function StudentProfilePage() {
     invoices: Array<{ id: string; invoiceNumber: string; invoiceDate: string; total: number; paymentStatus: string; lineItems: string; studentAddress?: string; studentCity?: string; studentPostalCode?: string; studentEmail?: string; studentName?: string; studentPhone?: string | null; externalStudentId?: number | null; createdAt?: string }>
     exams?: Array<{ id: string; examCode: string; groupName: string; score: number | null; passed: boolean | null; totalQuestions: number; startedAt: string; submittedAt: string | null; timeExpired: boolean }>
     paperExams?: PaperExamProfileRecord[]
-    summary: { totalInvoiced: number; totalPaid: number; openBalance: number }
+    summary: { totalInvoiced: number; totalPaid: number; openBalance: number; creditBalance?: number; needsReview?: boolean }
   }>({
     queryKey: ['student-profile-data', phone, displayName, studentId],
     queryFn: async () => {
@@ -498,7 +496,7 @@ export default function StudentProfilePage() {
   const mergedInvoices = invoices.length > 0 ? invoices : (profileData?.invoices || [])
   const mergedExams = (data.exams && data.exams.length > 0) ? data.exams : (profileData?.exams || [])
   const mergedPaperExams = (data.paperExams && data.paperExams.length > 0) ? data.paperExams : (profileData?.paperExams || [])
-  const mergedSummary = invoices.length > 0 ? summary : (profileData?.summary ? { ...summary, totalInvoiced: profileData.summary.totalInvoiced, totalPaid: profileData.summary.totalPaid, openBalance: profileData.summary.openBalance } : summary)
+  const mergedSummary = invoices.length > 0 ? summary : (profileData?.summary ? { ...summary, totalInvoiced: profileData.summary.totalInvoiced, totalPaid: profileData.summary.totalPaid, openBalance: profileData.summary.openBalance, creditBalance: profileData.summary.creditBalance, needsReview: profileData.summary.needsReview } : summary)
 
   const theoryByEventId = new Map(
     (theoryProgress?.sessions || [])
@@ -740,7 +738,7 @@ export default function StudentProfilePage() {
           <CreditCard className={`mb-2 h-4 w-4 ${mergedSummary.openBalance > 0 ? 'text-amber-600' : 'text-green-600'}`} />
           <p className="text-xs text-muted-foreground">Balance</p>
           <p className={`text-sm font-semibold tabular-nums ${mergedSummary.openBalance > 0 ? 'text-amber-700' : 'text-green-700'}`}>
-            {mergedSummary.openBalance !== 0 ? `$${mergedSummary.openBalance.toFixed(2)}` : 'Paid up'}
+            {billingBalanceLabel(mergedSummary)}
           </p>
         </div>
       </motion.section>
@@ -955,7 +953,7 @@ export default function StudentProfilePage() {
                   onClick={() => setEditingBalance(true)}
                   className="text-xs text-muted-foreground hover:text-foreground"
                 >
-                  <Pencil className="h-3.5 w-3.5 mr-1" /> Edit balance
+                  <Pencil className="h-3.5 w-3.5 mr-1" /> Review balance
                 </Button>
               </div>
             </CardHeader>
@@ -1074,80 +1072,16 @@ export default function StudentProfilePage() {
         </motion.div>
       )}
 
-      {/* Edit Balance Dialog — updates the latest invoice's remainingBalance. */}
-      <Dialog open={editingBalance} onOpenChange={(o) => {
-        if (!o) { setEditingBalance(false); setBalanceError(null) }
-      }}>
+      <Dialog open={editingBalance} onOpenChange={setEditingBalance}>
         <DialogContent className="sm:max-w-md">
           <DialogHeader>
-            <DialogTitle>Adjust Open Balance</DialogTitle>
+            <DialogTitle>Balance review</DialogTitle>
             <DialogDescription>
-              Sets the remaining balance on the student&apos;s most recent invoice.
-              Use <code className="px-1 rounded bg-muted">0</code> to mark them as fully paid up.
+              Balances now come from course charges and confirmed payments. Changing a number on an old receipt would hide the payment history.
             </DialogDescription>
           </DialogHeader>
-          <div className="space-y-3">
-            <div className="text-sm">
-              <p className="text-muted-foreground">Current open balance</p>
-              <p className="text-2xl font-bold">${mergedSummary.openBalance.toFixed(2)}</p>
-            </div>
-            <div>
-              <Label className="text-sm">New balance ($)</Label>
-              <Input
-                type="number"
-                min="0"
-                step="0.01"
-                value={newBalanceInput}
-                onChange={(e) => setNewBalanceInput(e.target.value)}
-                placeholder="0.00"
-                autoFocus
-              />
-            </div>
-            {balanceError && <p className="text-sm text-destructive">{balanceError}</p>}
-            <div className="flex justify-end gap-2 pt-1">
-              <Button variant="outline" onClick={() => setEditingBalance(false)} disabled={balanceSaving}>Cancel</Button>
-              <Button
-                disabled={balanceSaving || newBalanceInput === '' || isNaN(parseFloat(newBalanceInput)) || parseFloat(newBalanceInput) < 0}
-                onClick={async () => {
-                  const value = parseFloat(newBalanceInput)
-                  const latest = selectInvoiceForBalanceEdit(mergedInvoices, {
-                    externalStudentId: student.student_id,
-                    phone: student.phone_number,
-                    name: student.full_name,
-                  })
-                  if (!latest) {
-                    setBalanceError('No invoice found for this student to update')
-                    return
-                  }
-                  setBalanceSaving(true)
-                  setBalanceError(null)
-                  try {
-                    const res = await fetch(`/api/invoice/${encodeURIComponent(latest.id)}`, {
-                      method: 'PATCH',
-                      headers: { 'Content-Type': 'application/json' },
-                      body: JSON.stringify({ remainingBalance: value }),
-                    })
-                    if (!res.ok) {
-                      const data = await res.json().catch(() => ({}))
-                      throw new Error(data.error || `Save failed (${res.status})`)
-                    }
-                    setEditingBalance(false)
-                    setNewBalanceInput('')
-                    // Refresh both the studentId-keyed query and the profile query
-                    queryClient.invalidateQueries({ queryKey: ['student-profile', studentId] })
-                    queryClient.invalidateQueries({ queryKey: ['student-profile-extra'] })
-                  } catch (err) {
-                    setBalanceError(err instanceof Error ? err.message : 'Failed to save')
-                  } finally {
-                    setBalanceSaving(false)
-                  }
-                }}
-                className="min-w-[80px]"
-              >
-                {balanceSaving ? <Loader2 className="h-4 w-4 animate-spin" /> : 'Save'}
-              </Button>
-            </div>
-          </div>
+          <p className="text-sm text-muted-foreground">Check the invoice payment status first. Historical course totals and account adjustments must be reviewed before they are applied.</p>
+          <Button variant="outline" onClick={() => setEditingBalance(false)}>Close</Button>
         </DialogContent>
       </Dialog>
     </main>

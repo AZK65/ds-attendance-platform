@@ -15,10 +15,11 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Invoice not found' }, { status: 404 })
     }
 
-    // Get next invoice number
-    let settings = await prisma.invoiceSettings.findUnique({ where: { id: 'default' } })
-    if (!settings) {
-      settings = await prisma.invoiceSettings.create({ data: { id: 'default' } })
+    if (!original.billingAccountId) return NextResponse.json({ error: 'Review this student’s balance before recording a refund.' }, { status: 409 })
+    const existing = await prisma.invoice.findUnique({ where: { creditForInvoiceId: original.id } })
+    if (existing) return NextResponse.json({ creditNote: existing })
+    if (original.paymentStatus !== 'paid' || original.total <= 0) {
+      return NextResponse.json({ error: 'Only a paid receipt can be refunded.' }, { status: 409 })
     }
     const creditNoteNumber = `CR-${original.invoiceNumber}`
 
@@ -34,7 +35,10 @@ export async function POST(request: NextRequest) {
       unitPrice: -Math.abs(item.unitPrice),
     }))
 
-    const creditNote = await prisma.invoice.create({
+    const creditNote = await prisma.$transaction(async tx => {
+      const changed = await tx.invoice.updateMany({ where: { id: original.id, paymentStatus: 'paid' }, data: { paymentStatus: 'refunded' } })
+      if (changed.count !== 1) throw new Error('Invoice changed; refresh before recording the refund.')
+      return tx.invoice.create({
       data: {
         invoiceNumber: creditNoteNumber,
         studentName: original.studentName,
@@ -54,13 +58,14 @@ export async function POST(request: NextRequest) {
         paymentStatus: 'refunded',
         paymentMethod: original.paymentMethod,
         externalStudentId: original.externalStudentId,
+        billingAccountId: original.billingAccountId,
+        creditForInvoiceId: original.id,
+        // Refunding an installment (including the first course deposit) does
+        // not cancel the student's entire course agreement.
+        chargeCents: original.billingMode === 'new-course' ? 0 : -original.chargeCents,
+        billingMode: 'refund',
       },
-    })
-
-    // Mark original as refunded
-    await prisma.invoice.update({
-      where: { id: invoiceId },
-      data: { paymentStatus: 'refunded' },
+      })
     })
 
     return NextResponse.json({ creditNote })

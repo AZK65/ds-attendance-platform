@@ -1,11 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/db'
-import { remainingBalanceUpdateAfterDelete } from '@/lib/invoice-match'
 import { resolveExternalStudentId } from '@/lib/invoice-student-id'
 
 // PATCH /api/invoice/[id]
-// Currently supports updating remainingBalance only. Used to correct stale
-// values left by the old "package + previous balance" double-counting bug.
+// Contact corrections only. Account balances require reviewed reconciliation.
 export async function PATCH(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> },
@@ -15,7 +13,7 @@ export async function PATCH(
     const body = await request.json()
     const data: Record<string, unknown> = {}
     if (body.remainingBalance === null || typeof body.remainingBalance === 'number') {
-      data.remainingBalance = body.remainingBalance
+      return NextResponse.json({ error: 'Balance adjustments require a reviewed account reconciliation. Invoice snapshots cannot be edited as balances.' }, { status: 409 })
     }
     // Attaching an email to an existing invoice — used when admin saved
     // an email on the student profile after the invoice was already made.
@@ -34,7 +32,7 @@ export async function PATCH(
     // Stamp the MySQL student id the first time this invoice is saved, when
     // the phone or exact name identifies one student. A failed lookup leaves
     // a blank id blank.
-    if (existing.externalStudentId == null) {
+    if (existing.externalStudentId == null && !existing.billingAccountId) {
       const externalStudentId = await resolveExternalStudentId({
         phone: existing.studentPhone,
         name: existing.studentName,
@@ -124,29 +122,17 @@ export async function DELETE(
       return NextResponse.json({ error: 'Invoice not found' }, { status: 404 })
     }
 
-    await prisma.invoice.delete({ where: { id } })
-
-    // Recalculate remainingBalance on the newest remaining invoice for this
-    // same student. Another student's invoice is never rewritten, including
-    // when their name merely contains this student's name.
-    const remainingInvoices = await prisma.invoice.findMany({
-      select: {
-        id: true,
-        externalStudentId: true,
-        studentPhone: true,
-        studentName: true,
-        total: true,
-        remainingBalance: true,
-        createdAt: true,
-      },
-    })
-    const update = remainingBalanceUpdateAfterDelete(invoice, remainingInvoices)
-    if (update) {
-      await prisma.invoice.update({
-        where: { id: update.id },
-        data: { remainingBalance: update.remainingBalance },
-      })
+    if (!invoice.billingAccountId) return NextResponse.json({ error: 'Review this student’s historical balance before deleting invoices.' }, { status: 409 })
+    if (invoice.paymentStatus !== 'unpaid' || invoice.cloverOrderId || invoice.creditForInvoiceId) {
+      return NextResponse.json({ error: 'Paid, refunded, or Clover-linked invoices must be retained. Use the refund workflow to preserve the payment record.' }, { status: 409 })
     }
+    if (invoice.billingMode === 'new-course') {
+      return NextResponse.json({ error: 'A course agreement must be cancelled through a reviewed account adjustment, not by deleting its first invoice.' }, { status: 409 })
+    }
+    // Delete an unpaid draft and its own charge only. Never add its amount to
+    // another receipt. Paid receipts are preserved for audit.
+    const deleted = await prisma.invoice.deleteMany({ where: { id, updatedAt: invoice.updatedAt, paymentStatus: 'unpaid', cloverOrderId: null, billingAccountId: invoice.billingAccountId } })
+    if (!deleted.count) return NextResponse.json({ error: 'Invoice changed; refresh and try again.' }, { status: 409 })
 
     return NextResponse.json({ success: true })
   } catch (error) {

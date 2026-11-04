@@ -33,36 +33,39 @@ const history = [
   row({ invoiceNumber: 'INV-0006', invoiceDate: '2026-11-01', total: 60, paymentMethod: 'cash', remainingBalance: 440 }),
 ]
 
-test('prior payments are this student\'s paid invoices, excluding the current one and refunds', () => {
+test('payments through the receipt date exclude future invoices and refunds', () => {
   const listed = listPriorPayments(history, {
     invoiceNumber: 'INV-2026-0142',
+    invoiceDate: '2026-10-01',
     externalStudentId: 42,
     phone: '514-555-0199',
     name: 'Sample Student',
   })
-  assert.deepEqual(listed.payments.map(payment => payment.invoiceNumber), ['INV-0001', 'INV-0002', 'INV-0003', 'INV-0006'])
-  assert.deepEqual(listed.payments.map(payment => payment.date), ['2026-03-02', '2026-06-16', '2026-08-01', '2026-11-01'])
-  assert.deepEqual(listed.payments.map(payment => payment.method), ['cash', 'card', null, 'cash'])
-  assert.deepEqual(listed.payments.map(payment => payment.balanceAfter), [750, 600, 500, 440])
-  assert.equal(listed.totalPaid, 560)
+  assert.deepEqual(listed.payments.map(payment => payment.invoiceNumber), ['INV-0001', 'INV-0002', 'INV-0003'])
+  assert.deepEqual(listed.payments.map(payment => payment.date), ['2026-03-02', '2026-06-16', '2026-08-01'])
+  assert.deepEqual(listed.payments.map(payment => payment.method), ['cash', 'card', null])
+  assert.deepEqual(listed.payments.map(payment => payment.balanceAfter), [null, null, null])
+  assert.equal(listed.totalPaid, 500)
   assert.equal(listed.payments.some(payment => payment.invoiceNumber === 'INV-0005'), false)
   assert.equal(listed.payments.some(payment => payment.invoiceNumber === 'INV-0004'), false)
 })
 
-test('the invoice being printed is not listed as its own previous payment', () => {
+test('the invoice being printed includes its own confirmed payment', () => {
   const listed = listPriorPayments(history, {
     invoiceNumber: 'INV-0002',
+    invoiceDate: '2026-06-16',
     externalStudentId: 42,
     phone: '514-555-0199',
     name: 'Sample Student',
   })
-  assert.deepEqual(listed.payments.map(payment => payment.invoiceNumber), ['INV-0001', 'INV-0003', 'INV-0006'])
-  assert.equal(listed.totalPaid, 410)
+  assert.deepEqual(listed.payments.map(payment => payment.invoiceNumber), ['INV-0001', 'INV-0002'])
+  assert.equal(listed.totalPaid, 400)
 })
 
 test('a stored remaining balance is printed as given, even when payments do not add up to it', () => {
   const listed = listPriorPayments(history, {
     invoiceNumber: 'INV-2026-0142',
+    invoiceDate: '2026-10-01',
     externalStudentId: 42,
     phone: '514-555-0199',
     name: 'Sample Student',
@@ -70,7 +73,7 @@ test('a stored remaining balance is printed as given, even when payments do not 
   const storedRemaining = 120
   assert.equal(printedRemainingBalance(storedRemaining), 120)
   assert.notEqual(listed.totalPaid, storedRemaining)
-  assert.equal(printedRemainingBalance(0), null)
+  assert.equal(printedRemainingBalance(0), 0)
   assert.equal(printedRemainingBalance(undefined), null)
 })
 
@@ -117,6 +120,7 @@ async function pdfText(name: string, body: Parameters<typeof buildInvoicePdf>[0]
 test('the invoice PDF lists dated payments and still prints the stored remaining balance', async () => {
   const listed = listPriorPayments(history, {
     invoiceNumber: 'INV-2026-0142',
+    invoiceDate: '2026-10-01',
     externalStudentId: 42,
     phone: '514-555-0199',
     name: 'Sample Student',
@@ -126,15 +130,15 @@ test('the invoice PDF lists dated payments and still prints the stored remaining
   assert.match(text, /Mar 2, 2026/)
   assert.match(text, /Jun 16, 2026/)
   assert.match(text, /Aug 1, 2026/)
-  assert.match(text, /Nov 1, 2026/)
+  assert.doesNotMatch(text, /Nov 1, 2026/)
   assert.match(text, /Cash/)
   assert.match(text, /Card/)
   assert.match(text, /\$250\.00/)
-  assert.match(text, /\$750\.00/)
+  assert.doesNotMatch(text, /\$750\.00/)
   assert.match(text, /\$100\.00/)
-  assert.match(text, /Total paid:/)
-  assert.match(text, /\$560\.00/)
-  assert.equal((text.match(/Remaining balance:/g) || []).length, 1)
+  assert.match(text, /Paid through receipt date:/)
+  assert.match(text, /\$500\.00/)
+  assert.equal((text.match(/Current account balance:/g) || []).length, 1)
   assert.match(text, /\$120\.00/)
   assert.doesNotMatch(text, /\bPAID\b/)
   assert.doesNotMatch(text, /2026-03-02/)
@@ -148,9 +152,9 @@ test('an invoice with no earlier payments says so and keeps the stored balance o
     paymentHistory: { payments: [], totalPaid: 0 },
   })
   assert.match(text, /No payments yet/)
-  assert.match(text, /Total paid:/)
+  assert.match(text, /Paid through receipt date:/)
   assert.match(text, /\$0\.00/)
-  assert.equal((text.match(/Remaining balance:/g) || []).length, 1)
+  assert.equal((text.match(/Current account balance:/g) || []).length, 1)
   assert.match(text, /\$120\.00/)
 })
 
@@ -161,5 +165,5 @@ test('a paid invoice prints one PAID marker and still one remaining balance', as
     paymentHistory: { payments: [], totalPaid: 0 },
   })
   assert.equal((text.match(/\bPAID\b/g) || []).length, 1)
-  assert.equal((text.match(/Remaining balance:/g) || []).length, 1)
+  assert.equal((text.match(/Current account balance:/g) || []).length, 1)
 })

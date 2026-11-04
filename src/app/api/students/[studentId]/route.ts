@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/db'
 import { getStudentById } from '@/lib/external-db'
 import { findExamAttemptsForStudent, findInvoicesForStudent } from '@/lib/invoice-lookup'
-import { openBalanceFromInvoices } from '@/lib/invoice-match'
+import { studentBillingSummary } from '@/lib/invoice-billing'
 import { findBestLocalStudent } from '@/lib/local-student-lookup'
 import { findStudentPaperExams } from '@/lib/paper-exam-profile'
 
@@ -55,8 +55,7 @@ export async function GET(
 
     // Invoice summary — only this student's invoices. A negative stored balance is owed as $0.
     const totalInvoiced = invoices.reduce((s, inv) => s + inv.total, 0)
-    const totalPaid = invoices.filter(inv => inv.paymentStatus === 'paid').reduce((s, inv) => s + inv.total, 0)
-    const openBalance = openBalanceFromInvoices(invoices)
+    const billing = await studentBillingSummary(identity)
 
     // Pull the original StudentRegistration (online registration source) so we can
     // surface the SAAQ 6224A medical declaration + signature on the profile.
@@ -132,8 +131,7 @@ export async function GET(
       paperExams,
       summary: {
         totalInvoiced: Math.round(totalInvoiced * 100) / 100,
-        totalPaid: Math.round(totalPaid * 100) / 100,
-        openBalance,
+        ...billing,
         invoiceCount: invoices.length,
         certificateCount: localStudent?.certificates.length || 0,
         groupCount: groupMemberships.length,

@@ -52,6 +52,15 @@ export async function createRegistrationInvoice(
     select: { id: true, invoiceNumber: true },
   })
   if (existing) {
+    // A retry after capture must settle the existing pending invoice, not leave
+    // it unpaid or issue a second receipt. Never resurrect a refunded invoice.
+    if (paymentStatus === 'paid') {
+      await prisma.invoice.updateMany({ where: { id: existing.id, paymentStatus: 'unpaid' }, data: {
+        paymentStatus: 'paid', paymentMethod,
+        paidAt: registration.paymentCapturedAt || new Date(),
+        cloverPaid: paymentMethod === 'card',
+      } })
+    }
     return { created: false, invoiceId: existing.id, invoiceNumber: existing.invoiceNumber, reason: 'already-exists' }
   }
 

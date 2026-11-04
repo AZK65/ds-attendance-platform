@@ -8,6 +8,7 @@ import { findInvoicesForStudent } from '@/lib/invoice-lookup'
 import { listPriorPayments, printedRemainingBalance, type PaymentHistory } from '@/lib/invoice-payments'
 import { parseExternalStudentId } from '@/lib/invoice-student-id'
 import { prisma } from '@/lib/db'
+import { studentBillingSummary } from '@/lib/invoice-billing'
 
 interface LineItem {
   description: string
@@ -57,6 +58,7 @@ interface InvoiceData {
   paymentHistory?: PaymentHistory | null
   /** Saved payment status. "paid" prints the PAID marker. */
   paymentStatus?: string | null
+  balanceNeedsReview?: boolean
 }
 
 // Styles for the invoice PDF
@@ -475,6 +477,10 @@ function InvoiceDocument({ data, logoSrc }: { data: InvoiceData; logoSrc: string
           React.createElement(Text, { style: styles.totalFinalLabel }, 'Total:'),
           React.createElement(Text, { style: styles.totalFinalValue }, formatCurrency(data.total)),
         ),
+        React.createElement(View, { style: styles.totalRow },
+          React.createElement(Text, { style: styles.totalLabel }, 'Due on this invoice:'),
+          React.createElement(Text, { style: styles.totalValue }, formatCurrency(data.paymentStatus === 'paid' || data.paymentStatus === 'refunded' ? 0 : Math.max(0, data.total))),
+        ),
         // If payment history could not be read, the stored balance still appears once, here.
         !data.paymentHistory && printedRemainingBalance(data.remainingBalance) != null
           ? React.createElement(View, { style: { flexDirection: 'row', justifyContent: 'flex-end', width: 250, paddingVertical: 4, marginTop: 4 } },
@@ -486,6 +492,7 @@ function InvoiceDocument({ data, logoSrc }: { data: InvoiceData; logoSrc: string
 
       data.paymentHistory ? React.createElement(View, { style: styles.paymentSection },
         React.createElement(Text, { style: styles.paymentTitle }, 'Payment history'),
+        data.paymentHistory.throughDate ? React.createElement(Text, { style: styles.paymentEmpty }, `Confirmed payments through ${formatPaymentDate(data.paymentHistory.throughDate)} (including this receipt when paid).`) : null,
         data.paymentHistory.payments.length === 0
           ? React.createElement(Text, { style: styles.paymentEmpty }, 'No payments yet')
           : React.createElement(View, null,
@@ -493,26 +500,24 @@ function InvoiceDocument({ data, logoSrc }: { data: InvoiceData; logoSrc: string
                 React.createElement(Text, { style: [styles.paymentDate, styles.paymentHeadText] }, 'Date'),
                 React.createElement(Text, { style: [styles.paymentMethod, styles.paymentHeadText] }, 'Method'),
                 React.createElement(Text, { style: [styles.paymentAmount, styles.paymentHeadText] }, 'Amount'),
-                React.createElement(Text, { style: [styles.paymentBalance, styles.paymentHeadText] }, 'Balance'),
               ),
               ...data.paymentHistory.payments.map((payment) =>
                 React.createElement(View, { key: payment.invoiceNumber, style: styles.paymentLine, wrap: false },
                   React.createElement(Text, { style: styles.paymentDate }, formatPaymentDate(payment.date)),
                   React.createElement(Text, { style: styles.paymentMethod }, paymentMethodLabel(payment.method)),
                   React.createElement(Text, { style: styles.paymentAmount }, formatCurrency(payment.amount)),
-                  React.createElement(Text, { style: styles.paymentBalance }, payment.balanceAfter == null ? '\u2014' : formatCurrency(payment.balanceAfter)),
                 ),
               ),
             ),
         React.createElement(View, { style: styles.paymentSummary },
           React.createElement(View, { style: [styles.paymentSummaryRow, styles.paymentSummaryFirst] },
-            React.createElement(Text, { style: styles.totalLabel }, 'Total paid:'),
+            React.createElement(Text, { style: styles.totalLabel }, 'Paid through receipt date:'),
             React.createElement(Text, { style: styles.totalValue }, formatCurrency(data.paymentHistory.totalPaid)),
           ),
           printedRemainingBalance(data.remainingBalance) != null
             ? React.createElement(View, { style: styles.paymentSummaryRow },
-                React.createElement(Text, { style: { flex: 1, textAlign: 'right', paddingRight: 15, color: BRAND.red, fontSize: 11, fontWeight: 'bold' } }, 'Remaining balance:'),
-                React.createElement(Text, { style: { width: 100, textAlign: 'right', color: BRAND.red, fontSize: 11, fontWeight: 'bold' } }, formatCurrency(printedRemainingBalance(data.remainingBalance) as number)),
+                React.createElement(Text, { style: { flex: 1, textAlign: 'right', paddingRight: 15, color: BRAND.red, fontSize: 11, fontWeight: 'bold' } }, data.balanceNeedsReview ? 'Saved balance (needs review):' : (data.remainingBalance ?? 0) < 0 ? 'Current account credit:' : 'Current account balance:'),
+                React.createElement(Text, { style: { width: 100, textAlign: 'right', color: BRAND.red, fontSize: 11, fontWeight: 'bold' } }, formatCurrency(Math.abs(data.remainingBalance ?? 0))),
               )
             : null,
         ),
@@ -537,37 +542,44 @@ export async function buildInvoicePdf(body: InvoiceData) {
   return renderToBuffer(element)
 }
 
-/** Read prior paid invoices for this student. Does not write. */
-export async function loadPaymentHistory(body: Pick<InvoiceData, 'invoiceNumber' | 'invoiceDate' | 'studentName' | 'studentPhone' | 'externalStudentId' | 'paymentStatus'>): Promise<{ history: PaymentHistory | null; paymentStatus: string | null }> {
+/** Read confirmed receipts through this receipt's date. Does not write. */
+export async function loadPaymentHistory(body: Pick<InvoiceData, 'invoiceNumber' | 'invoiceDate' | 'studentName' | 'studentPhone' | 'externalStudentId' | 'paymentStatus'>): Promise<{ history: PaymentHistory | null; paymentStatus: string | null; balance?: number; needsReview?: boolean }> {
   try {
     const saved = await prisma.invoice.findUnique({
       where: { invoiceNumber: body.invoiceNumber },
-      select: { externalStudentId: true, paymentStatus: true },
     })
-    const externalStudentId = parseExternalStudentId(body.externalStudentId) ?? saved?.externalStudentId ?? null
-    const phone = body.studentPhone || ''
-    const name = body.studentName || ''
+    const externalStudentId = saved ? saved.externalStudentId : parseExternalStudentId(body.externalStudentId) ?? null
+    const phone = saved ? saved.studentPhone || '' : body.studentPhone || ''
+    const name = saved ? saved.studentName || '' : body.studentName || ''
     const paymentStatus = saved?.paymentStatus ?? body.paymentStatus ?? null
     if (externalStudentId == null && !phone && !name) return { history: { payments: [], totalPaid: 0 }, paymentStatus }
-    const invoices = await findInvoicesForStudent({ externalStudentId, phone, name })
+    const invoices = saved?.billingAccountId
+      ? await prisma.invoice.findMany({ where: { billingAccountId: saved.billingAccountId } })
+      : await findInvoicesForStudent({ externalStudentId, phone, name })
+    const billing = await studentBillingSummary({ externalStudentId, phone, name })
     return {
       history: listPriorPayments(invoices, {
+        billingAccountId: saved?.billingAccountId,
         invoiceNumber: body.invoiceNumber,
+        invoiceDate: saved?.invoiceDate || body.invoiceDate,
+        paidAt: saved?.paidAt,
         externalStudentId,
         phone,
         name,
       }),
       paymentStatus,
+      balance: billing.netBalance,
+      needsReview: billing.needsReview,
     }
   } catch (error) {
     console.warn('[Invoice] Payment history lookup failed:', error)
-    return { history: null, paymentStatus: body.paymentStatus ?? null }
+    throw new Error('Payment history could not be verified. Please retry before sending this invoice.')
   }
 }
 
 export async function POST(request: NextRequest) {
   try {
-    const body: InvoiceData = await request.json()
+    let body: InvoiceData = await request.json()
 
     if (!body.studentName || !body.invoiceNumber) {
       return NextResponse.json(
@@ -576,11 +588,27 @@ export async function POST(request: NextRequest) {
       )
     }
 
+    // Regeneration must use saved money and student fields, not a stale browser
+    // form left open before an edit or a payment confirmation.
+    const saved = await prisma.invoice.findUnique({ where: { invoiceNumber: body.invoiceNumber } })
+    if (saved) body = {
+      ...body,
+      studentName: saved.studentName, studentPhone: saved.studentPhone || '',
+      studentEmail: saved.studentEmail || '', studentAddress: saved.studentAddress || '',
+      studentCity: saved.studentCity || '', studentProvince: saved.studentProvince || '',
+      studentPostalCode: saved.studentPostalCode || '', externalStudentId: saved.externalStudentId,
+      invoiceDate: saved.invoiceDate, dueDate: saved.dueDate || '',
+      lineItems: JSON.parse(saved.lineItems), subtotal: saved.subtotal,
+      total: saved.total, gstAmount: saved.gstAmount, qstAmount: saved.qstAmount, notes: saved.notes || '',
+    }
+
     const loaded = await loadPaymentHistory(body)
     const buffer = await buildInvoicePdf({
       ...body,
       paymentHistory: loaded.history,
       paymentStatus: loaded.paymentStatus,
+      remainingBalance: loaded.balance,
+      balanceNeedsReview: loaded.needsReview,
     })
     const uint8Array = new Uint8Array(buffer)
 

@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/db'
 import { searchStudents, type StudentRecord } from '@/lib/external-db'
 import { findExamAttemptsForStudent, findInvoicesForStudent } from '@/lib/invoice-lookup'
-import { openBalanceFromInvoices } from '@/lib/invoice-match'
+import { studentBillingSummary } from '@/lib/invoice-billing'
 import { parseExternalStudentId } from '@/lib/invoice-student-id'
 import { findBestLocalStudent } from '@/lib/local-student-lookup'
 import { findStudentPaperExams } from '@/lib/paper-exam-profile'
@@ -51,15 +51,10 @@ export async function GET(request: NextRequest) {
       findStudentPaperExams({ ...identity, contactId }),
     ])
 
-    // Invoices are newest-created first. The stored remainingBalance on the
-    // newest invoice that has one is the open balance. A negative stored
-    // value is owed as $0. Fall back to unpaid totals only when none was stored.
+    // Invoice volume is distinct from the reviewed account's actual obligation.
     const totalInvoiced = invoices.reduce((sum, inv) => sum + inv.total, 0)
-    const totalPaid = invoices
-      .filter(inv => inv.paymentStatus === 'paid')
-      .reduce((sum, inv) => sum + inv.total, 0)
     const lastInvoice = invoices[0] || null
-    const openBalance = openBalanceFromInvoices(invoices)
+    const billing = await studentBillingSummary(identity)
 
     return NextResponse.json({
       dbStudent,
@@ -146,8 +141,7 @@ export async function GET(request: NextRequest) {
       paperExams,
       summary: {
         totalInvoiced: Math.round(totalInvoiced * 100) / 100,
-        totalPaid: Math.round(totalPaid * 100) / 100,
-        openBalance: Math.round(openBalance * 100) / 100,
+        ...billing,
         invoiceCount: invoices.length,
         lastInvoiceDate: lastInvoice?.invoiceDate || null,
       },
@@ -281,4 +275,3 @@ async function findLocalStudent(phone: string, name: string, licenceNumber?: str
   console.log('[findLocalStudent] result:', result ? `${result.name} (${result.certificates.length} certs, ${filledDateCount(result)} dates)` : 'null')
   return result
 }
-

@@ -157,7 +157,12 @@ function InvoicePage() {
   const [manualBalance, setManualBalance] = useState<number | null>(null)
 
   // PDF blob for sending after generation + preview
-  const computedBalanceRef = useRef<number | null>(null)
+  const [billingMode, setBillingMode] = useState<'installment' | 'new-charge' | 'new-course' | null>(null)
+  const [paymentError, setPaymentError] = useState<string | null>(null)
+  const [recordingPayment, setRecordingPayment] = useState(false)
+  const paymentInFlight = useRef(false)
+  const confirmedPaymentMethod = useRef<'cash' | 'card' | null>(null)
+  const pdfPayloadRef = useRef<Record<string, unknown> | null>(null)
   const pdfBase64Ref = useRef<string | null>(null)
   const [pdfPreviewUrl, setPdfPreviewUrl] = useState<string | null>(null)
   const [emailSent, setEmailSent] = useState(false)
@@ -166,6 +171,7 @@ function InvoicePage() {
   const [paymentLinkCopied, setPaymentLinkCopied] = useState(false)
   const [paymentMethod, setPaymentMethod] = useState<'cash' | 'card' | 'online' | null>(null)
   const [savedInvoiceId, setSavedInvoiceId] = useState<string | null>(null)
+  const [savedInvoiceNumber, setSavedInvoiceNumber] = useState<string | null>(null)
   const [showCloverMatch, setShowCloverMatch] = useState(false)
   const [cloverMatching, setCloverMatching] = useState(false)
   const [cloverMatches, setCloverMatches] = useState<Array<{ orderId: string; total: number; date: string; score: string; diff: number; lineItems: Array<{ name: string; price: number; quantity: number }> }>>([])
@@ -471,7 +477,7 @@ function InvoicePage() {
       if (externalStudentId != null) params.set('externalStudentId', String(externalStudentId))
       const res = await fetch(`/api/students/balance?${params}`)
       if (!res.ok) return null
-      return res.json() as Promise<{ totalInvoiced: number; totalPaid: number; openBalance: number; groupId: string | null; contactId: string | null }>
+      return res.json() as Promise<{ totalInvoiced: number; totalPaid: number; openBalance: number; netBalance: number; creditBalance: number; hasAccount: boolean; needsReview: boolean; groupId: string | null; contactId: string | null }>
     },
     enabled: !!(formData.studentPhone || formData.studentName),
   })
@@ -496,7 +502,7 @@ function InvoicePage() {
   // Derived values
   const invoicePrefix = settings?.invoicePrefix || 'INV'
   const nextNumber = settings?.nextInvoiceNumber || 1
-  const invoiceNumber = `${invoicePrefix}-${String(nextNumber).padStart(4, '0')}`
+  const invoiceNumber = savedInvoiceNumber ?? `${invoicePrefix}-${String(nextNumber).padStart(4, '0')}`
   const gstRate = settings?.defaultGstRate ?? 5.0
   const qstRate = settings?.defaultQstRate ?? 9.975
 
@@ -570,49 +576,8 @@ function InvoicePage() {
   // PDF generation mutation
   const generateMutation = useMutation({
     mutationFn: async () => {
-      // Fetch existing balance so we can show remaining balance on PDF
-      let remainingBalance = 0
-      let hasBalanceContext = false
-      try {
-        const balanceParams = new URLSearchParams()
-        if (formData.studentPhone) balanceParams.set('phone', formData.studentPhone)
-        if (formData.studentName) balanceParams.set('name', formData.studentName)
-        if (externalStudentId != null) balanceParams.set('externalStudentId', String(externalStudentId))
-        let previousBalance = 0
-        if (balanceParams.toString()) {
-          const balRes = await fetch(`/api/students/balance?${balanceParams}`)
-          if (balRes.ok) {
-            const balData = await balRes.json()
-            previousBalance = typeof balData.openBalance === 'number' ? balData.openBalance : 0
-          }
-        }
-        if (selectedPackage) {
-          // If the student already carries a balance from a previous invoice
-          // for this package, this is a CONTINUATION — just subtract the
-          // current payment. A negative balance is a credit and still
-          // continues. Otherwise it's a NEW package, so seed the remaining
-          // balance with the full package total.
-          hasBalanceContext = true
-          if (previousBalance !== 0) {
-            remainingBalance = previousBalance - total
-          } else {
-            remainingBalance = selectedPackage.totalPrice - total
-          }
-        } else if (manualBalance !== null && manualBalance > 0) {
-          // Manual balance entered: remaining = manualBalance - this invoice
-          hasBalanceContext = true
-          remainingBalance = manualBalance - total
-        } else if (previousBalance !== 0) {
-          // Existing balance from prior invoices — subtract this invoice.
-          // The balance API already reports a negative stored balance as $0.
-          hasBalanceContext = true
-          remainingBalance = previousBalance - total
-        }
-      } catch { /* non-fatal */ }
-
-      // Store for save payload. Zero and negative are real balances; a
-      // missing package context stays null so it does not wipe the fallback.
-      computedBalanceRef.current = hasBalanceContext ? Math.round(remainingBalance * 100) / 100 : null
+      // Save before rendering; a failed save must not produce a usable receipt.
+      if (!savedInvoiceId) await saveMutation.mutateAsync()
 
       const payload = {
         schoolName: settings?.schoolName || 'École de Conduite Qazi',
@@ -643,10 +608,10 @@ function InvoicePage() {
         total,
         taxesEnabled,
         notes: formData.notes,
-        remainingBalance,
         externalStudentId,
       }
 
+      pdfPayloadRef.current = payload
       const res = await fetch('/api/invoice/generate', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -678,11 +643,11 @@ function InvoicePage() {
       setWhatsappSent(false)
       setPaymentMethod(null)
       setStep('payment')
-      saveMutation.mutate()
+      // Already persisted before rendering.
     },
   })
 
-  // Save mutation (fire-and-forget)
+  // Save is awaited before generating a receipt.
   const saveMutation = useMutation({
     mutationFn: async () => {
       const res = await fetch('/api/invoice/save', {
@@ -707,11 +672,12 @@ function InvoicePage() {
           qstAmount,
           total,
           notes: formData.notes,
-          remainingBalance: computedBalanceRef.current,
+          billingMode: billingMode ?? (selectedPackage ? (balanceData?.hasAccount ? 'installment' : 'new-course') : balanceData?.hasAccount && balanceData.openBalance > 0 ? 'installment' : manualBalance != null ? 'new-course' : 'new-charge'),
+          courseTotal: selectedPackage?.totalPrice ?? manualBalance,
           externalStudentId,
         }),
       })
-      if (!res.ok) throw new Error('Failed to save invoice')
+      if (!res.ok) { const data = await res.json().catch(() => ({})); throw new Error(data.error || 'Failed to save invoice') }
       return res.json()
     },
     onSuccess: (data) => {
@@ -719,9 +685,45 @@ function InvoicePage() {
       queryClient.invalidateQueries({ queryKey: ['student-balance'] })
       if (data?.invoice?.id) {
         setSavedInvoiceId(data.invoice.id)
+        setSavedInvoiceNumber(data.invoice.invoiceNumber)
       }
     },
   })
+
+  async function recordPayment(method: 'cash' | 'card' | 'online'): Promise<boolean> {
+    if (!savedInvoiceId || paymentInFlight.current) return false
+    paymentInFlight.current = true
+    setRecordingPayment(true)
+    setPaymentError(null)
+    try {
+      if (confirmedPaymentMethod.current && method !== confirmedPaymentMethod.current) {
+        throw new Error('Payment is already recorded. Reopen the saved invoice to review it; choosing another method here would alter that receipt.')
+      }
+      if (!confirmedPaymentMethod.current) {
+      const res = await fetch('/api/invoice/update-payment', {
+        method: 'PUT', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ invoiceId: savedInvoiceId, paymentMethod: method, paymentStatus: method === 'online' ? 'unpaid' : 'paid' }),
+      })
+      if (!res.ok) { const data = await res.json(); throw new Error(data.error || 'Payment was not saved') }
+      if (method !== 'online') confirmedPaymentMethod.current = method
+      }
+      setPaymentMethod(method)
+      pdfBase64Ref.current = null
+      setPdfPreviewUrl(null)
+      const pdf = await fetch('/api/invoice/generate', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(pdfPayloadRef.current) })
+      if (!pdf.ok) throw new Error('Payment saved, but the updated PDF could not load. Reopen this invoice before sending it.')
+      const blob = await pdf.blob()
+      const bytes = new Uint8Array(await blob.arrayBuffer())
+      let binary = ''; for (const byte of bytes) binary += String.fromCharCode(byte)
+      pdfBase64Ref.current = btoa(binary)
+      setPdfPreviewUrl(URL.createObjectURL(blob))
+      queryClient.invalidateQueries({ queryKey: ['student-balance'] })
+      return true
+    } catch (error) {
+      setPaymentError(error instanceof Error ? error.message : 'Payment could not be saved')
+      return false
+    } finally { setRecordingPayment(false); paymentInFlight.current = false }
+  }
 
   // Email send mutation
   const emailMutation = useMutation({
@@ -881,7 +883,7 @@ function InvoicePage() {
     if (items.length > 0) {
       setLineItems(items)
     }
-    setSelectedPackage({ name: pkg.name, totalPrice: pkg.totalPrice })
+    setSelectedPackage({ name: pkg.name, totalPrice: Math.round(pkg.totalPrice * (taxesEnabled && !pkg.taxInclusive ? 1 + gstRate / 100 + qstRate / 100 : 1) * 100) / 100 })
     setStep('review')
   }
 
@@ -893,7 +895,7 @@ function InvoicePage() {
       unitPrice: inst.amount,
       taxInclusive: pkg.taxInclusive,
     }])
-    setSelectedPackage({ name: pkg.name, totalPrice: pkg.totalPrice })
+    setSelectedPackage({ name: pkg.name, totalPrice: Math.round(pkg.totalPrice * (taxesEnabled && !pkg.taxInclusive ? 1 + gstRate / 100 + qstRate / 100 : 1) * 100) / 100 })
     setStep('review')
   }
 
@@ -953,6 +955,10 @@ function InvoicePage() {
     setPaymentLinkCopied(false)
     setPaymentMethod(null)
     setSavedInvoiceId(null)
+    setSavedInvoiceNumber(null)
+    setBillingMode(null)
+    setPaymentError(null)
+    confirmedPaymentMethod.current = null
     setStep('student')
   }
 
@@ -1402,37 +1408,23 @@ function InvoicePage() {
               {(() => {
                 const packageTotal = selectedPackage?.totalPrice || 0
                 const previousBalance = typeof balanceData?.openBalance === 'number' ? balanceData.openBalance : 0
-                let effectiveBalance: number
-                if (selectedPackage) {
-                  // Continuation invoice: prior balance already represents
-                  // outstanding package — just subtract the current invoice.
-                  // A negative prior balance is a credit and still continues.
-                  // Fresh package: seed with the full package total.
-                  effectiveBalance = previousBalance !== 0
-                    ? previousBalance - total
-                    : packageTotal - total
-                } else if (manualBalance !== null && manualBalance > 0) {
-                  effectiveBalance = manualBalance - total
-                } else if (previousBalance !== 0) {
-                  effectiveBalance = previousBalance - total
-                } else {
-                  return null // No balance to show
-                }
+                const mode = billingMode ?? (selectedPackage ? (balanceData?.hasAccount ? 'installment' : 'new-course') : balanceData?.hasAccount && balanceData.openBalance > 0 ? 'installment' : manualBalance != null ? 'new-course' : 'new-charge')
+                const effectiveBalance = (balanceData?.netBalance ?? previousBalance) + (balanceData?.needsReview ? 0 : mode === 'new-course' ? (selectedPackage?.totalPrice ?? manualBalance ?? 0) : mode === 'new-charge' ? total : 0)
                 const hasBalance = effectiveBalance > 0
                 return (
                   <Card className={`border-2 ${hasBalance ? 'border-amber-300 bg-amber-50/50 dark:bg-amber-950/20' : 'border-green-300 bg-green-50/50 dark:bg-green-950/20'}`}>
                     <CardContent className="pt-6 pb-6">
-                      <div className="flex items-center justify-between">
+                      <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
                         <div className="flex items-center gap-4">
                           <div className={`w-14 h-14 rounded-full flex items-center justify-center ${hasBalance ? 'bg-amber-100 dark:bg-amber-900' : 'bg-green-100 dark:bg-green-900'}`}>
                             <DollarSign className={`h-7 w-7 ${hasBalance ? 'text-amber-600' : 'text-green-600'}`} />
                           </div>
                           <div>
                             <p className="text-sm text-muted-foreground font-medium">
-                              {selectedPackage ? 'Remaining Balance' : manualBalance !== null && manualBalance > 0 ? 'Custom Balance' : 'Student Balance'}
+                              {balanceData?.needsReview ? 'Saved balance needs review' : 'Account balance before payment'}
                             </p>
                             <p className={`text-3xl font-bold font-mono ${hasBalance ? 'text-amber-700 dark:text-amber-400' : 'text-green-700 dark:text-green-400'}`}>
-                              ${effectiveBalance.toFixed(2)}
+                              ${Math.abs(effectiveBalance).toFixed(2)}{effectiveBalance < 0 ? ' credit' : ''}
                             </p>
                             {selectedPackage && (
                               <p className="text-xs text-muted-foreground flex items-center gap-1 mt-0.5">
@@ -1441,7 +1433,7 @@ function InvoicePage() {
                             )}
                           </div>
                         </div>
-                        <div className="text-right space-y-1">
+                        <div className="text-left sm:text-right space-y-1">
                           {selectedPackage && (
                             <div className="text-sm">
                               <span className="text-muted-foreground">Package: </span>
@@ -1475,6 +1467,19 @@ function InvoicePage() {
                   </Card>
                 )
               })()}
+
+              <Card>
+                <CardContent className="space-y-2 pt-6">
+                  <Label htmlFor="billing-mode">What is this invoice for?</Label>
+                  <select id="billing-mode" className="w-full rounded-md border bg-background p-2" value={billingMode ?? (selectedPackage ? (balanceData?.hasAccount ? 'installment' : 'new-course') : balanceData?.hasAccount && balanceData.openBalance > 0 ? 'installment' : manualBalance != null ? 'new-course' : 'new-charge')} onChange={event => setBillingMode(event.target.value as 'installment' | 'new-charge' | 'new-course')}>
+                    <option value="installment">Payment toward an existing course</option>
+                    <option value="new-charge">New service or extra lesson</option>
+                    <option value="new-course">New course (add its full price once)</option>
+                  </select>
+                  <p className="text-sm text-muted-foreground">Creating an invoice does not count as receiving payment. A course installment does not charge for the course again.</p>
+                  {balanceData?.needsReview && <p role="alert" className="text-sm text-amber-700">This student’s historical balance needs reconciliation before saving another invoice.</p>}
+                </CardContent>
+              </Card>
 
               {/* Invoice Details */}
               <Card>
@@ -1738,7 +1743,7 @@ function InvoicePage() {
                   )}
                   <Button
                     onClick={() => generateMutation.mutate()}
-                    disabled={!canGenerate || generateMutation.isPending}
+                    disabled={!canGenerate || generateMutation.isPending || !!balanceData?.needsReview}
                     size="lg"
                   >
                     {generateMutation.isPending ? (
@@ -1837,7 +1842,9 @@ function InvoicePage() {
                         <CreditCard className="h-5 w-5" />
                         Payment Method
                       </CardTitle>
-                      <CardDescription>How will the student pay?</CardDescription>
+                      <CardDescription>Confirm cash or terminal payment only after receiving it. Online stays unpaid until confirmed.</CardDescription>
+                      {paymentError && <p role="alert" className="text-sm text-red-600">{paymentError}</p>}
+                      {recordingPayment && <p role="status" className="text-sm text-muted-foreground">Saving payment and updating the receipt…</p>}
                     </CardHeader>
                     <CardContent>
                       <div className="grid grid-cols-1 gap-3">
@@ -1849,14 +1856,7 @@ function InvoicePage() {
                               : 'border-muted hover:border-green-300'
                           }`}
                           onClick={async () => {
-                            setPaymentMethod('cash')
-                            if (savedInvoiceId) {
-                              await fetch('/api/invoice/update-payment', {
-                                method: 'PUT',
-                                headers: { 'Content-Type': 'application/json' },
-                                body: JSON.stringify({ invoiceId: savedInvoiceId, paymentMethod: 'cash', paymentStatus: 'paid' }),
-                              })
-                            }
+                            if (!await recordPayment('cash')) return
                             setStep('done')
                           }}
                         >
@@ -1875,14 +1875,7 @@ function InvoicePage() {
                               : 'border-muted hover:border-blue-300'
                           }`}
                           onClick={async () => {
-                            setPaymentMethod('card')
-                            if (savedInvoiceId) {
-                              await fetch('/api/invoice/update-payment', {
-                                method: 'PUT',
-                                headers: { 'Content-Type': 'application/json' },
-                                body: JSON.stringify({ invoiceId: savedInvoiceId, paymentMethod: 'card', paymentStatus: 'paid' }),
-                              })
-                            }
+                            if (!await recordPayment('card')) return
                             // Show Clover match dialog if configured, otherwise go to done
                             if (cloverConfigured && savedInvoiceId) {
                               setShowCloverMatch(true)
@@ -1919,14 +1912,7 @@ function InvoicePage() {
                               : 'border-muted hover:border-purple-300'
                           }`}
                           onClick={async () => {
-                            setPaymentMethod('online')
-                            if (savedInvoiceId) {
-                              await fetch('/api/invoice/update-payment', {
-                                method: 'PUT',
-                                headers: { 'Content-Type': 'application/json' },
-                                body: JSON.stringify({ invoiceId: savedInvoiceId, paymentMethod: 'online', paymentStatus: 'unpaid' }),
-                              })
-                            }
+                            if (!await recordPayment('online')) return
                             if (cloverConfigured) {
                               paymentLinkMutation.mutate()
                             }

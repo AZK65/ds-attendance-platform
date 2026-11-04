@@ -4,6 +4,7 @@ import { searchStudents, createStudent } from '@/lib/external-db'
 import { findBestLocalStudent } from '@/lib/local-student-lookup'
 import { parseExternalStudentId, resolveExternalStudentId } from '@/lib/invoice-student-id'
 import { namesEqual, phoneLast10 } from '@/lib/student-match'
+import { BillingReviewRequired, prepareInvoiceBilling } from '@/lib/invoice-billing'
 
 // POST - save invoice record and increment invoice number
 export async function POST(request: NextRequest) {
@@ -29,7 +30,6 @@ export async function POST(request: NextRequest) {
       notes,
       paymentMethod,
       paymentStatus,
-      remainingBalance,
     } = body
 
     if (!invoiceNumber || !studentName) {
@@ -37,6 +37,12 @@ export async function POST(request: NextRequest) {
         { error: 'Invoice number and student name are required' },
         { status: 400 }
       )
+    }
+    if (![total, subtotal, gstAmount, qstAmount].every(value => typeof value === 'number' && Number.isFinite(value) && value >= 0)
+      || total <= 0 || (paymentStatus && !['paid', 'unpaid'].includes(paymentStatus))
+      || (body.billingMode && !['installment', 'new-charge', 'new-course'].includes(body.billingMode))
+      || Math.abs(Math.round(total * 100) - Math.round((subtotal + gstAmount + qstAmount) * 100)) > 1) {
+      return NextResponse.json({ error: 'Invoice amounts or payment status are invalid. Check subtotal, taxes, and total.' }, { status: 400 })
     }
 
     // MySQL student id, when we can tell who this is. A caller-supplied id
@@ -75,7 +81,11 @@ export async function POST(request: NextRequest) {
     }
 
     // Save the invoice record
-    const invoice = await prisma.invoice.create({
+    const invoice = await prisma.$transaction(async tx => {
+      const billing = await prepareInvoiceBilling(tx, { externalStudentId, phone: studentPhone, name: studentName }, {
+        mode: body.billingMode || 'new-charge', total, courseTotal: body.courseTotal,
+      })
+      const saved = await tx.invoice.create({
       data: {
         invoiceNumber,
         studentName,
@@ -100,13 +110,14 @@ export async function POST(request: NextRequest) {
         paidAt: paymentStatus === 'paid'
           ? new Date(`${invoiceDate}T12:00:00.000Z`)
           : null,
-        remainingBalance: remainingBalance != null ? remainingBalance : null,
+        remainingBalance: null,
+        ...billing,
         externalStudentId,
       }
-    })
+      })
 
     // Increment the next invoice number
-    await prisma.invoiceSettings.upsert({
+      await tx.invoiceSettings.upsert({
       where: { id: 'default' },
       update: {
         nextInvoiceNumber: { increment: 1 },
@@ -115,6 +126,8 @@ export async function POST(request: NextRequest) {
         id: 'default',
         nextInvoiceNumber: 2, // Start at 2 since 1 was just used
       }
+      })
+      return saved
     })
 
     // Auto-save student to local Student table for future autocomplete
@@ -156,6 +169,10 @@ export async function POST(request: NextRequest) {
 
     return NextResponse.json({ invoice })
   } catch (error) {
+    if (error instanceof BillingReviewRequired) return NextResponse.json({ error: error.message }, { status: 409 })
+    if (error && typeof error === 'object' && 'code' in error && error.code === 'P2002') {
+      return NextResponse.json({ error: 'This invoice number already exists. Reopen the saved invoice instead of creating another payment.' }, { status: 409 })
+    }
     console.error('Error saving invoice:', error)
     return NextResponse.json(
       { error: 'Failed to save invoice', details: error instanceof Error ? error.message : 'Unknown error' },
