@@ -7,6 +7,7 @@ import {
   carSessionNumber,
   clockTime,
   eventBelongsToStudent,
+  isExtraHoursClass,
   mergeScheduledCarClasses,
   phoneSuffix,
   studentNameFromTitle,
@@ -251,12 +252,13 @@ export async function enforceCarClassGap(args: EnforceCarClassGapArgs): Promise<
   }
 
   const violationArgs = {
+    isExtraHours: isExtraHoursClass(args.notes),
     sessionNumber,
     proposedDate: args.startDate,
     previousDate: args.previousStartDate,
     previousSessionNumber,
   }
-  // Session 4+, theory, and same-day edits never consult the calendar and
+  // Extra hours, session 4+, theory, and same-day edits never consult the calendar and
   // never rewrite an existing booking.
   if (!carClassGapApplies(violationArgs)) return { ok: true }
 

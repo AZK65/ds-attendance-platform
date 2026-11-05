@@ -9,6 +9,7 @@ import {
   earlyCarClassGapMessage,
   eventBelongsToStudent,
   isCountableCarClass,
+  isExtraHoursClass,
   mergeScheduledCarClasses,
   suggestionButtonLabel,
   type CalendarClass,
@@ -25,6 +26,47 @@ function carClass(date: string, extras: Partial<CalendarClass> = {}): CalendarCl
 }
 
 const JANE = { phone: '(514) 555-1212', name: 'Jane Doe' }
+
+test('extra hours bypass the gap before and after nearby classes, including rescheduling', () => {
+  const classes = [carClass('2026-03-01'), carClass('2026-03-04')]
+  for (const sessionNumber of [1, 2, 3]) {
+    const args = { sessionNumber, proposedDate: '2026-03-02', classes }
+    assert(carClassGapViolation(args))
+    assert.equal(carClassGapApplies({ ...args, isExtraHours: true }), false)
+    assert.equal(carClassGapViolation({ ...args, isExtraHours: true }), null)
+    assert.equal(carClassGapViolation({ ...args, isExtraHours: true, previousDate: '2026-02-20', previousSessionNumber: sessionNumber }), null)
+    assert(carClassGapViolation({ ...args, isExtraHours: false }))
+  }
+})
+
+test('extra-hour metadata survives plain and HTML Teamup notes without guessing from a title', () => {
+  assert.equal(isExtraHoursClass('Student: Amira\nExtraHours: yes\nPaid: no'), true)
+  assert.equal(isExtraHoursClass('<p>Student: Amira</p><p>ExtraHours: yes</p><p>Paid: yes</p>'), true)
+  assert.equal(isExtraHoursClass('<div>Phone: 15145550147</div><div>ExtraHours: yes</div>'), true)
+  for (const notes of [undefined, '', 'ExtraHours: no', 'ExtraHours: yesterday', 'Student wants extra hours']) {
+    assert.equal(isExtraHoursClass(notes), false)
+  }
+})
+
+test('server exempts extra hours even with an early-session title or reschedule fallback', async () => {
+  const { enforceCarClassGap } = await import('./car-class-gap-enforce')
+  const apiKey = process.env.TEAMUP_API_KEY
+  const calendarKey = process.env.TEAMUP_CALENDAR_KEY
+  delete process.env.TEAMUP_API_KEY
+  delete process.env.TEAMUP_CALENDAR_KEY
+  try {
+    const args = { title: 'Session 2 - Amira Bennett', notes: 'Phone: 15145550147\nExtraHours: yes', startDate: '2026-03-02T09:00:00' }
+    assert.deepEqual(await enforceCarClassGap(args), { ok: true })
+    assert.deepEqual(await enforceCarClassGap({ ...args, title: 'Driving practice', previousTitle: 'Session 1 - Amira Bennett', previousStartDate: '2026-02-20T09:00:00' }), { ok: true })
+    // Removing the explicit flag restores regular-course enforcement.
+    const regular = await enforceCarClassGap({ ...args, notes: 'Phone: 15145550147\nExtraHours: no' })
+    assert.equal(regular.ok, false)
+    if (!regular.ok) assert.equal(regular.status, 503)
+  } finally {
+    if (apiKey === undefined) delete process.env.TEAMUP_API_KEY; else process.env.TEAMUP_API_KEY = apiKey
+    if (calendarKey === undefined) delete process.env.TEAMUP_CALENDAR_KEY; else process.env.TEAMUP_CALENDAR_KEY = calendarKey
+  }
+})
 
 test('session 1–3 within 7 days of the previous car class is blocked', () => {
   const classes = [carClass('2026-03-01')]
