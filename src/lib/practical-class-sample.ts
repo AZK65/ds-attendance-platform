@@ -50,12 +50,23 @@ export const SAMPLE_THIRTEEN_BOOKINGS: PracticalBookingInput[] = [
 
 export const SAMPLE_SIGNED_BOOKING_IDS = ['booking-1', 'booking-3', 'booking-5', 'booking-7', 'booking-9']
 
+/** Unsigned 2-hour bookings marked present on the booking, not signed. */
+export const SAMPLE_PRESENT_EVENT_IDS = ['booking-2', 'booking-4', 'booking-6']
+
 export const SAMPLE_CANCELLED_BOOKING: PracticalBookingInput = booking(
   'booking-cancelled',
   14,
   '2026-09-06T09:00:00-04:00',
   '2026-09-06T13:00:00-04:00',
   'Cancelled',
+)
+
+/** Upcoming booking. The booklet leaves it off. The profile still shows it as scheduled. */
+export const SAMPLE_FUTURE_BOOKING: PracticalBookingInput = booking(
+  'booking-future',
+  17,
+  '2026-12-02T09:00:00-05:00',
+  '2026-12-02T11:00:00-05:00',
 )
 
 export const SAMPLE_ODD_BOOKING: PracticalBookingInput = booking(
