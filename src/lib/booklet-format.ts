@@ -49,7 +49,7 @@ export function formatSignedOn(value: Date | string): string {
   }).format(date)
 }
 
-/** Class 1 header. "15 theory · 1 practical" — signed lessons, not one combined total. */
+/** Class 1 header. "15 theory · 1 practical" — the two parts stay separate. */
 export function formatClass1SignedCounts(theorySigned: number, practicalSigned: number): string {
   return `${theorySigned} theory · ${practicalSigned} practical`
 }
