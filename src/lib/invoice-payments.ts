@@ -1,5 +1,6 @@
 import { contractPaymentDate } from '@/lib/class1-contract-payments'
 import { invoiceBelongsToStudent, roundMoney, type StudentIdentity } from '@/lib/invoice-match'
+import { givenPhoneKeys, phoneLast10 } from '@/lib/student-match'
 
 /**
  * A collected payment in this app is an Invoice row with paymentStatus "paid".
@@ -70,9 +71,21 @@ export function listPriorPayments(
   }
   const throughDate = contractPaymentDate(current)
   const cutoffTimestamp = current.paidAt ? createdAtMs(current.paidAt) : null
+  const phones = givenPhoneKeys(current.phone, current.phoneAlt)
+  const phoneIds = new Set(invoices.filter(row => phones.includes(phoneLast10(row.studentPhone)))
+    .map(row => row.externalStudentId).filter((id): id is number => id != null && id > 0))
+  if (current.externalStudentId) phoneIds.add(current.externalStudentId)
   const payments = invoices
     .filter((invoice) => invoice.paymentStatus === 'paid')
-    .filter((invoice) => current.billingAccountId ? invoice.billingAccountId === current.billingAccountId : invoiceBelongsToStudent(invoice, student))
+    .filter((invoice) => {
+      if (current.billingAccountId && invoice.billingAccountId === current.billingAccountId) return true
+      // Do not cross into another linked account just because a phone matches.
+      if (current.billingAccountId && invoice.billingAccountId) return false
+      if (!invoiceBelongsToStudent(invoice, student)) return false
+      // Phone-only historical receipts cannot resolve a shared student identity.
+      if ((!invoice.externalStudentId || !current.externalStudentId) && phones.length && phoneIds.size > 1) return false
+      return true
+    })
     .filter((invoice) => !throughDate || contractPaymentDate(invoice) <= throughDate)
     .filter((invoice) => !cutoffTimestamp || !invoice.paidAt || createdAtMs(invoice.paidAt) <= cutoffTimestamp)
     .sort((a, b) => {

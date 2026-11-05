@@ -160,8 +160,6 @@ function InvoicePage() {
 
   // PDF blob for sending after generation + preview
   const [billingMode, setBillingMode] = useState<'installment' | 'new-charge' | 'new-course' | null>(null)
-  const [historyTotal, setHistoryTotal] = useState('')
-  const [historyConfirmation, setHistoryConfirmation] = useState<string | null>(null)
   const [paymentError, setPaymentError] = useState<string | null>(null)
   const [recordingPayment, setRecordingPayment] = useState(false)
   const paymentInFlight = useRef(false)
@@ -472,7 +470,7 @@ function InvoicePage() {
   })
 
   // Load student balance when student is selected
-  const { data: balanceData, isPending: balancePending, error: balanceError } = useQuery({
+  const { data: balanceData, error: balanceError } = useQuery({
     queryKey: ['student-balance', formData.studentPhone, formData.studentName, externalStudentId],
     queryFn: async () => {
       const params = new URLSearchParams()
@@ -480,18 +478,16 @@ function InvoicePage() {
       if (formData.studentName) params.set('name', formData.studentName)
       if (externalStudentId != null) params.set('externalStudentId', String(externalStudentId))
       const res = await fetch(`/api/students/balance?${params}`)
-      if (!res.ok) throw new Error('Could not load this student’s balance. Reload before saving an invoice.')
+      if (!res.ok) throw new Error('Account balance is unavailable. You can still save an invoice; payment history will be checked when preparing the PDF.')
       return res.json() as Promise<{ totalInvoiced: number; totalPaid: number; openBalance: number; netBalance: number; creditBalance: number; hasAccount: boolean; hasCourseAgreement?: boolean; needsReview: boolean; knownActivityBalance?: number; historyFingerprint?: string; canConfirmHistory?: boolean; groupId: string | null; contactId: string | null }>
     },
     enabled: !!(formData.studentPhone || formData.studentName),
   })
 
   // Load student invoice history when on review step
-  const effectiveBillingMode = billingMode ?? (selectedPackage ? (balanceData?.hasCourseAgreement || balanceData?.needsReview ? 'installment' : 'new-course') : 'new-charge')
-  const needsHistoryTotal = effectiveBillingMode === 'installment' && !!balanceData?.needsReview
-  const historyCents = /^\d+(\.\d{1,2})?$/.test(historyTotal) && Number(historyTotal) <= 21474836.47 ? Math.round(Number(historyTotal) * 100) : null
-  const historyConfirmed = !!balanceData?.historyFingerprint && historyConfirmation === `${balanceData.historyFingerprint}:${historyTotal}`
-  const historyReady = !needsHistoryTotal || (!!balanceData?.canConfirmHistory && historyCents != null && historyConfirmed)
+  // While balance data is unavailable, do not assume a selected package is a
+  // new contract and charge its full price again. A receipt can remain unlinked.
+  const effectiveBillingMode = billingMode ?? (selectedPackage ? (!balanceData || balanceData.hasCourseAgreement || balanceData.needsReview ? 'installment' : 'new-course') : 'new-charge')
   const { data: invoiceHistoryData } = useQuery({
     queryKey: ['student-invoice-history', formData.studentPhone, formData.studentName, externalStudentId],
     queryFn: async () => {
@@ -683,7 +679,6 @@ function InvoicePage() {
           notes: formData.notes,
           billingMode: effectiveBillingMode,
           courseTotal: selectedPackage?.totalPrice ?? manualBalance,
-          ...(needsHistoryTotal && historyReady ? { history: { chargesCents: historyCents, fingerprint: balanceData?.historyFingerprint, confirmed: true } } : {}),
           externalStudentId,
         }),
       })
@@ -971,8 +966,6 @@ function InvoicePage() {
     setSavedInvoiceId(null)
     setSavedInvoiceNumber(null)
     setBillingMode(null)
-    setHistoryTotal('')
-    setHistoryConfirmation(null)
     setPaymentError(null)
     confirmedPaymentMethod.current = null
     setStep('student')
@@ -1424,9 +1417,19 @@ function InvoicePage() {
               {/* Balance Card — shows for packages, existing balance, or manual balance */}
               {(() => {
                 const packageTotal = selectedPackage?.totalPrice || 0
+                if (!balanceData || balanceData.needsReview) return (
+                  <Card>
+                    <CardContent className="space-y-2 pt-6">
+                      <p className="text-sm text-muted-foreground">This invoice</p>
+                      <p className="text-2xl font-semibold tabular-nums"><MorphText>{`$${total.toFixed(2)}`}</MorphText></p>
+                      <p className="text-sm text-muted-foreground">You can save this invoice and record payment now. The full account balance will stay unconfirmed until the older records are reconciled.</p>
+                      {balanceError && <p role="status" className="text-sm text-muted-foreground">{balanceError.message}</p>}
+                    </CardContent>
+                  </Card>
+                )
                 const previousBalance = typeof balanceData?.openBalance === 'number' ? balanceData.openBalance : 0
                 const mode = effectiveBillingMode
-                const effectiveBalance = (balanceData?.needsReview ? (needsHistoryTotal && historyCents != null ? historyCents / 100 - balanceData.totalPaid : balanceData.knownActivityBalance ?? 0) : balanceData?.netBalance ?? previousBalance) + (mode === 'new-course' ? (selectedPackage?.totalPrice ?? manualBalance ?? 0) : mode === 'new-charge' ? total : 0)
+                const effectiveBalance = (balanceData.netBalance ?? previousBalance) + (mode === 'new-course' ? (selectedPackage?.totalPrice ?? manualBalance ?? 0) : mode === 'new-charge' ? total : 0)
                 const hasBalance = effectiveBalance > 0
                 return (
                   <Card className={`border-2 ${hasBalance ? 'border-amber-300 bg-amber-50/50 dark:bg-amber-950/20' : 'border-green-300 bg-green-50/50 dark:bg-green-950/20'}`}>
@@ -1438,7 +1441,7 @@ function InvoicePage() {
                           </div>
                           <div>
                             <p className="text-sm text-muted-foreground font-medium">
-                              {balanceData?.needsReview ? needsHistoryTotal ? 'Balance after confirming the total' : 'New activity only · excludes unresolved history' : 'Account balance before payment'}
+                              Account balance before payment
                             </p>
                             <p className={`text-3xl font-bold font-mono ${hasBalance ? 'text-amber-700 dark:text-amber-400' : 'text-green-700 dark:text-green-400'}`}>
                               ${Math.abs(effectiveBalance).toFixed(2)}{effectiveBalance < 0 ? ' credit' : ''}
@@ -1485,28 +1488,18 @@ function InvoicePage() {
                 )
               })()}
 
-              <Card>
-                <CardContent className="space-y-2 pt-6">
-                  <Label htmlFor="billing-mode">What is this invoice for?</Label>
+              <details className="rounded-lg border p-4">
+                <summary className="cursor-pointer text-sm font-medium">{effectiveBillingMode === 'new-charge' ? 'New service invoice' : effectiveBillingMode === 'installment' ? 'Course payment' : 'New course agreement'} · Change</summary>
+                <div className="space-y-2 pt-4">
+                  <Label htmlFor="billing-mode">Invoice type</Label>
                   <select id="billing-mode" className="w-full rounded-md border bg-background p-2" value={effectiveBillingMode} onChange={event => setBillingMode(event.target.value as 'installment' | 'new-charge' | 'new-course')}>
                     <option value="new-charge">New charge — custom service, extra lesson or standalone invoice</option>
                     <option value="installment">Payment toward an existing balance — no new charge</option>
                     <option value="new-course">New course agreement — save its full price once</option>
                   </select>
                   <p className="text-sm text-muted-foreground">Creating an invoice does not count as receiving payment. A course installment does not charge for the course again.</p>
-                  {balanceError && <p role="alert" className="text-sm text-destructive">{balanceError.message}</p>}
-                  {balanceData?.needsReview && !needsHistoryTotal && <p className="text-sm text-muted-foreground">You can save this new charge now. Older invoices have an unconfirmed course total and stay separate; this does not erase an old debt or treat old payments as credit.</p>}
-                  {needsHistoryTotal && <div className="space-y-3 rounded-lg border p-4">
-                    <p className="font-medium">One missing detail: the agreed total</p>
-                    <p className="text-sm text-muted-foreground">Older receipts did not save the full agreement. Enter the total agreed charges for this history, including tax and any extras already invoiced, before payments. Do not include a new charge from this invoice. Recorded paid receipts: ${balanceData?.totalPaid.toFixed(2)}. Once confirmed, future payments calculate automatically.</p>
-                    {balanceData?.canConfirmHistory ? <>
-                      <Label htmlFor="history-total">Full agreed charges, tax included ($)</Label>
-                      <Input id="history-total" inputMode="decimal" value={historyTotal} onChange={e => { setHistoryTotal(e.target.value); setHistoryConfirmation(null) }} placeholder="Not the remaining balance" />
-                      <label className="flex items-start gap-2 text-sm"><input type="checkbox" checked={historyConfirmed} onChange={e => setHistoryConfirmation(e.target.checked ? `${balanceData.historyFingerprint}:${historyTotal}` : null)} /><span>I confirm this agreed total and the recorded payments. Save it with this invoice.</span></label>
-                    </> : <p role="alert" className="text-sm">The student identity or account links need checking. <Link className="underline" target="_blank" href={`/invoice/balances?q=${encodeURIComponent(formData.studentName)}`}>Open account details</Link>.</p>}
-                  </div>}
-                </CardContent>
-              </Card>
+                </div>
+              </details>
 
               {/* Invoice Details */}
               <Card>
@@ -1770,7 +1763,7 @@ function InvoicePage() {
                   )}
                   <Button
                     onClick={() => generateMutation.mutate()}
-                    disabled={!canGenerate || generateMutation.isPending || balancePending || !!balanceError || !historyReady || (effectiveBillingMode === 'new-course' && !(selectedPackage?.totalPrice || manualBalance))}
+                    disabled={!canGenerate || generateMutation.isPending || (effectiveBillingMode === 'new-course' && !(selectedPackage?.totalPrice || manualBalance))}
                     size="lg"
                   >
                     {generateMutation.isPending ? (

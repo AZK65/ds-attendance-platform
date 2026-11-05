@@ -12,7 +12,7 @@ async function main() {
   const pdf = await fs.readFile('output/pdf/invoice-ledger-preview.pdf')
   const browser = await puppeteer.launch({ headless: true })
   const requests = [], errors = []
-  let review = false, saved = false, failPayment = true, failReceipt = false
+  let review = false, saved = false, failPayment = true, failReceipt = false, balanceUnavailable = false
   let staleReview = true
   const reviewAccount = {
     identityKey: 'student:42', studentName: 'Amira Bennett', studentId: 42, phone: '5145550147', fingerprint: 'synthetic-v1',
@@ -51,7 +51,10 @@ async function main() {
       if (p === '/api/invoice/settings') data = { invoicePrefix: 'QAZI', nextInvoiceNumber: saved ? 4103 : 4102, taxesEnabled: true, defaultGstRate: 5, defaultQstRate: 9.975 }
       else if (p === '/api/invoice/packages') data = { packages: [{ id: 'test-package', name: 'Class 5 course', totalPrice: 1000, taxInclusive: true, instalments: [{ id: 'part-1', instalmentNumber: 1, name: 'First payment', amount: 250 }] }] }
       else if (p === '/api/invoice/services') data = { services: [] }
-      else if (p === '/api/students/balance') data = { totalInvoiced: saved ? 250 : 0, totalPaid: 0, openBalance: saved || review ? 1000 : 0, netBalance: saved || review ? 1000 : 0, creditBalance: 0, hasAccount: saved && !review, needsReview: review, knownActivityBalance: 0, canConfirmHistory: true, historyFingerprint: 'history-test' }
+      else if (p === '/api/students/balance') {
+        status = balanceUnavailable ? 503 : 200
+        data = { totalInvoiced: saved ? 250 : 0, totalPaid: 0, openBalance: saved || review ? 1000 : 0, netBalance: saved || review ? 1000 : 0, creditBalance: 0, hasAccount: saved && !review, needsReview: review, knownActivityBalance: 0, canConfirmHistory: true, historyFingerprint: 'history-test' }
+      }
       else if (p === '/api/students/profile') data = { invoices: [] }
       else if (p === '/api/invoice/save') { saved = true; data = { invoice: { id: 'synthetic-invoice', invoiceNumber: 'QAZI-4102' } } }
       else if (p === '/api/invoice/update-payment') { status = failPayment ? 409 : 200; data = failPayment ? { error: 'Synthetic payment save failure' } : { invoice: { paymentStatus: 'paid' } } }
@@ -110,13 +113,23 @@ async function main() {
     review = true
     await page.setViewport({ width: 390, height: 844 })
     await openReview()
-    await page.waitForSelector('#history-total')
-    assert(await page.$$eval('button', buttons => buttons.find(b => b.textContent.includes('Generate Invoice PDF')).disabled))
-    await page.type('#history-total', '1000')
-    await page.click('input[type="checkbox"]')
+    assert.equal(await page.$('#history-total'),null)
+    assert.equal(await page.$eval('#billing-mode',e=>e.value),'installment')
     assert.equal(await page.$$eval('button', buttons => buttons.find(b => b.textContent.includes('Generate Invoice PDF')).disabled),false)
+    assert.equal(await page.$eval('#billing-mode',e=>e.closest('details').open),false)
+    assert(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth))
     await page.evaluate(() => { document.activeElement?.blur(); window.scrollTo(0,0) })
-    await page.screenshot({ path: path.join(out, 'review-required-mobile.png'), fullPage: true })
+    await page.screenshot({ path: path.join(out, 'unreviewed-receipt-mobile.png'), fullPage: true })
+    await clickText('Generate Invoice PDF')
+    await page.waitForFunction(() => document.body.textContent.includes('Invoice Generated!'))
+    const unreviewedSave=requests.filter(r=>r.path==='/api/invoice/save').at(-1)
+    assert.equal(unreviewedSave.body.billingMode,'installment')
+    assert.equal(unreviewedSave.body.history,undefined)
+    balanceUnavailable = true
+    await openReview()
+    assert.equal(await page.$eval('#billing-mode',e=>e.value),'installment')
+    assert.equal(await page.$$eval('button', buttons => buttons.find(b => b.textContent.includes('Generate Invoice PDF')).disabled),false)
+    await page.click('summary')
     await page.select('#billing-mode','new-charge')
     assert.equal(await page.$('#history-total'),null)
     assert.equal(await page.$$eval('button', buttons => buttons.find(b => b.textContent.includes('Generate Invoice PDF')).disabled),false)
@@ -125,6 +138,7 @@ async function main() {
     await page.waitForSelector('#billing-mode')
     assert.equal(await page.$eval('#billing-mode',e=>e.value),'new-charge')
     assert.equal(await page.$('#manualBalance'),null)
+    await page.click('summary')
     await page.select('#billing-mode','new-course')
     await page.waitForSelector('#manualBalance')
     await page.goto(origin + '/invoice/balances?q=%2B15145550147', { waitUntil: 'networkidle0' })
@@ -160,7 +174,7 @@ async function main() {
     assert.equal(approvals[1].body.invoiceIds, undefined)
     await page.screenshot({ path: path.join(out, 'balance-reviewed-desktop.png'), fullPage: true })
     assert.deepEqual(errors, [])
-    console.log('PASS: invoice flow and guarded balance review: no inferred total, required confirmation, formatted phone search, mobile layout, stale error, explicit approval and saved audit.')
+    console.log('PASS: invoices work without historical review or balance fetch, defaults do not invent course charges, responsive layout, payment retries and separate explicit balance review remain guarded.')
   } finally { await browser.close() }
 }
 main().catch(error => { console.error(error); process.exitCode = 1 })

@@ -64,15 +64,22 @@ export async function prepareInvoiceBilling(
     own = (await tx.invoice.findMany()).filter(row => invoiceBelongsToStudent(row, identity))
   }
   const ids = [...new Set(own.map(row => row.billingAccountId).filter(Boolean))]
-  if ((own.some(row => !row.billingAccountId) && input.mode === 'installment') || ids.length > 1) {
-    throw new BillingReviewRequired('This student’s historical balance needs review before another invoice can be saved. No balance was changed.')
+  if (ids.length > 1) {
+    throw new BillingReviewRequired('This student has conflicting account links. Check their identity before saving.')
   }
   const key = billingIdentityKey(identity)
+  // A receipt can be recorded without inventing an opening course price.
+  // Leave installments against unresolved history unlinked, so they cannot
+  // appear as credits against an unrelated new-service account. A later
+  // explicit reconciliation includes these receipts along with the old ones.
+  if (input.mode === 'installment' && own.some(row => !row.billingAccountId)) {
+    return { billingAccountId: null, chargeCents: chargeForInvoice(input.mode, input.total), billingMode: input.mode }
+  }
   let account = ids.length === 1
     ? await tx.billingAccount.findUnique({ where: { id: ids[0]! } })
     : await tx.billingAccount.findUnique({ where: { identityKey: key } })
   if (!account && input.mode === 'installment') {
-    throw new BillingReviewRequired('Record the course total before taking an installment.')
+    return { billingAccountId: null, chargeCents: chargeForInvoice(input.mode, input.total), billingMode: input.mode }
   }
   if (!account) account = await tx.billingAccount.create({ data: { identityKey: key, reviewNote: own.length ? 'New charges only; unresolved historical invoices remain separate until their agreed total is confirmed.' : 'New account; no historical invoices.' } })
   return { billingAccountId: account.id, chargeCents: chargeForInvoice(input.mode, input.total, input.courseTotal), billingMode: input.mode }
