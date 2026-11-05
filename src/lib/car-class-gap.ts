@@ -120,6 +120,11 @@ export function stripTeamupText(value: string | null | undefined): string {
     .replace(/<[^>]*>/g, '')
 }
 
+/** Explicit scheduling flag, not a guess based on a student's name or title. */
+export function isExtraHoursClass(notes?: string | null): boolean {
+  return /\bExtraHours:\s*yes\b/i.test(stripTeamupText((notes || '').replace(/<\/(?:div|p)>/gi, '\n')))
+}
+
 export function calendarDate(value: string | null | undefined): string | null {
   if (!value) return null
   const match = String(value).trim().match(/^(\d{4})-(\d{2})-(\d{2})/)
@@ -234,11 +239,13 @@ export function isCountableCarClass(event: {
 }
 
 export function carClassGapApplies(args: {
+  isExtraHours?: boolean
   sessionNumber: number | null
   proposedDate: string
   previousDate?: string | null
   previousSessionNumber?: number | null
 }): boolean {
+  if (args.isExtraHours) return false
   if (!isEarlyCarSession(args.sessionNumber)) return false
   const proposed = calendarDate(args.proposedDate)
   if (!proposed) return false
@@ -398,6 +405,7 @@ export function findCarClassSuggestion(args: {
 }
 
 export function carClassGapViolation(args: {
+  isExtraHours?: boolean
   sessionNumber: number | null
   proposedDate: string
   classes: CalendarClass[]

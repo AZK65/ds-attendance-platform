@@ -66,6 +66,7 @@ import {
   carClassGapViolation,
   carSessionNumber,
   eventBelongsToStudent,
+  isExtraHoursClass,
   isEarlyCarSession,
   type CalendarClass,
   type CarClassSuggestion,
@@ -512,8 +513,9 @@ function SchedulingPage() {
     ? { phone: formData.studentPhone, name: formData.studentName }
     : { phone: carBulkForm.studentPhone, name: carBulkForm.studentName }
   const earlySessionOpen = (showCreateDialog || showEditDialog) && (
-    isEarlyCarSession(carSessionNumber({ module: formData.module, title: formData.title }))
-    || (createMode === 'bulk' && carBulkForm.classes.some(row => isEarlyCarSession(carSessionNumber({ module: row.module }))))
+    showCreateDialog && createMode === 'bulk'
+      ? !carBulkForm.isExtraHours && carBulkForm.classes.some(row => isEarlyCarSession(carSessionNumber({ module: row.module })))
+      : !formData.isExtraHours && isEarlyCarSession(carSessionNumber({ module: formData.module, title: formData.title }))
   )
   const { data: remoteCarClasses = [] } = useQuery<CalendarClass[]>({
     queryKey: ['student-car-classes', gapIdentity.phone, gapIdentity.name],
@@ -713,6 +715,7 @@ function SchedulingPage() {
     if (!showCreateDialog && !showEditDialog) return null
     const excludeEventId = showEditDialog ? editingEvent?.id : undefined
     return carClassGapViolation({
+      isExtraHours: formData.isExtraHours,
       sessionNumber: carSessionNumber({ module: formData.module, title: formData.title }),
       proposedDate: formData.date,
       time: formData.startTime,
@@ -729,6 +732,7 @@ function SchedulingPage() {
     showEditDialog,
     createMode,
     formData.module,
+    formData.isExtraHours,
     formData.title,
     formData.date,
     formData.startTime,
@@ -739,7 +743,7 @@ function SchedulingPage() {
   ])
 
   const bulkGapMessages = useMemo(() => {
-    if (!showCreateDialog || createMode !== 'bulk') return [] as Array<{
+    if (!showCreateDialog || createMode !== 'bulk' || carBulkForm.isExtraHours) return [] as Array<{
       index: number
       message: string
       suggestion: CarClassSuggestion | null
@@ -1229,8 +1233,7 @@ function SchedulingPage() {
   }
 
   const parseExtraHoursFromNotes = (notes?: string) => {
-    if (!notes) return false
-    return /ExtraHours:\s*yes/i.test(stripHtml(notes))
+    return isExtraHoursClass(notes)
   }
 
   const parsePaidFromNotes = (notes?: string) => {
