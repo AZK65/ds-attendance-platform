@@ -293,7 +293,58 @@ test('uncertain legacy snapshots cannot silently become credits or new ledger en
   await prisma.invoice.update({where:{id:r.id},data:{remainingBalance:-500}})
   const [p]=reconciliationPreview(await prisma.invoice.findMany({where:{externalStudentId:8}}))
   assert.equal(p.proposedBalance,null);assert.ok(p.issues.some(x=>x.includes('Negative')))
-  await assert.rejects(()=>prisma.$transaction(tx=>billing.prepareInvoiceBilling(tx,{externalStudentId:8},{mode:'installment',total:250})),/historical balance needs review/)
+  const data=await prisma.$transaction(tx=>billing.prepareInvoiceBilling(tx,{externalStudentId:8},{mode:'installment',total:250}))
+  assert.equal(data.billingAccountId,null);assert.equal(data.chargeCents,0)
+  assert.equal(await prisma.billingAccount.count({where:{identityKey:'student:8'}}),0)
+})
+
+test('unreviewed course receipts can be saved and paid without approving history or creating credit',async()=>{
+  const old=await receipt(920,null,250,'paid')
+  await prisma.invoice.update({where:{id:old.id},data:{remainingBalance:750}})
+  const before=await prisma.invoice.findUniqueOrThrow({where:{id:old.id}})
+  const save=(await import('../app/api/invoice/save/route')).POST
+  const response=await save(req({invoiceNumber:'UNREVIEWED-920',studentName:'Test 920',externalStudentId:920,invoiceDate:'2026-11-05',lineItems:[{description:'Course payment',quantity:1,unitPrice:150}],subtotal:150,gstAmount:0,qstAmount:0,total:150,billingMode:'installment'}))
+  assert.equal(response.status,200)
+  const current=(await response.json()).invoice
+  assert.equal(current.billingAccountId,null);assert.equal(current.chargeCents,0)
+  assert.equal((await update(req({invoiceId:current.id,paymentStatus:'paid',paymentMethod:'cash'}))).status,200)
+  assert.equal(await prisma.billingAccount.count({where:{identityKey:'student:920'}}),0)
+  assert.deepEqual(await prisma.invoice.findUniqueOrThrow({where:{id:old.id}}),before)
+  const summary=await billing.studentBillingSummary({externalStudentId:920})
+  assert.equal(summary.needsReview,true);assert.equal(summary.totalPaid,400);assert.equal(summary.creditBalance,0)
+  const {loadPaymentHistory}=await import('../app/api/invoice/generate/route')
+  const pdf=await loadPaymentHistory({invoiceNumber:current.invoiceNumber,invoiceDate:current.invoiceDate,studentName:'Test 920'})
+  assert.equal(pdf.history?.totalPaid,400);assert.equal(pdf.needsReview,true)
+  const preview=reconciliationPreview(await prisma.invoice.findMany()).find(a=>a.identityKey==='student:920')!
+  await prisma.$transaction(tx=>applyReviewedBalance(tx,{...preview,openingChargesCents:100000,reviewNote:'Synthetic explicit approval later',approved:true}))
+  assert.equal((await billing.studentBillingSummary({externalStudentId:920})).openBalance,600)
+})
+
+test('unknown course total does not block a first receipt or fabricate a course charge',async()=>{
+  const data=await prisma.$transaction(tx=>billing.prepareInvoiceBilling(tx,{externalStudentId:921},{mode:'installment',total:150}))
+  assert.equal(data.billingAccountId,null);assert.equal(data.chargeCents,0)
+  assert.equal(await prisma.billingAccount.count({where:{identityKey:'student:921'}}),0)
+})
+
+test('new linked invoice PDF includes old confirmed receipts without migrating them',async()=>{
+  const old=await receipt(922,null,250,'paid')
+  // Older receipt has only a phone, while the new invoice also knows the ID.
+  await prisma.invoice.update({where:{id:old.id},data:{externalStudentId:null,studentPhone:'514-555-0922'}})
+  const a=await account(922,0),current=await receipt(922,a.id,150,'unpaid',15000)
+  await prisma.invoice.update({where:{id:current.id},data:{studentPhone:'+1 514 555 0922'}})
+  const unrelated=await receipt(923,null,900,'paid')
+  await prisma.invoice.update({where:{id:unrelated.id},data:{studentName:'Test 922',studentPhone:'5145550923'}})
+  const before=await prisma.invoice.findUniqueOrThrow({where:{id:old.id}})
+  const {loadPaymentHistory}=await import('../app/api/invoice/generate/route')
+  const body={invoiceNumber:current.invoiceNumber,invoiceDate:current.invoiceDate,studentName:'Test 922'}
+  const unpaid=await loadPaymentHistory(body)
+  assert.equal(unpaid.history?.totalPaid,250);assert.equal(unpaid.history?.payments.length,1)
+  await update(req({invoiceId:current.id,paymentStatus:'paid'}))
+  const paid=await loadPaymentHistory(body)
+  assert.equal(paid.history?.totalPaid,400);assert.equal(paid.history?.payments.length,2)
+  assert.equal(paid.needsReview,true)
+  assert.deepEqual(await prisma.invoice.findUniqueOrThrow({where:{id:old.id}}),before)
+  assert.equal((await billing.studentBillingSummary({externalStudentId:922,phone:'5145550922'})).knownActivityBalance,0)
 })
 
 test('transactionally opening a new course cannot deduct an unpaid installment',async()=>{

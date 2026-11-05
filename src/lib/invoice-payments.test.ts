@@ -62,6 +62,27 @@ test('the invoice being printed includes its own confirmed payment', () => {
   assert.equal(listed.totalPaid, 400)
 })
 
+test('legacy confirmed receipts appear alongside new linked receipts, but not a different account', () => {
+  const listed=listPriorPayments([
+    row({invoiceNumber:'LEGACY',invoiceDate:'2026-09-09',total:250,externalStudentId:null,billingAccountId:null}),
+    row({invoiceNumber:'CURRENT',invoiceDate:'2026-11-05',total:150,billingAccountId:'new-account'}),
+    row({invoiceNumber:'OTHER-ACCOUNT',invoiceDate:'2026-09-10',total:900,billingAccountId:'other-account'}),
+    row({invoiceNumber:'REFUND',invoiceDate:'2026-09-10',total:80,paymentStatus:'refunded'}),
+    row({invoiceNumber:'UNPAID',invoiceDate:'2026-09-10',total:80,paymentStatus:'unpaid'}),
+  ],{externalStudentId:42,phone:student.studentPhone,name:student.studentName,billingAccountId:'new-account',invoiceNumber:'CURRENT',invoiceDate:'2026-11-05'})
+  assert.deepEqual(listed.payments.map(p=>p.invoiceNumber),['LEGACY','CURRENT'])
+  assert.equal(listed.totalPaid,400)
+})
+
+test('shared-phone historical payments are not guessed into either student account', () => {
+  const listed=listPriorPayments([
+    row({invoiceNumber:'AMBIGUOUS',invoiceDate:'2026-09-09',total:250,externalStudentId:null}),
+    row({invoiceNumber:'CURRENT',invoiceDate:'2026-11-05',total:150,billingAccountId:'new-account'}),
+    row({invoiceNumber:'OTHER-STUDENT',invoiceDate:'2026-09-10',total:900,externalStudentId:99}),
+  ],{externalStudentId:42,phone:student.studentPhone,name:student.studentName,billingAccountId:'new-account',invoiceNumber:'CURRENT',invoiceDate:'2026-11-05'})
+  assert.deepEqual(listed.payments.map(p=>p.invoiceNumber),['CURRENT'])
+})
+
 test('a stored remaining balance is printed as given, even when payments do not add up to it', () => {
   const listed = listPriorPayments(history, {
     invoiceNumber: 'INV-2026-0142',

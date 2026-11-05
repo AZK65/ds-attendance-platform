@@ -4,7 +4,6 @@ import { renderToBuffer } from '@react-pdf/renderer'
 import { Document, Page, View, Text, Image, StyleSheet } from '@react-pdf/renderer'
 import { BRAND, logoHeightForWidth } from '@/lib/brand'
 import { logoDataUrl } from '@/lib/brand-assets'
-import { findInvoicesForStudent } from '@/lib/invoice-lookup'
 import { listPriorPayments, printedRemainingBalance, type PaymentHistory } from '@/lib/invoice-payments'
 import { parseExternalStudentId } from '@/lib/invoice-student-id'
 import { prisma } from '@/lib/db'
@@ -555,9 +554,10 @@ export async function loadPaymentHistory(body: Pick<InvoiceData, 'invoiceNumber'
     const name = saved ? saved.studentName || '' : body.studentName || ''
     const paymentStatus = saved?.paymentStatus ?? body.paymentStatus ?? null
     if (externalStudentId == null && !phone && !name) return { history: { payments: [], totalPaid: 0 }, paymentStatus }
-    const invoices = saved?.billingAccountId
-      ? await prisma.invoice.findMany({ where: { billingAccountId: saved.billingAccountId } })
-      : await findInvoicesForStudent({ externalStudentId, phone, name })
+    // History is evidence of receipts, not approval of an opening balance.
+    // Include matching unlinked legacy receipts and stable account-linked
+    // receipts; listPriorPayments also checks shared-phone ambiguity.
+    const invoices = await prisma.invoice.findMany()
     const billing = await studentBillingSummary({ externalStudentId, phone, name })
     return {
       history: listPriorPayments(invoices, {
