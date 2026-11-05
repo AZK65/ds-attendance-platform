@@ -402,7 +402,7 @@ export function NewGroupWizard({ open, onOpenChange }: NewGroupWizardProps) {
 
   return (
     <Dialog open={open} onOpenChange={step === 'executing' ? () => {} : handleClose}>
-      <DialogContent className="sm:max-w-lg max-h-[90vh] overflow-hidden flex flex-col">
+      <DialogContent className="dialog-scroll-layout sm:max-w-lg overflow-hidden flex flex-col">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <Users className="h-5 w-5" />
@@ -419,7 +419,7 @@ export function NewGroupWizard({ open, onOpenChange }: NewGroupWizardProps) {
 
         {/* Step indicators */}
         {(step === 'students' || step === 'group' || step === 'setup') && (
-          <div className="flex items-center gap-2 px-1">
+          <div className="flex shrink-0 flex-wrap items-center gap-2 px-1">
             {[
               { n: 1, label: 'Students', icon: UserPlus },
               { n: 2, label: 'Group', icon: Users },
@@ -435,7 +435,7 @@ export function NewGroupWizard({ open, onOpenChange }: NewGroupWizardProps) {
           </div>
         )}
 
-        <div className="flex-1 overflow-y-auto py-2 space-y-4">
+        <div data-slot="dialog-body" className="min-h-0 min-w-0 flex-1 overflow-y-auto overscroll-contain py-2 space-y-4">
           {/* Step 1: Add Students */}
           {step === 'students' && (
             <>

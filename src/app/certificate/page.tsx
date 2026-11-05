@@ -2177,7 +2177,7 @@ function CertificatePageInner() {
                   </Card>
 
                   {/* Document Upload */}
-                  <div className="flex justify-center gap-2 mb-4">
+                  <div className="flex flex-wrap justify-center gap-2 mb-4">
                     <Button variant={uploadMode === 'combined' ? 'default' : 'outline'} onClick={() => setUploadMode('combined')} size="sm">Single Photo (Both Documents)</Button>
                     <Button variant={uploadMode === 'separate' ? 'default' : 'outline'} onClick={() => setUploadMode('separate')} size="sm">Separate Photos</Button>
                   </div>
@@ -2416,7 +2416,7 @@ function CertificatePageInner() {
                     </Card>
                   )}
 
-                  <div className="flex justify-center gap-2 mb-4">
+                  <div className="flex flex-wrap justify-center gap-2 mb-4">
                     <Button variant={dbUploadMode === 'combined' ? 'default' : 'outline'} onClick={() => setDbUploadMode('combined')} size="sm">Single Photo (Both)</Button>
                     <Button variant={dbUploadMode === 'separate' ? 'default' : 'outline'} onClick={() => setDbUploadMode('separate')} size="sm">Separate Photos</Button>
                   </div>

@@ -513,16 +513,16 @@ export default function PaperExamModePage() {
       )}
 
       <Dialog open={Boolean(review)} onOpenChange={open => !open && setReview(null)}>
-        <DialogContent className="flex h-[94dvh] w-[calc(100vw-1rem)] max-w-none flex-col gap-0 overflow-hidden p-0 sm:w-[calc(100vw-2rem)] sm:max-w-[calc(100vw-2rem)] xl:max-w-[1500px]">
+        <DialogContent className="exam-review-dialog flex h-[94dvh] w-[calc(100vw-1rem)] max-w-none flex-col gap-0 overflow-y-auto p-0 sm:w-[calc(100vw-2rem)] sm:max-w-[calc(100vw-2rem)] lg:overflow-hidden xl:max-w-[1500px]">
           <DialogHeader className="shrink-0 border-b px-6 py-4 pr-14">
             <DialogTitle>{review?.studentName} · Answer review</DialogTitle>
             <DialogDescription>
               Compare the photo with every answer. Confirming sends the student their private WhatsApp result. Current score: {reviewScore}/{reviewTotal} · pass {data.session?.passingScore}/{reviewTotal}.
             </DialogDescription>
           </DialogHeader>
-          <div className="grid min-h-0 flex-1 grid-rows-[minmax(18rem,40vh)_minmax(0,1fr)] overflow-hidden lg:grid-cols-[minmax(0,3fr)_minmax(32rem,2fr)] lg:grid-rows-1">
-            <div className="flex min-h-0 min-w-0 flex-col bg-neutral-950">
-              <div className="flex shrink-0 items-center justify-between border-b border-white/10 px-4 py-2 text-white">
+          <div className="exam-review-workspace grid min-w-0 shrink-0 lg:min-h-0 lg:flex-1 lg:grid-cols-[minmax(0,3fr)_minmax(0,2fr)] lg:overflow-hidden">
+            <div className="exam-review-photo flex h-[60dvh] min-h-80 min-w-0 flex-col bg-neutral-950 lg:h-auto lg:min-h-0">
+              <div className="flex shrink-0 flex-wrap items-center justify-between gap-2 border-b border-white/10 px-4 py-2 text-white">
                 <span className="text-sm font-medium">{review?.submission.verified ? 'Marked, staff-verified copy' : 'Original student photo'}</span>
                 <div className="flex items-center gap-2">
                   <Button size="icon" variant="secondary" disabled={reviewPageIndex === 0} onClick={() => setReviewPageIndex(index => Math.max(0, index - 1))}><ChevronLeft /></Button>
@@ -550,9 +550,9 @@ export default function PaperExamModePage() {
             </div>
 
             <div className="flex min-h-0 min-w-0 flex-col border-t bg-background lg:border-l lg:border-t-0">
-              <div className="min-h-0 flex-1 overflow-y-auto p-4 sm:p-6">
+              <div className="exam-review-answers min-w-0 p-4 sm:p-6 lg:min-h-0 lg:flex-1 lg:overflow-y-auto">
                 <div className={`mb-4 rounded-xl border p-4 ${review?.submission.verified ? 'border-emerald-200 bg-emerald-50' : 'border-amber-200 bg-amber-50'}`}>
-                  <div className="flex items-center justify-between gap-3">
+                  <div className="flex flex-wrap items-center justify-between gap-3">
                     <div>
                       <p className="flex items-center gap-2 font-semibold">{review?.submission.verified ? <ShieldCheck className="text-emerald-700" /> : <Bot className="text-amber-700" />}{review?.submission.verified ? 'Staff verified' : 'AI result — needs staff confirmation'}</p>
                       <p className="mt-1 text-sm text-muted-foreground">AI confidence {Math.round((review?.submission.confidence || 0) * 100)}%</p>
@@ -589,7 +589,7 @@ export default function PaperExamModePage() {
                 </div>
                 {saveReview.error && <p className="mt-3 text-sm font-medium text-red-700">{saveReview.error.message}</p>}
               </div>
-              <div className="flex shrink-0 flex-wrap justify-end gap-2 border-t bg-background p-4 sm:px-6">
+              <div className="flex shrink-0 flex-wrap justify-end gap-2 border-t bg-background p-4 sm:px-6 [&_button]:h-auto [&_button]:min-h-9 [&_button]:whitespace-normal">
                 <Button variant="outline" onClick={() => review && gradeSubmission.mutate(review.submission.id)} disabled={gradeSubmission.isPending}>
                   {gradeSubmission.isPending ? <Loader2 className="animate-spin" /> : <RefreshCw />} Run OCR again
                 </Button>
@@ -616,21 +616,21 @@ export default function PaperExamModePage() {
       </Dialog>
 
       <Dialog open={Boolean(preview)} onOpenChange={open => !open && setPreview(null)}>
-        <DialogContent className="max-h-[92vh] max-w-5xl overflow-hidden p-0">
-          <DialogHeader className="border-b px-6 py-4">
+        <DialogContent className="flex h-[90dvh] max-w-5xl flex-col gap-0 overflow-hidden p-0">
+          <DialogHeader className="border-b px-4 py-4 pr-12 text-left sm:pl-6">
             <DialogTitle>{preview?.studentName} · Page {preview?.page.pageNumber}</DialogTitle>
             <DialogDescription>Received through the group&apos;s WhatsApp Exam Mode.</DialogDescription>
           </DialogHeader>
-          <div className="grid max-h-[75vh] min-h-[50vh] place-items-center overflow-auto bg-neutral-950/95 p-4">
+          <div className="grid min-h-0 min-w-0 flex-1 place-items-center overflow-auto bg-neutral-950/95 p-4">
             {preview?.page.mimetype.startsWith('image/') ? (
-              <Image src={preview.page.url} alt="Submitted exam page" width={1600} height={2200} unoptimized className="h-auto max-h-[70vh] w-auto max-w-full object-contain" />
+              <Image src={preview.page.url} alt="Submitted exam page" width={1600} height={2200} unoptimized className="h-full min-h-0 w-full min-w-0 object-contain" />
             ) : preview ? (
-              <iframe src={preview.page.url} title="Submitted exam PDF" className="h-[70vh] w-full rounded bg-white" />
+              <iframe src={preview.page.url} title="Submitted exam PDF" className="h-full w-full rounded bg-white" />
             ) : null}
           </div>
           {preview && (
-            <div className="flex items-center justify-between border-t px-6 py-3">
-              <span className="text-xs text-muted-foreground">{preview.page.filename || preview.page.mimetype}</span>
+            <div className="flex shrink-0 flex-wrap items-center justify-between gap-2 border-t px-4 py-3">
+              <span className="min-w-0 break-all text-xs text-muted-foreground">{preview.page.filename || preview.page.mimetype}</span>
               <a href={`${preview.page.url}?download=1`}><Button size="sm" variant="outline"><Send className="rotate-90" /> Download</Button></a>
             </div>
           )}

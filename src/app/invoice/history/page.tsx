@@ -314,7 +314,7 @@ export default function InvoiceHistoryPage() {
           initial={{ opacity: 0, y: -10 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.25 }}
-          className="flex items-center justify-between mb-8"
+          className="flex flex-wrap items-center justify-between gap-3 mb-8"
         >
           <div>
             <h2 className="text-2xl font-bold flex items-center gap-2">
@@ -342,7 +342,7 @@ export default function InvoiceHistoryPage() {
         <Card className="mb-6">
           <CardContent className="pt-6">
             <div className="flex flex-col md:flex-row gap-4">
-              <div className="flex-1 relative">
+              <div className="min-w-0 flex-1 relative">
                 <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
                 <Input
                   placeholder="Search by student name or invoice number..."
@@ -351,7 +351,7 @@ export default function InvoiceHistoryPage() {
                   className="pl-10"
                 />
               </div>
-              <div className="flex items-center gap-2">
+              <div className="flex min-w-0 flex-wrap items-center gap-2">
                 <Calendar className="h-4 w-4 text-muted-foreground shrink-0" />
                 <Input
                   type="date"

@@ -1376,7 +1376,7 @@ function StudentsPage() {
       >
         <Card>
           <CardHeader>
-            <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+            <div className="flex min-w-0 flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
               <CardTitle className="flex items-center gap-2 text-lg flex-shrink-0">
                 <Users className="h-5 w-5" />
                 Active Students
@@ -1384,8 +1384,8 @@ function StudentsPage() {
                   <MorphText>{searchQuery.trim() ? `${filteredStudents.length}/${activeStudents.length}` : activeStudents.length}</MorphText>
                 </Badge>
               </CardTitle>
-              <div className="flex w-full items-center gap-2 sm:flex-1 sm:max-w-lg">
-                <div className="relative flex-1">
+              <div className="flex min-w-0 w-full items-center gap-2 sm:flex-1 sm:max-w-lg">
+                <div className="relative min-w-0 flex-1">
                   <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
                   <Input
                     placeholder="Filter by name, phone, or group..."
@@ -1430,7 +1430,7 @@ function StudentsPage() {
               </div>
             </div>
             {/* All / Car / Truck tabs */}
-            <div className="flex items-center gap-1 mt-3 border-b">
+            <div className="flex min-w-0 max-w-full items-center gap-1 mt-3 overflow-x-auto overscroll-x-contain border-b">
               {([
                 { key: 'all', label: 'All', icon: Users, count: vehicleCounts.all },
                 { key: 'car', label: 'Car', icon: Car, count: vehicleCounts.car },
@@ -1442,7 +1442,7 @@ function StudentsPage() {
                   <button
                     key={tab.key}
                     onClick={() => setVehicleTab(tab.key)}
-                    className={`flex items-center gap-1.5 px-3 py-2 text-sm font-medium border-b-2 -mb-px transition-colors ${
+                    className={`flex shrink-0 items-center gap-1.5 px-3 py-2 text-sm font-medium border-b-2 -mb-px transition-colors ${
                       isActive
                         ? 'border-primary text-foreground'
                         : 'border-transparent text-muted-foreground hover:text-foreground'

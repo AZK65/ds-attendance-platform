@@ -56,6 +56,8 @@ function fixture(url) {
   if (p === '/api/invoice/settings') return { settings: { schoolName: 'Qazi Driving School', nextInvoiceNumber: 4103, invoicePrefix: 'QAZI' } }
   if (p === '/api/invoice/services') return { services: [] }
   if (p === '/api/invoice/packages') return { packages: [] }
+  if (p === '/api/invoice/list') return { invoices: [] }
+  if (p === '/api/certificate/history') return { certificates: [] }
   if (p === '/api/kiosk') return { kiosks: [] }
   return { students: [], results: {}, participants: [], matches: [], sections: [], registrations: [], leads: [], settings: {}, sessions: [] }
 }
@@ -66,6 +68,7 @@ async function main() {
   try {
     const page = await browser.newPage()
     const errors = []
+    const responsiveFailures = []
     const unknown = new Set()
     page.on('pageerror', e => errors.push(e.message))
     await page.setRequestInterception(true)
@@ -147,19 +150,28 @@ async function main() {
     await page.waitForFunction(() => document.documentElement.classList.contains('dark'))
     await page.screenshot({ path: path.join(out, 'groups-dark.png'), fullPage: true })
     await page.emulateMediaFeatures([{ name: 'prefers-color-scheme', value: 'light' }, { name: 'prefers-reduced-motion', value: 'reduce' }])
-    for (const route of ['/scheduling', '/students', '/invoice', '/certificate', '/leads', '/kiosks', '/lms', '/inbox']) {
+    for (const route of ['/scheduling', '/students', '/invoice', '/invoice/history', '/invoice/packages', '/invoice/services', '/certificate', '/certificate/history', '/leads', '/kiosks', '/lms', '/inbox']) {
       await page.goto(origin + route, { waitUntil: 'domcontentloaded', timeout: 120000 })
       await page.waitForFunction(() => document.querySelector('.platform-nav')?.textContent.includes('3 submissions not yet contacted'))
       await new Promise(r => setTimeout(r, 1000))
       await page.addStyleTag({ content: 'nextjs-portal { display: none !important; }' })
-      await page.screenshot({ path: path.join(out, route.slice(1) + '-desktop.png') })
+      await page.screenshot({ path: path.join(out, route.slice(1).replaceAll('/', '-') + '-desktop.png') })
+      for (const width of [320, 768, 1024]) {
+        await page.setViewport({ width, height: 600 })
+        await new Promise(r => setTimeout(r, 100))
+        const measured = await page.evaluate(() => ({ width: document.documentElement.scrollWidth, viewport: innerWidth }))
+        if (measured.width > measured.viewport) {
+          responsiveFailures.push(`Page overflow on ${route} at ${width}: ${measured.width}`)
+          console.log(responsiveFailures.at(-1), await page.evaluate(() => [...document.querySelectorAll('main *')].filter(el => el.getBoundingClientRect().right > innerWidth && getComputedStyle(el).position !== 'fixed').slice(0, 8).map(el => ({tag:el.tagName,classes:el.className,text:el.textContent.slice(0,70)}))))
+        }
+      }
       await page.setViewport({ width: 390, height: 844 })
       await new Promise(r => setTimeout(r, 150))
       const overflow = await page.evaluate(() => document.documentElement.scrollWidth > innerWidth)
       console.log(route, 'mobile overflow:', overflow)
       if (overflow) console.log(await page.evaluate(() => [...document.querySelectorAll('body *')].filter(el => el.getBoundingClientRect().right > innerWidth && getComputedStyle(el).position !== 'fixed').slice(0, 12).map(el => ({ tag: el.tagName, classes: el.className, right: el.getBoundingClientRect().right }))))
-      await page.screenshot({ path: path.join(out, route.slice(1) + '-mobile.png') })
-      assert(!overflow, `Mobile overflow on ${route}`)
+      await page.screenshot({ path: path.join(out, route.slice(1).replaceAll('/', '-') + '-mobile.png') })
+      if (overflow) responsiveFailures.push(`Mobile overflow on ${route}`)
       if (route === '/inbox') {
         await page.evaluate(() => [...document.querySelectorAll('button')].find(b => b.textContent.includes('Amira Bennett'))?.click())
         await page.waitForSelector('textarea')
@@ -176,7 +188,9 @@ async function main() {
     }
     console.log('Intercepted APIs:', [...unknown].sort())
     assert.deepEqual(errors, [], 'Browser runtime errors')
+    assert.deepEqual(responsiveFailures, [], 'Responsive layout regressions')
     console.log('PASS: responsive navigation, search results/error/retry/escape, dark theme, page smoke checks, inbox composer. Screenshots:', out)
   } finally { await browser.close() }
 }
-main().catch(e => { console.error(e); process.exitCode = 1 })
+module.exports = { fixture, origin }
+if (require.main === module) main().catch(e => { console.error(e); process.exitCode = 1 })
