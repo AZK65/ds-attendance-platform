@@ -73,7 +73,7 @@ function Review({ account, onSaved, onReload }: { account: BillingReviewAccount;
     {account.audit ? <div role="status" className="space-y-2 rounded-lg bg-muted/50 p-4 text-sm">
       <h3 className="font-semibold">Saved review</h3>
       <p>{account.audit.by || 'Recorded account'} · {new Date(account.audit.at).toLocaleDateString('en-CA')}</p>
-      <p>Verified opening charges: {money(account.audit.openingCharges)}</p>
+      <p>Agreed charges at review: {money(account.audit.openingCharges)}</p>
       {account.audit.paidAtReview != null && <p>Paid at review: {money(account.audit.paidAtReview)}</p>}
       {account.audit.previousBalance != null && <p>Previously displayed: {balance(account.audit.previousBalance)}</p>}
       <p className="whitespace-pre-wrap break-words">{account.audit.note}</p>

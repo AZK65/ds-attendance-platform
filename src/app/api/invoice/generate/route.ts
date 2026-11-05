@@ -514,7 +514,9 @@ function InvoiceDocument({ data, logoSrc }: { data: InvoiceData; logoSrc: string
             React.createElement(Text, { style: styles.totalLabel }, 'Paid through receipt date:'),
             React.createElement(Text, { style: styles.totalValue }, formatCurrency(data.paymentHistory.totalPaid)),
           ),
-          printedRemainingBalance(data.remainingBalance) != null
+          data.balanceNeedsReview
+            ? React.createElement(Text, { style: styles.paymentSummaryRow }, 'Historical account total is not confirmed. This invoice does not establish the full course balance.')
+            : printedRemainingBalance(data.remainingBalance) != null
             ? React.createElement(View, { style: styles.paymentSummaryRow },
                 React.createElement(Text, { style: { flex: 1, textAlign: 'right', paddingRight: 15, color: BRAND.red, fontSize: 11, fontWeight: 'bold' } }, data.balanceNeedsReview ? 'Saved balance (needs review):' : (data.remainingBalance ?? 0) < 0 ? 'Current account credit:' : 'Current account balance:'),
                 React.createElement(Text, { style: { width: 100, textAlign: 'right', color: BRAND.red, fontSize: 11, fontWeight: 'bold' } }, formatCurrency(Math.abs(data.remainingBalance ?? 0))),
