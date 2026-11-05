@@ -54,6 +54,7 @@
     "recharts": "^3.8.1",
     "ssh2": "^1.17.0",
     "tailwind-merge": "^3.4.0",
+    "torph": "0.1.3",
     "whatsapp-web.js": "github:timothydillan/whatsapp-web.js#d6dfff2a7280c2667f538d961df3b640bb2b90c4"
   },
   "devDependencies": {

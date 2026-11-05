@@ -1,5 +1,7 @@
 'use client'
 
+import { MorphText } from '@/components/ui/morph-text'
+
 import Image from 'next/image'
 import Link from 'next/link'
 import { useParams } from 'next/navigation'
@@ -314,7 +316,7 @@ export default function PaperExamModePage() {
           {active && (
             <Button variant="outline" onClick={() => sendInstructions.mutate()} disabled={sendInstructions.isPending}>
               {sendInstructions.isPending ? <Loader2 className="animate-spin" /> : instructionsSent ? <Check /> : <MessageCircle />}
-              {instructionsSent ? 'Sent' : 'Send instructions'}
+              <MorphText reserve="Send instructions">{sendInstructions.isPending ? 'Sending…' : instructionsSent ? 'Sent' : 'Send instructions'}</MorphText>
             </Button>
           )}
           {active && data.session ? (
@@ -367,7 +369,7 @@ export default function PaperExamModePage() {
               <Card key={stat.label} className="shadow-none">
                 <CardContent className="flex items-center gap-3 p-4">
                   <div className={`grid h-10 w-10 place-items-center rounded-xl ${stat.tone}`}><stat.icon className="h-5 w-5" /></div>
-                  <div><p className="text-2xl font-semibold tabular-nums">{stat.value}</p><p className="text-xs text-muted-foreground">{stat.label}</p></div>
+                  <div><p className="text-2xl font-semibold tabular-nums"><MorphText>{stat.value}</MorphText></p><p className="text-xs text-muted-foreground">{stat.label}</p></div>
                 </CardContent>
               </Card>
             ))}
