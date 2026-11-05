@@ -44,6 +44,21 @@ export async function POST(request: NextRequest) {
       || Math.abs(Math.round(total * 100) - Math.round((subtotal + gstAmount + qstAmount) * 100)) > 1) {
       return NextResponse.json({ error: 'Invoice amounts or payment status are invalid. Check subtotal, taxes, and total.' }, { status: 400 })
     }
+    let history: { chargesCents: number; fingerprint: string; confirmed: boolean; staffSessionId: string; staffName: string } | undefined
+    if (body.history) {
+      const h = body.history
+      if (body.billingMode !== 'installment' || h.confirmed !== true || !Number.isSafeInteger(h.chargesCents) || h.chargesCents < 0 || h.chargesCents > 2147483647 || typeof h.fingerprint !== 'string') {
+        return NextResponse.json({ error: 'Confirm the full agreed historical charges before applying this payment.' }, { status: 400 })
+      }
+      const origin = request.headers.get('origin')
+      try {
+        if (request.headers.get('sec-fetch-site') === 'cross-site' || (origin && new URL(origin).host !== (request.headers.get('host') || request.nextUrl.host))) throw new Error('origin')
+      } catch { return NextResponse.json({ error: 'Open this invoice on the school platform.' }, { status: 403 }) }
+      const sid = request.cookies.get('sid')?.value
+      const session = request.cookies.get('auth-token')?.value === 'valid' && sid ? await prisma.adminSession.findUnique({ where: { id: sid } }) : null
+      if (!session) return NextResponse.json({ error: 'Reload or sign in before confirming the historical total.' }, { status: 401 })
+      history = { chargesCents: h.chargesCents, fingerprint: h.fingerprint, confirmed: true, staffSessionId: session.id, staffName: session.label || 'Staff invoice confirmation' }
+    }
 
     // MySQL student id, when we can tell who this is. A caller-supplied id
     // wins. Otherwise the phone last-10 must match one student. Creating a
@@ -83,7 +98,7 @@ export async function POST(request: NextRequest) {
     // Save the invoice record
     const invoice = await prisma.$transaction(async tx => {
       const billing = await prepareInvoiceBilling(tx, { externalStudentId, phone: studentPhone, name: studentName }, {
-        mode: body.billingMode || 'new-charge', total, courseTotal: body.courseTotal,
+        mode: body.billingMode || 'new-charge', total, courseTotal: body.courseTotal, history,
       })
       const saved = await tx.invoice.create({
       data: {

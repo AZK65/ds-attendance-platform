@@ -82,6 +82,7 @@ test('staff review is read-only until approval, saves audit, preserves receipts 
   const account=await prisma.billingAccount.findUniqueOrThrow({where:{identityKey:'student:901'}})
   assert.equal(account.reviewedBy,'Test staff');assert.equal(account.reviewedBySessionId,'review-test')
   assert.equal(account.reviewedFingerprint,preview.fingerprint);assert.equal(account.reviewedPaidCents,25000)
+  assert(account.reviewedAt);assert.equal(account.reviewedChargesCents,100000)
   assert.equal(account.previousBalanceCents,50000)
   const after=await prisma.invoice.findMany({where:{externalStudentId:901},orderBy:{invoiceNumber:'asc'}})
   for(let i=0;i<before.length;i++) {
@@ -133,6 +134,81 @@ test('unpaid installment does not reduce course balance; paid status does, once'
   assert.equal((await billing.studentBillingSummary({externalStudentId:1})).openBalance,750)
   await update(req({invoiceId:r.id,paymentStatus:'unpaid'}))
   assert.equal((await billing.studentBillingSummary({externalStudentId:1})).openBalance,1000)
+})
+
+test('custom charges work with unresolved history, without inventing old debt or using old payments as credit',async()=>{
+  const old=await receipt(910,null,250,'paid')
+  await prisma.invoice.update({where:{id:old.id},data:{remainingBalance:750}})
+  const created=await prisma.$transaction(async tx=>{
+    const data=await billing.prepareInvoiceBilling(tx,{externalStudentId:910},{mode:'new-charge',total:175})
+    return tx.invoice.create({data:{invoiceNumber:'CUSTOM-910',studentName:'Test 910',externalStudentId:910,invoiceDate:'2026-11-05',lineItems:'[]',subtotal:175,total:175,paymentStatus:'unpaid',...data}})
+  })
+  const summary=await billing.studentBillingSummary({externalStudentId:910})
+  assert.equal(summary.needsReview,true);assert.equal(summary.knownActivityBalance,175)
+  assert.equal((await prisma.invoice.findUniqueOrThrow({where:{id:old.id}})).billingAccountId,null)
+  await update(req({invoiceId:created.id,paymentStatus:'paid'}))
+  assert.equal((await billing.studentBillingSummary({externalStudentId:910})).knownActivityBalance,0)
+  const fresh=await billing.studentBillingSummary({externalStudentId:910})
+  assert(fresh.canConfirmHistory)
+  await prisma.$transaction(async tx=>{
+    const data=await billing.prepareInvoiceBilling(tx,{externalStudentId:910},{mode:'installment',total:250,history:{chargesCents:117500,fingerprint:fresh.historyFingerprint!,confirmed:true,staffSessionId:'review-test',staffName:'Test staff'}})
+    assert.equal(data.chargeCents,0)
+    await tx.invoice.create({data:{invoiceNumber:'PAYMENT-910',studentName:'Test 910',externalStudentId:910,invoiceDate:'2026-11-05',lineItems:'[]',subtotal:250,total:250,paymentStatus:'paid',...data}})
+  })
+  const resolved=await billing.studentBillingSummary({externalStudentId:910})
+  assert.equal(resolved.needsReview,false);assert.equal(resolved.totalCharges,1175);assert.equal(resolved.totalPaid,675);assert.equal(resolved.openBalance,500)
+  assert.equal((await prisma.invoice.findUniqueOrThrow({where:{id:created.id}})).chargeCents,17500)
+})
+
+test('custom course price is saved once and installments need no package',async()=>{
+  await prisma.$transaction(async tx=>{
+    const data=await billing.prepareInvoiceBilling(tx,{externalStudentId:911},{mode:'new-course',total:200,courseTotal:1200})
+    await tx.invoice.create({data:{invoiceNumber:'CUSTOM-COURSE-911',studentName:'Test 911',externalStudentId:911,invoiceDate:'2026-11-05',lineItems:'[]',subtotal:200,total:200,paymentStatus:'paid',...data}})
+    const second=await billing.prepareInvoiceBilling(tx,{externalStudentId:911},{mode:'installment',total:300,courseTotal:9999})
+    await tx.invoice.create({data:{invoiceNumber:'CUSTOM-INSTALLMENT-911',studentName:'Test 911',externalStudentId:911,invoiceDate:'2026-11-05',lineItems:'[]',subtotal:300,total:300,paymentStatus:'unpaid',...second}})
+  })
+  const s=await billing.studentBillingSummary({externalStudentId:911})
+  assert.equal(s.totalCharges,1200);assert.equal(s.openBalance,1000)
+  assert.equal(s.hasCourseAgreement,true)
+})
+
+test('a standalone custom invoice does not establish a course agreement',async()=>{
+  await prisma.$transaction(async tx=>{
+    const data=await billing.prepareInvoiceBilling(tx,{externalStudentId:916},{mode:'new-charge',total:100})
+    await tx.invoice.create({data:{invoiceNumber:'ONLY-CUSTOM-916',studentName:'Test 916',externalStudentId:916,invoiceDate:'2026-11-05',lineItems:'[]',subtotal:100,total:100,paymentStatus:'paid',...data}})
+  })
+  assert.equal((await billing.studentBillingSummary({externalStudentId:916})).hasCourseAgreement,false)
+})
+
+test('invoice save defaults to new charge; inline total confirmation requires staff authentication',async()=>{
+  const save=(await import('../app/api/invoice/save/route')).POST
+  await receipt(915,null,250,'paid')
+  const preview=await billing.studentBillingSummary({externalStudentId:915})
+  const body={invoiceNumber:'INLINE-915',studentName:'Test 915',externalStudentId:915,invoiceDate:'2026-11-05',lineItems:[{description:'Course payment',quantity:1,unitPrice:250}],subtotal:250,gstAmount:0,qstAmount:0,total:250,billingMode:'installment',history:{chargesCents:100000,fingerprint:preview.historyFingerprint,confirmed:true}}
+  assert.equal((await save(req(body))).status,401)
+  assert.equal(await prisma.billingAccount.count({where:{identityKey:'student:915'}}),0)
+  assert.equal((await save(reviewReq(body))).status,200)
+  assert.equal((await billing.studentBillingSummary({externalStudentId:915})).openBalance,750)
+  const {history:_h,billingMode:_m,...custom}=body
+  const result=await save(req({...custom,invoiceNumber:'EXTRA-915',lineItems:[{description:'Custom service',quantity:1,unitPrice:100}],subtotal:100,total:100}))
+  assert.equal(result.status,200)
+  assert.equal((await result.json()).invoice.chargeCents,10000)
+  assert.equal((await billing.studentBillingSummary({externalStudentId:915})).openBalance,850)
+})
+
+test('inline confirmation rejects stale history and rolls back with a failed invoice save',async()=>{
+  const old=await receipt(912,null,250,'paid')
+  const preview=await billing.studentBillingSummary({externalStudentId:912})
+  const history={chargesCents:100000,fingerprint:preview.historyFingerprint!,confirmed:true,staffSessionId:'review-test',staffName:'Test staff'}
+  await prisma.invoice.update({where:{id:old.id},data:{total:300}})
+  await assert.rejects(()=>prisma.$transaction(tx=>billing.prepareInvoiceBilling(tx,{externalStudentId:912},{mode:'installment',total:250,history})),/changed/)
+  const fresh=await billing.studentBillingSummary({externalStudentId:912})
+  await assert.rejects(()=>prisma.$transaction(async tx=>{
+    await billing.prepareInvoiceBilling(tx,{externalStudentId:912},{mode:'installment',total:250,history:{...history,fingerprint:fresh.historyFingerprint!}})
+    throw new Error('invoice failed')
+  }),/invoice failed/)
+  assert.equal(await prisma.billingAccount.count({where:{identityKey:'student:912'}}),0)
+  assert.equal((await prisma.invoice.findUniqueOrThrow({where:{id:old.id}})).billingAccountId,null)
 })
 
 test('delete a draft does not rewrite older snapshots; paid receipts cannot be erased',async()=>{

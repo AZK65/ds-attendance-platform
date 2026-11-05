@@ -21,17 +21,19 @@ export async function GET(request: NextRequest) {
     const result: BillingReviewAccount[] = reconciliationPreview(rows).map(preview => {
       const own = rows.filter(row => preview.invoiceIds.includes(row.id))
       const account = accounts.find(a => own.length > 0 && own.every(row => row.billingAccountId === a.id))
+      const linkedIds = [...new Set(own.map(row => row.billingAccountId).filter(Boolean))]
+      const partial = linkedIds.length === 1 ? accounts.find(a => a.id === linkedIds[0]) : null
       const blocked = preview.identityKey.startsWith('unresolved:') || preview.issues.some(issue =>
-        issue === 'Phone belongs to more than one student ID' || issue === 'Already linked to a reviewed account')
+        issue === 'Phone belongs to more than one student ID') || linkedIds.length > 1 || !!partial?.reviewedFingerprint
       const current = account ? ledgerSummary(account.openingChargesCents, account.invoices) : null
       return {
         identityKey: preview.identityKey, studentName: preview.studentName,
         phone: own.at(-1)?.studentPhone ?? null, studentId: own.find(row => row.externalStudentId)?.externalStudentId ?? null,
         fingerprint: preview.fingerprint, currentBalance: current?.netBalance ?? preview.currentBalance,
         totalPaid: current?.totalPaid ?? preview.totalPaid, suggestedChargesCents: preview.suggestedChargesCents,
-        issues: account ? [] : preview.issues, canApprove: !account && !blocked, reviewed: !!account,
-        audit: account ? { by: account.reviewedBy, note: account.reviewNote, at: account.createdAt.toISOString(),
-          openingCharges: account.openingChargesCents / 100, previousBalance: account.previousBalanceCents == null ? null : account.previousBalanceCents / 100,
+        issues: account ? [] : preview.issues.filter(issue => issue !== 'Already linked to a reviewed account'), canApprove: !account && !blocked, reviewed: !!account,
+        audit: account ? { by: account.reviewedBy, note: account.reviewNote, at: (account.reviewedAt || account.createdAt).toISOString(),
+          openingCharges: (account.reviewedChargesCents ?? account.openingChargesCents) / 100, previousBalance: account.previousBalanceCents == null ? null : account.previousBalanceCents / 100,
           paidAtReview: account.reviewedPaidCents == null ? null : account.reviewedPaidCents / 100 } : null,
         invoices: own.map(row => ({ id: row.id, number: row.invoiceNumber, date: row.invoiceDate, total: row.total, status: row.paymentStatus, savedBalance: row.remainingBalance })),
       }

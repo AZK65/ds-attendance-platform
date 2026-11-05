@@ -85,16 +85,25 @@ export async function applyReviewedBalance(tx: Prisma.TransactionClient, plan: R
     throw new Error('Invoices changed since preview; generate a fresh report')
   }
   if(plan.identityKey.startsWith('unresolved:') || preview.issues.includes('Phone belongs to more than one student ID'))throw new Error('Resolve student identity before reconciliation')
-  if(selected.some(r=>r.billingAccountId))throw new Error('Account already reconciled')
+  const accountIds = [...new Set(selected.map(r=>r.billingAccountId).filter((id): id is string=>!!id))]
+  if (accountIds.length > 1 || selected.every(r=>r.billingAccountId)) throw new Error('Account already reconciled or mixed account identity')
+  const existing = accountIds.length ? await tx.billingAccount.findUniqueOrThrow({where:{id:accountIds[0]}}) : null
+  if (existing?.reviewedFingerprint) throw new Error('Account already reconciled; additional history needs separate review')
+  if (existing && all.some(r=>r.billingAccountId === existing.id && !plan.invoiceIds.includes(r.id))) throw new Error('Resolve account identity before reconciliation')
+  const existingCharges = selected.filter(r=>r.billingAccountId).reduce((sum,r)=>sum+r.chargeCents,0)
+  const openingChargesCents = plan.openingChargesCents - existingCharges
+  if (openingChargesCents < 0) throw new Error('Confirmed total is below charges already recorded; check the total or correct those invoices first')
   // Every record selected for a student must remain in that identity group.
   const identity=plan.identityKey.startsWith('student:') ? {externalStudentId:Number(plan.identityKey.slice(8)),phone:selected[0].studentPhone,name:selected[0].studentName} : {phone:selected[0].studentPhone,name:selected[0].studentName}
   if(all.some(r=>invoiceBelongsToStudent(r,identity)&&!plan.invoiceIds.includes(r.id)))throw new Error('Additional matching invoices need review')
-  const account=await tx.billingAccount.create({data:{
-    identityKey:plan.identityKey,openingChargesCents:plan.openingChargesCents,reviewNote:plan.reviewNote,
+  const data = {
+    openingChargesCents,reviewNote:plan.reviewNote,
+    reviewedAt: new Date(), reviewedChargesCents: plan.openingChargesCents,
     reviewedBy:plan.reviewedBy ?? null,reviewedBySessionId:plan.reviewedBySessionId ?? null,
     reviewedFingerprint:plan.fingerprint, reviewedPaidCents:cents(preview.totalPaid),
     previousBalanceCents:cents(preview.currentBalance),
-  }})
-  await tx.invoice.updateMany({where:{id:{in:plan.invoiceIds}},data:{billingAccountId:account.id,chargeCents:0,billingMode:'legacy-reviewed'}})
+  }
+  const account = existing ? await tx.billingAccount.update({where:{id:existing.id},data}) : await tx.billingAccount.create({data:{identityKey:plan.identityKey,...data}})
+  await tx.invoice.updateMany({where:{id:{in:plan.invoiceIds},billingAccountId:null},data:{billingAccountId:account.id,chargeCents:0,billingMode:'legacy-reviewed'}})
   return {accountId:account.id,...ledgerSummary(account.openingChargesCents,selected)}
 }

@@ -382,6 +382,8 @@ model BillingAccount {
   reviewedBy          String?
   reviewedBySessionId String?
   reviewedFingerprint String?
+  reviewedAt          DateTime?
+  reviewedChargesCents Int?
   reviewedPaidCents   Int?
   previousBalanceCents Int?
   createdAt           DateTime @default(now())
