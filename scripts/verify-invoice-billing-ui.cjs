@@ -13,6 +13,13 @@ async function main() {
   const browser = await puppeteer.launch({ headless: true })
   const requests = [], errors = []
   let review = false, saved = false, failPayment = true, failReceipt = false
+  let staleReview = true
+  const reviewAccount = {
+    identityKey: 'student:42', studentName: 'Amira Bennett', studentId: 42, phone: '5145550147', fingerprint: 'synthetic-v1',
+    currentBalance: 500, totalPaid: 250, suggestedChargesCents: 100000, issues: [], canApprove: true, reviewed: false, audit: null,
+    invoices: [{ id: 'receipt-one', number: 'TEST-4101', date: '2026-11-01', total: 250, status: 'paid', savedBalance: 750 },
+      { id: 'receipt-two', number: 'TEST-4102', date: '2026-11-04', total: 250, status: 'unpaid', savedBalance: 500 }],
+  }
   try {
     const page = await browser.newPage()
     page.on('pageerror', error => errors.push(error.message))
@@ -28,6 +35,18 @@ async function main() {
       const p = url.pathname
       requests.push({ path: p, body: request.postData() ? JSON.parse(request.postData()) : null })
       let data = {}, status = 200
+      if (p === '/api/invoice/balance-review') {
+        if (request.method() === 'POST') {
+          if (staleReview) { status = 409; data = { error: 'This account changed. Reload and check the latest records before approving.' } }
+          else {
+            const body = JSON.parse(request.postData())
+            Object.assign(reviewAccount, { fingerprint: 'synthetic-v2', reviewed: true, canApprove: false, currentBalance: 750,
+              audit: { by: body.reviewedBy, note: body.reviewNote, at: '2026-11-05T16:00:00Z', openingCharges: 1000, paidAtReview: 250, previousBalance: 500 } })
+            data = { success: true }
+          }
+        } else data = { accounts: [reviewAccount] }
+        return void request.respond({ status, contentType: 'application/json', body: JSON.stringify(data) })
+      }
       if (p === '/api/invoice/generate') return void request.respond(failReceipt ? { status: 500, contentType: 'application/json', body: JSON.stringify({ error: 'Synthetic PDF failure' }) } : { status, contentType: 'application/pdf', body: pdf })
       if (p === '/api/invoice/settings') data = { invoicePrefix: 'QAZI', nextInvoiceNumber: saved ? 4103 : 4102, taxesEnabled: true, defaultGstRate: 5, defaultQstRate: 9.975 }
       else if (p === '/api/invoice/packages') data = { packages: [{ id: 'test-package', name: 'Class 5 course', totalPrice: 1000, taxInclusive: true, instalments: [{ id: 'part-1', instalmentNumber: 1, name: 'First payment', amount: 250 }] }] }
@@ -94,8 +113,40 @@ async function main() {
     await page.waitForFunction(() => document.querySelector('[role="alert"]')?.textContent.includes('historical balance'))
     assert(await page.$$eval('button', buttons => buttons.find(b => b.textContent.includes('Generate Invoice PDF')).disabled))
     await page.screenshot({ path: path.join(out, 'review-required-mobile.png'), fullPage: true })
+    await page.goto(origin + '/invoice/balances?q=%2B15145550147', { waitUntil: 'networkidle0' })
+    await clickText('Amira Bennett')
+    await page.waitForSelector('#review-total')
+    assert.equal(await page.$eval('#review-total', e => e.value), '')
+    assert(await page.$eval('button[type="submit"]', e => e.disabled))
+    await page.type('#review-total', '1000')
+    await page.type('#review-name', 'Samira Chen')
+    await page.type('#review-note', 'Verified the signed course contract and both receipts.')
+    assert(await page.$eval('button[type="submit"]', e => e.disabled))
+    await page.click('input[type="checkbox"]')
+    assert.equal(await page.$eval('button[type="submit"]', e => e.disabled), false)
+    assert(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth))
+    await page.evaluate(() => { document.activeElement?.blur(); window.scrollTo(0, 0) })
+    await page.screenshot({ path: path.join(out, 'balance-review-mobile.png'), fullPage: true })
+    await page.setViewport({ width: 1440, height: 960 })
+    await page.evaluate(() => window.scrollTo(0, 0))
+    await page.screenshot({ path: path.join(out, 'balance-review-desktop.png'), fullPage: true })
+    await page.click('button[type="submit"]')
+    await page.waitForFunction(() => document.body.textContent.includes('This account changed.'))
+    assert.equal(requests.filter(r => r.path === '/api/invoice/balance-review' && r.body).length, 1)
+    await clickText('Reload latest records')
+    staleReview = false
+    await page.click('button[type="submit"]')
+    await page.waitForFunction(() => document.body.textContent.includes('Saved review'))
+    assert((await page.$eval('main', e => e.textContent)).includes('Samira Chen'))
+    assert.equal(await page.$('#review-total'), null)
+    const approvals = requests.filter(r => r.path === '/api/invoice/balance-review' && r.body)
+    assert.equal(approvals.length, 2)
+    assert.equal(approvals[1].body.openingChargesCents, 100000)
+    assert.equal(approvals[1].body.approved, true)
+    assert.equal(approvals[1].body.invoiceIds, undefined)
+    await page.screenshot({ path: path.join(out, 'balance-reviewed-desktop.png'), fullPage: true })
     assert.deepEqual(errors, [])
-    console.log('PASS: save-before-PDF, stable receipt number, unpaid course balance, visible payment failure, paid PDF regeneration, and review-required guard.')
+    console.log('PASS: invoice flow and guarded balance review: no inferred total, required confirmation, formatted phone search, mobile layout, stale error, explicit approval and saved audit.')
   } finally { await browser.close() }
 }
 main().catch(error => { console.error(error); process.exitCode = 1 })

@@ -379,6 +379,11 @@ model BillingAccount {
   identityKey         String @unique
   openingChargesCents Int @default(0)
   reviewNote          String
+  reviewedBy          String?
+  reviewedBySessionId String?
+  reviewedFingerprint String?
+  reviewedPaidCents   Int?
+  previousBalanceCents Int?
   createdAt           DateTime @default(now())
   invoices            Invoice[]
 }

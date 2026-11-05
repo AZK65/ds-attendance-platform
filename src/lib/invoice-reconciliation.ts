@@ -70,6 +70,7 @@ export function reconciliationPreview(rows: readonly ReconciliationInvoice[]) {
 export interface ReviewedBalancePlan {
   identityKey: string; invoiceIds: string[]; fingerprint: string
   openingChargesCents: number; reviewNote: string; approved: boolean
+  reviewedBy?: string; reviewedBySessionId?: string
 }
 
 /** Explicit approval only. The fingerprint makes a stale plan fail closed. */
@@ -88,7 +89,12 @@ export async function applyReviewedBalance(tx: Prisma.TransactionClient, plan: R
   // Every record selected for a student must remain in that identity group.
   const identity=plan.identityKey.startsWith('student:') ? {externalStudentId:Number(plan.identityKey.slice(8)),phone:selected[0].studentPhone,name:selected[0].studentName} : {phone:selected[0].studentPhone,name:selected[0].studentName}
   if(all.some(r=>invoiceBelongsToStudent(r,identity)&&!plan.invoiceIds.includes(r.id)))throw new Error('Additional matching invoices need review')
-  const account=await tx.billingAccount.create({data:{identityKey:plan.identityKey,openingChargesCents:plan.openingChargesCents,reviewNote:plan.reviewNote}})
+  const account=await tx.billingAccount.create({data:{
+    identityKey:plan.identityKey,openingChargesCents:plan.openingChargesCents,reviewNote:plan.reviewNote,
+    reviewedBy:plan.reviewedBy ?? null,reviewedBySessionId:plan.reviewedBySessionId ?? null,
+    reviewedFingerprint:plan.fingerprint, reviewedPaidCents:cents(preview.totalPaid),
+    previousBalanceCents:cents(preview.currentBalance),
+  }})
   await tx.invoice.updateMany({where:{id:{in:plan.invoiceIds}},data:{billingAccountId:account.id,chargeCents:0,billingMode:'legacy-reviewed'}})
   return {accountId:account.id,...ledgerSummary(account.openingChargesCents,selected)}
 }

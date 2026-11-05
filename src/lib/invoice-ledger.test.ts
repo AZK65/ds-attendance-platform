@@ -19,6 +19,7 @@ let update: typeof import('../app/api/invoice/update-payment/route').PUT
 let refund: typeof import('../app/api/invoice/refund/route').POST
 let remove: typeof import('../app/api/invoice/[id]/route').DELETE
 let edit: typeof import('../app/api/invoice/edit/route').PUT
+let reviewRoutes: typeof import('../app/api/invoice/balance-review/route')
 
 before(async()=>{
   execFileSync(process.execPath,['node_modules/prisma/build/index.js','db','push','--skip-generate'],{env:process.env,stdio:'pipe'})
@@ -28,9 +29,13 @@ before(async()=>{
   refund=(await import('../app/api/invoice/refund/route')).POST
   remove=(await import('../app/api/invoice/[id]/route')).DELETE
   edit=(await import('../app/api/invoice/edit/route')).PUT
+  reviewRoutes=await import('../app/api/invoice/balance-review/route')
 })
 after(async()=>{await prisma?.$disconnect()})
 const req=(body:unknown)=>new NextRequest('http://localhost/api/invoice',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)})
+const reviewReq=(body?:unknown, cookie='auth-token=valid; sid=review-test', extra:Record<string,string>={})=>new NextRequest('http://localhost/api/invoice/balance-review',{
+  method:body===undefined?'GET':'POST',headers:{'Content-Type':'application/json',cookie,...extra},...(body===undefined?{}:{body:JSON.stringify(body)}),
+})
 let seq=0
 async function account(student:number,total=1000){return prisma.billingAccount.create({data:{identityKey:`student:${student}`,openingChargesCents:cents(total),reviewNote:'Synthetic reviewed opening total'}})}
 async function receipt(student:number,accountId:string|null,total:number,status='unpaid',chargeCents=0){
@@ -44,6 +49,79 @@ test('integer-cent arithmetic and explicit invoice roles',()=>{
   assert.throws(()=>chargeForInvoice('new-course',250),/requires/)
   assert.throws(()=>cents(NaN))
   assert.equal(ledgerSummary(30,[{id:'a',total:0.1,paymentStatus:'paid'},{id:'b',total:0.2,paymentStatus:'paid'}]).netBalance,0)
+})
+
+test('balance review requires authentication, same origin and a registered staff session',async()=>{
+  assert.equal((await reviewRoutes.GET(reviewReq(undefined,''))).status,401)
+  assert.equal((await reviewRoutes.POST(reviewReq({},''))).status,401)
+  for(const origin of ['https://other.example','null','invalid']) {
+    assert.equal((await reviewRoutes.POST(reviewReq({},undefined,{origin}))).status,403)
+  }
+  assert.equal((await reviewRoutes.POST(reviewReq({},undefined,{'sec-fetch-site':'cross-site'}))).status,403)
+  assert.equal((await reviewRoutes.POST(reviewReq({},undefined,{origin:'https://qazidrivingschool.ca',host:'qazidrivingschool.ca'}))).status,400)
+  const body={identityKey:'student:901',fingerprint:'test',openingChargesCents:100000,approved:true,reviewNote:'Checked signed contract',reviewedBy:'Test staff'}
+  assert.equal((await reviewRoutes.POST(reviewReq(body))).status,401)
+  await prisma.adminSession.create({data:{id:'review-test',label:'Synthetic review test'}})
+  for(const change of [{openingChargesCents:-1},{openingChargesCents:1.1},{openingChargesCents:2147483648},{approved:false},{reviewNote:'short'},{reviewedBy:''}]) {
+    assert.equal((await reviewRoutes.POST(reviewReq({...body,...change}))).status,400)
+  }
+})
+
+test('staff review is read-only until approval, saves audit, preserves receipts and rejects replay',async()=>{
+  const a=await receipt(901,null,250,'paid'),b=await receipt(901,null,250,'unpaid')
+  await prisma.invoice.update({where:{id:b.id},data:{remainingBalance:500}})
+  const before=await prisma.invoice.findMany({where:{externalStudentId:901},orderBy:{invoiceNumber:'asc'}})
+  const response=await reviewRoutes.GET(reviewReq())
+  assert.equal(response.headers.get('cache-control'),'no-store')
+  const preview=(await response.json()).accounts.find((x:{identityKey:string})=>x.identityKey==='student:901')
+  assert.equal(preview.totalPaid,250);assert.equal(preview.canApprove,true)
+  assert.equal(await prisma.billingAccount.count({where:{identityKey:'student:901'}}),0)
+  const payload={identityKey:preview.identityKey,fingerprint:preview.fingerprint,openingChargesCents:100000,approved:true,reviewedBy:'Test staff',reviewNote:'Checked signed course contract and both receipts',invoiceIds:['untrusted-id']}
+  const saved=await reviewRoutes.POST(reviewReq(payload))
+  assert.equal(saved.status,200);assert.equal((await saved.json()).summary.openBalance,750)
+  const account=await prisma.billingAccount.findUniqueOrThrow({where:{identityKey:'student:901'}})
+  assert.equal(account.reviewedBy,'Test staff');assert.equal(account.reviewedBySessionId,'review-test')
+  assert.equal(account.reviewedFingerprint,preview.fingerprint);assert.equal(account.reviewedPaidCents,25000)
+  assert.equal(account.previousBalanceCents,50000)
+  const after=await prisma.invoice.findMany({where:{externalStudentId:901},orderBy:{invoiceNumber:'asc'}})
+  for(let i=0;i<before.length;i++) {
+    const {billingAccountId:_a,chargeCents:_b,billingMode:_c,updatedAt:_d,...original}=before[i]
+    const {billingAccountId,chargeCents,billingMode,updatedAt:_e,...current}=after[i]
+    assert.deepEqual(current,original);assert.equal(billingAccountId,account.id);assert.equal(chargeCents,0);assert.equal(billingMode,'legacy-reviewed')
+  }
+  assert.equal((await reviewRoutes.POST(reviewReq(payload))).status,409)
+  const publicResponse=await (await reviewRoutes.GET(reviewReq())).text()
+  assert(!publicResponse.includes('review-test'));assert(!publicResponse.includes('reviewedBySessionId'))
+  const reviewed=JSON.parse(publicResponse).accounts.find((x:{identityKey:string})=>x.identityKey===preview.identityKey)
+  assert.equal(reviewed.currentBalance,750);assert.equal(reviewed.reviewed,true);assert.equal(reviewed.canApprove,false)
+  assert.equal(reviewed.audit.by,'Test staff')
+  assert.equal((await prisma.invoice.findUniqueOrThrow({where:{id:a.id}})).paymentStatus,'paid')
+})
+
+test('payment changes and additional receipts invalidate the screen approval without writing a balance',async()=>{
+  const r=await receipt(902,null,250)
+  const get=async()=> (await (await reviewRoutes.GET(reviewReq())).json()).accounts.find((x:{identityKey:string})=>x.identityKey==='student:902')
+  const stale=await get()
+  await prisma.invoice.update({where:{id:r.id},data:{paymentStatus:'paid'}})
+  const payload={identityKey:stale.identityKey,fingerprint:stale.fingerprint,openingChargesCents:100000,approved:true,reviewedBy:'Test staff',reviewNote:'Checked receipts and course contract'}
+  assert.equal((await reviewRoutes.POST(reviewReq(payload))).status,409)
+  const fresh=await get();await receipt(902,null,100,'paid')
+  assert.equal((await reviewRoutes.POST(reviewReq({...payload,fingerprint:fresh.fingerprint}))).status,409)
+  assert.equal(await prisma.billingAccount.count({where:{identityKey:'student:902'}}),0)
+  assert.equal((await prisma.invoice.findUniqueOrThrow({where:{id:r.id}})).billingAccountId,null)
+})
+
+test('shared-phone and missing-identity accounts cannot be approved through the screen',async()=>{
+  const a=await receipt(903,null,250),b=await receipt(904,null,250),c=await receipt(905,null,250)
+  await prisma.invoice.updateMany({where:{id:{in:[a.id,b.id]}},data:{studentPhone:'15145550903'}})
+  await prisma.invoice.update({where:{id:c.id},data:{externalStudentId:null}})
+  const previews=(await (await reviewRoutes.GET(reviewReq())).json()).accounts
+  for(const identityKey of ['student:903',`unresolved:${c.id}`]) {
+    const preview=previews.find((x:{identityKey:string})=>x.identityKey===identityKey)
+    assert.equal(preview.canApprove,false)
+    assert.equal((await reviewRoutes.POST(reviewReq({identityKey,fingerprint:preview.fingerprint,openingChargesCents:100000,approved:true,reviewedBy:'Test staff',reviewNote:'Checked receipts and course contract'}))).status,409)
+    assert.equal(await prisma.billingAccount.count({where:{identityKey}}),0)
+  }
 })
 
 test('unpaid installment does not reduce course balance; paid status does, once',async()=>{

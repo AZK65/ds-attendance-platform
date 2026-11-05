@@ -314,7 +314,7 @@ export default function InvoiceHistoryPage() {
           initial={{ opacity: 0, y: -10 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.25 }}
-          className="flex items-center justify-between mb-8"
+          className="flex flex-wrap items-center justify-between gap-4 mb-8"
         >
           <div>
             <h2 className="text-2xl font-bold flex items-center gap-2">
@@ -325,12 +325,15 @@ export default function InvoiceHistoryPage() {
               View and search past invoices
             </p>
           </div>
+          <div className="flex flex-wrap gap-2">
+          <Button asChild variant="outline" size="sm"><Link href="/invoice/balances">Balance review</Link></Button>
           <Link href="/invoice">
             <Button variant="outline" size="sm">
               <ArrowLeft className="h-4 w-4 mr-1" />
               Back
             </Button>
           </Link>
+          </div>
         </motion.div>
 
         {/* Filters */}

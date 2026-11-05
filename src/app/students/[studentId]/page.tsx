@@ -1081,6 +1081,7 @@ export default function StudentProfilePage() {
             </DialogDescription>
           </DialogHeader>
           <p className="text-sm text-muted-foreground">Check the invoice payment status first. Historical course totals and account adjustments must be reviewed before they are applied.</p>
+          <Button asChild><Link href={`/invoice/balances?q=${encodeURIComponent(displayName)}`}>Review this account</Link></Button>
           <Button variant="outline" onClick={() => setEditingBalance(false)}>Close</Button>
         </DialogContent>
       </Dialog>

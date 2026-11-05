@@ -989,6 +989,7 @@ function InvoicePage() {
               </p>
             </div>
             <div className="platform-page-actions">
+              <Button asChild variant="outline" size="sm"><Link href="/invoice/balances">Balance review</Link></Button>
               <Link href="/invoice/history">
                 <Button variant="outline" size="sm">
                   <FileText className="h-4 w-4 mr-1" />
@@ -1479,7 +1480,7 @@ function InvoicePage() {
                     <option value="new-course">New course (add its full price once)</option>
                   </select>
                   <p className="text-sm text-muted-foreground">Creating an invoice does not count as receiving payment. A course installment does not charge for the course again.</p>
-                  {balanceData?.needsReview && <p role="alert" className="text-sm text-amber-700">This student’s historical balance needs reconciliation before saving another invoice.</p>}
+                  {balanceData?.needsReview && <p role="alert" className="text-sm text-amber-700">This student’s historical balance needs reconciliation before saving another invoice. <Link href={`/invoice/balances?q=${encodeURIComponent(formData.studentPhone || formData.studentName)}`} target="_blank" rel="noopener noreferrer" className="underline underline-offset-4">Review this account in a new tab</Link>, then return here.</p>}
                 </CardContent>
               </Card>
 
