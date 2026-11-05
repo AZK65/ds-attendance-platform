@@ -120,28 +120,3 @@ export function openBalanceFromInvoices(invoices: readonly BalanceInvoice[]): nu
     .reduce((sum, invoice) => sum + invoice.total, 0)
   return roundMoney(totalInvoiced - totalPaid)
 }
-
-/**
- * After a delete, the only invoice that may be rewritten is the newest
- * remaining invoice for that same student. Returns null when there is
- * nothing of theirs left, or when that invoice has no stored balance.
- */
-export function remainingBalanceUpdateAfterDelete<T extends BalanceInvoice>(
-  deleted: T,
-  remaining: readonly T[],
-): { id: string; remainingBalance: number } | null {
-  const student: StudentIdentity = {
-    externalStudentId: deleted.externalStudentId,
-    phone: deleted.studentPhone,
-    name: deleted.studentName,
-  }
-  const own = filterInvoicesForStudent(remaining, student)
-    .filter((invoice) => invoice.id !== deleted.id)
-    .sort((a, b) => createdAtMs(a.createdAt) - createdAtMs(b.createdAt))
-  const last = own[own.length - 1]
-  if (!last || last.remainingBalance == null) return null
-  return {
-    id: last.id,
-    remainingBalance: roundMoney(last.remainingBalance + deleted.total),
-  }
-}

@@ -15,6 +15,16 @@ export async function PUT(request: NextRequest) {
       return NextResponse.json({ error: 'Invoice not found' }, { status: 404 })
     }
 
+    if (paymentStatus !== undefined && !['paid', 'unpaid'].includes(paymentStatus)) {
+      return NextResponse.json({ error: 'Use the refund workflow for refunds.' }, { status: 400 })
+    }
+    if (invoice.paymentStatus === 'refunded' || invoice.creditForInvoiceId) {
+      return NextResponse.json({ error: 'A refunded invoice cannot be marked paid again.' }, { status: 409 })
+    }
+    if (invoice.cloverPaid && paymentStatus === 'unpaid') {
+      return NextResponse.json({ error: 'A confirmed Clover payment cannot be reset to unpaid.' }, { status: 409 })
+    }
+
     // Build update data
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const updateData: any = {}
@@ -28,10 +38,12 @@ export async function PUT(request: NextRequest) {
       updateData.paidAt = null
     }
 
-    const updated = await prisma.invoice.update({
-      where: { id: invoiceId },
+    const changed = await prisma.invoice.updateMany({
+      where: { id: invoiceId, paymentStatus: invoice.paymentStatus, updatedAt: invoice.updatedAt },
       data: updateData,
     })
+    if (!changed.count) return NextResponse.json({ error: 'Invoice changed; refresh before updating payment.' }, { status: 409 })
+    const updated = await prisma.invoice.findUnique({ where: { id: invoiceId } })
 
     return NextResponse.json({ invoice: updated })
   } catch (error) {

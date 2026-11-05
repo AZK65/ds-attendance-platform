@@ -40,7 +40,6 @@ const {
   invoiceBelongsToStudent,
   selectInvoiceForBalanceEdit,
   openBalanceFromInvoices,
-  remainingBalanceUpdateAfterDelete,
 } = load(path.join(root, 'src/lib/invoice-match.ts'))
 
 const DEEP = { externalStudentId: 10, name: 'Deep Singh', phone: '5145550101' }
@@ -247,74 +246,4 @@ test('a null remainingBalance falls back to invoiced minus paid', () => {
     invoice({ id: 'credit', createdAt: '2026-06-01T00:00:00.000Z', remainingBalance: null, total: -25, paymentStatus: 'refunded' }),
     invoice({ id: 'paid', createdAt: '2026-01-01T00:00:00.000Z', remainingBalance: null, total: 100, paymentStatus: 'paid' }),
   ]), -25)
-})
-
-test('delete recalculation rewrites only the same student\'s newest invoice', () => {
-  const deleted = invoice({
-    id: 'deep-deleted',
-    studentName: 'Deep Singh',
-    studentPhone: '514 555-0101',
-    total: 100,
-    remainingBalance: 250,
-    createdAt: '2026-08-01T00:00:00.000Z',
-  })
-  const remaining = [
-    invoice({
-      id: 'sandeep',
-      studentName: 'Sandeep Singh',
-      studentPhone: SANDEEP_PHONE,
-      total: 400,
-      remainingBalance: 800,
-      createdAt: '2026-10-03T00:00:00.000Z',
-    }),
-    invoice({
-      id: 'randeep',
-      studentName: 'Randeep Singh',
-      studentPhone: '(438) 555-0303',
-      externalStudentId: 30,
-      total: 50,
-      remainingBalance: 100,
-      createdAt: '2026-10-02T00:00:00.000Z',
-    }),
-    invoice({
-      id: 'deep-older',
-      studentName: 'Deep Singh',
-      studentPhone: '5145550101',
-      total: 40,
-      remainingBalance: 80,
-      createdAt: '2026-07-01T00:00:00.000Z',
-    }),
-    invoice({
-      id: 'deep-keep',
-      studentName: 'Singh, Deep',
-      studentPhone: '+1 514-555-0101',
-      total: 80,
-      remainingBalance: 150,
-      createdAt: '2026-09-01T00:00:00.000Z',
-    }),
-  ]
-  assert.deepEqual(remainingBalanceUpdateAfterDelete(deleted, remaining), {
-    id: 'deep-keep',
-    remainingBalance: 250,
-  })
-
-  const tagged = invoice({
-    id: 'deep-tagged',
-    externalStudentId: 10,
-    studentName: 'Deep Singh',
-    studentPhone: '5145550101',
-    total: 25,
-    remainingBalance: 10,
-    createdAt: '2026-05-01T00:00:00.000Z',
-  })
-  const otherTagged = invoice({
-    id: 'sandeep-tagged',
-    externalStudentId: 20,
-    studentName: 'Sandeep Singh',
-    studentPhone: '5145550101',
-    total: 999,
-    remainingBalance: 999,
-    createdAt: '2026-11-01T00:00:00.000Z',
-  })
-  assert.deepEqual(remainingBalanceUpdateAfterDelete(tagged, [otherTagged]), null)
 })

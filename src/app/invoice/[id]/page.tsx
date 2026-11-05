@@ -1,5 +1,7 @@
 'use client'
 
+import { billingBalanceLabel } from '@/lib/billing-label'
+
 import { useState, useEffect } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
@@ -156,11 +158,12 @@ export default function InvoiceViewPage() {
 
   // Fetch student invoice history + balance
   const { data: studentProfile } = useQuery({
-    queryKey: ['student-profile', invoice?.studentPhone, invoice?.studentName],
+    queryKey: ['student-profile', invoice?.studentPhone, invoice?.studentName, invoice?.externalStudentId],
     queryFn: async () => {
       const params = new URLSearchParams()
       if (invoice?.studentPhone) params.set('phone', invoice.studentPhone)
       if (invoice?.studentName) params.set('name', invoice.studentName)
+      if (invoice?.externalStudentId) params.set('externalStudentId', String(invoice.externalStudentId))
       if (!params.toString()) return null
       const res = await fetch(`/api/students/profile?${params}`)
       if (!res.ok) return null
@@ -584,7 +587,7 @@ export default function InvoiceViewPage() {
                       <div>
                         <p className="text-xs text-muted-foreground font-medium">Student Balance</p>
                         <p className={`text-2xl font-bold font-mono ${studentProfile.summary.openBalance > 0 ? 'text-amber-700 dark:text-amber-400' : 'text-green-700 dark:text-green-400'}`}>
-                          {formatCurrency(studentProfile.summary.openBalance)}
+                          {billingBalanceLabel(studentProfile.summary)}
                         </p>
                         {studentProfile.summary.openBalance > 0 && (
                           <p className="text-xs text-amber-600 flex items-center gap-1">

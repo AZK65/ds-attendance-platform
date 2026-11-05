@@ -354,6 +354,12 @@ model Invoice {
   createdAt         DateTime @default(now())
   updatedAt         DateTime @updatedAt
   remainingBalance  Float?
+  // Legacy snapshots are kept for audit only. Reviewed accounts use the ledger.
+  billingAccountId  String?
+  billingAccount    BillingAccount? @relation(fields: [billingAccountId], references: [id])
+  chargeCents       Int @default(0)
+  billingMode       String?
+  creditForInvoiceId String? @unique
   // MySQL driving_school_v2.student.student_id. Null on invoices saved
   // before this column existed; those still match by phone or exact name.
   externalStudentId Int?
@@ -363,6 +369,23 @@ model Invoice {
   @@index([studentName])
   @@index([invoiceNumber])
   @@index([externalStudentId])
+  @@index([billingAccountId])
+}
+
+// Opening charges are approved independently of payments. An installment invoice
+// has chargeCents=0; a new service adds a charge. Only paid receipts reduce debt.
+model BillingAccount {
+  id                  String @id @default(cuid())
+  identityKey         String @unique
+  openingChargesCents Int @default(0)
+  reviewNote          String
+  reviewedBy          String?
+  reviewedBySessionId String?
+  reviewedFingerprint String?
+  reviewedPaidCents   Int?
+  previousBalanceCents Int?
+  createdAt           DateTime @default(now())
+  invoices            Invoice[]
 }
 
 // Receipt email for one invoice. A row is inserted only when a Clover hosted

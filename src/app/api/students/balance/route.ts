@@ -1,13 +1,13 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/db'
 import { findInvoicesForStudent } from '@/lib/invoice-lookup'
-import { openBalanceFromInvoices } from '@/lib/invoice-match'
+import { studentBillingSummary } from '@/lib/invoice-billing'
 import { parseExternalStudentId } from '@/lib/invoice-student-id'
 
 // GET /api/students/balance?phone=15145551234
 // Lightweight endpoint returning invoice balance + group link for a student.
 // Invoices match by MySQL student id, then phone last-10, then exact name
-// only when there is no phone. A negative stored remainingBalance is owed as $0.
+// only when there is no phone. Legacy snapshots remain explicitly unreviewed.
 export async function GET(request: NextRequest) {
   const phone = request.nextUrl.searchParams.get('phone') || ''
   const name = request.nextUrl.searchParams.get('name') || ''
@@ -20,10 +20,7 @@ export async function GET(request: NextRequest) {
   try {
     const invoices = await findInvoicesForStudent({ externalStudentId, phone, name })
     const totalInvoiced = invoices.reduce((sum, inv) => sum + inv.total, 0)
-    const totalPaid = invoices
-      .filter(inv => inv.paymentStatus === 'paid')
-      .reduce((sum, inv) => sum + inv.total, 0)
-    const openBalance = openBalanceFromInvoices(invoices)
+    const billing = await studentBillingSummary({ externalStudentId, phone, name })
 
     // Try to resolve phone → groupId for profile linking
     let groupId: string | null = null
@@ -57,8 +54,7 @@ export async function GET(request: NextRequest) {
 
     return NextResponse.json({
       totalInvoiced: Math.round(totalInvoiced * 100) / 100,
-      totalPaid: Math.round(totalPaid * 100) / 100,
-      openBalance,
+      ...billing,
       groupId,
       contactId,
     })
