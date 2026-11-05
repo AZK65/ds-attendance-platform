@@ -1,5 +1,7 @@
 'use client'
 
+import { MorphText } from '@/components/ui/morph-text'
+
 import { useMemo, useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { CalendarDays, CheckCircle2, Clock, Layers3, Loader2, RefreshCw, Save } from 'lucide-react'
@@ -348,7 +350,7 @@ function ScheduleRow({
         </p>
         <Button onClick={save} disabled={!changed || saving} className="shrink-0">
           {saving ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : saved ? <CheckCircle2 className="h-4 w-4 mr-2" /> : <Save className="h-4 w-4 mr-2" />}
-          {saved ? 'Updated' : 'Save changes'}
+          <MorphText reserve="Save changes">{saving ? 'Saving…' : saved ? 'Updated' : 'Save changes'}</MorphText>
         </Button>
       </div>
       {error && <p className="text-sm text-red-600">{error}</p>}

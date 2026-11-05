@@ -1,5 +1,7 @@
 'use client'
 
+import { MorphText } from '@/components/ui/morph-text'
+
 import { useQuery } from '@tanstack/react-query'
 import { useParams } from 'next/navigation'
 import { useState, useEffect, useRef, useCallback, useMemo } from 'react'
@@ -395,17 +397,17 @@ export default function LiveAttendancePage() {
             >
               <div className="bg-green-50 dark:bg-green-950/30 border-2 border-green-300 dark:border-green-800 rounded-xl p-5 text-center">
                 <UserCheck className="h-7 w-7 mx-auto text-green-600 mb-1" />
-                <span className="text-4xl font-bold text-green-700 dark:text-green-400">{effectivePresent.length}</span>
+                <span className="text-4xl font-bold text-green-700 dark:text-green-400"><MorphText>{effectivePresent.length}</MorphText></span>
                 <p className="text-sm text-green-600 dark:text-green-500 font-medium mt-1">Present</p>
               </div>
               <div className="bg-red-50 dark:bg-red-950/30 border-2 border-red-300 dark:border-red-800 rounded-xl p-5 text-center">
                 <UserX className="h-7 w-7 mx-auto text-red-600 mb-1" />
-                <span className="text-4xl font-bold text-red-700 dark:text-red-400">{effectiveAbsent.length}</span>
+                <span className="text-4xl font-bold text-red-700 dark:text-red-400"><MorphText>{effectiveAbsent.length}</MorphText></span>
                 <p className="text-sm text-red-600 dark:text-red-500 font-medium mt-1">Absent</p>
               </div>
               <div className="bg-gray-50 dark:bg-gray-900/30 border-2 border-gray-300 dark:border-gray-700 rounded-xl p-5 text-center">
                 <HelpCircle className="h-7 w-7 mx-auto text-gray-500 mb-1" />
-                <span className="text-4xl font-bold text-gray-700 dark:text-gray-400">{unmatchedZoom.length}</span>
+                <span className="text-4xl font-bold text-gray-700 dark:text-gray-400"><MorphText>{unmatchedZoom.length}</MorphText></span>
                 <p className="text-sm text-gray-500 font-medium mt-1">Unmatched</p>
               </div>
             </motion.div>

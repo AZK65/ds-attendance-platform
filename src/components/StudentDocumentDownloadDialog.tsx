@@ -1,5 +1,7 @@
 'use client'
 
+import { MorphText } from '@/components/ui/morph-text'
+
 import { useMemo, useState } from 'react'
 import {
   Archive,
@@ -256,7 +258,7 @@ export function StudentDocumentDownloadDialog({
         <DialogFooter className="border-t bg-muted/30 px-6 py-4 sm:items-center sm:justify-between">
           <div>
             <p className="text-xs text-muted-foreground">
-              {selected.size} of {documentOptions.length} categories selected
+              <MorphText>{`${selected.size} of ${documentOptions.length} categories selected`}</MorphText>
             </p>
             {downloadError && (
               <p className="mt-1 flex max-w-64 items-center gap-1.5 text-xs text-destructive">
@@ -273,7 +275,7 @@ export function StudentDocumentDownloadDialog({
               disabled={(selected.size === 0 && !includeAttestations) || downloading !== null}
             >
               {downloading === 'selected' ? <Loader2 className="animate-spin" /> : <Download />}
-              Download selected
+              <MorphText reserve="Download selected">{downloading === 'selected' ? 'Preparing…' : 'Download selected'}</MorphText>
             </Button>
             <Button
               type="button"
@@ -281,7 +283,7 @@ export function StudentDocumentDownloadDialog({
               disabled={downloading !== null}
             >
               {downloading === 'all' ? <Loader2 className="animate-spin" /> : <Archive />}
-              Download all as ZIP
+              <MorphText reserve="Download all as ZIP">{downloading === 'all' ? 'Preparing ZIP…' : 'Download all as ZIP'}</MorphText>
             </Button>
           </div>
         </DialogFooter>

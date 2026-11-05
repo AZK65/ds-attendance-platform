@@ -1,5 +1,7 @@
 'use client'
 
+import { MorphText } from '@/components/ui/morph-text'
+
 import { useState, useEffect, useRef, useCallback, useMemo, Suspense } from 'react'
 import { useSearchParams } from 'next/navigation'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
@@ -1379,7 +1381,7 @@ function StudentsPage() {
                 <Users className="h-5 w-5" />
                 Active Students
                 <Badge variant="secondary">
-                  {searchQuery.trim() ? `${filteredStudents.length}/${activeStudents.length}` : activeStudents.length}
+                  <MorphText>{searchQuery.trim() ? `${filteredStudents.length}/${activeStudents.length}` : activeStudents.length}</MorphText>
                 </Badge>
               </CardTitle>
               <div className="flex w-full items-center gap-2 sm:flex-1 sm:max-w-lg">
@@ -1448,7 +1450,7 @@ function StudentsPage() {
                   >
                     <Icon className="h-4 w-4" />
                     {tab.label}
-                    <Badge variant="secondary" className="ml-0.5">{tab.count}</Badge>
+                    <Badge variant="secondary" className="ml-0.5"><MorphText>{tab.count}</MorphText></Badge>
                   </button>
                 )
               })}

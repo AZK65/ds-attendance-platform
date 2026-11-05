@@ -1,5 +1,7 @@
 'use client'
 
+import { MorphText } from '@/components/ui/morph-text'
+
 import { useState, useMemo, useEffect, useRef, useCallback, Suspense } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
@@ -1459,7 +1461,7 @@ function InvoicePage() {
                             </>
                           )}
                           <div className="text-xs text-muted-foreground mt-1">
-                            This invoice: <span className="font-mono font-bold">${total.toFixed(2)}</span>
+                            This invoice: <span className="font-mono font-bold"><MorphText>{`$${total.toFixed(2)}`}</MorphText></span>
                           </div>
                         </div>
                       </div>
@@ -1673,23 +1675,23 @@ function InvoicePage() {
                     <div className="flex flex-col items-end space-y-1 text-sm">
                       <div className="flex justify-between w-64">
                         <span className="text-muted-foreground">Subtotal:</span>
-                        <span className="font-mono">${subtotal.toFixed(2)}</span>
+                        <span className="font-mono"><MorphText>{`$${subtotal.toFixed(2)}`}</MorphText></span>
                       </div>
                       {taxesEnabled && (
                         <>
                           <div className="flex justify-between w-64">
                             <span className="text-muted-foreground">GST ({gstRate}%):</span>
-                            <span className="font-mono">${gstAmount.toFixed(2)}</span>
+                            <span className="font-mono"><MorphText>{`$${gstAmount.toFixed(2)}`}</MorphText></span>
                           </div>
                           <div className="flex justify-between w-64">
                             <span className="text-muted-foreground">QST ({qstRate}%):</span>
-                            <span className="font-mono">${qstAmount.toFixed(2)}</span>
+                            <span className="font-mono"><MorphText>{`$${qstAmount.toFixed(2)}`}</MorphText></span>
                           </div>
                         </>
                       )}
                       <div className="flex justify-between w-64 border-t pt-2 mt-1">
                         <span className="font-bold text-base">Total:</span>
-                        <span className="font-bold text-base font-mono">${total.toFixed(2)}</span>
+                        <span className="font-bold text-base font-mono"><MorphText>{`$${total.toFixed(2)}`}</MorphText></span>
                       </div>
                       {!selectedPackage && (
                         <div className="flex justify-between items-center w-64 mt-2 pt-2 border-t border-dashed">
@@ -1751,7 +1753,7 @@ function InvoicePage() {
                     ) : (
                       <Download className="h-4 w-4 mr-2" />
                     )}
-                    Generate Invoice PDF
+                    <MorphText reserve="Generate Invoice PDF">{generateMutation.isPending ? 'Preparing PDF…' : 'Generate Invoice PDF'}</MorphText>
                   </Button>
                 </div>
               </div>
@@ -1832,7 +1834,7 @@ function InvoicePage() {
                           <span className="font-bold">{formData.studentName}</span>
                         )}
                       </p>
-                      <p className="text-2xl font-bold">${total.toFixed(2)}</p>
+                      <p className="text-2xl font-bold"><MorphText>{`$${total.toFixed(2)}`}</MorphText></p>
                     </CardContent>
                   </Card>
 
@@ -2017,7 +2019,7 @@ function InvoicePage() {
                         {paymentMethod === 'online' && ' — payment link sent'}
                         {!paymentMethod && ''}
                       </p>
-                      <p className="text-2xl font-bold">${total.toFixed(2)}</p>
+                      <p className="text-2xl font-bold"><MorphText>{`$${total.toFixed(2)}`}</MorphText></p>
                     </CardContent>
                   </Card>
 
@@ -2042,25 +2044,16 @@ function InvoicePage() {
                             <p className="text-xs text-amber-600">No email on file</p>
                           )}
                         </div>
-                        {emailSent ? (
-                          <Badge className="bg-green-100 text-green-700 border-green-200 shrink-0">
-                            <CheckCircle2 className="h-3 w-3 mr-1" />
-                            Sent
-                          </Badge>
-                        ) : (
-                          <Button
-                            size="sm"
-                            variant="outline"
-                            onClick={() => emailMutation.mutate()}
-                            disabled={!formData.studentEmail || emailMutation.isPending}
-                          >
-                            {emailMutation.isPending ? (
-                              <Loader2 className="h-4 w-4 animate-spin" />
-                            ) : (
-                              <Mail className="h-4 w-4" />
-                            )}
-                          </Button>
-                        )}
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          onClick={() => emailMutation.mutate()}
+                          disabled={!formData.studentEmail || emailMutation.isPending || emailSent}
+                          aria-label={emailSent ? 'Email sent' : 'Send email'}
+                        >
+                          {emailMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : emailSent ? <CheckCircle2 className="h-4 w-4" /> : <Mail className="h-4 w-4" />}
+                          <MorphText reserve="Sending…">{emailMutation.isPending ? 'Sending…' : emailSent ? 'Sent' : 'Send'}</MorphText>
+                        </Button>
                       </div>
                       {emailMutation.isError && (
                         <p className="text-xs text-destructive ml-8">
@@ -2079,25 +2072,16 @@ function InvoicePage() {
                             <p className="text-xs text-amber-600">No phone on file</p>
                           )}
                         </div>
-                        {whatsappSent ? (
-                          <Badge className="bg-green-100 text-green-700 border-green-200 shrink-0">
-                            <CheckCircle2 className="h-3 w-3 mr-1" />
-                            Sent
-                          </Badge>
-                        ) : (
-                          <Button
-                            size="sm"
-                            variant="outline"
-                            onClick={() => whatsappMutation.mutate()}
-                            disabled={!formData.studentPhone || whatsappMutation.isPending}
-                          >
-                            {whatsappMutation.isPending ? (
-                              <Loader2 className="h-4 w-4 animate-spin" />
-                            ) : (
-                              <MessageCircle className="h-4 w-4" />
-                            )}
-                          </Button>
-                        )}
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          onClick={() => whatsappMutation.mutate()}
+                          disabled={!formData.studentPhone || whatsappMutation.isPending || whatsappSent}
+                          aria-label={whatsappSent ? 'WhatsApp sent' : 'Send WhatsApp'}
+                        >
+                          {whatsappMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : whatsappSent ? <CheckCircle2 className="h-4 w-4" /> : <MessageCircle className="h-4 w-4" />}
+                          <MorphText reserve="Sending…">{whatsappMutation.isPending ? 'Sending…' : whatsappSent ? 'Sent' : 'Send'}</MorphText>
+                        </Button>
                       </div>
                       {whatsappMutation.isError && (
                         <p className="text-xs text-destructive ml-8">
