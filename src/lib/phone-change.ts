@@ -213,7 +213,7 @@ export async function previewPhoneChange(
   const ownContactIds = new Set(ownContacts.map(contact => contact.id))
   if (input.contactId) ownContactIds.add(input.contactId)
 
-  let ownRosterIds = new Set<number>()
+  const ownRosterIds = new Set<number>()
   if (input.externalStudentId) ownRosterIds.add(input.externalStudentId)
   if (!rosterResult.unavailable) {
     const oldRoster = await safeRosterByPhone(roster, old.digits)
@@ -290,6 +290,16 @@ export async function applyPhoneChange(
   roster: RosterGateway,
   whatsapp?: WhatsAppCheckSnapshot | null,
 ): Promise<PhoneChangeResult> {
+  // Never move a student's contact/reminders to an unverified WhatsApp number.
+  // The API obtains this snapshot from WhatsApp again on every save.
+  if (whatsapp?.status !== 'registered') {
+    throw new PhoneChangeError(
+      whatsapp?.status === 'not_registered'
+        ? 'This number is not on WhatsApp. Check the number before saving.'
+        : 'WhatsApp could not verify this number. Reconnect WhatsApp and try again. Nothing was changed.',
+      whatsapp?.status === 'not_registered' ? 422 : 503,
+    )
+  }
   const preview = await previewPhoneChange(input, roster)
   if (preview.sameNumber) {
     throw new PhoneChangeError('That is already the number on file.')

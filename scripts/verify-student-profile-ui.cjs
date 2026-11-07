@@ -13,6 +13,7 @@ async function main() {
       full_address: '12 Cedar Road', city: 'Montreal', postal_code: 'H3N1S2', email: 'amira@example.com', dob: '2000-04-09', status: 'new', contract_number: 2100, user_defined_contract_number: null }
     const coreFields = Object.fromEntries(Object.entries(student).filter(([key]) => !['student_id', 'phone_number', 'contract_number'].includes(key)))
     let failSave = true
+    let phoneStatus = 'not_registered', phoneSaves = 0
     const writes = [], chatWrites = [], errors = []
     page.on('pageerror', error => errors.push(error.message))
     await page.setCookie({ name: 'auth-token', value: 'valid', url: origin })
@@ -21,7 +22,12 @@ async function main() {
       const url = new URL(request.url()), p = url.pathname
       if (!p.startsWith('/api/')) return void (url.origin === origin || ['data:', 'blob:'].includes(url.protocol) ? request.continue() : request.abort())
       let data = {}, status = 200
-      if (p === '/api/students/42/edit') {
+      if (p === '/api/phone-change/preview') {
+        data = { sameNumber: false, normalized: { digits: '15145550199', display: '+1 (514) 555-0199' }, duplicates: [], groups: [], rosterChecked: true,
+          whatsapp: { status: phoneStatus, detail: phoneStatus === 'registered' ? 'This number is on WhatsApp.' : 'WhatsApp number not verified.' } }
+      } else if (p === '/api/phone-change' && request.method() === 'POST') {
+        phoneSaves++; status = 503; data = { error: 'WhatsApp could not verify this number. Nothing was changed.' }
+      } else if (p === '/api/students/42/edit') {
         if (request.method() === 'PATCH') {
           writes.push(JSON.parse(request.postData()))
           if (failSave) { status = 409; data = { error: 'Profile changed. Reload the profile before saving.' } }
@@ -66,6 +72,24 @@ async function main() {
     assert.equal(await page.$eval('#profile-full_address', e => e.value), '18 Cedar Road')
     await click('Change phone number')
     await page.waitForFunction(() => document.querySelectorAll('[role="dialog"]').length === 2)
+    await page.type('#new-phone', '5145550199')
+    await page.waitForFunction(() => document.querySelector('[data-testid="whatsapp-check-result"]')?.textContent.includes('Not on WhatsApp'))
+    assert(await page.$eval('[data-testid="confirm-phone-change"]', e => e.disabled))
+    phoneStatus = 'unavailable'
+    await page.type('#new-phone', ' ')
+    await page.waitForFunction(() => document.querySelector('[data-testid="whatsapp-check-result"]')?.textContent.includes('WhatsApp check unavailable'))
+    assert(await page.$eval('[data-testid="confirm-phone-change"]', e => e.disabled))
+    phoneStatus = 'registered'
+    await click('Check WhatsApp again')
+    await page.waitForFunction(() => !document.querySelector('[data-testid="confirm-phone-change"]').disabled)
+    // Editing an already verified number must immediately invalidate its result.
+    await page.type('#new-phone', ' ')
+    assert(await page.$eval('[data-testid="confirm-phone-change"]', e => e.disabled))
+    await page.waitForFunction(() => !document.querySelector('[data-testid="confirm-phone-change"]').disabled)
+    await page.click('[data-testid="confirm-phone-change"]')
+    await page.waitForFunction(() => document.body.innerText.includes('Nothing was changed.'))
+    assert.equal(phoneSaves, 1)
+    assert.equal(await page.$eval('#new-phone', e => e.value.trim()), '5145550199')
     await page.keyboard.press('Escape')
     await page.waitForFunction(() => document.querySelectorAll('[role="dialog"]').length === 1)
     assert.equal(await page.$eval('#profile-full_address', e => e.value), '18 Cedar Road')
