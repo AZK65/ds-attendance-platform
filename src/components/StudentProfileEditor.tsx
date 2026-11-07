@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useId, useState } from 'react'
 import { Pencil } from 'lucide-react'
 import { useQueryClient } from '@tanstack/react-query'
 import { Button } from '@/components/ui/button'
@@ -8,6 +8,7 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog'
 import { type StudentProfileFields, type ProfileTextField } from '@/lib/student-profile-fields'
+import { PhoneChangeHistory } from '@/components/PhoneChangeHistory'
 
 const fields: Array<{ key: ProfileTextField; label: string; type?: string }> = [
   { key: 'full_name', label: 'Full name' }, { key: 'email', label: 'Email', type: 'email' },
@@ -17,8 +18,8 @@ const fields: Array<{ key: ProfileTextField; label: string; type?: string }> = [
 ]
 
 type ChatIdentity = { groupId: string; contactId: string; name: string }
-export function StudentProfileEditor({ studentId, onChangePhone, chat: initialChat, phone: initialPhone = '' }: {
-  studentId?: string | number; onChangePhone: () => void; chat?: ChatIdentity; phone?: string
+export function StudentProfileEditor({ studentId, localStudentId, onChangePhone, chat: initialChat, phone: initialPhone = '' }: {
+  studentId?: string | number; localStudentId?: string | null; onChangePhone: () => void; chat?: ChatIdentity; phone?: string
 }) {
   const client = useQueryClient()
   const [open, setOpen] = useState(false)
@@ -33,9 +34,12 @@ export function StudentProfileEditor({ studentId, onChangePhone, chat: initialCh
   const [chatName, setChatName] = useState('')
   const [chatSaving, setChatSaving] = useState(false)
   const [chatNotice, setChatNotice] = useState('')
+  const [historyOpen, setHistoryOpen] = useState(false)
+  const historyId = useId()
 
   async function load() {
     setLoading(true); setError(''); setForm(null)
+    setHistoryOpen(false)
     setChatNotice(''); setChat(initialChat || null); setChatName(initialChat?.name || ''); setPhone(initialPhone)
     if (!studentId) { setLoading(false); return }
     try {
@@ -121,6 +125,16 @@ export function StudentProfileEditor({ studentId, onChangePhone, chat: initialCh
               <div className="flex flex-wrap items-center justify-between gap-4">
                 <div><p className="text-sm font-medium">Phone number</p><p className="text-sm text-muted-foreground">{phone || 'Not set'}</p></div>
                 <Button variant="outline" size="sm" type="button" disabled={saving || chatSaving} onClick={onChangePhone} data-testid="open-change-phone">Change phone number</Button>
+              </div>
+            </section>}
+            {!loading && <section aria-label="Previous changes">
+              <Button type="button" variant="ghost" size="sm" aria-expanded={historyOpen} aria-controls={historyId}
+                onClick={() => setHistoryOpen(value => !value)}>
+                {historyOpen ? 'Hide previous changes' : 'Previous changes'}
+              </Button>
+              <div id={historyId} hidden={!historyOpen}>
+                {historyOpen && <PhoneChangeHistory externalStudentId={studentId ? Number(studentId) : undefined}
+                  localStudentId={localStudentId} contactId={chat?.contactId} phone={phone || initialPhone} />}
               </div>
             </section>}
             {error && <div role="alert" className="space-y-2 text-sm text-destructive">

@@ -1,8 +1,7 @@
 'use client'
 
 import { useQuery } from '@tanstack/react-query'
-import { History } from 'lucide-react'
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
+import { Button } from '@/components/ui/button'
 
 interface PhoneChangeEntry {
   id: string
@@ -73,7 +72,7 @@ export function PhoneChangeHistory({
   phone?: string | null
 }) {
   const enabled = Boolean(externalStudentId || localStudentId || contactId || phone)
-  const { data, isLoading } = useQuery<{ logs: PhoneChangeEntry[] }>({
+  const { data, isLoading, isError, refetch } = useQuery<{ logs: PhoneChangeEntry[] }>({
     queryKey: ['phone-changes', externalStudentId ?? null, localStudentId ?? null, contactId ?? null, phone ?? null],
     enabled,
     queryFn: async () => {
@@ -91,23 +90,22 @@ export function PhoneChangeHistory({
   if (!enabled) return null
 
   return (
-    <Card data-testid="phone-change-history">
-      <CardHeader>
-        <CardTitle className="flex items-center gap-2 text-lg">
-          <History className="h-5 w-5" />
-          Phone number history
-        </CardTitle>
-      </CardHeader>
-      <CardContent>
+    <div data-testid="phone-change-history" className="space-y-2 pt-4">
+      <h4 className="text-sm font-medium">Phone number changes</h4>
         {isLoading ? (
           <p className="text-sm text-muted-foreground">Loading history…</p>
+        ) : isError ? (
+          <div role="alert" className="space-y-2">
+            <p className="text-sm text-destructive">Could not load phone history.</p>
+            <Button type="button" variant="outline" size="sm" onClick={() => void refetch()}>Try again</Button>
+          </div>
         ) : !data?.logs.length ? (
           <p className="text-sm text-muted-foreground">No phone number changes yet.</p>
         ) : (
           <ol className="space-y-3">
             {data.logs.map(entry => (
               <li key={entry.id} className="rounded-lg border px-3 py-2">
-                <p className="text-sm font-medium">
+                <p className="break-words text-sm font-medium tabular-nums">
                   {entry.oldDisplay} → {entry.newDisplay}
                 </p>
                 <p className="text-xs text-muted-foreground">
@@ -123,7 +121,6 @@ export function PhoneChangeHistory({
             ))}
           </ol>
         )}
-      </CardContent>
-    </Card>
+    </div>
   )
 }

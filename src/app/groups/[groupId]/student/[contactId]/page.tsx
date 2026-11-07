@@ -73,7 +73,6 @@ import { SaaqAttestationsCard } from '@/components/SaaqAttestationsCard'
 import { TheoryEvaluationsCard } from '@/components/TheoryEvaluationsCard'
 import { groupProfileResultsStudentId } from '@/lib/rsep1/group-profile'
 import { ChangePhoneDialog } from '@/components/ChangePhoneDialog'
-import { PhoneChangeHistory } from '@/components/PhoneChangeHistory'
 
 interface Participant {
   id: string
@@ -1825,7 +1824,7 @@ export default function StudentDetailPage() {
 
               {participant && (
                 <div className="flex shrink-0 flex-wrap gap-2">
-                  <StudentProfileEditor studentId={profileData?.dbStudent?.student_id} phone={phone}
+                  <StudentProfileEditor studentId={profileData?.dbStudent?.student_id} localStudentId={profileData?.localStudent?.id} phone={phone}
                     chat={{ groupId, contactId, name: participant.name || participant.pushName || '' }}
                     onChangePhone={() => setPhoneDialogOpen(true)} />
                   <Button asChild>
@@ -1929,13 +1928,6 @@ export default function StudentDetailPage() {
           </div>
         </DialogContent>
       </Dialog>
-
-      <PhoneChangeHistory
-        externalStudentId={profileData?.dbStudent?.student_id}
-        localStudentId={profileData?.localStudent?.id}
-        contactId={contactId}
-        phone={phone}
-      />
 
       <ChangePhoneDialog
         open={phoneDialogOpen}

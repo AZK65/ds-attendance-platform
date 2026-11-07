@@ -14,6 +14,7 @@ async function main() {
     const coreFields = Object.fromEntries(Object.entries(student).filter(([key]) => !['student_id', 'phone_number', 'contract_number'].includes(key)))
     let failSave = true
     let phoneStatus = 'not_registered', phoneSaves = 0
+    let historyReads = 0
     const writes = [], chatWrites = [], errors = []
     page.on('pageerror', error => errors.push(error.message))
     await page.setCookie({ name: 'auth-token', value: 'valid', url: origin })
@@ -40,7 +41,11 @@ async function main() {
       else if (p === '/api/students/profile') data = { invoices: [], exams: [], paperExams: [], summary: { totalInvoiced: 0, totalPaid: 0, openBalance: 0, creditBalance: 0 } }
       else if (p.includes('/student-events') || p.includes('/student-theory') || p.includes('/subcalendars')) data = []
       else if (p.includes('/signature')) data = { signatures: [] }
-      else if (p === '/api/phone-change') data = { logs: [] }
+      else if (p === '/api/phone-change') {
+        historyReads++
+        data = { logs: [{ id: 'history-1', oldDisplay: '+1 (514) 555-0123', newDisplay: '+1 (514) 555-0147',
+          actorLabel: 'Front desk', createdAt: '2026-11-07T15:00:00Z', recordsUpdated: '{}', groupAction: 'none' }] }
+      }
       else if (p.includes('/attendance')) data = {}
       else if (p.startsWith('/api/auth')) data = { valid: true, authenticated: true }
       else if (p === '/api/whatsapp/status') data = { isConnected: true }
@@ -57,10 +62,20 @@ async function main() {
     await page.goto(origin + '/students/42', { waitUntil: 'domcontentloaded' })
     await page.waitForFunction(() => [...document.querySelectorAll('button')].some(button => button.textContent.trim() === 'Edit profile'))
     assert.equal(await page.$$eval('button', buttons => buttons.filter(b => b.textContent.trim() === 'Change phone number').length), 0)
+    assert.equal(await page.$('[data-testid="phone-change-history"]'), null)
+    assert.equal(historyReads, 0)
     await click('Edit profile')
     await page.waitForSelector('#profile-full_name')
     await page.waitForFunction(() => getComputedStyle(document.querySelector('[role="dialog"]')).opacity === '1')
     assert.equal(await page.$eval('#profile-dob', e => e.value), '2000-04-09')
+    assert.equal(await page.$('[data-testid="phone-change-history"]'), null)
+    assert.equal(historyReads, 0)
+    await click('Previous changes')
+    await page.waitForFunction(() => document.querySelector('[data-testid="phone-change-history"]')?.textContent.includes('Front desk'))
+    assert(await page.$eval('[data-testid="phone-change-history"]', e => Boolean(e.closest('[role="dialog"]'))))
+    assert.equal(historyReads, 1)
+    await click('Hide previous changes')
+    assert.equal(await page.$('[data-testid="phone-change-history"]'), null)
     await page.screenshot({ path: 'output/student-profile-ui/desktop.png' })
     await page.$eval('#profile-full_address', e => { e.focus(); e.select() })
     await page.type('#profile-full_address', '18 Cedar Road')
@@ -97,6 +112,8 @@ async function main() {
     await page.waitForFunction(() => document.querySelector('[role="alert"]')?.textContent.includes('Profile changed'))
     assert.equal(await page.$eval('#profile-full_address', e => e.value), '18 Cedar Road')
     await page.setViewport({ width: 390, height: 650 })
+    await click('Previous changes')
+    await page.waitForSelector('[data-testid="phone-change-history"]')
     await page.waitForFunction(() => {
       const box = document.querySelector('[role="dialog"]').getBoundingClientRect()
       return box.top >= 0 && box.bottom <= innerHeight
@@ -116,6 +133,9 @@ async function main() {
     assert.equal(writes[1].fields.sortie5Date, undefined)
     assert.equal(writes[1].revision, 'synthetic-revision')
     assert.deepEqual(errors, [])
+    await click('Edit profile')
+    await page.waitForSelector('#profile-full_name')
+    assert.equal(await page.$('[data-testid="phone-change-history"]'), null)
     console.log('PASS: one profile editor includes chat and protected phone controls; core edits survive nested phone flow and save errors; mobile Save stays visible.')
   } finally { await browser.close() }
 }
