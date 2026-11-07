@@ -13,7 +13,7 @@ async function main() {
       full_address: '12 Cedar Road', city: 'Montreal', postal_code: 'H3N1S2', email: 'amira@example.com', dob: '2000-04-09', status: 'new', contract_number: 2100, user_defined_contract_number: null }
     const coreFields = Object.fromEntries(Object.entries(student).filter(([key]) => !['student_id', 'phone_number', 'contract_number'].includes(key)))
     let failSave = true
-    const writes = [], errors = []
+    const writes = [], chatWrites = [], errors = []
     page.on('pageerror', error => errors.push(error.message))
     await page.setCookie({ name: 'auth-token', value: 'valid', url: origin })
     await page.setRequestInterception(true)
@@ -26,7 +26,9 @@ async function main() {
           writes.push(JSON.parse(request.postData()))
           if (failSave) { status = 409; data = { error: 'Profile changed. Reload the profile before saving.' } }
           else { Object.assign(student, writes.at(-1).fields); data = { ok: true } }
-        } else data = { fields: coreFields, phone: student.phone_number, contractNumber: 2100, revision: 'synthetic-revision' }
+        } else data = { fields: coreFields, phone: student.phone_number, contractNumber: 2100, revision: 'synthetic-revision', chat: { groupId: 'group-42', contactId: '15145550147@c.us', name: 'Amira' } }
+      } else if (p === '/api/groups/group-42/members' && request.method() === 'PATCH') {
+        chatWrites.push(JSON.parse(request.postData())); data = { success: true }
       } else if (p === '/api/students/42') data = { student, vehicleType: 'car', localStudent: null, registration: null,
         invoices: [], groups: [], exams: [], paperExams: [], summary: { totalInvoiced: 0, totalPaid: 0, openBalance: 0, groupCount: 0, certificateCount: 0, invoiceCount: 0 } }
       else if (p === '/api/students/profile') data = { invoices: [], exams: [], paperExams: [], summary: { totalInvoiced: 0, totalPaid: 0, openBalance: 0, creditBalance: 0 } }
@@ -46,7 +48,9 @@ async function main() {
       await found.asElement().click()
     }
     await page.setViewport({ width: 1440, height: 900 })
-    await page.goto(origin + '/students/42', { waitUntil: 'networkidle0' })
+    await page.goto(origin + '/students/42', { waitUntil: 'domcontentloaded' })
+    await page.waitForFunction(() => [...document.querySelectorAll('button')].some(button => button.textContent.trim() === 'Edit profile'))
+    assert.equal(await page.$$eval('button', buttons => buttons.filter(b => b.textContent.trim() === 'Change phone number').length), 0)
     await click('Edit profile')
     await page.waitForSelector('#profile-full_name')
     await page.waitForFunction(() => getComputedStyle(document.querySelector('[role="dialog"]')).opacity === '1')
@@ -54,6 +58,17 @@ async function main() {
     await page.screenshot({ path: 'output/student-profile-ui/desktop.png' })
     await page.$eval('#profile-full_address', e => { e.focus(); e.select() })
     await page.type('#profile-full_address', '18 Cedar Road')
+    await page.$eval('#profile-chat-name', e => { e.focus(); e.select() })
+    await page.type('#profile-chat-name', 'Amira B')
+    await click('Save chat name')
+    await page.waitForFunction(() => document.body.innerText.includes('Chat name saved.'))
+    assert.deepEqual(chatWrites, [{ contactId: '15145550147@c.us', newName: 'Amira B' }])
+    assert.equal(await page.$eval('#profile-full_address', e => e.value), '18 Cedar Road')
+    await click('Change phone number')
+    await page.waitForFunction(() => document.querySelectorAll('[role="dialog"]').length === 2)
+    await page.keyboard.press('Escape')
+    await page.waitForFunction(() => document.querySelectorAll('[role="dialog"]').length === 1)
+    assert.equal(await page.$eval('#profile-full_address', e => e.value), '18 Cedar Road')
     await click('Save changes')
     await page.waitForFunction(() => document.querySelector('[role="alert"]')?.textContent.includes('Profile changed'))
     assert.equal(await page.$eval('#profile-full_address', e => e.value), '18 Cedar Road')
@@ -77,7 +92,7 @@ async function main() {
     assert.equal(writes[1].fields.sortie5Date, undefined)
     assert.equal(writes[1].revision, 'synthetic-revision')
     assert.deepEqual(errors, [])
-    console.log('PASS: profile editor loads, saves all core fields, retains edits on error and keeps mobile Save visible; no phone/attendance writes.')
+    console.log('PASS: one profile editor includes chat and protected phone controls; core edits survive nested phone flow and save errors; mobile Save stays visible.')
   } finally { await browser.close() }
 }
 main().catch(error => { console.error(error); process.exitCode = 1 })

@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { setManualOverride, removeManualOverride } from '@/lib/zoom/live-store'
+import { setManualOverride, removeManualOverride, hydrateFromDb, flushLiveState } from '@/lib/zoom/live-store'
 
 export async function POST(request: NextRequest) {
   try {
@@ -19,6 +19,7 @@ export async function POST(request: NextRequest) {
       )
     }
 
+    await hydrateFromDb()
     if (action === 'add') {
       setManualOverride(groupId, phone, zoomName || '(Manual)', setBy || 'unknown')
     } else if (action === 'remove') {
@@ -30,6 +31,7 @@ export async function POST(request: NextRequest) {
       )
     }
 
+    await flushLiveState()
     return NextResponse.json({ success: true })
   } catch (error) {
     console.error('[Live Override] Error:', error)

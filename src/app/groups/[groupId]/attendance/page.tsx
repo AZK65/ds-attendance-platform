@@ -4,7 +4,8 @@ import { MorphText } from '@/components/ui/morph-text'
 
 import { useQuery } from '@tanstack/react-query'
 import { useParams } from 'next/navigation'
-import { useState, useEffect, useRef, useCallback, useMemo } from 'react'
+import { useState, useMemo } from 'react'
+import { useAttendanceStream } from '@/hooks/useAttendanceStream'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import {
@@ -83,9 +84,6 @@ export default function LiveAttendancePage() {
   // Optimistic overrides: shown immediately while waiting for SSE confirmation
   const [optimisticAdds, setOptimisticAdds] = useState<Map<string, string>>(new Map())
   const [optimisticRemoves, setOptimisticRemoves] = useState<Set<string>>(new Set())
-  const eventSourceRef = useRef<EventSource | null>(null)
-  const reconnectTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
-  const reconnectAttemptsRef = useRef(0)
 
   // Fetch group data
   const { data: groupData } = useQuery({
@@ -108,59 +106,11 @@ export default function LiveAttendancePage() {
 
   const group = groupData?.group
 
-  // Connect to SSE stream with auto-reconnect on failure.
-  const connectSSE = useCallback(() => {
-    if (eventSourceRef.current) {
-      eventSourceRef.current.close()
-    }
-    if (reconnectTimeoutRef.current) {
-      clearTimeout(reconnectTimeoutRef.current)
-      reconnectTimeoutRef.current = null
-    }
-
-    const es = new EventSource(`/api/zoom/live-stream?groupId=${encodeURIComponent(groupId)}`)
-    eventSourceRef.current = es
-
-    es.onopen = () => {
-      setSSEConnected(true)
-      reconnectAttemptsRef.current = 0
-    }
-
-    es.onmessage = (event) => {
-      try {
-        const data = JSON.parse(event.data) as SSEData
-        setLiveData(data)
-        // Clear optimistic state when SSE confirms
-        setOptimisticAdds(new Map())
-        setOptimisticRemoves(new Set())
-      } catch {
-        // Ignore parse errors (keepalive comments, etc.)
-      }
-    }
-
-    es.onerror = () => {
-      setSSEConnected(false)
-      // Browser EventSource normally reconnects automatically, but on some
-      // proxy timeouts the connection enters a permanent CLOSED state.
-      // Force a fresh EventSource with exponential backoff.
-      if (es.readyState === EventSource.CLOSED) {
-        const attempt = Math.min(reconnectAttemptsRef.current, 5)
-        const delayMs = Math.min(1000 * Math.pow(2, attempt), 30_000)
-        reconnectAttemptsRef.current = attempt + 1
-        reconnectTimeoutRef.current = setTimeout(() => {
-          connectSSE()
-        }, delayMs)
-      }
-    }
-  }, [groupId])
-
-  useEffect(() => {
-    connectSSE()
-    return () => {
-      eventSourceRef.current?.close()
-      if (reconnectTimeoutRef.current) clearTimeout(reconnectTimeoutRef.current)
-    }
-  }, [connectSSE])
+  const connectSSE = useAttendanceStream<SSEData>(groupId, data => {
+    setLiveData(data)
+    setOptimisticAdds(new Map())
+    setOptimisticRemoves(new Set())
+  }, setSSEConnected)
 
   const forceSync = async () => {
     setForceSyncing(true)
@@ -320,7 +270,7 @@ export default function LiveAttendancePage() {
             ) : (
               <div className="flex items-center gap-1 text-red-500 text-xs">
                 <WifiOff className="h-3 w-3" />
-                Disconnected
+                Reconnecting…
               </div>
             )}
             {lastUpdate && (

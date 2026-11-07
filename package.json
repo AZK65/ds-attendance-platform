@@ -12,6 +12,7 @@
     "test:saaq": "tsx --test src/lib/saaq-attestations/saaq-attestations.test.ts",
     "test:phone-change": "tsx --test src/lib/phone-change.test.ts",
     "test:student-profile": "tsx --test src/lib/student-calendar-history.test.ts src/lib/student-profile-edit.test.ts",
+    "test:zoom-resilience": "tsx --test src/lib/attendance-connection.test.ts src/lib/zoom/live-store.test.ts",
     "test:booklet": "tsx --test src/lib/instructor-booklet.test.ts",
     "test:practical-classes": "tsx --test src/lib/practical-classes.test.ts",
     "test:student-sign": "tsx --test src/lib/student-sign-now.test.ts",

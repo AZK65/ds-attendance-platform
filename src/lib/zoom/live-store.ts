@@ -50,6 +50,25 @@ const POST_END_WIPE_MS = 3 * 60 * 60 * 1000 // 3 hours
 
 let persistTimer: NodeJS.Timeout | null = null
 let hydrated = false
+let hydration: Promise<void> | null = null
+let persistence: Promise<void> = Promise.resolve()
+let wipeTimer: ReturnType<typeof setTimeout> | null = null
+
+function cancelWipe() { if (wipeTimer) clearTimeout(wipeTimer); wipeTimer = null }
+
+function scheduleWipe(remaining: number) {
+  cancelWipe()
+  const endedMeeting = currentMeeting
+  const endedAt = endedMeeting?.endedAt
+  wipeTimer = setTimeout(() => {
+    if (currentMeeting !== endedMeeting || currentMeeting?.isLive || currentMeeting?.endedAt !== endedAt) return
+    currentMeeting = null
+    manualOverrides.clear()
+    wipeTimer = null
+    notifyListeners()
+  }, remaining)
+  wipeTimer.unref?.()
+}
 
 function snapshot(): string {
   return JSON.stringify({
@@ -73,28 +92,33 @@ function snapshot(): string {
 
 function schedulePersist() {
   if (persistTimer) clearTimeout(persistTimer)
-  persistTimer = setTimeout(async () => {
-    persistTimer = null
-    try {
-      const value = snapshot()
-      await prisma.appPreference.upsert({
-        where: { key: PERSIST_KEY },
-        update: { value },
-        create: { key: PERSIST_KEY, value },
-      })
-    } catch (err) {
-      console.error('[Live Store] Failed to persist:', err)
-    }
-  }, 250)
+  persistTimer = setTimeout(() => { void flushLiveState().catch(err => console.error('[Live Store] Failed to persist:', err)) }, 250)
+  persistTimer.unref?.()
+}
+
+/** Serialize writes and finish saving webhook state before acknowledging it. */
+export function flushLiveState(): Promise<void> {
+  if (persistTimer) clearTimeout(persistTimer)
+  persistTimer = null
+  const value = snapshot()
+  persistence = persistence.catch(() => {}).then(async () => {
+    await prisma.appPreference.upsert({ where: { key: PERSIST_KEY }, update: { value }, create: { key: PERSIST_KEY, value } })
+  })
+  return persistence
 }
 
 /** Load persisted state from DB into memory. Idempotent — only runs once. */
 export async function hydrateFromDb(): Promise<void> {
   if (hydrated) return
-  hydrated = true
+  if (!hydration) hydration = loadPersistedState().then(() => { hydrated = true }).finally(() => { hydration = null })
+  return hydration
+}
+
+async function loadPersistedState(): Promise<void> {
   try {
     const row = await prisma.appPreference.findUnique({ where: { key: PERSIST_KEY } })
     if (!row?.value) return
+    if (currentMeeting) return // A newer in-memory event must not be overwritten.
     const data = JSON.parse(row.value)
 
     if (data.currentMeeting) {
@@ -103,6 +127,7 @@ export async function hydrateFromDb(): Promise<void> {
       // while we were down, drop the stale data instead of resurrecting it.
       if (cm.endedAt && Date.now() - new Date(cm.endedAt).getTime() > POST_END_WIPE_MS) {
         console.log('[Live Store] Persisted meeting expired (>3h since end) — discarding')
+        return
       } else {
         const participantsMap = new Map<string, LiveParticipant>()
         for (const p of cm.participants || []) {
@@ -123,12 +148,7 @@ export async function hydrateFromDb(): Promise<void> {
           const elapsed = Date.now() - new Date(cm.endedAt).getTime()
           const remaining = POST_END_WIPE_MS - elapsed
           if (remaining > 0) {
-            setTimeout(() => {
-              currentMeeting = null
-              manualOverrides.clear()
-              schedulePersist()
-              console.log('[Live Store] Cleared meeting state (rehydrated wipe)')
-            }, remaining)
+            scheduleWipe(remaining)
           }
         }
         console.log(`[Live Store] Rehydrated meeting "${cm.topic}" with ${participantsMap.size} participant(s)`)
@@ -143,6 +163,7 @@ export async function hydrateFromDb(): Promise<void> {
     notifyListeners()
   } catch (err) {
     console.error('[Live Store] hydrateFromDb failed:', err)
+    throw err // Allow the next request to retry rather than remembering an empty roster.
   }
 }
 
@@ -173,6 +194,7 @@ export function handleMeetingStarted(payload: {
 }) {
   const { object } = payload
   const newId = String(object.id)
+  cancelWipe()
   // If this is a continuation of the same recurring meeting room (same
   // meeting ID) — e.g. a Zoom Free host hit "End" at the 40-minute limit
   // and restarted — preserve the existing participants Map so students
@@ -200,7 +222,8 @@ export function handleMeetingEnded(payload: {
     uuid: string
   }
 }) {
-  if (currentMeeting) {
+  if (currentMeeting && currentMeeting.meetingId === String(payload.object.id)
+    && (!currentMeeting.meetingUUID || currentMeeting.meetingUUID === payload.object.uuid)) {
     currentMeeting.isLive = false
     currentMeeting.endedAt = new Date().toISOString()
     console.log(`[Live Store] Meeting ended: ${currentMeeting.topic}`)
@@ -214,12 +237,7 @@ export function handleMeetingEnded(payload: {
     //      visible until the new participant_joined events flow in.
     // 3 hours covers a typical class block (≤2.5h) with margin without
     // bleeding into the next day's classes.
-    setTimeout(() => {
-      currentMeeting = null
-      manualOverrides.clear()
-      console.log('[Live Store] Cleared meeting state (3h post-end timeout)')
-      schedulePersist()
-    }, POST_END_WIPE_MS)
+    scheduleWipe(POST_END_WIPE_MS)
   }
 }
 
@@ -337,6 +355,8 @@ export function hydrateFromApi(input: {
   startTime?: string
   participants: Array<{ id: string; user_name: string; join_time: string; email?: string }>
 }): number {
+  cancelWipe()
+  const before = snapshot()
   if (!currentMeeting) {
     currentMeeting = {
       meetingId: input.meetingId,
@@ -348,6 +368,7 @@ export function hydrateFromApi(input: {
     }
   } else {
     currentMeeting.isLive = true
+    currentMeeting.endedAt = undefined
     if (input.meetingUUID) currentMeeting.meetingUUID = input.meetingUUID
     if (input.topic) currentMeeting.topic = input.topic
     if (input.startTime) currentMeeting.startTime = input.startTime
@@ -366,8 +387,8 @@ export function hydrateFromApi(input: {
   }
   if (added > 0) {
     console.log(`[Live Store] Hydrated ${added} participant(s) from Zoom API`)
-    notifyListeners()
   }
+  if (snapshot() !== before) notifyListeners()
   return added
 }
 

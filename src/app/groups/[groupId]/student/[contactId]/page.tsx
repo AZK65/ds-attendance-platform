@@ -16,7 +16,6 @@ import { useState, useMemo, type ReactNode } from 'react'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Input } from '@/components/ui/input'
-import { Label } from '@/components/ui/label'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog'
 import {
   Card,
@@ -45,8 +44,6 @@ import {
   BookOpen,
   CheckCircle,
   XCircle,
-  Save,
-  X,
   GraduationCap,
   Receipt,
   DollarSign,
@@ -1357,9 +1354,7 @@ export default function StudentDetailPage() {
   const groupId = decodeURIComponent(params.groupId as string)
   const contactId = decodeURIComponent(params.contactId as string)
 
-  const [editing, setEditing] = useState(false)
   const [editingBalance, setEditingBalance] = useState(false)
-  const [editName, setEditName] = useState('')
   const [phoneDialogOpen, setPhoneDialogOpen] = useState(false)
   const [certificateMenuOpen, setCertificateMenuOpen] = useState(false)
 
@@ -1674,41 +1669,6 @@ export default function StudentDetailPage() {
     return { total, present, absent, rate }
   }, [attendanceData])
 
-  // Edit mutation
-  const editMutation = useMutation({
-    mutationFn: async ({ newName }: { newName?: string }) => {
-      const res = await fetch(`/api/groups/${encodeURIComponent(groupId)}/members`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ contactId, newName }),
-      })
-      if (!res.ok) {
-        const data = await res.json()
-        throw new Error(data.error || 'Failed to update')
-      }
-      return res.json()
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['group', groupId] })
-      setEditing(false)
-    },
-  })
-
-  const handleSaveEdit = () => {
-    const nameChanged = editName !== (participant?.name || '')
-    if (!nameChanged) {
-      setEditing(false)
-      return
-    }
-    editMutation.mutate({ newName: editName })
-  }
-
-  const startEditing = () => {
-    setEditName(participant?.name || participant?.pushName || '')
-    setEditing(true)
-    editMutation.reset()
-  }
-
   const isLoading = loadingGroup || loadingEvents || loadingAttendance || loadingTheory
 
   // Render an event card
@@ -1865,6 +1825,9 @@ export default function StudentDetailPage() {
 
               {participant && (
                 <div className="flex shrink-0 flex-wrap gap-2">
+                  <StudentProfileEditor studentId={profileData?.dbStudent?.student_id} phone={phone}
+                    chat={{ groupId, contactId, name: participant.name || participant.pushName || '' }}
+                    onChangePhone={() => setPhoneDialogOpen(true)} />
                   <Button asChild>
                     <Link href={`/scheduling?bookFor=${encodeURIComponent(displayName)}&phone=${encodeURIComponent(phone)}`}>
                       <CalendarDays className="mr-1 h-4 w-4" />
@@ -1914,15 +1877,6 @@ export default function StudentDetailPage() {
                     </Link>
                   </>
                 )}
-                {profileData?.dbStudent?.student_id && <StudentProfileEditor studentId={profileData.dbStudent.student_id} onChangePhone={() => setPhoneDialogOpen(true)} />}
-                <Button variant="ghost" size="sm" className="text-muted-foreground hover:text-foreground" onClick={startEditing}>
-                  <Edit3 className="mr-1 h-4 w-4" />
-                  Chat name
-                </Button>
-                <Button variant="ghost" size="sm" className="text-muted-foreground hover:text-foreground" onClick={() => setPhoneDialogOpen(true)} data-testid="open-change-phone">
-                  <Phone className="mr-1 h-4 w-4" />
-                  Change phone number
-                </Button>
               </nav>
             )}
           </section>
@@ -1975,39 +1929,6 @@ export default function StudentDetailPage() {
           </div>
         </DialogContent>
       </Dialog>
-
-      {/* Edit Section */}
-      {editing && (
-        <motion.div
-          initial={{ opacity: 0, height: 0 }}
-          animate={{ opacity: 1, height: 'auto' }}
-          className="border rounded-lg p-4 space-y-4"
-        >
-          <h3 className="font-medium">Edit Student Info</h3>
-          <p className="text-sm text-muted-foreground">
-            Phone numbers are changed with Change phone number, so the old WhatsApp contact and attendance stay in place.
-          </p>
-          <div>
-            <Label className="text-sm">Name</Label>
-            <Input value={editName} onChange={e => setEditName(e.target.value)} placeholder="Student name" />
-          </div>
-          {editMutation.isError && (
-            <p className="text-sm text-destructive">
-              {editMutation.error?.message || 'Failed to update'}
-            </p>
-          )}
-          <div className="flex gap-2">
-            <Button size="sm" onClick={handleSaveEdit} disabled={editMutation.isPending}>
-              {editMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin mr-1" /> : <Save className="h-4 w-4 mr-1" />}
-              Save
-            </Button>
-            <Button size="sm" variant="outline" onClick={() => setEditing(false)} disabled={editMutation.isPending}>
-              <X className="h-4 w-4 mr-1" />
-              Cancel
-            </Button>
-          </div>
-        </motion.div>
-      )}
 
       <PhoneChangeHistory
         externalStudentId={profileData?.dbStudent?.student_id}

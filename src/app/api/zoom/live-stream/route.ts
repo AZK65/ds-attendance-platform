@@ -5,6 +5,7 @@ import {
   removeListener,
   getManualOverrides,
   hydrateFromApi,
+  hydrateFromDb,
 } from '@/lib/zoom/live-store'
 import { matchZoomToWhatsApp, getMeetingDetails, getLiveMeetingParticipants } from '@/lib/zoom/client'
 import { getGroupMembers } from '@/lib/group-sync'
@@ -67,6 +68,7 @@ export const dynamic = 'force-dynamic'
 
 export async function GET(request: NextRequest) {
   const groupId = request.nextUrl.searchParams.get('groupId')
+  await hydrateFromDb()
 
   // Load students from cached GroupMember table (instant) and learned matches
   let whatsappStudents: Array<{ name: string | null; pushName: string | null; phone: string }> = []
@@ -140,49 +142,47 @@ export async function GET(request: NextRequest) {
     }
   }
 
+  let cleanup = () => {}
   const stream = new ReadableStream({
     start(controller) {
+      let closed = false
+      let sending = false
+      let pending = false
+      cleanup = () => {
+        if (closed) return
+        closed = true
+        clearInterval(keepalive)
+        removeListener(onChange)
+        request.signal.removeEventListener('abort', cleanup)
+        try { controller.close() } catch { /* Already cancelled by the browser. */ }
+      }
       const sendState = async () => {
+        if (closed) return
+        if (sending) { pending = true; return }
+        sending = true
         try {
           const data = await buildMatchedState()
-          controller.enqueue(encoder.encode(`data: ${JSON.stringify(data)}\n\n`))
+          if (!closed) controller.enqueue(encoder.encode(`data: ${JSON.stringify(data)}\n\n`))
         } catch {
-          // Client may have disconnected
+          cleanup()
+        } finally {
+          sending = false
+          if (pending && !closed) { pending = false; void sendState() }
         }
       }
-
-      // Send initial state immediately
-      sendState()
-
-      // Listen for state changes from the live store
-      const onChange = () => {
-        sendState().catch(() => {
-          removeListener(onChange)
-          clearInterval(keepalive)
-        })
-      }
-
+      const onChange = () => { void sendState() }
       addListener(onChange)
-
-      // Keepalive every 30s. Also re-send the full state so the UI picks
-      // up changes even when no webhook events fire (e.g. Zoom API says
-      // the meeting started but no participant_joined events came through).
       const keepalive = setInterval(() => {
         try {
           controller.enqueue(encoder.encode(': keepalive\n\n'))
-          sendState().catch(() => {})
-        } catch {
-          clearInterval(keepalive)
-          removeListener(onChange)
-        }
+          void sendState()
+        } catch { cleanup() }
       }, 30000)
-
-      // Clean up on abort
-      request.signal.addEventListener('abort', () => {
-        clearInterval(keepalive)
-        removeListener(onChange)
-      })
-    }
+      request.signal.addEventListener('abort', cleanup, { once: true })
+      if (request.signal.aborted) cleanup()
+      else void sendState()
+    },
+    cancel() { cleanup() },
   })
 
   return new Response(stream, {

@@ -1,11 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getMeetingDetails } from '@/lib/zoom/client'
-import { getCurrentState } from '@/lib/zoom/live-store'
+import { getCurrentState, hydrateFromDb } from '@/lib/zoom/live-store'
 
 export async function GET(request: NextRequest) {
   const meetingId = request.nextUrl.searchParams.get('meetingId') || '4171672829'
 
   try {
+    await hydrateFromDb()
     // Check in-memory store first (populated by webhooks)
     const storeState = getCurrentState()
     if (storeState.isLive && storeState.meetingId === meetingId) {
