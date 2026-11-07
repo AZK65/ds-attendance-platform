@@ -1,4 +1,4 @@
-export const PROFILE_TEXT_FIELDS = ['full_name', 'permit_number', 'full_address', 'city', 'postal_code', 'dob', 'email', 'status'] as const
+export const PROFILE_TEXT_FIELDS = ['full_name', 'permit_number', 'full_address', 'apartment', 'city', 'postal_code', 'dob', 'email', 'status'] as const
 export type ProfileTextField = typeof PROFILE_TEXT_FIELDS[number]
 export type StudentProfileFields = Record<ProfileTextField, string> & { user_defined_contract_number: number | null }
 

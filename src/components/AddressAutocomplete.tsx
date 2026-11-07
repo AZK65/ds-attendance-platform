@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { cn } from '@/lib/utils'
 
 interface AddressResult {
@@ -17,6 +17,7 @@ interface AddressAutocompleteProps {
   placeholder?: string
   className?: string
   id?: string
+  disabled?: boolean
 }
 
 // Load Google Maps script once globally
@@ -79,16 +80,21 @@ export function AddressAutocomplete({
   placeholder = 'Start typing your address...',
   className = '',
   id,
+  disabled = false,
 }: AddressAutocompleteProps) {
   const inputRef = useRef<HTMLInputElement>(null)
   const autocompleteRef = useRef<google.maps.places.Autocomplete | null>(null)
   const [ready, setReady] = useState(false)
   const isSelectingRef = useRef(false)
+  const disabledRef = useRef(disabled)
   // Store callbacks in refs so the autocomplete listener always calls the latest version
   const onChangeRef = useRef(onChange)
   const onAddressSelectRef = useRef(onAddressSelect)
-  onChangeRef.current = onChange
-  onAddressSelectRef.current = onAddressSelect
+  useLayoutEffect(() => {
+    disabledRef.current = disabled
+    onChangeRef.current = onChange
+    onAddressSelectRef.current = onAddressSelect
+  }, [disabled, onChange, onAddressSelect])
 
   useEffect(() => {
     loadGoogleMaps().then(() => {
@@ -143,14 +149,16 @@ export function AddressAutocomplete({
     }
 
     const placesService = new google.maps.places.PlacesService(document.createElement('div'))
+    let active = true
 
-    autocomplete.addListener('place_changed', () => {
+    const listener = autocomplete.addListener('place_changed', () => {
       const place = autocomplete.getPlace()
       if (!place.address_components) return
 
       const initial = parseComponents(place.address_components)
 
       const apply = (result: AddressResult) => {
+        if (!active || disabledRef.current) return
         isSelectingRef.current = true
         onChangeRef.current(result.street)
         onAddressSelectRef.current?.(result)
@@ -177,7 +185,12 @@ export function AddressAutocomplete({
 
     autocompleteRef.current = autocomplete
 
-    // No cleanup — keep the single autocomplete instance alive to avoid duplicate dropdowns
+    return () => {
+      active = false
+      listener.remove()
+      autocomplete.unbindAll()
+      autocompleteRef.current = null
+    }
   }, [ready])
 
   // Sync value prop to the uncontrolled input (for external updates like form reset)
@@ -192,6 +205,8 @@ export function AddressAutocomplete({
     <input
       ref={inputRef}
       id={id}
+      disabled={disabled}
+      maxLength={255}
       type="text"
       placeholder={placeholder}
       defaultValue={value}
@@ -202,6 +217,11 @@ export function AddressAutocomplete({
       }}
       className={cn(inputClasses, className)}
       autoComplete="off"
+      onKeyDownCapture={event => {
+        // Selecting a Google suggestion with Enter must not submit its form.
+        if (event.key === 'Enter' && Array.from(document.querySelectorAll('.pac-container')).some(container =>
+          container.querySelector('.pac-item') && (container as HTMLElement).offsetHeight > 0)) event.preventDefault()
+      }}
     />
   )
 }
