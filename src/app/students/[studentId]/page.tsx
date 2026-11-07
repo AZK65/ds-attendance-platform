@@ -34,7 +34,6 @@ import { Rsep1ResultsSheetCard } from '@/components/Rsep1ResultsSheetCard'
 import { SaaqAttestationsCard } from '@/components/SaaqAttestationsCard'
 import { TheoryEvaluationsCard } from '@/components/TheoryEvaluationsCard'
 import { ChangePhoneDialog } from '@/components/ChangePhoneDialog'
-import { PhoneChangeHistory } from '@/components/PhoneChangeHistory'
 import { InstructorSignatureDialog } from '@/components/InstructorSignatureDialog'
 
 interface TeamupEvent {
@@ -585,7 +584,7 @@ export default function StudentProfilePage() {
             </div>
           </div>
           <div className="flex shrink-0 flex-wrap gap-2">
-            <StudentProfileEditor studentId={studentId} onChangePhone={() => setPhoneDialogOpen(true)} />
+            <StudentProfileEditor studentId={studentId} localStudentId={data.localStudent?.id} phone={phone} onChangePhone={() => setPhoneDialogOpen(true)} />
             <Button variant="default" asChild>
               <Link href={`/scheduling?bookFor=${encodeURIComponent(displayName)}&phone=${encodeURIComponent(phone)}`}>
                 <CalendarDays className="h-4 w-4" /> Book Class
@@ -743,12 +742,6 @@ export default function StudentProfilePage() {
           </p>
         </div>
       </motion.section>
-
-      <PhoneChangeHistory
-        externalStudentId={student.student_id}
-        localStudentId={data.localStudent?.id}
-        phone={phone}
-      />
 
       {data.vehicleType === 'truck' && (
         <div className="space-y-6">
