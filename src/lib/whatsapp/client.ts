@@ -1,5 +1,6 @@
 import path from 'path'
 import { createHash } from 'crypto'
+import { lookupWhatsAppNumber } from './number-check'
 import { prisma } from '@/lib/db'
 import { handleInboundMessage, pauseForAdminReply, logAdminMessage, logBotSendSuccess, logBotSendFailure } from '@/lib/bot/handle-message'
 import { capturePaperExamMedia, findActivePaperExamGroupForSender, hasActivePaperExamSession } from '@/lib/paper-exam'
@@ -2522,23 +2523,7 @@ export async function checkWhatsAppNumber(phone: string): Promise<{ registered: 
     throw new Error('WhatsApp not connected')
   }
   const client = state.client as { getNumberId: (number: string) => Promise<{ _serialized: string } | null> }
-  const cleaned = phone.replace(/[^0-9]/g, '')
-  // Try with country code as-is, and also with +1 prefix for North American numbers
-  const numbersToTry = [cleaned]
-  if (cleaned.length === 10) {
-    numbersToTry.push(`1${cleaned}`)
-  }
-  for (const num of numbersToTry) {
-    try {
-      const result = await client.getNumberId(num)
-      if (result) {
-        return { registered: true, jid: result._serialized }
-      }
-    } catch {
-      // Try next format
-    }
-  }
-  return { registered: false }
+  return lookupWhatsAppNumber(phone, number => client.getNumberId(number))
 }
 
 /**

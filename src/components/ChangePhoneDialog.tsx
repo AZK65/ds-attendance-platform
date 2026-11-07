@@ -42,6 +42,7 @@ interface PersonGroup {
 }
 
 interface Preview {
+  checkedInput: string
   sameNumber: boolean
   normalized: { digits: string; display: string }
   duplicates: PhoneDuplicate[]
@@ -89,6 +90,7 @@ export function ChangePhoneDialog({
   const [draft, setDraft] = useState('')
   const [preview, setPreview] = useState<Preview | null>(null)
   const [checking, setChecking] = useState(false)
+  const [checkAttempt, setCheckAttempt] = useState(0)
   const [previewError, setPreviewError] = useState<string | null>(null)
   const [saving, setSaving] = useState(false)
   const [saveError, setSaveError] = useState<string | null>(null)
@@ -129,6 +131,7 @@ export function ChangePhoneDialog({
       return
     }
     const controller = new AbortController()
+    setPreview(null)
     setChecking(true)
     setPreviewError(null)
     const timer = setTimeout(async () => {
@@ -148,23 +151,24 @@ export function ChangePhoneDialog({
         })
         const data = await res.json()
         if (!res.ok) throw new Error(data.error || 'Could not check that number')
-        setPreview(data)
+        if (!controller.signal.aborted) setPreview({ ...data, checkedInput: draft })
       } catch (error) {
-        if ((error as Error).name === 'AbortError') return
+        if (controller.signal.aborted) return
         setPreview(null)
         setPreviewError(error instanceof Error ? error.message : 'Could not check that number')
       } finally {
-        setChecking(false)
+        if (!controller.signal.aborted) setChecking(false)
       }
     }, 500)
     return () => {
       controller.abort()
       clearTimeout(timer)
     }
-  }, [draft, open, subject, done])
+  }, [draft, open, subject, done, checkAttempt])
 
   const confirm = async () => {
-    if (!subject || !preview || preview.sameNumber) return
+    if (!subject || !preview || preview.sameNumber || checking || saving
+      || preview.checkedInput !== draft || preview.whatsapp?.status !== 'registered') return
     setSaving(true)
     setSaveError(null)
     try {
@@ -224,7 +228,7 @@ export function ChangePhoneDialog({
 
   const whatsapp = preview?.whatsapp
   const groups = done?.groups || []
-  const canConfirm = Boolean(preview && !preview.sameNumber && !checking && !saving)
+  const canConfirm = Boolean(preview && preview.checkedInput === draft && preview.whatsapp?.status === 'registered' && !preview.sameNumber && !checking && !saving)
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -232,10 +236,10 @@ export function ChangePhoneDialog({
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <Phone className="h-5 w-5" />
-            Change phone number
+            Change WhatsApp number
           </DialogTitle>
           <DialogDescription>
-            {subject?.name ? `Update the number for ${subject.name}.` : 'Update the number saved for this person.'}
+            {subject?.name ? `Update the WhatsApp contact number for ${subject.name}.` : 'Update the WhatsApp contact number saved for this person.'}
             {' '}Invoices, attendance, signed contracts, class signatures, and issued certificates stay as they are.
           </DialogDescription>
         </DialogHeader>
@@ -247,12 +251,13 @@ export function ChangePhoneDialog({
               <p className="text-sm font-medium">{subject?.oldPhone || 'Saved on the contact'}</p>
             </div>
             <div className="space-y-1.5">
-              <Label htmlFor="new-phone">New number</Label>
+              <Label htmlFor="new-phone">New WhatsApp number</Label>
               <Input
                 id="new-phone"
                 data-testid="new-phone-input"
                 value={draft}
-                onChange={event => setDraft(event.target.value)}
+                onChange={event => { setPreview(null); setSaveError(null); setDraft(event.target.value) }}
+                disabled={saving}
                 placeholder="514-546-0150"
                 inputMode="tel"
                 autoFocus
@@ -294,8 +299,15 @@ export function ChangePhoneDialog({
                   {whatsapp.status === 'unavailable' && 'WhatsApp check unavailable'}
                 </p>
                 <p className="mt-1">{whatsapp.detail}</p>
-                {preview && <p className="mt-1 text-xs opacity-80">Will be saved as {preview.normalized.display}</p>}
+                {preview && whatsapp.status === 'registered' && <p className="mt-1 text-xs opacity-80">Will be saved as {preview.normalized.display}</p>}
+                {whatsapp.status === 'not_registered' && <p className="mt-1">Enter a number registered on WhatsApp to continue.</p>}
               </div>
+            )}
+
+            {(whatsapp?.status === 'unavailable' || previewError || saveError) && (
+              <Button type="button" variant="outline" size="sm" disabled={checking || saving} onClick={() => { setSaveError(null); setCheckAttempt(value => value + 1) }}>
+                Check WhatsApp again
+              </Button>
             )}
 
             {preview && !preview.rosterChecked && (

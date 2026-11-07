@@ -283,10 +283,26 @@ test('a failed roster write does not change the app records', async () => {
       externalStudentId: 1,
       localStudentId: 'local-alice',
       name: 'Alice Example',
-    }, actor, failing),
+    }, actor, failing, { status: 'registered', jid: '14385550199@c.us', detail: 'On WhatsApp' }),
     (error: unknown) => (error as Error).message.includes('master roster'),
   )
   assert.equal((await prisma.student.findUnique({ where: { id: 'local-alice' } }))?.phone, '15145551111')
   assert.equal(await prisma.phoneChangeLog.count(), 0)
   assert.equal(rosterRows.get(1)?.phone_number, '15145551111')
+})
+
+test('unregistered, unavailable, and unchecked WhatsApp numbers never modify any records', async () => {
+  await reset()
+  rosterRows.set(1, { student_id: 1, full_name: 'Alice Example', phone_number: '15145551111' })
+  await prisma.student.create({ data: { id: 'local-alice', name: 'Alice Example', phone: '15145551111' } })
+  for (const status of ['not_registered', 'unavailable', null] as const) {
+    await assert.rejects(() => applyPhoneChange({
+      oldPhone: '15145551111', newPhone: '4385550199', externalStudentId: 1, localStudentId: 'local-alice',
+    }, actor, roster(), status ? { status, detail: 'Check failed' } : null),
+    (error: unknown) => (error as { status: number }).status === (status === 'not_registered' ? 422 : 503))
+    assert.equal(rosterRows.get(1)?.phone_number, '15145551111')
+    assert.equal((await prisma.student.findUnique({ where: { id: 'local-alice' } }))?.phone, '15145551111')
+    assert.equal(await prisma.phoneChangeLog.count(), 0)
+    assert.equal(await prisma.contact.count(), 0)
+  }
 })
