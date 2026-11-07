@@ -15,9 +15,9 @@ import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription,
 } from '@/components/ui/dialog'
 import {
-  Receipt, Plus, Trash2, Download, Loader2, Settings, CheckCircle2,
-  Car, Truck, ArrowLeft, ArrowRight, FileText, Package, Mail, MessageCircle, Send,
-  CreditCard, Copy, ExternalLink, Banknote, Globe, DollarSign, Clock, AlertTriangle, Printer, Link2,
+  Plus, Trash2, Download, Loader2, Settings, CheckCircle2,
+  Car, Truck, ArrowLeft, FileText, Package, Mail, MessageCircle, Send,
+  CreditCard, Copy, ExternalLink, Banknote, Globe, DollarSign, Clock, Printer, Link2,
   TabletSmartphone, Wifi, RefreshCw, XCircle,
 } from 'lucide-react'
 import Link from 'next/link'
@@ -479,7 +479,8 @@ function InvoicePage() {
       if (externalStudentId != null) params.set('externalStudentId', String(externalStudentId))
       const res = await fetch(`/api/students/balance?${params}`)
       if (!res.ok) throw new Error('Account balance is unavailable. You can still save an invoice; payment history will be checked when preparing the PDF.')
-      return res.json() as Promise<{ totalInvoiced: number; totalPaid: number; openBalance: number; netBalance: number; creditBalance: number; hasAccount: boolean; hasCourseAgreement?: boolean; needsReview: boolean; knownActivityBalance?: number; historyFingerprint?: string; canConfirmHistory?: boolean; groupId: string | null; contactId: string | null }>
+      return res.json() as Promise<{ totalInvoiced: number; totalPaid: number; openBalance: number; netBalance: number; creditBalance: number; hasAccount: boolean; hasCourseAgreement?: boolean; needsReview: boolean; balanceSource?: string; balanceNote?: string | null; savedBalance?: number | null; knownActivityBalance?: number; historyFingerprint?: string; canConfirmHistory?: boolean; groupId: string | null; contactId: string | null;
+        invoices: { id: string; invoiceNumber: string; invoiceDate: string; paidAt?: string | null; total: number; paymentStatus: string; paymentMethod: string | null }[] }>
     },
     enabled: !!(formData.studentPhone || formData.studentName),
   })
@@ -487,20 +488,8 @@ function InvoicePage() {
   // Load student invoice history when on review step
   // While balance data is unavailable, do not assume a selected package is a
   // new contract and charge its full price again. A receipt can remain unlinked.
-  const effectiveBillingMode = billingMode ?? (selectedPackage ? (!balanceData || balanceData.hasCourseAgreement || balanceData.needsReview ? 'installment' : 'new-course') : 'new-charge')
-  const { data: invoiceHistoryData } = useQuery({
-    queryKey: ['student-invoice-history', formData.studentPhone, formData.studentName, externalStudentId],
-    queryFn: async () => {
-      const params = new URLSearchParams()
-      if (formData.studentPhone) params.set('phone', formData.studentPhone)
-      if (formData.studentName) params.set('name', formData.studentName)
-      if (externalStudentId != null) params.set('externalStudentId', String(externalStudentId))
-      const res = await fetch(`/api/students/profile?${params}`)
-      if (!res.ok) return { invoices: [] }
-      return res.json() as Promise<{ invoices: { id: string; invoiceNumber: string; invoiceDate: string; total: number; paymentStatus: string; paymentMethod: string | null }[] }>
-    },
-    enabled: !!formData.studentName && (step === 'review' || step === 'payment' || step === 'done'),
-  })
+  const effectiveBillingMode = billingMode ?? (selectedPackage ? (!balanceData || balanceData.hasCourseAgreement || balanceData.needsReview ? 'installment' : 'new-course') : (balanceData?.openBalance ?? 0) > 0 ? 'installment' : 'new-charge')
+  const invoiceHistory = balanceData?.invoices ?? []
 
   const allServices = allServicesData?.services || []
 
@@ -874,7 +863,7 @@ function InvoicePage() {
   const handleSkipToCustom = () => {
     setLineItems([{ id: generateId(), description: '', quantity: 1, unitPrice: 0, taxInclusive: true }])
     setSelectedPackage(null)
-    setBillingMode('new-charge')
+    setBillingMode(null)
     setManualBalance(null)
     setStep('review')
   }
@@ -996,7 +985,6 @@ function InvoicePage() {
               </p>
             </div>
             <div className="platform-page-actions">
-              <Button asChild variant="outline" size="sm"><Link href="/invoice/balances">Balance review</Link></Button>
               <Link href="/invoice/history">
                 <Button variant="outline" size="sm">
                   <FileText className="h-4 w-4 mr-1" />
@@ -1417,12 +1405,12 @@ function InvoicePage() {
               {/* Balance Card — shows for packages, existing balance, or manual balance */}
               {(() => {
                 const packageTotal = selectedPackage?.totalPrice || 0
-                if (!balanceData || balanceData.needsReview) return (
+                if (!balanceData) return (
                   <Card>
                     <CardContent className="space-y-2 pt-6">
                       <p className="text-sm text-muted-foreground">This invoice</p>
                       <p className="text-2xl font-semibold tabular-nums"><MorphText>{`$${total.toFixed(2)}`}</MorphText></p>
-                      <p className="text-sm text-muted-foreground">You can save this invoice and record payment now. The full account balance will stay unconfirmed until the older records are reconciled.</p>
+                      <p role="status" className="text-sm text-muted-foreground">{balanceError ? 'Past balance and payments could not be loaded. This does not mean the student has no previous payments.' : 'Loading past balance and payments…'}</p>
                       {balanceError && <p role="status" className="text-sm text-muted-foreground">{balanceError.message}</p>}
                     </CardContent>
                   </Card>
@@ -1441,7 +1429,7 @@ function InvoicePage() {
                           </div>
                           <div>
                             <p className="text-sm text-muted-foreground font-medium">
-                              Account balance before payment
+                              {balanceData.needsReview ? 'Recorded balance before payment' : 'Account balance before payment'}
                             </p>
                             <p className={`text-3xl font-bold font-mono ${hasBalance ? 'text-amber-700 dark:text-amber-400' : 'text-green-700 dark:text-green-400'}`}>
                               ${Math.abs(effectiveBalance).toFixed(2)}{effectiveBalance < 0 ? ' credit' : ''}
@@ -1483,23 +1471,27 @@ function InvoicePage() {
                           </div>
                         </div>
                       </div>
+                      <div className="mt-4 border-t pt-4 text-sm space-y-2">
+                        <div className="flex justify-between gap-4"><span className="text-muted-foreground">Past balance</span><span className="font-mono tabular-nums">${Math.abs(balanceData.netBalance).toFixed(2)}{balanceData.netBalance < 0 ? ' credit' : ''}</span></div>
+                        <div className="flex justify-between gap-4"><span className="text-muted-foreground">After this invoice is paid</span><span className="font-mono tabular-nums">${Math.abs(effectiveBalance - total).toFixed(2)}{effectiveBalance - total < 0 ? (balanceData.needsReview ? ' beyond recorded balance' : ' credit') : ''}</span></div>
+                        {balanceData.balanceNote && <p className="text-xs text-muted-foreground">{balanceData.balanceNote}</p>}
+                      </div>
                     </CardContent>
                   </Card>
                 )
               })()}
 
-              <details className="rounded-lg border p-4">
-                <summary className="cursor-pointer text-sm font-medium">{effectiveBillingMode === 'new-charge' ? 'New service invoice' : effectiveBillingMode === 'installment' ? 'Course payment' : 'New course agreement'} · Change</summary>
-                <div className="space-y-2 pt-4">
-                  <Label htmlFor="billing-mode">Invoice type</Label>
+              <section className="rounded-lg border p-4 space-y-2" aria-label="Payment purpose">
+                <div className="space-y-2">
+                  <Label htmlFor="billing-mode">What is this payment for?</Label>
                   <select id="billing-mode" className="w-full rounded-md border bg-background p-2" value={effectiveBillingMode} onChange={event => setBillingMode(event.target.value as 'installment' | 'new-charge' | 'new-course')}>
-                    <option value="new-charge">New charge — custom service, extra lesson or standalone invoice</option>
-                    <option value="installment">Payment toward an existing balance — no new charge</option>
-                    <option value="new-course">New course agreement — save its full price once</option>
+                    <option value="installment">Pay existing balance</option>
+                    <option value="new-charge">New service or extra hours</option>
+                    <option value="new-course">Start a new course</option>
                   </select>
-                  <p className="text-sm text-muted-foreground">Creating an invoice does not count as receiving payment. A course installment does not charge for the course again.</p>
+                  <p className="text-sm text-muted-foreground">{effectiveBillingMode === 'installment' ? 'Reduces the existing balance when paid. No new charge is added.' : effectiveBillingMode === 'new-charge' ? 'Adds this service charge. Paying it does not reduce an older course balance.' : 'Records the full course price once, then deducts payments as they are received.'}</p>
                 </div>
-              </details>
+              </section>
 
               {/* Invoice Details */}
               <Card>
@@ -1540,24 +1532,27 @@ function InvoicePage() {
               </Card>
 
               {/* Invoice History */}
-              {invoiceHistoryData && invoiceHistoryData.invoices.length > 0 && (
+              {(
                 <Card>
                   <CardHeader>
                     <CardTitle className="text-lg flex items-center gap-2">
                       <Clock className="h-5 w-5" />
-                      Invoice History
+                      Payments and invoices
                     </CardTitle>
-                    <CardDescription>Previous invoices for {formData.studentName}</CardDescription>
+                    <CardDescription>{balanceData ? `$${balanceData.totalPaid.toFixed(2)} in confirmed payments · ${invoiceHistory.length} invoices` : 'Loading saved history'}</CardDescription>
                   </CardHeader>
                   <CardContent>
-                    <div className="space-y-2">
-                      {invoiceHistoryData.invoices.slice(0, 10).map(inv => (
-                        <div key={inv.id} className="flex items-center justify-between p-3 rounded-lg border hover:bg-accent/30 transition-colors">
+                    {balanceError ? <p role="alert" className="text-sm">Payment history is unavailable. Please retry; no payments have been removed.</p>
+                      : !balanceData ? <p role="status" className="text-sm text-muted-foreground">Loading payments…</p>
+                      : invoiceHistory.length === 0 ? <p className="text-sm text-muted-foreground">No invoices found for this student.</p> : null}
+                    <div className="space-y-2 max-h-96 overflow-y-auto">
+                      {invoiceHistory.map(inv => (
+                        <Link href={`/invoice/${inv.id}`} target="_blank" key={inv.id} className="flex items-center justify-between gap-2 p-3 rounded-lg border hover:bg-accent/30 transition-colors">
                           <div className="flex items-center gap-3">
                             <FileText className="h-4 w-4 text-muted-foreground shrink-0" />
                             <div>
                               <p className="text-sm font-medium font-mono">{inv.invoiceNumber}</p>
-                              <p className="text-xs text-muted-foreground">{inv.invoiceDate}</p>
+                              <p className="text-xs text-muted-foreground">{inv.invoiceDate}{inv.paymentMethod ? ` · ${inv.paymentMethod}` : ''}</p>
                             </div>
                           </div>
                           <div className="flex items-center gap-3">
@@ -1570,10 +1565,10 @@ function InvoicePage() {
                                   : 'bg-amber-100 text-amber-700 border-amber-200 hover:bg-amber-100'
                               }`}
                             >
-                              {inv.paymentStatus === 'paid' ? 'Paid' : 'Unpaid'}
+                              {inv.paymentStatus === 'paid' ? 'Paid' : inv.paymentStatus === 'refunded' ? 'Refunded' : 'Unpaid'}
                             </Badge>
                           </div>
-                        </div>
+                        </Link>
                       ))}
                     </div>
                   </CardContent>

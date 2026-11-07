@@ -188,3 +188,16 @@ test('a paid invoice prints one PAID marker and still one remaining balance', as
   assert.equal((text.match(/\bPAID\b/g) || []).length, 1)
   assert.equal((text.match(/Current account balance:/g) || []).length, 1)
 })
+
+test('unreviewed history prints recorded balance and payments instead of hiding both', async () => {
+  const text=await pdfText('recorded-balance.pdf',{
+    ...invoiceBase,remainingBalance:600,balanceNeedsReview:true,
+    balanceNote:'Based on the saved balance of $750.00, with later recorded course payments applied.',
+    paymentHistory:{totalPaid:400,payments:[{invoiceNumber:'A',date:'2026-09-01',amount:250,method:'cash',balanceAfter:null},{invoiceNumber:'B',date:'2026-11-07',amount:150,method:'card',balanceAfter:null}]},
+  })
+  assert.match(text,/Recorded balance:/)
+  assert.match(text,/\$600\.00/)
+  assert.match(text,/\$400\.00/)
+  assert.match(text,/Sep 1, 2026/)
+  assert.doesNotMatch(text,/not confirmed|No payments yet/)
+})

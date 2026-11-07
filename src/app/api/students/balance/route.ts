@@ -55,6 +55,11 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({
       totalInvoiced: Math.round(totalInvoiced * 100) / 100,
       ...billing,
+      // The invoice screen must not depend on Zoom, exams, or MySQL profile
+      // lookups to display local receipts. A failed request is never an empty history.
+      invoices: invoices.map(row => ({ id: row.id, invoiceNumber: row.invoiceNumber,
+        invoiceDate: row.invoiceDate, paidAt: row.paidAt, total: row.total,
+        paymentStatus: row.paymentStatus, paymentMethod: row.paymentMethod })),
       groupId,
       contactId,
     })
