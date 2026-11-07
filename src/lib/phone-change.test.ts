@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { execSync } from 'node:child_process'
-import { mkdtempSync } from 'node:fs'
+import { mkdtempSync, openSync, closeSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { before, test } from 'node:test'
@@ -17,6 +17,7 @@ import type {
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..')
 const dbDir = mkdtempSync(path.join(tmpdir(), 'phone-change-'))
+closeSync(openSync(path.join(dbDir, 'test.db'), 'w'))
 process.env.DATABASE_URL = `file:${path.join(dbDir, 'test.db')}`
 
 let applyPhoneChange: typeof ApplyPhoneChange

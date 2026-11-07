@@ -25,6 +25,7 @@ import {
 import Link from 'next/link'
 import { motion } from 'motion/react'
 import { StudentAvatar } from '@/components/StudentAvatar'
+import { StudentProfileEditor } from '@/components/StudentProfileEditor'
 import { LmsActivityPanel } from '@/components/LmsActivityPanel'
 import { StudentDocumentDownloadDialog } from '@/components/StudentDocumentDownloadDialog'
 import { formatTime12h as formatClock } from '@/lib/theory-hours'
@@ -335,14 +336,14 @@ export default function StudentProfilePage() {
   const groupNames = data?.groups?.map(g => g.groupName) || []
 
   // Fetch Teamup events
-  const { data: studentEvents = [], isLoading: loadingEvents } = useQuery<TeamupEvent[]>({
+  const { data: studentEvents = [], isLoading: loadingEvents, error: eventsError, refetch: reloadEvents } = useQuery<TeamupEvent[]>({
     queryKey: ['student-events-standalone', displayName, phone, groupNames],
     queryFn: async () => {
       const allEvents: TeamupEvent[] = []
       const seenIds = new Set<string>()
       const fetchEvents = async (p: URLSearchParams) => {
         const res = await fetch(`/api/scheduling/student-events?${p}`)
-        if (!res.ok) return
+        if (!res.ok) throw new Error('Class history could not be loaded. Please retry.')
         const events: TeamupEvent[] = await res.json()
         for (const e of events) { if (!seenIds.has(e.id)) { seenIds.add(e.id); allEvents.push(e) } }
       }
@@ -594,6 +595,7 @@ export default function StudentProfilePage() {
             </div>
 
           <nav aria-label="Student actions" className="flex flex-wrap items-center gap-1 border-t border-foreground/10 px-4 py-2">
+            <StudentProfileEditor studentId={studentId} onChangePhone={() => setPhoneDialogOpen(true)} />
             <Button
               variant="ghost"
               size="sm"
@@ -624,6 +626,8 @@ export default function StudentProfilePage() {
           </nav>
         </section>
       </motion.div>
+
+      {eventsError && <div role="alert" className="rounded-lg border p-4 text-sm">Class history is unavailable, not empty. <Button variant="outline" size="sm" onClick={() => reloadEvents()}>Retry</Button></div>}
 
       <Dialog open={certificateMenuOpen} onOpenChange={setCertificateMenuOpen}>
         <DialogContent className="sm:max-w-md">

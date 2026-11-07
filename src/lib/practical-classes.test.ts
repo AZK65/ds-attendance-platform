@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { execFileSync, execSync } from 'node:child_process'
-import { mkdtempSync, writeFileSync } from 'node:fs'
+import { mkdtempSync, writeFileSync, openSync, closeSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { before, test } from 'node:test'
@@ -36,6 +36,7 @@ import {
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..')
 const dbDir = mkdtempSync(path.join(tmpdir(), 'practical-classes-'))
+closeSync(openSync(path.join(dbDir, 'test.db'), 'w'))
 process.env.DATABASE_URL = `file:${path.join(dbDir, 'test.db')}`
 
 const OTHER_PNG = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg=='
