@@ -53,9 +53,11 @@ async function main() {
       else if (p === '/api/invoice/services') data = { services: [] }
       else if (p === '/api/students/balance') {
         status = balanceUnavailable ? 503 : 200
-        data = { totalInvoiced: saved ? 250 : 0, totalPaid: 0, openBalance: saved || review ? 1000 : 0, netBalance: saved || review ? 1000 : 0, creditBalance: 0, hasAccount: saved && !review, needsReview: review, knownActivityBalance: 0, canConfirmHistory: true, historyFingerprint: 'history-test' }
+        data = { totalInvoiced: review ? 400 : saved ? 250 : 0, totalPaid: review ? 400 : 0, openBalance: review ? 600 : saved ? 1000 : 0, netBalance: review ? 600 : saved ? 1000 : 0, creditBalance: 0, hasAccount: saved && !review, needsReview: review, knownActivityBalance: 0, canConfirmHistory: true, historyFingerprint: 'history-test',
+          balanceNote: review ? 'Based on the saved balance of $750.00, with later recorded course payments applied.' : null,
+          invoices: review ? [{id:'old-receipt',invoiceNumber:'TEST-4100',invoiceDate:'2026-09-01',total:250,paymentStatus:'paid',paymentMethod:'card'},{id:'new-receipt',invoiceNumber:'TEST-4101',invoiceDate:'2026-11-01',total:150,paymentStatus:'paid',paymentMethod:'cash'}] : [] }
       }
-      else if (p === '/api/students/profile') data = { invoices: [] }
+      else if (p === '/api/students/profile') { status = 500; data = { error: 'Profile unavailable; local invoices must still load' } }
       else if (p === '/api/invoice/save') { saved = true; data = { invoice: { id: 'synthetic-invoice', invoiceNumber: 'QAZI-4102' } } }
       else if (p === '/api/invoice/update-payment') { status = failPayment ? 409 : 200; data = failPayment ? { error: 'Synthetic payment save failure' } : { invoice: { paymentStatus: 'paid' } } }
       else if (p === '/api/auth/heartbeat' || p === '/api/auth') data = { valid: true, authenticated: true }
@@ -116,7 +118,11 @@ async function main() {
     assert.equal(await page.$('#history-total'),null)
     assert.equal(await page.$eval('#billing-mode',e=>e.value),'installment')
     assert.equal(await page.$$eval('button', buttons => buttons.find(b => b.textContent.includes('Generate Invoice PDF')).disabled),false)
-    assert.equal(await page.$eval('#billing-mode',e=>e.closest('details').open),false)
+    assert.equal(await page.$eval('#billing-mode',e=>e.closest('details')),null)
+    assert((await page.$eval('main',e=>e.textContent)).includes('$600.00'))
+    assert((await page.$eval('main',e=>e.textContent)).includes('$400.00 in confirmed payments'))
+    assert((await page.$eval('main',e=>e.textContent)).includes('TEST-4100'))
+    assert((await page.$eval('main',e=>e.textContent)).includes('TEST-4101'))
     assert(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth))
     await page.evaluate(() => { document.activeElement?.blur(); window.scrollTo(0,0) })
     await page.screenshot({ path: path.join(out, 'unreviewed-receipt-mobile.png'), fullPage: true })
@@ -129,7 +135,6 @@ async function main() {
     await openReview()
     assert.equal(await page.$eval('#billing-mode',e=>e.value),'installment')
     assert.equal(await page.$$eval('button', buttons => buttons.find(b => b.textContent.includes('Generate Invoice PDF')).disabled),false)
-    await page.click('summary')
     await page.select('#billing-mode','new-charge')
     assert.equal(await page.$('#history-total'),null)
     assert.equal(await page.$$eval('button', buttons => buttons.find(b => b.textContent.includes('Generate Invoice PDF')).disabled),false)
@@ -138,7 +143,6 @@ async function main() {
     await page.waitForSelector('#billing-mode')
     assert.equal(await page.$eval('#billing-mode',e=>e.value),'new-charge')
     assert.equal(await page.$('#manualBalance'),null)
-    await page.click('summary')
     await page.select('#billing-mode','new-course')
     await page.waitForSelector('#manualBalance')
     await page.goto(origin + '/invoice/balances?q=%2B15145550147', { waitUntil: 'networkidle0' })

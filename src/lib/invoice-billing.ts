@@ -1,9 +1,10 @@
 import type { Prisma } from '@prisma/client'
 import { prisma } from '@/lib/db'
-import { invoiceBelongsToStudent, openBalanceFromInvoices, type StudentIdentity } from '@/lib/invoice-match'
+import { invoiceBelongsToStudent, type StudentIdentity } from '@/lib/invoice-match'
 import { phoneLast10 } from '@/lib/student-match'
 import { cents, chargeForInvoice, ledgerSummary, type BillingMode } from '@/lib/invoice-ledger'
 import { reconciliationPreview, applyReviewedBalance } from './invoice-reconciliation'
+import { legacyInvoiceBalance } from './legacy-invoice-balance'
 
 export class BillingReviewRequired extends Error {}
 
@@ -26,19 +27,23 @@ export async function studentBillingSummary(identity: StudentIdentity) {
   }
   if (account && own.every(row => row.billingAccountId === account.id)) {
     return { ...ledgerSummary(account.openingChargesCents, account.invoices), needsReview: false, hasAccount: true,
+      balanceSource: 'ledger' as const, balanceNote: null, savedBalance: null,
       hasCourseAgreement: account.openingChargesCents > 0 || account.invoices.some(row => row.billingMode === 'new-course') }
   }
   // Preserve unapproved historical balances. Do not migrate on a GET request.
   const paid = own.filter(row => row.paymentStatus === 'paid').reduce((sum, row) => sum + cents(row.total), 0) / 100
   const preview = reconciliationPreview(all).find(row => own.length && own.every(invoice => row.invoiceIds.includes(invoice.id)))
   const identityBlocked = !preview || preview.identityKey.startsWith('unresolved:') || preview.issues.includes('Phone belongs to more than one student ID')
+  const legacy = legacyInvoiceBalance(own.filter(row => !row.billingAccountId))
+  const knownActivity = account ? ledgerSummary(account.openingChargesCents, account.invoices) : null
+  const netBalance = Math.round((legacy.netBalance + (knownActivity?.netBalance ?? 0)) * 100) / 100
   return {
-    totalCharges: null, totalPaid: paid, openBalance: openBalanceFromInvoices(own),
-    creditBalance: 0, netBalance: openBalanceFromInvoices(own),
+    totalCharges: null, totalPaid: paid, ...legacy, openBalance: Math.max(0, netBalance),
+    creditBalance: Math.max(0, -netBalance), netBalance,
     unpaidInvoiceTotal: own.filter(row => row.paymentStatus === 'unpaid').reduce((sum, row) => sum + cents(row.total), 0) / 100,
     needsReview: own.length > 0, hasAccount: !!account,
     hasCourseAgreement: !!account && (account.openingChargesCents > 0 || account.invoices.some(row => row.billingMode === 'new-course')),
-    knownActivityBalance: account ? ledgerSummary(account.openingChargesCents, account.invoices).netBalance : 0,
+    knownActivityBalance: knownActivity?.netBalance ?? 0,
     historyFingerprint: preview?.fingerprint ?? null,
     canConfirmHistory: !identityBlocked && accountIds.length <= 1 && !account?.reviewedFingerprint,
   }

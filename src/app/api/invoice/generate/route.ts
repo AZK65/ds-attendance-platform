@@ -58,6 +58,7 @@ interface InvoiceData {
   /** Saved payment status. "paid" prints the PAID marker. */
   paymentStatus?: string | null
   balanceNeedsReview?: boolean
+  balanceNote?: string | null
 }
 
 // Styles for the invoice PDF
@@ -513,14 +514,13 @@ function InvoiceDocument({ data, logoSrc }: { data: InvoiceData; logoSrc: string
             React.createElement(Text, { style: styles.totalLabel }, 'Paid through receipt date:'),
             React.createElement(Text, { style: styles.totalValue }, formatCurrency(data.paymentHistory.totalPaid)),
           ),
-          data.balanceNeedsReview
-            ? React.createElement(Text, { style: styles.paymentSummaryRow }, 'Historical account total is not confirmed. This invoice does not establish the full course balance.')
-            : printedRemainingBalance(data.remainingBalance) != null
+          printedRemainingBalance(data.remainingBalance) != null
             ? React.createElement(View, { style: styles.paymentSummaryRow },
-                React.createElement(Text, { style: { flex: 1, textAlign: 'right', paddingRight: 15, color: BRAND.red, fontSize: 11, fontWeight: 'bold' } }, data.balanceNeedsReview ? 'Saved balance (needs review):' : (data.remainingBalance ?? 0) < 0 ? 'Current account credit:' : 'Current account balance:'),
+                React.createElement(Text, { style: { flex: 1, textAlign: 'right', paddingRight: 15, color: BRAND.red, fontSize: 11, fontWeight: 'bold' } }, data.balanceNeedsReview && (data.remainingBalance ?? 0) >= 0 ? 'Recorded balance:' : (data.remainingBalance ?? 0) < 0 ? 'Current account credit:' : 'Current account balance:'),
                 React.createElement(Text, { style: { width: 100, textAlign: 'right', color: BRAND.red, fontSize: 11, fontWeight: 'bold' } }, formatCurrency(Math.abs(data.remainingBalance ?? 0))),
               )
             : null,
+          data.balanceNote ? React.createElement(Text, { style: styles.paymentEmpty }, data.balanceNote) : null,
         ),
       ) : null,
 
@@ -544,7 +544,7 @@ export async function buildInvoicePdf(body: InvoiceData) {
 }
 
 /** Read confirmed receipts through this receipt's date. Does not write. */
-export async function loadPaymentHistory(body: Pick<InvoiceData, 'invoiceNumber' | 'invoiceDate' | 'studentName' | 'studentPhone' | 'externalStudentId' | 'paymentStatus'>): Promise<{ history: PaymentHistory | null; paymentStatus: string | null; balance?: number; needsReview?: boolean }> {
+export async function loadPaymentHistory(body: Pick<InvoiceData, 'invoiceNumber' | 'invoiceDate' | 'studentName' | 'studentPhone' | 'externalStudentId' | 'paymentStatus'>): Promise<{ history: PaymentHistory | null; paymentStatus: string | null; balance?: number; needsReview?: boolean; balanceNote?: string | null }> {
   try {
     const saved = await prisma.invoice.findUnique({
       where: { invoiceNumber: body.invoiceNumber },
@@ -572,6 +572,7 @@ export async function loadPaymentHistory(body: Pick<InvoiceData, 'invoiceNumber'
       paymentStatus,
       balance: billing.netBalance,
       needsReview: billing.needsReview,
+      balanceNote: billing.balanceNote,
     }
   } catch (error) {
     console.warn('[Invoice] Payment history lookup failed:', error)
@@ -611,6 +612,7 @@ export async function POST(request: NextRequest) {
       paymentStatus: loaded.paymentStatus,
       remainingBalance: loaded.balance,
       balanceNeedsReview: loaded.needsReview,
+      balanceNote: loaded.balanceNote,
     })
     const uint8Array = new Uint8Array(buffer)
 

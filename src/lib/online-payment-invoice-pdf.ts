@@ -68,6 +68,7 @@ export async function renderStoredInvoicePdf(invoiceId: string): Promise<Buffer>
     notes: invoice.notes || '',
     remainingBalance: loaded.balance,
     balanceNeedsReview: loaded.needsReview,
+    balanceNote: loaded.balanceNote,
     externalStudentId: invoice.externalStudentId,
     paymentHistory: loaded.history,
     paymentStatus: loaded.paymentStatus ?? invoice.paymentStatus,
