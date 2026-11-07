@@ -13,8 +13,13 @@ export async function loadEditableProfile(id: number) {
   const student = await getStudentById(id)
   if (!student) return null
   const local = await findBestLocalStudent({ phone: student.phone_number, name: student.full_name })
+  const digits = (student.phone_number || '').replace(/\D/g, '').slice(-10)
+  const member = digits.length === 10 ? await prisma.groupMember.findFirst({
+    where: { phone: { contains: digits } }, include: { contact: true },
+  }) : null
   return { fields: { ...profileFields(student as unknown as Record<string, unknown>), email: local?.email ?? student.email ?? '' },
-    phone: student.phone_number, contractNumber: student.contract_number, revision: profileRevision(student, local) }
+    phone: student.phone_number, contractNumber: student.contract_number, revision: profileRevision(student, local),
+    chat: member ? { groupId: member.groupId, contactId: member.contactId, name: member.contact?.name || member.contact?.pushName || '' } : null }
 }
 
 export async function saveEditableProfile(id: number, input: unknown, revision: string, actor: string, rosterEdit = editStudentProfile) {

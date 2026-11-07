@@ -2,7 +2,8 @@
 
 import { useQuery } from '@tanstack/react-query'
 import { useParams } from 'next/navigation'
-import { useState, useEffect, useRef, useCallback, useMemo } from 'react'
+import { useState, useMemo } from 'react'
+import { useAttendanceStream } from '@/hooks/useAttendanceStream'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import {
@@ -69,7 +70,6 @@ export default function TeacherAttendancePage() {
   const [pickingForPhone, setPickingForPhone] = useState<string | null>(null)
   const [optimisticAdds, setOptimisticAdds] = useState<Map<string, string>>(new Map())
   const [optimisticRemoves, setOptimisticRemoves] = useState<Set<string>>(new Set())
-  const eventSourceRef = useRef<EventSource | null>(null)
 
   // Fetch group data
   const { data: groupData } = useQuery({
@@ -92,35 +92,11 @@ export default function TeacherAttendancePage() {
 
   const group = groupData?.group
 
-  // Connect to SSE stream
-  const connectSSE = useCallback(() => {
-    if (eventSourceRef.current) {
-      eventSourceRef.current.close()
-    }
-
-    const es = new EventSource(`/api/zoom/live-stream?groupId=${encodeURIComponent(groupId)}`)
-    eventSourceRef.current = es
-
-    es.onopen = () => setSSEConnected(true)
-
-    es.onmessage = (event) => {
-      try {
-        const data = JSON.parse(event.data) as SSEData
-        setLiveData(data)
-        setOptimisticAdds(new Map())
-        setOptimisticRemoves(new Set())
-      } catch {
-        // Ignore parse errors
-      }
-    }
-
-    es.onerror = () => setSSEConnected(false)
-  }, [groupId])
-
-  useEffect(() => {
-    connectSSE()
-    return () => { eventSourceRef.current?.close() }
-  }, [connectSSE])
+  const connectSSE = useAttendanceStream<SSEData>(groupId, data => {
+    setLiveData(data)
+    setOptimisticAdds(new Map())
+    setOptimisticRemoves(new Set())
+  }, setSSEConnected)
 
   // Derive overrides from SSE data + optimistic state
   const serverOverrides = useMemo(() => {
@@ -247,7 +223,7 @@ export default function TeacherAttendancePage() {
             ) : (
               <div className="flex items-center gap-1 text-red-500 text-xs">
                 <WifiOff className="h-3 w-3" />
-                Disconnected
+                Reconnecting…
               </div>
             )}
             {lastUpdate && (

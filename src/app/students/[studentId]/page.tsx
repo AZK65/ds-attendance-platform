@@ -585,6 +585,7 @@ export default function StudentProfilePage() {
             </div>
           </div>
           <div className="flex shrink-0 flex-wrap gap-2">
+            <StudentProfileEditor studentId={studentId} onChangePhone={() => setPhoneDialogOpen(true)} />
             <Button variant="default" asChild>
               <Link href={`/scheduling?bookFor=${encodeURIComponent(displayName)}&phone=${encodeURIComponent(phone)}`}>
                 <CalendarDays className="h-4 w-4" /> Book Class
@@ -595,7 +596,6 @@ export default function StudentProfilePage() {
             </div>
 
           <nav aria-label="Student actions" className="flex flex-wrap items-center gap-1 border-t border-foreground/10 px-4 py-2">
-            <StudentProfileEditor studentId={studentId} onChangePhone={() => setPhoneDialogOpen(true)} />
             <Button
               variant="ghost"
               size="sm"
@@ -619,9 +619,6 @@ export default function StudentProfilePage() {
             )}
             <Button variant="ghost" size="sm" onClick={() => setShowLms(true)} className="text-muted-foreground hover:text-foreground">
               <GraduationCap className="h-4 w-4" /> LMS Activity
-            </Button>
-            <Button variant="ghost" size="sm" onClick={() => setPhoneDialogOpen(true)} className="text-muted-foreground hover:text-foreground" data-testid="open-change-phone">
-              <Phone className="h-4 w-4" /> Change phone number
             </Button>
           </nav>
         </section>

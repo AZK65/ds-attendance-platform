@@ -43,6 +43,9 @@ export async function autoSaveAttendanceOnMeetingEnd(opts: AutoSaveOptions): Pro
   reason?: string
 }> {
   const state = getCurrentState()
+  if (state.meetingId !== opts.meetingId || (state.meetingUUID && state.meetingUUID !== opts.meetingUUID)) {
+    return { saved: false, reason: 'Ended event belongs to a different meeting instance' }
+  }
   const liveParts = state.participants
   if (liveParts.length === 0) {
     return { saved: false, reason: 'No participants in live store' }

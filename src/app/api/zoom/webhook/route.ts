@@ -4,7 +4,9 @@ import {
   handleMeetingStarted,
   handleMeetingEnded,
   handleParticipantJoined,
-  handleParticipantLeft
+  handleParticipantLeft,
+  hydrateFromDb,
+  flushLiveState,
 } from '@/lib/zoom/live-store'
 import { autoSaveAttendanceOnMeetingEnd } from '@/lib/zoom/auto-save-attendance'
 import { reconcileEndedMeetingAttendance } from '@/lib/zoom/report-reconciliation'
@@ -68,6 +70,7 @@ export async function POST(request: NextRequest) {
     }
 
     console.log(`[Webhook] Received event: ${event}`)
+    try { await hydrateFromDb() } catch { return NextResponse.json({ error: 'Attendance storage unavailable' }, { status: 503 }) }
 
     // Route events to the live store
     switch (event) {
@@ -100,6 +103,8 @@ export async function POST(request: NextRequest) {
         console.log(`[Webhook] Unhandled event: ${event}`)
     }
 
+    // Preserve accepted events across an application restart.
+    try { await flushLiveState() } catch { return NextResponse.json({ error: 'Attendance could not be saved' }, { status: 503 }) }
     // Zoom requires a quick 200 response
     return NextResponse.json({ status: 'ok' })
   } catch (error) {
