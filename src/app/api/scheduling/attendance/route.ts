@@ -38,19 +38,10 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'eventId and present (boolean) required' }, { status: 400 })
     }
 
-    if (present) {
-      // Upsert — mark as present
-      await prisma.classAttendance.upsert({
-        where: { eventId },
-        create: { eventId, present: true },
-        update: { present: true },
-      })
-    } else {
-      // Delete — remove attendance record (absent = no record)
-      await prisma.classAttendance.deleteMany({
-        where: { eventId },
-      })
-    }
+    // Preserve an explicit absence; missing history is not an absence.
+    await prisma.classAttendance.upsert({
+      where: { eventId }, create: { eventId, present }, update: { present },
+    })
 
     return NextResponse.json({ success: true, eventId, present })
   } catch (error) {

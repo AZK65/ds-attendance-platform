@@ -1,6 +1,8 @@
 'use client'
 
 import { billingBalanceLabel } from '@/lib/billing-label'
+import { recordedClassStatus, preferJourneyAttempt, type JourneyStatus } from '@/lib/journey-attendance'
+import { isCancelledClass } from '@/lib/car-class-gap'
 
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { formatNet } from '@/lib/theory-hours'
@@ -66,6 +68,7 @@ import {
 import Link from 'next/link'
 import { motion } from 'motion/react'
 import { StudentAvatar } from '@/components/StudentAvatar'
+import { StudentProfileEditor } from '@/components/StudentProfileEditor'
 import { StudentDocumentDownloadDialog } from '@/components/StudentDocumentDownloadDialog'
 import { PaperExamProfileCard, type PaperExamProfileRecord } from '@/components/PaperExamProfileCard'
 import { Rsep1ResultsSheetCard } from '@/components/Rsep1ResultsSheetCard'
@@ -451,7 +454,7 @@ interface SessionDetail {
   meetingUUID?: string
   groupId?: string
   zoomName?: string
-  status: 'present' | 'absent' | 'scheduled'
+  status: JourneyStatus
   endTime?: Date
   subcalendarIds?: number[]
   title?: string
@@ -1020,16 +1023,14 @@ function CarJourneyCard({ theoryClasses, studentEvents, classAttendanceMap, load
       // but absent" — surfaced in the detail dialog.
       const cur = modulesDone.get(tc.moduleNumber)
       const d = new Date(tc.date)
-      if (cur && cur.status === 'present' && tc.status === 'absent') continue
-      if (cur && d > cur.when) continue
-      modulesDone.set(tc.moduleNumber, {
+      modulesDone.set(tc.moduleNumber, preferJourneyAttempt(cur, {
         when: d,
         source: 'zoom',
         meetingUUID: tc.meetingUUID,
         groupId: tc.groupId,
         zoomName: tc.zoomName,
         status: tc.status,
-      })
+      }))
     }
 
     // Sorties + Teamup module backfill: split into past (completed) and
@@ -1041,6 +1042,7 @@ function CarJourneyCard({ theoryClasses, studentEvents, classAttendanceMap, load
     const upcoming: Array<{ when: Date; label: string }> = []
     const now = new Date()
     for (const event of studentEvents) {
+      if (isCancelledClass(event.title, event.notes)) continue
       const parsed = parseModuleFromTitle(event.title)
       if (!parsed.module) continue
       const when = new Date(event.start_dt)
@@ -1054,9 +1056,7 @@ function CarJourneyCard({ theoryClasses, studentEvents, classAttendanceMap, load
         endTime: event.end_dt ? new Date(event.end_dt) : undefined,
         subcalendarIds: event.subcalendar_ids,
         title: event.title,
-        status: isFuture
-          ? 'scheduled'
-          : classAttendanceMap[event.id] === false ? 'absent' : 'present',
+        status: recordedClassStatus(when, classAttendanceMap[event.id], now),
       }
 
       if (parsed.module.startsWith('S')) {
@@ -1067,7 +1067,7 @@ function CarJourneyCard({ theoryClasses, studentEvents, classAttendanceMap, load
           if (!cur || when < cur.when) sortiesScheduled.set(n, baseDetail)
         } else {
           const cur = sortiesDone.get(n)
-          if (!cur || when < cur.when) sortiesDone.set(n, baseDetail)
+          sortiesDone.set(n, preferJourneyAttempt(cur, baseDetail))
         }
       } else {
         const n = parseInt(parsed.module)
@@ -1077,8 +1077,8 @@ function CarJourneyCard({ theoryClasses, studentEvents, classAttendanceMap, load
             const cur = modulesScheduled.get(n)
             if (!cur || when < cur.when) modulesScheduled.set(n, baseDetail)
           }
-        } else if (!modulesDone.has(n)) {
-          modulesDone.set(n, baseDetail)
+        } else {
+          modulesDone.set(n, preferJourneyAttempt(modulesDone.get(n), baseDetail))
         }
       }
     }
@@ -1088,8 +1088,8 @@ function CarJourneyCard({ theoryClasses, studentEvents, classAttendanceMap, load
 
     // Per-phase counts (for the phase label "x/y" indicator)
     const phases = PHASES.map(p => {
-      const mods = p.modules.filter(n => modulesDone.has(n)).length
-      const sorts = p.sorties.filter(n => sortiesDone.has(n)).length
+      const mods = p.modules.filter(n => modulesDone.get(n)?.status === 'present').length
+      const sorts = p.sorties.filter(n => sortiesDone.get(n)?.status === 'present').length
       return { ...p, done: mods + sorts, total: p.modules.length + p.sorties.length }
     })
     const totalDone = phases.reduce((s, p) => s + p.done, 0)
@@ -1183,7 +1183,7 @@ function CarJourneyCard({ theoryClasses, studentEvents, classAttendanceMap, load
                         cls = 'border border-border text-muted-foreground hover:border-primary hover:bg-accent cursor-pointer'
                       }
                       const subtitle = c.detail
-                        ? c.detail.when.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
+                        ? `${c.detail.when.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}${status === 'unverified' ? ' · Unconfirmed' : ''}`
                         : '—'
                       return (
                         <button
@@ -1196,6 +1196,7 @@ function CarJourneyCard({ theoryClasses, studentEvents, classAttendanceMap, load
                             isCompleted ? 'View details'
                             : isAbsent ? 'Absent — view details'
                             : isScheduled ? 'Scheduled — view details'
+                            : status === 'unverified' ? 'Attendance unconfirmed — view details'
                             : 'Book this session'
                           }
                         >
@@ -1257,6 +1258,8 @@ function CarJourneyCard({ theoryClasses, studentEvents, classAttendanceMap, load
                   <Badge className="bg-blue-100 text-blue-700 border-blue-200 gap-1">
                     <Clock className="h-3 w-3" /> Scheduled
                   </Badge>
+                ) : openCell.detail.status === 'unverified' ? (
+                  <Badge variant="outline">Attendance unconfirmed</Badge>
                 ) : (
                   <Badge className="bg-green-100 text-green-700 border-green-200 gap-1">
                     <CheckCircle className="h-3 w-3" /> Present
@@ -1379,7 +1382,7 @@ export default function StudentDetailPage() {
 
   // Fetch student's scheduled classes from Teamup (include group name for theory classes)
   const groupName = groupData?.group?.name || ''
-  const { data: studentEvents = [], isLoading: loadingEvents } = useQuery<TeamupEvent[]>({
+  const { data: studentEvents = [], isLoading: loadingEvents, error: eventsError, refetch: reloadEvents } = useQuery<TeamupEvent[]>({
     queryKey: ['student-events', displayName, phone, groupName],
     queryFn: async () => {
       const params = new URLSearchParams()
@@ -1911,9 +1914,10 @@ export default function StudentDetailPage() {
                     </Link>
                   </>
                 )}
+                {profileData?.dbStudent?.student_id && <StudentProfileEditor studentId={profileData.dbStudent.student_id} onChangePhone={() => setPhoneDialogOpen(true)} />}
                 <Button variant="ghost" size="sm" className="text-muted-foreground hover:text-foreground" onClick={startEditing}>
                   <Edit3 className="mr-1 h-4 w-4" />
-                  Edit
+                  Chat name
                 </Button>
                 <Button variant="ghost" size="sm" className="text-muted-foreground hover:text-foreground" onClick={() => setPhoneDialogOpen(true)} data-testid="open-change-phone">
                   <Phone className="mr-1 h-4 w-4" />
@@ -1925,6 +1929,7 @@ export default function StudentDetailPage() {
         )}
       </motion.div>
 
+      {eventsError && <div role="alert" className="rounded-lg border p-4 text-sm">Class history is unavailable, not empty. <Button variant="outline" size="sm" onClick={() => reloadEvents()}>Retry</Button></div>}
       <Dialog open={certificateMenuOpen} onOpenChange={setCertificateMenuOpen}>
         <DialogContent className="sm:max-w-md">
           <DialogHeader>

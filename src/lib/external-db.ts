@@ -416,3 +416,33 @@ export async function deleteStudent(id: number): Promise<void> {
   const db = await getPool()
   await db.execute('DELETE FROM student WHERE student_id = ?', [id])
 }
+
+/** Hold the roster row while profile details and their local mirror are saved. */
+export async function editStudentProfile<T>(id: number, operation: (
+  current: StudentRecord,
+  save: (fields: import('./student-profile-fields').StudentProfileFields) => Promise<void>,
+) => Promise<T>): Promise<T> {
+  const connection = await (await getPool()).getConnection()
+  try {
+    await connection.beginTransaction()
+    const [rows] = await connection.execute<mysql.RowDataPacket[]>(
+      `SELECT student_id, full_name, permit_number, full_address, city, postal_code,
+       phone_number, email, contract_number, dob, status, user_defined_contract_number
+       FROM student WHERE student_id = ? FOR UPDATE`, [id],
+    )
+    if (!rows[0]) throw new Error('Student not found')
+    const result = await operation(rows[0] as StudentRecord, async fields => {
+      await connection.execute(
+        `UPDATE student SET full_name=?, permit_number=?, full_address=?, city=?, postal_code=?,
+         dob=?, email=?, status=?, user_defined_contract_number=? WHERE student_id=?`,
+        [fields.full_name, fields.permit_number, fields.full_address, fields.city, fields.postal_code,
+          fields.dob || null, fields.email, fields.status, fields.user_defined_contract_number, id],
+      )
+    })
+    await connection.commit()
+    return result
+  } catch (error) {
+    await connection.rollback()
+    throw error
+  } finally { connection.release() }
+}

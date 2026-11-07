@@ -5,6 +5,7 @@
  */
 
 import { prisma } from '@/lib/db'
+import { loadStudentCalendarHistory } from '@/lib/student-calendar-history'
 import {
   bookletRowsFromClasses,
   expandPracticalClasses,
@@ -14,8 +15,6 @@ import {
   type UnitSignOff,
   type UnitSignature,
 } from '@/lib/practical-classes'
-
-const BASE_URL = 'https://api.teamup.com'
 
 function last10(value: string): string {
   const digits = value.replace(/\D/g, '')
@@ -32,19 +31,7 @@ async function teamupPracticalEvents(phoneSuffix: string): Promise<PracticalBook
   const apiKey = process.env.TEAMUP_API_KEY || ''
   const calendarKey = process.env.TEAMUP_CALENDAR_KEY || ''
   if (!apiKey || !calendarKey || phoneSuffix.length < 7) return []
-  const today = new Date()
-  const startDate = new Date(today)
-  startDate.setMonth(startDate.getMonth() - 6)
-  const endDate = new Date(today)
-  endDate.setMonth(endDate.getMonth() + 3)
-  const formatDate = (date: Date) => date.toISOString().split('T')[0]
-  const url = `${BASE_URL}/${calendarKey}/events?startDate=${formatDate(startDate)}&endDate=${formatDate(endDate)}&query=${encodeURIComponent(phoneSuffix)}`
-  const response = await fetch(url, { headers: { 'Teamup-Token': apiKey }, cache: 'no-store' })
-  if (!response.ok) return []
-  const data = await response.json() as {
-    events?: Array<{ id?: string; title?: string; start_dt?: string; end_dt?: string; notes?: string; subcalendar_ids?: number[] }>
-  }
-  const events = data.events || []
+  const events = await loadStudentCalendarHistory({ phone: phoneSuffix })
   return events
     .filter(event => event.id && event.start_dt && event.end_dt && isTruckPracticalTitle(event.title))
     .map(event => ({
