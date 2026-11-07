@@ -9,15 +9,15 @@ export function profileRevision(student: StudentRecord, local: { id: string; upd
     fields: profileFields(student as unknown as Record<string, unknown>), local: local ? { id: local.id, updatedAt: local.updatedAt } : null })).digest('hex')
 }
 
-export async function loadEditableProfile(id: number) {
-  const student = await getStudentById(id)
+export async function loadEditableProfile(id: number, getStudent = getStudentById) {
+  const student = await getStudent(id)
   if (!student) return null
   const local = await findBestLocalStudent({ phone: student.phone_number, name: student.full_name })
   const digits = (student.phone_number || '').replace(/\D/g, '').slice(-10)
   const member = digits.length === 10 ? await prisma.groupMember.findFirst({
     where: { phone: { contains: digits } }, include: { contact: true },
   }) : null
-  return { fields: { ...profileFields(student as unknown as Record<string, unknown>), email: local?.email ?? student.email ?? '' },
+  return { fields: { ...profileFields(student as unknown as Record<string, unknown>), apartment: local?.apartment ?? '', email: local?.email ?? student.email ?? '' },
     phone: student.phone_number, contractNumber: student.contract_number, revision: profileRevision(student, local),
     chat: member ? { groupId: member.groupId, contactId: member.contactId, name: member.contact?.name || member.contact?.pushName || '' } : null }
 }
@@ -34,7 +34,7 @@ export async function saveEditableProfile(id: number, input: unknown, revision: 
     }
     const mirror = {
       name: fields.full_name, email: fields.email || null, licenceNumber: fields.permit_number || null,
-      address: fields.full_address || null, municipality: fields.city || null, postalCode: fields.postal_code || null,
+      address: fields.full_address || null, apartment: fields.apartment || null, municipality: fields.city || null, postalCode: fields.postal_code || null,
     }
     await prisma.$transaction(async tx => {
       if (local) {
@@ -46,7 +46,7 @@ export async function saveEditableProfile(id: number, input: unknown, revision: 
         key: `student-profile-edit:${id}:${randomUUID()}`,
         value: JSON.stringify({ studentId: id, actor, at: new Date().toISOString(), before: student,
           localBefore: local ? { id: local.id, name: local.name, email: local.email, licenceNumber: local.licenceNumber,
-            address: local.address, municipality: local.municipality, postalCode: local.postalCode } : null,
+            address: local.address, apartment: local.apartment, municipality: local.municipality, postalCode: local.postalCode } : null,
           after: fields }),
       } })
       await save(fields)

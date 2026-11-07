@@ -27,6 +27,8 @@ after(async () => { await prisma?.$disconnect() })
 
 test('profile validates all fields without accepting attendance, phone or financial edits', () => {
   assert.equal(validateProfileFields({ ...fields(), email: ' amira@example.com ' }).email, 'amira@example.com')
+  assert.equal(validateProfileFields({ ...fields(), apartment: ' Suite 205 ' }).apartment, 'Suite 205')
+  assert.throws(() => validateProfileFields({ ...fields(), apartment: 'x'.repeat(256) }))
   for (const patch of [{ full_name: '' }, { email: 'invalid' }, { dob: '2026-02-30' }, { dob: '2000-04-09extra' },
     { user_defined_contract_number: 2.5 }, { phone_number: '15145559999' }, { sortie5Date: '2026-05-02' }, { balance: 0 }]) {
     assert.throws(() => validateProfileFields({ ...fields(), ...patch }))
@@ -43,15 +45,18 @@ test('profile write requires sign in, same origin and a staff session', async ()
 })
 
 test('saving mirrors core details, audits changes and preserves class dates and phone', async () => {
-  const local = await prisma.student.create({ data: { name: student.full_name, phone: student.phone_number, licenceNumber: 'A123', sortie5Date: '2026-05-02' } })
+  const local = await prisma.student.create({ data: { name: student.full_name, phone: student.phone_number, licenceNumber: 'A123', apartment: 'Apt 4', sortie5Date: '2026-05-02' } })
+  assert.equal((await service.loadEditableProfile(42, async () => student))?.fields.apartment, 'Apt 4')
   let saved: StudentProfileFields | null = null
   const roster: typeof editStudentProfile = async (_id, operation) => operation(student, async next => { saved = next })
-  const next = { ...fields(), full_name: 'Amira Ali Bennett', email: 'amira@example.com', full_address: '18 Cedar Road', user_defined_contract_number: 4321 }
+  const next = { ...fields(), full_name: 'Amira Ali Bennett', email: 'amira@example.com', full_address: '18 Cedar Road', apartment: 'Suite 205', user_defined_contract_number: 4321 }
   const revision = service.profileRevision(student, local)
   await service.saveEditableProfile(42, next, revision, 'Synthetic staff', roster)
   assert.deepEqual(saved, next)
   const updated = await prisma.student.findUniqueOrThrow({ where: { id: local.id } })
   assert.equal(updated.email, next.email); assert.equal(updated.name, next.full_name)
+  assert.equal(updated.apartment, 'Suite 205')
+  assert.equal((await service.loadEditableProfile(42, async () => student))?.fields.apartment, 'Suite 205')
   assert.equal(updated.sortie5Date, '2026-05-02'); assert.equal(updated.phone, student.phone_number)
   assert.equal(await prisma.appPreference.count({ where: { key: { startsWith: 'student-profile-edit:42:' } } }), 1)
   await assert.rejects(service.saveEditableProfile(42, next, revision, 'Staff', roster), /Profile changed/)
@@ -59,6 +64,8 @@ test('saving mirrors core details, audits changes and preserves class dates and 
   await assert.rejects(service.saveEditableProfile(42, { ...next, email: 'wrong@example.com' }, service.profileRevision(student, updated), 'Staff', fail), /Roster unavailable/)
   assert.equal((await prisma.student.findUniqueOrThrow({ where: { id: local.id } })).email, next.email)
   assert.equal(await prisma.appPreference.count({ where: { key: { startsWith: 'student-profile-edit:42:' } } }), 1)
+  await service.saveEditableProfile(42, { ...next, apartment: '' }, service.profileRevision(student, updated), 'Staff', roster)
+  assert.equal((await prisma.student.findUniqueOrThrow({ where: { id: local.id } })).apartment, null)
 })
 
 test('marking a class absent saves false instead of erasing its attendance', async () => {

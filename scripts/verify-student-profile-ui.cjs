@@ -9,8 +9,32 @@ async function main() {
   try {
     await fs.mkdir('output/student-profile-ui', { recursive: true })
     const page = await browser.newPage()
+    // Google-shaped stub exercises modal selection without external API requests.
+    await page.evaluateOnNewDocument(() => {
+      window.google = { maps: { places: {
+        Autocomplete: class {
+          constructor(input) {
+            this.input = input
+            this.dropdown = document.createElement('div')
+            this.dropdown.className = 'pac-container'
+            Object.assign(this.dropdown.style, { position: 'fixed', top: '120px', left: '40px', zIndex: '1000', display: 'none' })
+            const suggestion = document.createElement('button')
+            suggestion.type = 'button'; suggestion.className = 'pac-item'; suggestion.textContent = '18 Cedar Road, Laval'
+            suggestion.addEventListener('mousedown', event => { event.preventDefault(); this.listener?.(); this.dropdown.style.display = 'none' })
+            this.dropdown.append(suggestion); document.body.append(this.dropdown)
+            input.addEventListener('input', () => { this.dropdown.style.display = 'block' })
+          }
+          addListener(_name, listener) { this.listener = listener; return { remove: () => { this.listener = null } } }
+          unbindAll() { this.dropdown.remove() }
+          getPlace() { return { address_components: [
+            ['street_number', '18'], ['route', 'Cedar Road'], ['locality', 'Laval'], ['postal_code', 'H7N 1A1'],
+          ].map(([type, name]) => ({ types: [type], long_name: name, short_name: name })) } }
+        },
+        PlacesService: class {}, PlacesServiceStatus: { OK: 'OK' },
+      } } }
+    })
     const student = { student_id: 42, full_name: 'Amira Bennett', phone_number: '15145550147', permit_number: 'A123',
-      full_address: '12 Cedar Road', city: 'Montreal', postal_code: 'H3N1S2', email: 'amira@example.com', dob: '2000-04-09', status: 'new', contract_number: 2100, user_defined_contract_number: null }
+      full_address: '12 Cedar Road', apartment: 'Apt 4', city: 'Montreal', postal_code: 'H3N1S2', email: 'amira@example.com', dob: '2000-04-09', status: 'new', contract_number: 2100, user_defined_contract_number: null }
     const coreFields = Object.fromEntries(Object.entries(student).filter(([key]) => !['student_id', 'phone_number', 'contract_number'].includes(key)))
     let failSave = true
     let phoneStatus = 'not_registered', phoneSaves = 0
@@ -79,6 +103,15 @@ async function main() {
     await page.screenshot({ path: 'output/student-profile-ui/desktop.png' })
     await page.$eval('#profile-full_address', e => { e.focus(); e.select() })
     await page.type('#profile-full_address', '18 Cedar Road')
+    await page.keyboard.press('Enter')
+    assert.equal(writes.length, 0, 'Choosing an address must not submit the profile')
+    assert.equal(await page.$eval('#profile-apartment', e => e.value), 'Apt 4')
+    await page.click('.pac-item')
+    await page.waitForFunction(() => document.querySelector('#profile-city')?.value === 'Laval')
+    assert.equal(await page.$eval('#profile-postal_code', e => e.value), 'H7N 1A1')
+    assert.equal(await page.$eval('#profile-apartment', e => e.value), 'Apt 4')
+    await page.$eval('#profile-apartment', e => { e.focus(); e.select() })
+    await page.type('#profile-apartment', 'Suite 205')
     await page.$eval('#profile-chat-name', e => { e.focus(); e.select() })
     await page.type('#profile-chat-name', 'Amira B')
     await click('Save chat name')
@@ -129,6 +162,9 @@ async function main() {
     await page.waitForFunction(() => !document.querySelector('[role="dialog"]'))
     assert.equal(writes.length, 2)
     assert.equal(writes[1].fields.full_address, '18 Cedar Road')
+    assert.equal(writes[1].fields.apartment, 'Suite 205')
+    assert.equal(writes[1].fields.city, 'Laval')
+    assert.equal(writes[1].fields.postal_code, 'H7N 1A1')
     assert.equal(writes[1].fields.phone_number, undefined)
     assert.equal(writes[1].fields.sortie5Date, undefined)
     assert.equal(writes[1].revision, 'synthetic-revision')

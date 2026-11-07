@@ -2,6 +2,11 @@
 @import "tw-animate-css";
 @import "./platform.css";
 
+/* Google suggestions are portaled outside the modal's DOM subtree. */
+.pac-container {
+  pointer-events: auto;
+}
+
 @custom-variant dark (&:is(.dark *));
 
 @theme inline {

@@ -9,11 +9,12 @@ import { Label } from '@/components/ui/label'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog'
 import { type StudentProfileFields, type ProfileTextField } from '@/lib/student-profile-fields'
 import { PhoneChangeHistory } from '@/components/PhoneChangeHistory'
+import { AddressAutocomplete } from '@/components/AddressAutocomplete'
 
 const fields: Array<{ key: ProfileTextField; label: string; type?: string }> = [
   { key: 'full_name', label: 'Full name' }, { key: 'email', label: 'Email', type: 'email' },
   { key: 'dob', label: 'Date of birth', type: 'date' }, { key: 'permit_number', label: 'Permit number' },
-  { key: 'full_address', label: 'Street address' }, { key: 'city', label: 'City' },
+  { key: 'full_address', label: 'Street address' }, { key: 'apartment', label: 'Address 2 / apartment / suite' }, { key: 'city', label: 'City' },
   { key: 'postal_code', label: 'Postal code' }, { key: 'status', label: 'Student status' },
 ]
 
@@ -86,7 +87,10 @@ export function StudentProfileEditor({ studentId, localStudentId, onChangePhone,
   return <>
     <Button variant="outline" className="gap-2 font-semibold" onClick={() => { setOpen(true); void load() }}><Pencil className="h-4 w-4" aria-hidden="true" />Edit profile</Button>
     <Dialog open={open} onOpenChange={value => { if (!saving && !chatSaving) setOpen(value) }}>
-      <DialogContent className="sm:max-w-2xl flex max-h-[90dvh] flex-col overflow-hidden p-0">
+      <DialogContent className="sm:max-w-2xl flex max-h-[90dvh] flex-col overflow-hidden p-0"
+        onInteractOutside={event => {
+          if (event.target instanceof Element && event.target.closest('.pac-container')) event.preventDefault()
+        }}>
         <DialogHeader className="shrink-0 px-6 pt-6">
           <DialogTitle>Edit student profile</DialogTitle>
           <DialogDescription>Personal details, WhatsApp name and phone number.</DialogDescription>
@@ -99,9 +103,14 @@ export function StudentProfileEditor({ studentId, localStudentId, onChangePhone,
               <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                 {fields.map(field => <div className="space-y-2" key={field.key}>
                   <Label htmlFor={`profile-${field.key}`}>{field.label}</Label>
+                  {field.key === 'full_address' ? <AddressAutocomplete id="profile-full_address" value={form.full_address} disabled={saving}
+                    onChange={value => setForm(current => current ? { ...current, full_address: value } : current)}
+                    onAddressSelect={address => setForm(current => current ? { ...current, full_address: address.street,
+                      city: address.city || current.city, postal_code: address.postalCode || current.postal_code } : current)} /> :
                   <Input id={`profile-${field.key}`} type={field.type || 'text'} maxLength={255} required={field.key === 'full_name'}
+                    autoComplete={field.key === 'apartment' ? 'address-line2' : undefined}
                     value={form[field.key]} disabled={saving}
-                    onChange={event => setForm({ ...form, [field.key]: event.target.value })} />
+                    onChange={event => setForm({ ...form, [field.key]: event.target.value })} />}
                 </div>)}
                 <div className="space-y-2">
                   <Label htmlFor="profile-contract">Contract number override</Label>
