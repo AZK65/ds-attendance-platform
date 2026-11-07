@@ -492,7 +492,7 @@ function InvoiceDocument({ data, logoSrc }: { data: InvoiceData; logoSrc: string
 
       data.paymentHistory ? React.createElement(View, { style: styles.paymentSection },
         React.createElement(Text, { style: styles.paymentTitle }, 'Payment history'),
-        data.paymentHistory.throughDate ? React.createElement(Text, { style: styles.paymentEmpty }, `Confirmed payments through ${formatPaymentDate(data.paymentHistory.throughDate)} (including this receipt when paid).`) : null,
+        data.paymentHistory.throughDate ? React.createElement(Text, { style: styles.paymentEmpty }, `Payments through ${formatPaymentDate(data.paymentHistory.throughDate)}`) : null,
         data.paymentHistory.payments.length === 0
           ? React.createElement(Text, { style: styles.paymentEmpty }, 'No payments yet')
           : React.createElement(View, null,
@@ -511,16 +511,15 @@ function InvoiceDocument({ data, logoSrc }: { data: InvoiceData; logoSrc: string
             ),
         React.createElement(View, { style: styles.paymentSummary },
           React.createElement(View, { style: [styles.paymentSummaryRow, styles.paymentSummaryFirst] },
-            React.createElement(Text, { style: styles.totalLabel }, 'Paid through receipt date:'),
+            React.createElement(Text, { style: styles.totalLabel }, 'Total paid:'),
             React.createElement(Text, { style: styles.totalValue }, formatCurrency(data.paymentHistory.totalPaid)),
           ),
           printedRemainingBalance(data.remainingBalance) != null
             ? React.createElement(View, { style: styles.paymentSummaryRow },
-                React.createElement(Text, { style: { flex: 1, textAlign: 'right', paddingRight: 15, color: BRAND.red, fontSize: 11, fontWeight: 'bold' } }, data.balanceNeedsReview && (data.remainingBalance ?? 0) >= 0 ? 'Recorded balance:' : (data.remainingBalance ?? 0) < 0 ? 'Current account credit:' : 'Current account balance:'),
+                React.createElement(Text, { style: { flex: 1, textAlign: 'right', paddingRight: 15, color: BRAND.red, fontSize: 11, fontWeight: 'bold' } }, (data.remainingBalance ?? 0) < 0 ? 'Account credit:' : 'Remaining balance:'),
                 React.createElement(Text, { style: { width: 100, textAlign: 'right', color: BRAND.red, fontSize: 11, fontWeight: 'bold' } }, formatCurrency(Math.abs(data.remainingBalance ?? 0))),
               )
             : null,
-          data.balanceNote ? React.createElement(Text, { style: styles.paymentEmpty }, data.balanceNote) : null,
         ),
       ) : null,
 

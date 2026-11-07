@@ -1429,7 +1429,7 @@ function InvoicePage() {
                           </div>
                           <div>
                             <p className="text-sm text-muted-foreground font-medium">
-                              {balanceData.needsReview ? 'Recorded balance before payment' : 'Account balance before payment'}
+                              Balance before payment
                             </p>
                             <p className={`text-3xl font-bold font-mono ${hasBalance ? 'text-amber-700 dark:text-amber-400' : 'text-green-700 dark:text-green-400'}`}>
                               ${Math.abs(effectiveBalance).toFixed(2)}{effectiveBalance < 0 ? ' credit' : ''}
@@ -1473,8 +1473,7 @@ function InvoicePage() {
                       </div>
                       <div className="mt-4 border-t pt-4 text-sm space-y-2">
                         <div className="flex justify-between gap-4"><span className="text-muted-foreground">Past balance</span><span className="font-mono tabular-nums">${Math.abs(balanceData.netBalance).toFixed(2)}{balanceData.netBalance < 0 ? ' credit' : ''}</span></div>
-                        <div className="flex justify-between gap-4"><span className="text-muted-foreground">After this invoice is paid</span><span className="font-mono tabular-nums">${Math.abs(effectiveBalance - total).toFixed(2)}{effectiveBalance - total < 0 ? (balanceData.needsReview ? ' beyond recorded balance' : ' credit') : ''}</span></div>
-                        {balanceData.balanceNote && <p className="text-xs text-muted-foreground">{balanceData.balanceNote}</p>}
+                        <div className="flex justify-between gap-4"><span className="text-muted-foreground">After payment</span><span className="font-mono tabular-nums">${Math.abs(effectiveBalance - total).toFixed(2)}{effectiveBalance - total < 0 ? (balanceData.needsReview ? ' overpayment' : ' credit') : ''}</span></div>
                       </div>
                     </CardContent>
                   </Card>
@@ -1539,7 +1538,7 @@ function InvoicePage() {
                       <Clock className="h-5 w-5" />
                       Payments and invoices
                     </CardTitle>
-                    <CardDescription>{balanceData ? `$${balanceData.totalPaid.toFixed(2)} in confirmed payments · ${invoiceHistory.length} invoices` : 'Loading saved history'}</CardDescription>
+                    <CardDescription>{balanceData ? `$${balanceData.totalPaid.toFixed(2)} paid · ${invoiceHistory.length} invoices` : 'Loading payment history'}</CardDescription>
                   </CardHeader>
                   <CardContent>
                     {balanceError ? <p role="alert" className="text-sm">Payment history is unavailable. Please retry; no payments have been removed.</p>

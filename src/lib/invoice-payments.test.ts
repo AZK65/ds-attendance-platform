@@ -157,9 +157,9 @@ test('the invoice PDF lists dated payments and still prints the stored remaining
   assert.match(text, /\$250\.00/)
   assert.doesNotMatch(text, /\$750\.00/)
   assert.match(text, /\$100\.00/)
-  assert.match(text, /Paid through receipt date:/)
+  assert.match(text, /Total paid:/)
   assert.match(text, /\$500\.00/)
-  assert.equal((text.match(/Current account balance:/g) || []).length, 1)
+  assert.equal((text.match(/Remaining balance:/g) || []).length, 1)
   assert.match(text, /\$120\.00/)
   assert.doesNotMatch(text, /\bPAID\b/)
   assert.doesNotMatch(text, /2026-03-02/)
@@ -173,9 +173,9 @@ test('an invoice with no earlier payments says so and keeps the stored balance o
     paymentHistory: { payments: [], totalPaid: 0 },
   })
   assert.match(text, /No payments yet/)
-  assert.match(text, /Paid through receipt date:/)
+  assert.match(text, /Total paid:/)
   assert.match(text, /\$0\.00/)
-  assert.equal((text.match(/Current account balance:/g) || []).length, 1)
+  assert.equal((text.match(/Remaining balance:/g) || []).length, 1)
   assert.match(text, /\$120\.00/)
 })
 
@@ -186,18 +186,32 @@ test('a paid invoice prints one PAID marker and still one remaining balance', as
     paymentHistory: { payments: [], totalPaid: 0 },
   })
   assert.equal((text.match(/\bPAID\b/g) || []).length, 1)
-  assert.equal((text.match(/Current account balance:/g) || []).length, 1)
+  assert.equal((text.match(/Remaining balance:/g) || []).length, 1)
 })
 
-test('unreviewed history prints recorded balance and payments instead of hiding both', async () => {
+test('unreviewed history prints balance and payments without internal accounting notes', async () => {
   const text=await pdfText('recorded-balance.pdf',{
     ...invoiceBase,remainingBalance:600,balanceNeedsReview:true,
     balanceNote:'Based on the saved balance of $750.00, with later recorded course payments applied.',
-    paymentHistory:{totalPaid:400,payments:[{invoiceNumber:'A',date:'2026-09-01',amount:250,method:'cash',balanceAfter:null},{invoiceNumber:'B',date:'2026-11-07',amount:150,method:'card',balanceAfter:null}]},
+    notes:'Please keep this receipt.',
+    paymentHistory:{throughDate:'2026-11-07',totalPaid:400,payments:[{invoiceNumber:'A',date:'2026-09-01',amount:250,method:'cash',balanceAfter:null},{invoiceNumber:'B',date:'2026-11-07',amount:150,method:'card',balanceAfter:null}]},
   })
-  assert.match(text,/Recorded balance:/)
+  assert.match(text,/Remaining balance:/)
+  assert.match(text,/Payments through Nov 7, 2026/)
+  assert.match(text,/Total paid:/)
+  assert.match(text,/Please keep this receipt\./)
   assert.match(text,/\$600\.00/)
   assert.match(text,/\$400\.00/)
   assert.match(text,/Sep 1, 2026/)
-  assert.doesNotMatch(text,/not confirmed|No payments yet/)
+  assert.doesNotMatch(text,/not confirmed|No payments yet|Recorded balance|Based on the saved|\$750\.00|including this receipt/)
+})
+
+test('a credit remains clearly labelled with the shorter invoice wording', async () => {
+  const text = await pdfText('account-credit.pdf', {
+    ...invoiceBase, remainingBalance: -30,
+    paymentHistory: { payments: [], totalPaid: 0 },
+  })
+  assert.match(text, /Account credit:/)
+  assert.match(text, /\$30\.00/)
+  assert.doesNotMatch(text, /Remaining balance:|Current account/)
 })
