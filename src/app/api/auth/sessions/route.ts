@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/db'
-import { AUTH_COOKIE_OPTS } from '@/lib/auth-cookie'
+import { clearSessionCookies } from '@/lib/admin-token'
 import { describeDevice } from '@/lib/admin-session'
 
 // Devices are keyed by (userAgent + IP): the same browser on the same network
@@ -129,10 +129,7 @@ export async function DELETE(request: NextRequest) {
     const res = NextResponse.json({ success: true })
     // If we logged out the device we're currently on, clear its cookies so
     // this browser returns to /login immediately.
-    if (removedCurrent) {
-      res.cookies.set('auth-token', '', { ...AUTH_COOKIE_OPTS, maxAge: 0 })
-      res.cookies.set('sid', '', { ...AUTH_COOKIE_OPTS, maxAge: 0 })
-    }
+    if (removedCurrent) clearSessionCookies(res)
     return res
   } catch (e) {
     console.error('[auth/sessions] revoke error:', e)

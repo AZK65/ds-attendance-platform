@@ -5,6 +5,7 @@ import { findBestLocalStudent } from '@/lib/local-student-lookup'
 import { parseExternalStudentId, resolveExternalStudentId } from '@/lib/invoice-student-id'
 import { namesEqual, phoneLast10 } from '@/lib/student-match'
 import { BillingReviewRequired, prepareInvoiceBilling } from '@/lib/invoice-billing'
+import { resolveStaffSession } from '@/lib/admin-auth'
 
 // POST - save invoice record and increment invoice number
 export async function POST(request: NextRequest) {
@@ -54,10 +55,9 @@ export async function POST(request: NextRequest) {
       try {
         if (request.headers.get('sec-fetch-site') === 'cross-site' || (origin && new URL(origin).host !== (request.headers.get('host') || request.nextUrl.host))) throw new Error('origin')
       } catch { return NextResponse.json({ error: 'Open this invoice on the school platform.' }, { status: 403 }) }
-      const sid = request.cookies.get('sid')?.value
-      const session = request.cookies.get('auth-token')?.value === 'valid' && sid ? await prisma.adminSession.findUnique({ where: { id: sid } }) : null
+      const session = await resolveStaffSession(request)
       if (!session) return NextResponse.json({ error: 'Reload or sign in before confirming the historical total.' }, { status: 401 })
-      history = { chargesCents: h.chargesCents, fingerprint: h.fingerprint, confirmed: true, staffSessionId: session.id, staffName: session.label || 'Staff invoice confirmation' }
+      history = { chargesCents: h.chargesCents, fingerprint: h.fingerprint, confirmed: true, staffSessionId: session.sid, staffName: session.label || 'Staff invoice confirmation' }
     }
 
     // MySQL student id, when we can tell who this is. A caller-supplied id

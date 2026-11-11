@@ -1,18 +1,19 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/db'
+import { resolveStaffSession } from '@/lib/admin-auth'
 import { reconciliationPreview, applyReviewedBalance } from '@/lib/invoice-reconciliation'
 import { ledgerSummary } from '@/lib/invoice-ledger'
 import type { BillingReviewAccount } from '@/lib/billing-review-types'
 
 export const dynamic = 'force-dynamic'
 
-function unauthorized(request: NextRequest) {
-  return request.cookies.get('auth-token')?.value !== 'valid'
+async function unauthorized(request: NextRequest) {
+  return !(await resolveStaffSession(request))
 }
 const json = (body: unknown, status = 200) => NextResponse.json(body, { status, headers: { 'Cache-Control': 'no-store' } })
 
 export async function GET(request: NextRequest) {
-  if (unauthorized(request)) return json({ error: 'Sign in to review balances.' }, 401)
+  if (await unauthorized(request)) return json({ error: 'Sign in to review balances.' }, 401)
   try {
     const [rows, accounts] = await prisma.$transaction([
       prisma.invoice.findMany({ orderBy: { createdAt: 'asc' } }),
@@ -46,7 +47,7 @@ export async function GET(request: NextRequest) {
 }
 
 export async function POST(request: NextRequest) {
-  if (unauthorized(request)) return json({ error: 'Sign in to review balances.' }, 401)
+  if (await unauthorized(request)) return json({ error: 'Sign in to review balances.' }, 401)
   const origin = request.headers.get('origin')
   // Caddy preserves the public Host; Next's internal URL can use the container host.
   const requestHost = request.headers.get('host') || request.nextUrl.host
@@ -63,8 +64,7 @@ export async function POST(request: NextRequest) {
     return json({ error: 'Enter a verified total, your name and a review note, then confirm the receipts were checked.' }, 400)
   }
   try {
-    const sid = request.cookies.get('sid')?.value
-    const session = sid ? await prisma.adminSession.findUnique({ where: { id: sid } }) : null
+    const session = await resolveStaffSession(request)
     if (!session) return json({ error: 'Your staff session is missing or expired. Reload or sign in again before approving.' }, 401)
     const result = await prisma.$transaction(async tx => {
       const preview = reconciliationPreview(await tx.invoice.findMany()).find(row => row.identityKey === body.identityKey)
@@ -74,7 +74,7 @@ export async function POST(request: NextRequest) {
       return applyReviewedBalance(tx, {
         identityKey: preview.identityKey, invoiceIds: preview.invoiceIds, fingerprint: body.fingerprint,
         openingChargesCents: body.openingChargesCents, reviewNote: body.reviewNote.trim(), approved: true,
-        reviewedBy: body.reviewedBy.trim(), reviewedBySessionId: session.id,
+        reviewedBy: body.reviewedBy.trim(), reviewedBySessionId: session.sid,
       })
     }, { timeout: 15000 })
     return json({ success: true, summary: result })

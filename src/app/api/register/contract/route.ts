@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { Class1ContractError, renderStoredClass1Contract } from '@/lib/class1-contract-render'
 import type { Class1ContractLang } from '@/lib/class1-contract-pdf'
+import { resolveStaffSession } from '@/lib/admin-auth'
 
 // GET /api/register/contract?registrationId=...&lang=en|fr (default: both pages).
 // Admin-only — middleware treats /api/register as public, so we gate here.
@@ -8,7 +9,7 @@ import type { Class1ContractLang } from '@/lib/class1-contract-pdf'
 // not saved. Viewing or emailing a contract that was already signed draws
 // the stored signature images onto this layout.
 export async function GET(request: NextRequest) {
-  if (request.cookies.get('auth-token')?.value !== 'valid') {
+  if (!(await resolveStaffSession(request))) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
   const { searchParams } = new URL(request.url)

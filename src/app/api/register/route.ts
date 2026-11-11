@@ -8,6 +8,7 @@ import { registrationReceivedEmailHtml } from '@/lib/document-emails'
 import { rateLimit, clientIp, tooManyRequests } from '@/lib/rate-limit'
 import { verifyHuman, rejectBot } from '@/lib/bot-guard'
 import { makeRegistrationTermsSnapshot, REGISTRATION_TERMS_VERSION } from '@/lib/registration-terms'
+import { resolveStaffSession } from '@/lib/admin-auth'
 
 // POST /api/register — Public student registration
 export async function POST(request: NextRequest) {
@@ -24,7 +25,7 @@ export async function POST(request: NextRequest) {
     // Admin-submitted registrations (the iPad/kiosk truck flow) come from a
     // logged-in session and never carry a captcha token — skip the bot layers
     // for them, but keep them for anything from the public form.
-    const isAdmin = request.cookies.get('auth-token')?.value === 'valid'
+    const isAdmin = (await resolveStaffSession(request)) !== null
     if (!isAdmin) {
       const verdict = await verifyHuman(
         {

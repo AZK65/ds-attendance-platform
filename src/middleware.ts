@@ -1,4 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { resolveStaffSession } from '@/lib/admin-auth'
+import { applySessionCookies, clearSessionCookies, isInternalRequest } from '@/lib/admin-token'
+
+// Node.js runtime so this gate can read AdminSession. An Edge middleware can
+// verify an HMAC but cannot see a deleted session row, so logout and device
+// revoke would not end access. Next.js 16 still runs middleware.ts on Node
+// when `runtime` is `nodejs` (proxy.ts is the newer name for the same hook).
+export const runtime = 'nodejs'
 
 // Note: '/study' and '/api/lms' are public w.r.t. the ADMIN password — they
 // enforce their own student LMS session. '/api/lms/admin' is the exception and
@@ -40,7 +48,17 @@ function corsHeaders(origin: string | null): Record<string, string> {
   }
 }
 
-export function middleware(request: NextRequest) {
+function deny(request: NextRequest, pathname: string) {
+  const res = pathname.startsWith('/api/')
+    ? NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+    : NextResponse.redirect(new URL('/login', request.url))
+  if (request.cookies.get('auth-token') || request.cookies.get('sid')) {
+    clearSessionCookies(res)
+  }
+  return res
+}
+
+export async function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl
   const origin = request.headers.get('origin')
   const host = (request.headers.get('host') || '').toLowerCase()
@@ -99,43 +117,30 @@ export function middleware(request: NextRequest) {
     return NextResponse.next()
   }
 
-  // Allow internal server-side requests (from instrumentation.ts / scheduled processors)
-  if (request.headers.get('x-internal') === '1') {
-    const referer = request.headers.get('referer') || ''
-    const host = request.headers.get('host') || ''
-    // Only trust x-internal from localhost (server calling itself)
-    if (host.includes('localhost') || host.includes('127.0.0.1') || !referer) {
-      return NextResponse.next()
-    }
+  // Server-to-server calls (instrumentation cron, certificate regenerate,
+  // document bundles). The header value is INTERNAL_AUTH_SECRET. The old
+  // `x-internal: 1` check trusted a missing Referer, which any client can omit.
+  if (isInternalRequest(request)) {
+    return NextResponse.next()
   }
 
-  // Check for auth cookie
-  const authToken = request.cookies.get('auth-token')?.value
-  if (authToken === 'valid') {
+  const session = await resolveStaffSession(request)
+  if (session) {
     // Sliding session: re-stamp the cookies with a fresh 1-year expiry on
     // every authenticated request, so any device that's actually being used
-    // never expires. (The old fixed 7-day cookie logged everyone out weekly.)
+    // never expires. A legacy `auth-token=valid` cookie is replaced here with
+    // a signed token bound to the same sid.
     const res = NextResponse.next()
-    const oneYear = 60 * 60 * 24 * 365
-    const opts = { httpOnly: true, sameSite: 'lax' as const, path: '/', maxAge: oneYear }
-    res.cookies.set('auth-token', 'valid', opts)
-    const sid = request.cookies.get('sid')?.value
-    if (sid) res.cookies.set('sid', sid, opts)
+    applySessionCookies(res, session.sid)
     return res
   }
 
-  // Not authenticated - redirect pages to /login, return 401 for API routes
-  if (pathname.startsWith('/api/')) {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-  }
-
-  const loginUrl = new URL('/login', request.url)
-  return NextResponse.redirect(loginUrl)
+  return deny(request, pathname)
 }
 
 export const config = {
-  // The LMS file-upload route is excluded: middleware buffers request bodies
-  // with a 10MB cap, which breaks larger PowerPoint/PDF uploads. That route
-  // does its own auth check instead (see the route handler).
+  // The LMS file-upload route and inbox media are excluded: middleware buffers
+  // request bodies with a 10MB cap, which breaks larger uploads. Those routes
+  // check the staff session themselves (see the route handlers).
   matcher: ['/((?!_next/static|_next/image|favicon.ico|api/lms/admin/upload|api/inbox/media).*)'],
 }

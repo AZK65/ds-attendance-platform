@@ -43,6 +43,13 @@ services:
       - ZOOM_CLIENT_SECRET=${ZOOM_CLIENT_SECRET}
       - ZOOM_WEBHOOK_SECRET_TOKEN=${ZOOM_WEBHOOK_SECRET_TOKEN:-}
       - AUTH_PASSWORD=${AUTH_PASSWORD}
+      # Signs the admin session cookie. Leave empty to sign with AUTH_PASSWORD
+      # instead (changing that password then logs every device out).
+      - ADMIN_SESSION_SECRET=${ADMIN_SESSION_SECRET:-}
+      # Shared secret for this container's own cron and document calls.
+      # Generate with: openssl rand -base64 32
+      # Jobs return 401 until this is set to at least 16 characters.
+      - INTERNAL_AUTH_SECRET=${INTERNAL_AUTH_SECRET:-}
       - OPENROUTER_API_KEY=${OPENROUTER_API_KEY}
       # Optional. Analytics account credits use OpenRouter GET /api/v1/credits,
       # which requires a management key. When unset, the page shows this

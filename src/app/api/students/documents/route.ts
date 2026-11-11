@@ -13,6 +13,7 @@ import { PAPER_EXAM_DIR } from '@/lib/paper-exam'
 import { findInvoicesForStudent } from '@/lib/invoice-lookup'
 import { invoiceBelongsToStudent } from '@/lib/invoice-match'
 import { findBestLocalStudent } from '@/lib/local-student-lookup'
+import { internalAuthHeaders } from '@/lib/admin-token'
 import { namesEqual, phoneLast10 } from '@/lib/student-match'
 import { resolveClass1 } from '@/lib/rsep1/access'
 import { Rsep1Error } from '@/lib/rsep1/errors'
@@ -267,7 +268,7 @@ export async function GET(request: NextRequest) {
         const response = await fetch(`${internalBase}${path}`, {
           ...init,
           headers: {
-            'x-internal': '1',
+            ...internalAuthHeaders(),
             ...(authCookie ? { Cookie: authCookie } : {}),
             ...(init?.headers || {}),
           },

@@ -1,18 +1,19 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getWhatsAppState, sendMediaToChat } from '@/lib/whatsapp/client'
 import { prisma } from '@/lib/db'
+import { resolveStaffSession } from '@/lib/admin-auth'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
 
 const MAX_BYTES = 25 * 1024 * 1024
 
-function isAdmin(request: NextRequest): boolean {
-  return request.cookies.get('auth-token')?.value === 'valid'
+async function isAdmin(request: NextRequest): Promise<boolean> {
+  return (await resolveStaffSession(request)) !== null
 }
 
 export async function POST(request: NextRequest) {
-  if (!isAdmin(request)) {
+  if (!(await isAdmin(request))) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
 

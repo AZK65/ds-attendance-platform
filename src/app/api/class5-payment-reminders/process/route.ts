@@ -2,7 +2,8 @@ import { NextResponse } from 'next/server'
 import { runClass5PaymentReminders } from '@/lib/class5-payment-reminder-job'
 
 // Called on an interval from instrumentation.ts. Middleware only accepts
-// x-internal from this server, so a public caller cannot start a send.
+// the INTERNAL_AUTH_SECRET header from this server, so a public caller
+// cannot start a send.
 export async function POST() {
   try {
     const result = await runClass5PaymentReminders()

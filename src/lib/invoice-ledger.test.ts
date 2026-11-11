@@ -54,14 +54,16 @@ test('integer-cent arithmetic and explicit invoice roles',()=>{
 test('balance review requires authentication, same origin and a registered staff session',async()=>{
   assert.equal((await reviewRoutes.GET(reviewReq(undefined,''))).status,401)
   assert.equal((await reviewRoutes.POST(reviewReq({},''))).status,401)
+  const body={identityKey:'student:901',fingerprint:'test',openingChargesCents:100000,approved:true,reviewNote:'Checked signed contract',reviewedBy:'Test staff'}
+  assert.equal((await reviewRoutes.POST(reviewReq(body))).status,401)
+  assert.equal((await reviewRoutes.POST(reviewReq(body,'auth-token=valid'))).status,401)
+  assert.equal((await reviewRoutes.POST(reviewReq(body,'auth-token=valid; sid=missing-session'))).status,401)
+  await prisma.adminSession.create({data:{id:'review-test',label:'Synthetic review test'}})
   for(const origin of ['https://other.example','null','invalid']) {
     assert.equal((await reviewRoutes.POST(reviewReq({},undefined,{origin}))).status,403)
   }
   assert.equal((await reviewRoutes.POST(reviewReq({},undefined,{'sec-fetch-site':'cross-site'}))).status,403)
   assert.equal((await reviewRoutes.POST(reviewReq({},undefined,{origin:'https://qazidrivingschool.ca',host:'qazidrivingschool.ca'}))).status,400)
-  const body={identityKey:'student:901',fingerprint:'test',openingChargesCents:100000,approved:true,reviewNote:'Checked signed contract',reviewedBy:'Test staff'}
-  assert.equal((await reviewRoutes.POST(reviewReq(body))).status,401)
-  await prisma.adminSession.create({data:{id:'review-test',label:'Synthetic review test'}})
   for(const change of [{openingChargesCents:-1},{openingChargesCents:1.1},{openingChargesCents:2147483648},{approved:false},{reviewNote:'short'},{reviewedBy:''}]) {
     assert.equal((await reviewRoutes.POST(reviewReq({...body,...change}))).status,400)
   }

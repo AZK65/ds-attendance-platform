@@ -21,7 +21,7 @@ export async function GET(
   request: NextRequest,
   { params }: { params: Promise<{ studentId: string }> },
 ) {
-  const denied = staffUnauthorized(request)
+  const denied = await staffUnauthorized(request)
   if (denied) return denied
   try {
     const { studentId } = await params
@@ -36,7 +36,7 @@ export async function POST(
   request: NextRequest,
   { params }: { params: Promise<{ studentId: string }> },
 ) {
-  const denied = staffUnauthorized(request)
+  const denied = await staffUnauthorized(request)
   if (denied) return denied
   try {
     const { studentId } = await params
@@ -69,7 +69,7 @@ export async function PATCH(
   request: NextRequest,
   { params }: { params: Promise<{ studentId: string }> },
 ) {
-  const denied = staffUnauthorized(request)
+  const denied = await staffUnauthorized(request)
   if (denied) return denied
   try {
     const { studentId } = await params
@@ -92,7 +92,7 @@ export async function DELETE(
   request: NextRequest,
   { params }: { params: Promise<{ studentId: string }> },
 ) {
-  const denied = staffUnauthorized(request)
+  const denied = await staffUnauthorized(request)
   if (denied) return denied
   try {
     const { studentId } = await params
