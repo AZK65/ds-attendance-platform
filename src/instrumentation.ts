@@ -8,6 +8,8 @@ export async function register() {
   if (process.env.QAZI_DISABLE_BACKGROUND_JOBS === '1') return
   // Only run on the server (Node.js runtime), not during build or in edge runtime
   if (process.env.NEXT_RUNTIME === 'nodejs') {
+    const { internalAuthHeaders, warnIfInternalSecretMissing } = await import('@/lib/admin-token')
+    warnIfInternalSecretMissing()
     const BASE_URL = `http://localhost:${process.env.PORT || 3000}`
 
     const shutdownGlobal = globalThis as unknown as { qaziShutdownHandlersInstalled?: boolean }
@@ -48,7 +50,7 @@ export async function register() {
       try {
         const res = await fetch(`${BASE_URL}/api/scheduled-messages/process`, {
           method: 'POST',
-          headers: { 'x-internal': '1' },
+          headers: internalAuthHeaders(),
         })
         if (res.ok) {
           const data = await res.json()
@@ -71,7 +73,7 @@ export async function register() {
       try {
         const res = await fetch(`${BASE_URL}/api/scheduling/poll-changes`, {
           method: 'POST',
-          headers: { 'x-internal': '1' },
+          headers: internalAuthHeaders(),
         })
         if (res.ok) {
           const data = await res.json()
@@ -95,7 +97,7 @@ export async function register() {
       try {
         const res = await fetch(`${BASE_URL}/api/zoom/reconcile-live`, {
           method: 'POST',
-          headers: { 'x-internal': '1' },
+          headers: internalAuthHeaders(),
         })
         if (res.ok) {
           const data = await res.json()
@@ -118,7 +120,7 @@ export async function register() {
       try {
         const res = await fetch(`${BASE_URL}/api/class5-payment-reminders/process`, {
           method: 'POST',
-          headers: { 'x-internal': '1' },
+          headers: internalAuthHeaders(),
         })
         if (res.ok) {
           const data = await res.json()
@@ -141,7 +143,7 @@ export async function register() {
       try {
         const res = await fetch(`${BASE_URL}/api/class5-payment-reminders/email/process`, {
           method: 'POST',
-          headers: { 'x-internal': '1' },
+          headers: internalAuthHeaders(),
         })
         if (res.ok) {
           const data = await res.json()
@@ -178,7 +180,7 @@ export async function register() {
       try {
         await fetch(`${BASE_URL}/api/whatsapp/connect`, {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json', 'x-internal': '1' },
+          headers: internalAuthHeaders({ 'Content-Type': 'application/json' }),
           body: JSON.stringify({}),
         })
         console.log('[AutoConnect] WhatsApp connect triggered')

@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getInboxMessageMedia } from '@/lib/whatsapp/client'
+import { resolveStaffSession } from '@/lib/admin-auth'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -17,8 +18,8 @@ const EXTENSIONS: Record<string, string> = {
   'application/pdf': 'pdf',
 }
 
-function isAdmin(request: NextRequest): boolean {
-  return request.cookies.get('auth-token')?.value === 'valid'
+async function isAdmin(request: NextRequest): Promise<boolean> {
+  return (await resolveStaffSession(request)) !== null
 }
 
 function safeFilename(value: string | undefined, mimetype: string): string {
@@ -42,7 +43,7 @@ export async function GET(
   request: NextRequest,
   { params }: { params: Promise<{ messageId: string }> }
 ) {
-  if (!isAdmin(request)) {
+  if (!(await isAdmin(request))) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
 

@@ -15,10 +15,9 @@ export async function GET(
   { params }: { params: Promise<{ studentId: string; fileId: string }> },
 ) {
   // Cookie is checked here on purpose. A path ending in .png/.jpg skips
-  // middleware, and so does x-internal with no Referer. This route never
-  // serves a file without the staff cookie, and it never accepts an id
-  // that contains a dot.
-  const denied = staffUnauthorized(request)
+  // middleware. This route never serves a file without a verified staff
+  // session, and it never accepts an id that contains a dot.
+  const denied = await staffUnauthorized(request)
   if (denied) return denied
   try {
     const { studentId, fileId } = await params

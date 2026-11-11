@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/db'
+import { resolveStaffSession } from '@/lib/admin-auth'
 
 // POST /api/register/sign-rep — admin counter-signs a truck registration's
 // SAAQ Class 1 service contract. Stores the signature image, the rep's
@@ -10,7 +11,7 @@ import { prisma } from '@/lib/db'
 // Admin-only — middleware treats /api/register as public for the form
 // submission endpoint, so we gate the cookie server-side here.
 export async function POST(request: NextRequest) {
-  if (request.cookies.get('auth-token')?.value !== 'valid') {
+  if (!(await resolveStaffSession(request))) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
   try {

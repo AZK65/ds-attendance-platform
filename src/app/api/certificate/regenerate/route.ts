@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/db'
 import { promises as fs } from 'fs'
 import path from 'path'
+import { internalAuthHeaders } from '@/lib/admin-token'
 
 const TEMPLATE_PATH = path.join(process.cwd(), 'data', 'templates', 'blank-certificate.pdf')
 
@@ -124,20 +125,17 @@ export async function POST(request: NextRequest) {
     }
 
     // Call the existing generate endpoint internally via localhost so we
-    // don't bounce through the public hostname / reverse proxy. Use the
-    // x-internal header that middleware honours to skip auth (only valid
-    // when host is localhost). Previously we built the URL from
-    // request.url which resolves to the public domain, so the fetch had
-    // to leave the container, hit Caddy, and come back — which failed
-    // with "fetch failed" inside Docker.
+    // don't bounce through the public hostname / reverse proxy. The
+    // INTERNAL_AUTH_SECRET header is what middleware accepts for these
+    // server-to-server calls. Previously we built the URL from request.url
+    // which resolves to the public domain, so the fetch had to leave the
+    // container, hit Caddy, and come back — which failed with "fetch failed"
+    // inside Docker.
     const port = process.env.PORT || '3000'
     const generateUrl = `http://localhost:${port}/api/certificate/generate`
     const generateRes = await fetch(generateUrl, {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'x-internal': '1',
-      },
+      headers: internalAuthHeaders({ 'Content-Type': 'application/json' }),
       body: JSON.stringify(generatePayload),
     })
 

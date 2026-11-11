@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/db'
-import { AUTH_COOKIE_OPTS } from '@/lib/auth-cookie'
+import { adminSessionSecret, applySessionCookies, clearSessionCookies } from '@/lib/admin-token'
+import { resolveStaffSession } from '@/lib/admin-auth'
 import { clientIp, getOrCreateSession } from '@/lib/admin-session'
 
 // GET /api/auth — lightweight check for whether the current request has
@@ -8,8 +9,10 @@ import { clientIp, getOrCreateSession } from '@/lib/admin-session'
 // can't read it directly; this endpoint exists so public pages (like
 // /register) can decide whether to show admin-only affordances.
 export async function GET(request: NextRequest) {
-  const token = request.cookies.get('auth-token')?.value
-  return NextResponse.json({ authed: token === 'valid' })
+  const session = await resolveStaffSession(request)
+  const response = NextResponse.json({ authed: !!session })
+  if (session) applySessionCookies(response, session.sid)
+  return response
 }
 
 export async function POST(request: NextRequest) {
@@ -22,20 +25,27 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Wrong password' }, { status: 401 })
     }
 
-    const response = NextResponse.json({ success: true })
-    response.cookies.set('auth-token', 'valid', AUTH_COOKIE_OPTS)
+    if (!adminSessionSecret()) {
+      console.error('[auth] No ADMIN_SESSION_SECRET or AUTH_PASSWORD is configured')
+      return NextResponse.json({ error: 'Sign-in is not configured' }, { status: 500 })
+    }
 
     // Record this login as a device session so it shows up in Settings →
     // Devices and can be logged out remotely. Reuses an existing row for the
-    // same browser+IP (no duplicate entries). Best-effort — never block login
-    // if the session row can't be written.
+    // same browser+IP (no duplicate entries). Login does not succeed without
+    // a row: a cookie that is not tied to a session cannot be revoked.
+    let sid: string
     try {
-      const sid = await getOrCreateSession(request.headers.get('user-agent') || null, clientIp(request))
-      response.cookies.set('sid', sid, AUTH_COOKIE_OPTS)
+      sid = await getOrCreateSession(request.headers.get('user-agent') || null, clientIp(request))
     } catch (e) {
       console.error('[auth] Failed to create session row:', e)
+      return NextResponse.json({ error: 'Could not start a session' }, { status: 500 })
     }
 
+    const response = NextResponse.json({ success: true })
+    if (!applySessionCookies(response, sid)) {
+      return NextResponse.json({ error: 'Sign-in is not configured' }, { status: 500 })
+    }
     return response
   } catch {
     return NextResponse.json({ error: 'Invalid request' }, { status: 400 })
@@ -46,6 +56,7 @@ export async function DELETE(request: NextRequest) {
   const response = NextResponse.json({ success: true })
 
   // Delete this device's session row so it disappears from the device list
+  // and the next request is rejected.
   const sid = request.cookies.get('sid')?.value
   if (sid) {
     try {
@@ -55,7 +66,6 @@ export async function DELETE(request: NextRequest) {
     }
   }
 
-  response.cookies.set('auth-token', '', { ...AUTH_COOKIE_OPTS, maxAge: 0 })
-  response.cookies.set('sid', '', { ...AUTH_COOKIE_OPTS, maxAge: 0 })
+  clearSessionCookies(response)
   return response
 }

@@ -40,8 +40,11 @@ test('profile write requires sign in, same origin and a staff session', async ()
   const ctx = { params: Promise.resolve({ studentId: '42' }) }
   const request = (headers = {}) => new NextRequest('https://school.test/api/students/42/edit', { method: 'PATCH', headers: { 'Content-Type': 'application/json', ...headers }, body: JSON.stringify({ fields: fields(), revision: 'x' }) })
   assert.equal((await route.PATCH(request(), ctx)).status, 401)
-  assert.equal((await route.PATCH(request({ cookie: 'auth-token=valid', origin: 'https://bad.test' }), ctx)).status, 403)
+  assert.equal((await route.PATCH(request({ cookie: 'auth-token=valid', origin: 'https://bad.test' }), ctx)).status, 401)
   assert.equal((await route.PATCH(request({ cookie: 'auth-token=valid' }), ctx)).status, 401)
+  await prisma.adminSession.create({ data: { id: 'profile-staff', label: 'Profile test' } })
+  assert.equal((await route.PATCH(request({ cookie: 'auth-token=valid; sid=profile-staff', origin: 'https://bad.test' }), ctx)).status, 403)
+  assert.equal((await route.PATCH(request({ cookie: 'auth-token=not-a-token; sid=profile-staff' }), ctx)).status, 401)
 })
 
 test('saving mirrors core details, audits changes and preserves class dates and phone', async () => {

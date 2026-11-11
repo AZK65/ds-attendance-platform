@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/db'
+import { resolveStaffSession } from '@/lib/admin-auth'
 import { emailLogoAttachment } from '@/lib/brand-assets'
 import { contractEmailHtml } from '@/lib/document-emails'
 
@@ -30,7 +31,7 @@ async function sendEmailViaResend(apiKey: string, payload: {
 }
 
 export async function POST(request: NextRequest) {
-  if (request.cookies.get('auth-token')?.value !== 'valid') {
+  if (!(await resolveStaffSession(request))) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
   try {

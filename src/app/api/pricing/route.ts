@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/db'
+import { resolveStaffSession } from '@/lib/admin-auth'
 import {
   getPricing,
   DEFAULT_CAR_SCHEDULE, DEFAULT_TRUCK_SCHEDULE, DEFAULT_TRUCK_NOTE,
@@ -39,7 +40,7 @@ function cleanDeposit(input: unknown, fallback: number): number {
 // works cross-origin), so we enforce auth HERE: only a request carrying the
 // admin session cookie may write pricing.
 export async function PUT(request: NextRequest) {
-  if (request.cookies.get('auth-token')?.value !== 'valid') {
+  if (!(await resolveStaffSession(request))) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
 
