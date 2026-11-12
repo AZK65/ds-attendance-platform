@@ -26,6 +26,7 @@ import { motion, AnimatePresence } from 'motion/react'
 import { StudentSearchAutocomplete, type StudentResult, type DBStudent, type WhatsAppContact } from '@/components/StudentSearchAutocomplete'
 import { AddressAutocomplete } from '@/components/AddressAutocomplete'
 import { PDFDocument } from 'pdf-lib'
+import { computeInvoiceTotals } from '@/lib/invoice-totals'
 
 // Print helper: triplicates PDF pages for 3 copies and prints in B&W
 async function printPdf3Copies(pdfBlobUrl: string) {
@@ -501,48 +502,10 @@ function InvoicePage() {
   const qstRate = settings?.defaultQstRate ?? 9.975
 
   // Computed totals — handles tax-inclusive and tax-exclusive items
-  const { subtotal, gstAmount, qstAmount, total } = useMemo(() => {
-    const taxMultiplier = 1 + gstRate / 100 + qstRate / 100
-
-    let totalBeforeTax = 0
-    let totalGst = 0
-    let totalQst = 0
-    let totalAmount = 0
-
-    for (const item of lineItems) {
-      const lineTotal = Math.round(item.quantity * item.unitPrice * 100) / 100
-
-      if (taxesEnabled && item.taxInclusive) {
-        // Tax-inclusive: price already contains taxes, extract them
-        const beforeTax = lineTotal / taxMultiplier
-        const gst = beforeTax * gstRate / 100
-        const qst = beforeTax * qstRate / 100
-        totalBeforeTax += beforeTax
-        totalGst += gst
-        totalQst += qst
-        totalAmount += lineTotal // total stays the same as entered
-      } else if (taxesEnabled) {
-        // Tax-exclusive: add taxes on top
-        const gst = lineTotal * gstRate / 100
-        const qst = lineTotal * qstRate / 100
-        totalBeforeTax += lineTotal
-        totalGst += gst
-        totalQst += qst
-        totalAmount += lineTotal + gst + qst
-      } else {
-        // No taxes
-        totalBeforeTax += lineTotal
-        totalAmount += lineTotal
-      }
-    }
-
-    return {
-      subtotal: Math.round(totalBeforeTax * 100) / 100,
-      gstAmount: Math.round(totalGst * 100) / 100,
-      qstAmount: Math.round(totalQst * 100) / 100,
-      total: Math.round(totalAmount * 100) / 100,
-    }
-  }, [lineItems, taxesEnabled, gstRate, qstRate])
+  const { subtotal, gstAmount, qstAmount, total } = useMemo(
+    () => computeInvoiceTotals(lineItems, { taxesEnabled, gstRate, qstRate }),
+    [lineItems, taxesEnabled, gstRate, qstRate],
+  )
 
   // Auto-fill line items when vehicle type services load
   // Only auto-advance to review if there are NO packages to show
