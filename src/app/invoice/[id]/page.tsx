@@ -10,8 +10,10 @@ import { Badge } from '@/components/ui/badge'
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter,
 } from '@/components/ui/dialog'
+import { Checkbox } from '@/components/ui/checkbox'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
+import { computeInvoiceTotals } from '@/lib/invoice-totals'
 import {
   ArrowLeft, Download, Loader2, Mail, MessageCircle, Printer,
   CreditCard, Copy, ExternalLink, CheckCircle2, Banknote, Globe, Link2,
@@ -97,8 +99,25 @@ interface SettingsData {
   cloverConfigured: boolean
 }
 
+type EditableInvoiceLine = {
+  description: string
+  quantity: number
+  unitPrice: number
+  taxInclusive?: boolean
+}
+
 function formatCurrency(amount: number): string {
   return new Intl.NumberFormat('en-CA', { style: 'currency', currency: 'CAD' }).format(amount)
+}
+
+async function invoiceEditErrorMessage(res: Response): Promise<string> {
+  try {
+    const data = await res.json()
+    if (typeof data?.error === 'string' && data.error.trim()) return data.error
+  } catch {
+    // The body was not JSON; fall through to the status line.
+  }
+  return `Could not save invoice (${res.status})`
 }
 
 export default function InvoiceViewPage() {
@@ -122,9 +141,10 @@ export default function InvoiceViewPage() {
 
   // Edit dialog state
   const [showEditDialog, setShowEditDialog] = useState(false)
-  const [editLineItems, setEditLineItems] = useState<Array<{ description: string; quantity: number; unitPrice: number }>>([])
+  const [editLineItems, setEditLineItems] = useState<EditableInvoiceLine[]>([])
   const [editNotes, setEditNotes] = useState('')
   const [editSaving, setEditSaving] = useState(false)
+  const [editError, setEditError] = useState<string | null>(null)
 
   // Refund dialog state
   const [showRefundDialog, setShowRefundDialog] = useState(false)
@@ -402,6 +422,12 @@ export default function InvoiceViewPage() {
     )
   }
 
+  const editTotals = computeInvoiceTotals(editLineItems, {
+    taxesEnabled: settings?.taxesEnabled ?? true,
+    gstRate: settings?.defaultGstRate ?? 5,
+    qstRate: settings?.defaultQstRate ?? 9.975,
+  })
+
   const paymentMethodLabel = invoice.paymentMethod === 'cash' ? 'Cash' : invoice.paymentMethod === 'card' ? 'Credit/Debit' : invoice.paymentMethod === 'online' ? 'Online' : null
   const paymentMethodIcon = invoice.paymentMethod === 'cash' ? Banknote : invoice.paymentMethod === 'card' ? CreditCard : invoice.paymentMethod === 'online' ? Globe : null
   const PaymentIcon = paymentMethodIcon
@@ -485,9 +511,11 @@ export default function InvoiceViewPage() {
               className="h-7 text-xs"
               onClick={() => {
                 try {
-                  setEditLineItems(JSON.parse(invoice.lineItems))
+                  const parsed = JSON.parse(invoice.lineItems)
+                  setEditLineItems(Array.isArray(parsed) ? parsed : [])
                 } catch { setEditLineItems([]) }
                 setEditNotes(invoice.notes || '')
+                setEditError(null)
                 setShowEditDialog(true)
               }}
             >
@@ -1052,7 +1080,10 @@ export default function InvoiceViewPage() {
         </DialogContent>
       </Dialog>
       {/* Edit Invoice Dialog */}
-      <Dialog open={showEditDialog} onOpenChange={setShowEditDialog}>
+      <Dialog open={showEditDialog} onOpenChange={(open) => {
+        setShowEditDialog(open)
+        if (!open) setEditError(null)
+      }}>
         <DialogContent className="sm:max-w-lg max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>Edit Invoice {invoice.invoiceNumber}</DialogTitle>
@@ -1060,47 +1091,80 @@ export default function InvoiceViewPage() {
           </DialogHeader>
           <div className="space-y-4 py-2">
             {editLineItems.map((item, i) => (
-              <div key={i} className="flex items-end gap-2">
-                <div className="flex-1">
-                  <Label className="text-xs">Description</Label>
-                  <Input value={item.description} onChange={e => {
-                    const updated = [...editLineItems]
-                    updated[i] = { ...updated[i], description: e.target.value }
-                    setEditLineItems(updated)
-                  }} />
+              <div key={i} className="space-y-1.5">
+                <div className="flex items-end gap-2">
+                  <div className="flex-1">
+                    <Label className="text-xs">Description</Label>
+                    <Input value={item.description} onChange={e => {
+                      const updated = [...editLineItems]
+                      updated[i] = { ...updated[i], description: e.target.value }
+                      setEditLineItems(updated)
+                    }} />
+                  </div>
+                  <div className="w-16">
+                    <Label className="text-xs">Qty</Label>
+                    <Input type="number" min={1} value={item.quantity} onChange={e => {
+                      const updated = [...editLineItems]
+                      updated[i] = { ...updated[i], quantity: parseInt(e.target.value) || 1 }
+                      setEditLineItems(updated)
+                    }} />
+                  </div>
+                  <div className="w-24">
+                    <Label className="text-xs">Price</Label>
+                    <Input type="number" step="0.01" value={item.unitPrice} onChange={e => {
+                      const updated = [...editLineItems]
+                      updated[i] = { ...updated[i], unitPrice: parseFloat(e.target.value) || 0 }
+                      setEditLineItems(updated)
+                    }} />
+                  </div>
+                  <Button variant="ghost" size="sm" className="text-red-500 h-9 w-9 p-0" onClick={() => {
+                    setEditLineItems(editLineItems.filter((_, j) => j !== i))
+                  }}>
+                    <Trash2 className="h-4 w-4" />
+                  </Button>
                 </div>
-                <div className="w-16">
-                  <Label className="text-xs">Qty</Label>
-                  <Input type="number" min={1} value={item.quantity} onChange={e => {
-                    const updated = [...editLineItems]
-                    updated[i] = { ...updated[i], quantity: parseInt(e.target.value) || 1 }
-                    setEditLineItems(updated)
-                  }} />
+                <div className="flex items-center gap-1.5">
+                  <Checkbox
+                    id={`edit-tax-${i}`}
+                    checked={item.taxInclusive === true}
+                    onCheckedChange={(checked) => {
+                      const updated = [...editLineItems]
+                      updated[i] = { ...updated[i], taxInclusive: checked === true }
+                      setEditLineItems(updated)
+                    }}
+                  />
+                  <Label htmlFor={`edit-tax-${i}`} className="text-xs text-muted-foreground font-normal">
+                    {item.taxInclusive ? 'Incl.' : '+Tax'}
+                  </Label>
                 </div>
-                <div className="w-24">
-                  <Label className="text-xs">Price</Label>
-                  <Input type="number" step="0.01" value={item.unitPrice} onChange={e => {
-                    const updated = [...editLineItems]
-                    updated[i] = { ...updated[i], unitPrice: parseFloat(e.target.value) || 0 }
-                    setEditLineItems(updated)
-                  }} />
-                </div>
-                <Button variant="ghost" size="sm" className="text-red-500 h-9 w-9 p-0" onClick={() => {
-                  setEditLineItems(editLineItems.filter((_, j) => j !== i))
-                }}>
-                  <Trash2 className="h-4 w-4" />
-                </Button>
               </div>
             ))}
             <Button variant="outline" size="sm" onClick={() => {
-              setEditLineItems([...editLineItems, { description: '', quantity: 1, unitPrice: 0 }])
+              setEditLineItems([...editLineItems, { description: '', quantity: 1, unitPrice: 0, taxInclusive: true }])
             }}>
               <Plus className="h-4 w-4 mr-1" /> Add Line Item
             </Button>
 
-            <div className="pt-2 border-t">
-              <div className="text-right font-mono font-bold text-lg">
-                Total: ${editLineItems.reduce((s, li) => s + li.quantity * li.unitPrice, 0).toFixed(2)}
+            <div className="pt-2 border-t space-y-1 text-sm">
+              <div className="flex justify-between">
+                <span className="text-muted-foreground">Subtotal</span>
+                <span className="font-mono">{formatCurrency(editTotals.subtotal)}</span>
+              </div>
+              {editTotals.gstAmount > 0 && (
+                <div className="flex justify-between">
+                  <span className="text-muted-foreground">GST</span>
+                  <span className="font-mono">{formatCurrency(editTotals.gstAmount)}</span>
+                </div>
+              )}
+              {editTotals.qstAmount > 0 && (
+                <div className="flex justify-between">
+                  <span className="text-muted-foreground">QST</span>
+                  <span className="font-mono">{formatCurrency(editTotals.qstAmount)}</span>
+                </div>
+              )}
+              <div className="flex justify-between font-mono font-bold text-lg">
+                <span>Total</span>
+                <span>{formatCurrency(editTotals.total)}</span>
               </div>
             </div>
 
@@ -1109,17 +1173,14 @@ export default function InvoiceViewPage() {
               <Input value={editNotes} onChange={e => setEditNotes(e.target.value)} className="mt-1" />
             </div>
           </div>
+          {editError && (
+            <p role="alert" className="text-sm text-destructive">{editError}</p>
+          )}
           <DialogFooter>
             <Button variant="outline" onClick={() => setShowEditDialog(false)}>Cancel</Button>
             <Button disabled={editSaving} onClick={async () => {
               setEditSaving(true)
-              const subtotal = editLineItems.reduce((s, li) => s + li.quantity * li.unitPrice, 0)
-              const gstRate = settings?.taxesEnabled ? (settings.defaultGstRate / 100) : 0
-              const qstRate = settings?.taxesEnabled ? (settings.defaultQstRate / 100) : 0
-              const gstAmount = Math.round(subtotal * gstRate * 100) / 100
-              const qstAmount = Math.round(subtotal * qstRate * 100) / 100
-              const total = Math.round((subtotal + gstAmount + qstAmount) * 100) / 100
-
+              setEditError(null)
               try {
                 const res = await fetch('/api/invoice/edit', {
                   method: 'PUT',
@@ -1127,16 +1188,24 @@ export default function InvoiceViewPage() {
                   body: JSON.stringify({
                     invoiceId: invoice.id,
                     lineItems: editLineItems,
-                    subtotal, gstAmount, qstAmount, total,
+                    subtotal: editTotals.subtotal,
+                    gstAmount: editTotals.gstAmount,
+                    qstAmount: editTotals.qstAmount,
+                    total: editTotals.total,
                     notes: editNotes,
                   }),
                 })
-                if (res.ok) {
-                  queryClient.invalidateQueries({ queryKey: ['invoice', invoiceId] })
-                  setShowEditDialog(false)
+                if (!res.ok) {
+                  setEditError(await invoiceEditErrorMessage(res))
+                  return
                 }
-              } catch { /* ignore */ }
-              setEditSaving(false)
+                queryClient.invalidateQueries({ queryKey: ['invoice', invoiceId] })
+                setShowEditDialog(false)
+              } catch (err) {
+                setEditError(err instanceof Error && err.message.trim() ? err.message : 'Network error. Check your connection and try again.')
+              } finally {
+                setEditSaving(false)
+              }
             }}>
               {editSaving ? <Loader2 className="h-4 w-4 mr-1 animate-spin" /> : <Save className="h-4 w-4 mr-1" />}
               Save Changes
