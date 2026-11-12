@@ -602,9 +602,15 @@ function TruckJourneyCard({
       id: String(signature.eventId),
     }))
   ), [instructorSignData])
+  const presentEventIds = useMemo(
+    () => Object.entries(classAttendanceMap)
+      .filter(([, present]) => present === true)
+      .map(([eventId]) => String(eventId)),
+    [classAttendanceMap],
+  )
   const practicalSummary = useMemo(
-    () => summarizePractical(practicalBookings, practicalStudentSignatures),
-    [practicalBookings, practicalStudentSignatures],
+    () => summarizePractical(practicalBookings, practicalStudentSignatures, presentEventIds),
+    [practicalBookings, practicalStudentSignatures, presentEventIds],
   )
 
   const progress = useMemo(() => {
@@ -832,6 +838,7 @@ function TruckJourneyCard({
               instructorSignatures={practicalInstructorSignatures}
               studentName={studentName}
               studentPhone={studentPhone}
+              presentEventIds={presentEventIds}
             />
 
             <section aria-labelledby="truck-exam-progress" className="border-t pt-6">

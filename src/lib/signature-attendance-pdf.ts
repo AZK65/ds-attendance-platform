@@ -72,8 +72,9 @@ export interface AttendancePdfInput {
   isTruck: boolean
   theory?: TheoryBooklet | null
   /**
-   * 25 practical rows of 2 hours. When omitted, signed practical labels
-   * are placed in time order and the rest of the 25 rows stay blank.
+   * Past practical classes, numbered in date order. When omitted, signed
+   * practical labels are placed in time order. Upcoming bookings are not
+   * filled in as blank rows.
    */
   practicalRows?: PracticalBookletRow[] | null
 }
@@ -245,7 +246,10 @@ const instructorSignatureCell = (src: string | null | undefined) => {
   return React.createElement(Image, { src, style: styles.truckSigImage })
 }
 
-const TruckTableHeader = () => React.createElement(View, { style: [styles.row, styles.headerRowTable], fixed: true },
+const TruckTableHeader = ({ fixed = true }: { fixed?: boolean }) => React.createElement(View, {
+  style: [styles.row, styles.headerRowTable],
+  ...(fixed ? { fixed: true } : {}),
+},
   React.createElement(Text, { style: [styles.truckLabel, styles.headerCell] }, 'Class'),
   React.createElement(Text, { style: [styles.truckDate, styles.headerCell] }, 'Date'),
   React.createElement(Text, { style: [styles.truckSig, styles.headerCell] }, 'Student signature'),
@@ -281,7 +285,17 @@ function theorySessionSigned(session: { basis: string; signatureDataUrl?: string
   return session.basis === 'signature' || !!session.signatureDataUrl
 }
 
-/** Signed theory classes and signed practical lessons. Theory sessions win when the booklet has them, so the same lesson is not counted twice from ClassSignature. */
+function rowCountsTowardTotal(row: PracticalBookletRow): boolean {
+  if (typeof row.countsTowardTotal === 'boolean') return row.countsTowardTotal
+  return !!row.studentSignature
+}
+
+/**
+ * Theory and practical counts, kept separate.
+ * Theory sessions win when the booklet has them, so the same lesson is not
+ * counted twice from ClassSignature. A practical row counts when it is
+ * signed, or when the row says it is marked present.
+ */
 export function countClass1SignedLessons(input: {
   theory?: { sessions: Array<{ basis: string; signatureDataUrl?: string | null }> } | null
   signatures: AttendanceSignatureInput[]
@@ -291,8 +305,8 @@ export function countClass1SignedLessons(input: {
   const theory = input.theory && input.theory.sessions.length > 0
     ? input.theory.sessions.filter(theorySessionSigned).length
     : rows.theory.length
-  const practical = input.practicalRows && input.practicalRows.length > 0
-    ? input.practicalRows.filter(row => !!row.studentSignature).length
+  const practical = input.practicalRows
+    ? input.practicalRows.filter(rowCountsTowardTotal).length
     : rows.practical.length
   return { theory, practical }
 }
@@ -301,7 +315,7 @@ function resolvePracticalRows(
   signatures: AttendanceSignatureInput[],
   provided?: PracticalBookletRow[] | null,
 ): PracticalBookletRow[] {
-  if (provided && provided.length > 0) return provided
+  if (provided != null) return provided
   return bookletRowsFromSignedLabels(signatures.map(signature => ({
     eventId: signature.eventId,
     sessionLabel: signature.sessionLabel,
@@ -315,29 +329,47 @@ function resolvePracticalRows(
   })))
 }
 
-const PracticalClassTable = ({ rows }: { rows: PracticalBookletRow[] }) => React.createElement(View, { style: styles.table },
-  React.createElement(TruckTableHeader),
-  ...rows.map(row => React.createElement(View, { key: `practical-${row.classNumber}`, style: styles.row, wrap: false },
-    classNameCell(row.label, [row.netLabel, row.note].filter(Boolean).join(' · ') || null),
-    React.createElement(Text, { style: styles.truckDate }, row.when || ''),
-    React.createElement(View, { style: styles.truckSig },
-      row.studentSignature
-        ? React.createElement(Image, { src: row.studentSignature, style: styles.truckSigImage })
-        : React.createElement(Text, { style: styles.pending }, ''),
-    ),
-    React.createElement(View, { style: styles.truckInstructor }, row.when ? instructorNameCell(row.instructorName, row.instructorNo) : React.createElement(Text, { style: styles.pending }, '')),
-    React.createElement(View, { style: styles.truckSig }, instructorSignatureCell(row.instructorSignature)),
-  )),
+const practicalClassRow = (row: PracticalBookletRow) => React.createElement(View, {
+  key: `practical-${row.classNumber}`,
+  style: styles.row,
+  wrap: false,
+},
+  classNameCell(row.label, [row.netLabel, row.note].filter(Boolean).join(' · ') || null),
+  React.createElement(Text, { style: styles.truckDate }, row.when || ''),
+  React.createElement(View, { style: styles.truckSig },
+    row.studentSignature
+      ? React.createElement(Image, { src: row.studentSignature, style: styles.truckSigImage })
+      : React.createElement(Text, { style: styles.pending }, ''),
+  ),
+  React.createElement(View, { style: styles.truckInstructor }, row.when ? instructorNameCell(row.instructorName, row.instructorNo) : React.createElement(Text, { style: styles.pending }, '')),
+  React.createElement(View, { style: styles.truckSig }, instructorSignatureCell(row.instructorSignature)),
 )
+
+/**
+ * Room the column header and the first row need under the heading.
+ * The spacer is what lets this apply: presence is ignored on a section's
+ * first child, which is how the heading was left alone at the bottom.
+ */
+const PRACTICAL_HEADING_WITH_ROWS = 90
+
+const PracticalSection = ({ rows, countLabel }: { rows: PracticalBookletRow[]; countLabel: string }) => {
+  return React.createElement(View, { style: styles.section },
+    React.createElement(View, { style: { height: 0 } }),
+    React.createElement(View, { style: styles.sectionHeader, minPresenceAhead: PRACTICAL_HEADING_WITH_ROWS },
+      React.createElement(Text, { style: styles.sectionTitle }, 'Practical training'),
+      React.createElement(Text, { style: styles.sectionMeta }, countLabel),
+    ),
+    React.createElement(View, { style: styles.table },
+      React.createElement(TruckTableHeader),
+      ...rows.map(practicalClassRow),
+    ),
+  )
+}
 
 const TruckDocument = ({ signatures, studentName, phone, theory, practicalRows }: Omit<AttendancePdfInput, 'isTruck'>) => {
   const rows = truckRows(signatures)
   const practical = resolvePracticalRows(signatures, practicalRows)
-  const signedPractical = practical.filter(row => !!row.studentSignature).length
-  const signedCounts = {
-    theory: countClass1SignedLessons({ theory, signatures }).theory,
-    practical: signedPractical,
-  }
+  const signedCounts = countClass1SignedLessons({ theory, signatures, practicalRows: practical })
   const theorySection = theory && theory.sessions.length > 0
     ? React.createElement(View, { style: styles.section },
       React.createElement(View, { style: styles.sectionHeader },
@@ -389,13 +421,10 @@ const TruckDocument = ({ signatures, studentName, phone, theory, practicalRows }
         ),
       ),
       theorySection,
-      React.createElement(View, { style: styles.section, wrap: true },
-        React.createElement(View, { style: styles.sectionHeader },
-          React.createElement(Text, { style: styles.sectionTitle }, 'Practical training'),
-          React.createElement(Text, { style: styles.sectionMeta }, `${signedPractical} / ${CLASS1_PRACTICAL_CLASS_COUNT} classes · ${CLASS1_PRACTICAL_HOURS} hours required`),
-        ),
-        React.createElement(PracticalClassTable, { rows: practical }),
-      ),
+      React.createElement(PracticalSection, {
+        rows: practical,
+        countLabel: `${signedCounts.practical} / ${CLASS1_PRACTICAL_CLASS_COUNT} classes · ${CLASS1_PRACTICAL_HOURS} hours required`,
+      }),
       rows.other.length > 0 && React.createElement(View, { style: styles.section },
         React.createElement(View, { style: styles.sectionHeader },
           React.createElement(Text, { style: styles.sectionTitle }, 'Other Class 1 records'),

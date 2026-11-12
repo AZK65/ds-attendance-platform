@@ -74,6 +74,10 @@ export function practicalRowsForBooklet(input: {
   instructorSignatures: UnitSignOff[]
   /** Used when a signed event has no booking. ISO or a date-like string. */
   fallbackStartByEvent?: Record<string, string>
+  /** ClassAttendance rows with present=true. Event ids, one per booking. */
+  presentEventIds?: Iterable<string>
+  /** Classes that start after this instant are left off the booklet. */
+  now?: Date
 }): PracticalBookletRow[] {
   const known = new Set(input.bookings.map(booking => String(booking.id)))
   const synthetic: PracticalBookingInput[] = []
@@ -93,5 +97,7 @@ export function practicalRowsForBooklet(input: {
     classes: expandPracticalClasses([...input.bookings, ...synthetic]).classes,
     studentSignatures: input.studentSignatures,
     instructorSignatures: input.instructorSignatures,
+    presentEventIds: input.presentEventIds,
+    now: input.now,
   })
 }
