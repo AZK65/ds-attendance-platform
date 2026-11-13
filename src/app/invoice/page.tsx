@@ -1,6 +1,7 @@
 'use client'
 
 import { MorphText } from '@/components/ui/morph-text'
+import { InvoiceEmailHistory } from '@/components/InvoiceEmailHistory'
 
 import { useState, useMemo, useEffect, useRef, useCallback, Suspense } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
@@ -684,6 +685,7 @@ function InvoicePage() {
 
   // Email send mutation
   const emailMutation = useMutation({
+    onMutate: () => setEmailSent(false),
     mutationFn: async () => {
       if (!pdfBase64Ref.current) throw new Error('No PDF generated')
       if (!formData.studentEmail) throw new Error('No student email address')
@@ -692,6 +694,7 @@ function InvoicePage() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           to: formData.studentEmail,
+          invoiceId: savedInvoiceId,
           studentName: formData.studentName,
           invoiceNumber,
           pdfBase64: pdfBase64Ref.current,
@@ -706,6 +709,7 @@ function InvoicePage() {
     onSuccess: () => {
       setEmailSent(true)
     },
+    onSettled: () => queryClient.invalidateQueries({ queryKey: ['invoice-email-history', savedInvoiceId] }),
   })
 
   // WhatsApp send mutation
@@ -2064,6 +2068,8 @@ function InvoicePage() {
                         </p>
                       )}
 
+                      {emailMutation.data?.warning && <p className="text-xs text-amber-700">{emailMutation.data.warning}</p>}
+                      {savedInvoiceId && <InvoiceEmailHistory invoiceId={savedInvoiceId} />}
                       {/* Clover Payment Link */}
                       {cloverConfigured && (
                         <>

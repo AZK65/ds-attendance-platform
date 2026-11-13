@@ -365,11 +365,28 @@ model Invoice {
   externalStudentId Int?
 
   onlinePaymentReceiptEmail OnlinePaymentInvoiceEmail?
+  emailAttempts InvoiceEmailAttempt[]
 
   @@index([studentName])
   @@index([invoiceNumber])
   @@index([externalStudentId])
   @@index([billingAccountId])
+}
+
+// Invoice email metadata only; never store email bodies or PDF attachments.
+model InvoiceEmailAttempt {
+  id String @id @default(cuid())
+  invoiceId String
+  invoice Invoice @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+  recipient String
+  source String @default("manual")
+  status String @default("pending")
+  attemptedAt DateTime @default(now())
+  sentAt DateTime?
+  providerId String?
+  error String?
+
+  @@index([invoiceId, attemptedAt])
 }
 
 // Opening charges are approved independently of payments. An installment invoice

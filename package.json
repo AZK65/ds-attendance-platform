@@ -21,7 +21,7 @@
     "test:class5-reminder": "tsx --test src/lib/class5-payment-reminder.test.ts",
     "test:car-class-gap": "tsx --test src/lib/car-class-gap.test.ts",
     "test:class5-reminder-email": "tsx --test src/lib/class5-payment-reminder-email.test.ts",
-    "test:invoice-email": "tsx --test src/lib/online-payment-invoice-email.test.ts",
+    "test:invoice-email": "tsx --test src/lib/online-payment-invoice-email.test.ts src/lib/invoice-email-history.test.ts",
     "test:invoice-billing": "tsx --test src/lib/invoice-ledger.test.ts src/lib/invoice-payments.test.ts src/lib/invoice-paid-at.test.ts src/lib/legacy-invoice-balance.test.ts src/lib/invoice-totals.test.ts",
     "contract:render": "tsx scripts/render-class1-contract.ts",
     "postinstall": "patch-package"
