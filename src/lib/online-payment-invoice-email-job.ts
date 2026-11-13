@@ -1,6 +1,6 @@
 import { after } from 'next/server'
 import { prisma } from '@/lib/db'
-import { getEmailSender, sendEmailViaResend } from '@/lib/email'
+import { EmailStatusUnknownError, getEmailSender, sendEmailViaResend } from '@/lib/email'
 import { CLASS5_REMINDER_EMAIL_FROM } from '@/lib/class5-payment-reminder-email'
 import {
   ONLINE_PAYMENT_INVOICE_EMAIL_MESSAGE_TYPE,
@@ -100,6 +100,8 @@ export async function deliverOnlinePaymentInvoiceEmailFromDb(input: {
   invoiceId?: string
   justConfirmed: boolean
 }): Promise<OnlinePaymentInvoiceEmailResult> {
+  let providerId: string | undefined
+  let statusUnknown = false
   return deliverOnlinePaymentInvoiceEmail({
     isEnabled: isInvoiceEmailAfterOnlinePaymentEnabled,
     getFromAddress: receiptFromAddress,
@@ -159,10 +161,23 @@ export async function deliverOnlinePaymentInvoiceEmailFromDb(input: {
         html: message.html,
         text: message.text,
         attachments: [{ filename: message.attachment.filename, content: message.attachment.content }],
+      }).catch((error) => {
+        statusUnknown = error instanceof EmailStatusUnknownError
+        throw error
       })
       console.log(`[OnlinePaymentInvoiceEmail] Sent ${message.attachment.filename} to ${message.to}, id: ${data?.id}`)
+      providerId = typeof data?.id === 'string' ? data.id : undefined
     },
     logSend: async (entry) => {
+      await prisma.invoiceEmailAttempt.create({ data: {
+        invoiceId: entry.invoiceId,
+        recipient: entry.email,
+        source: 'online-payment',
+        status: statusUnknown ? 'unknown' : entry.status,
+        sentAt: entry.status === 'sent' ? new Date() : null,
+        providerId,
+        error: entry.error?.slice(0, 500) || null,
+      } }).catch((error) => console.error('[OnlinePaymentInvoiceEmail] Could not save invoice history:', error))
       await prisma.messageLog.create({
         data: {
           type: ONLINE_PAYMENT_INVOICE_EMAIL_MESSAGE_TYPE,

@@ -1,5 +1,7 @@
 import { prisma } from '@/lib/db'
 
+export class EmailStatusUnknownError extends Error {}
+
 // Send via Resend's REST API directly (no SDK — matches the invoice/contract
 // email routes). Throws on failure; callers decide whether that's fatal.
 export async function sendEmailViaResend(payload: {
@@ -16,9 +18,10 @@ export async function sendEmailViaResend(payload: {
     method: 'POST',
     headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
     body: JSON.stringify(payload),
-  })
-  const data = await res.json()
-  if (!res.ok) throw new Error(data.message || data.error || 'Resend API error')
+  }).catch(() => { throw new EmailStatusUnknownError('Sending status could not be confirmed. Check before sending again.') })
+  if (res.status >= 500) throw new EmailStatusUnknownError('Sending status could not be confirmed. Check before sending again.')
+  const data = await res.json().catch(() => ({}))
+  if (!res.ok) throw new Error(typeof data.message === 'string' ? data.message : 'Resend API error')
   return data
 }
 

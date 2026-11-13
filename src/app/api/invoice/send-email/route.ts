@@ -2,94 +2,60 @@ import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/db'
 import { emailLogoAttachment } from '@/lib/brand-assets'
 import { invoiceEmailHtml } from '@/lib/document-emails'
-
-// Use Resend REST API directly to avoid SDK build-time instantiation issues
-async function sendEmailViaResend(apiKey: string, payload: {
-  from: string
-  to: string[]
-  subject: string
-  html: string
-  attachments: { filename: string; content: string; content_id?: string }[]
-}) {
-  const res = await fetch('https://api.resend.com/emails', {
-    method: 'POST',
-    headers: {
-      'Authorization': `Bearer ${apiKey}`,
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify(payload),
-  })
-
-  const data = await res.json()
-
-  if (!res.ok) {
-    throw new Error(data.message || data.error || 'Resend API error')
-  }
-
-  return data
-}
+import { getEmailSender } from '@/lib/email'
 
 export async function POST(request: NextRequest) {
+  let attemptId: string | undefined
+  let submitting = false
+  let accepted = false
+  let emailId: string | undefined
   try {
-    const body = await request.json()
-    const { to, studentName, invoiceNumber, pdfBase64 } = body
-
-    if (!to || !pdfBase64 || !invoiceNumber) {
-      return NextResponse.json(
-        { error: 'Missing required fields: to, pdfBase64, invoiceNumber' },
-        { status: 400 }
-      )
+    const { to, invoiceId, invoiceNumber, pdfBase64 } = await request.json()
+    if (typeof to !== 'string' || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(to.trim()) ||
+        typeof invoiceNumber !== 'string' || typeof pdfBase64 !== 'string' || !pdfBase64 ||
+        (invoiceId != null && typeof invoiceId !== 'string')) {
+      return NextResponse.json({ error: 'A valid recipient, invoice number and PDF are required.' }, { status: 400 })
     }
-
+    const invoice = await prisma.invoice.findUnique({ where: invoiceId ? { id: invoiceId } : { invoiceNumber } })
+    if (!invoice || invoice.invoiceNumber !== invoiceNumber) {
+      return NextResponse.json({ error: 'Save this invoice before emailing it.' }, { status: 400 })
+    }
+    const attempt = await prisma.invoiceEmailAttempt.create({ data: { invoiceId: invoice.id, recipient: to.trim() } })
+    attemptId = attempt.id
     const apiKey = process.env.RESEND_API_KEY
-    if (!apiKey) {
-      return NextResponse.json(
-        { error: 'RESEND_API_KEY environment variable is not set' },
-        { status: 500 }
-      )
+    if (!apiKey) throw new Error('Email service is not configured. Please contact an administrator.')
+    const sender = await getEmailSender()
+    if (!sender) throw new Error('Set a sender email in Invoice Settings before sending.')
+    submitting = true
+    const response = await fetch('https://api.resend.com/emails', {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json', 'Idempotency-Key': `invoice-email/${attempt.id}` },
+      signal: AbortSignal.timeout(30000),
+      body: JSON.stringify({
+        from: sender.from, to: [to.trim()], subject: `Invoice ${invoice.invoiceNumber} - ${sender.schoolName}`,
+        html: invoiceEmailHtml({ studentName: invoice.studentName, invoiceNumber: invoice.invoiceNumber, schoolName: sender.schoolName }),
+        attachments: [emailLogoAttachment(), { filename: `invoice-${invoice.invoiceNumber}.pdf`, content: pdfBase64 }],
+      }),
+    })
+    if (!response.ok) {
+      submitting = response.status >= 500
+      const data = await response.json().catch(() => ({}))
+      throw new Error(typeof data.message === 'string' ? data.message : `Email service returned ${response.status}.`)
     }
-
-    // Get sender email from settings
-    const settings = await prisma.invoiceSettings.findUnique({
-      where: { id: 'default' }
-    })
-
-    const senderEmail = settings?.senderEmail
-    if (!senderEmail) {
-      return NextResponse.json(
-        { error: 'Sender email not configured. Go to Invoice Settings to set it up.' },
-        { status: 400 }
-      )
-    }
-
-    // Also get school name from certificate settings
-    const schoolInfo = await prisma.certificateSettings.findUnique({
-      where: { id: 'default' }
-    })
-    const schoolName = schoolInfo?.schoolName || 'École de Conduite Qazi'
-
-    const data = await sendEmailViaResend(apiKey, {
-      from: `${schoolName} <${senderEmail}>`,
-      to: [to],
-      subject: `Invoice ${invoiceNumber} - ${schoolName}`,
-      html: invoiceEmailHtml({ studentName, invoiceNumber, schoolName }),
-      attachments: [
-        emailLogoAttachment(),
-        {
-          filename: `invoice-${invoiceNumber}.pdf`,
-          content: pdfBase64,
-        },
-      ],
-    })
-
-    console.log(`[Invoice Email] Sent ${invoiceNumber} to ${to}, id: ${data?.id}`)
-
-    return NextResponse.json({ success: true, emailId: data?.id })
+    accepted = true
+    const data = await response.json().catch(() => ({}))
+    emailId = typeof data.id === 'string' ? data.id : undefined
+    await prisma.invoiceEmailAttempt.update({ where: { id: attempt.id }, data: { status: 'sent', sentAt: new Date(), providerId: emailId } })
+    return NextResponse.json({ success: true, emailId })
   } catch (error) {
-    console.error('[Invoice Email] Error:', error)
-    return NextResponse.json(
-      { error: error instanceof Error ? error.message : 'Failed to send email' },
-      { status: 500 }
-    )
+    console.error('[Invoice Email]', error)
+    // Do not encourage duplicate sending if the provider accepted it but saving history failed.
+    if (accepted) return NextResponse.json({ success: true, emailId, warning: 'Email accepted; its history could not be updated.' })
+    const message = !attemptId ? 'Email could not be started. Please try again.' : submitting ? 'Sending status could not be confirmed. Check before sending again.' : error instanceof Error ? error.message : 'Email could not be sent.'
+    if (attemptId) {
+      await prisma.invoiceEmailAttempt.update({ where: { id: attemptId }, data: { status: submitting ? 'unknown' : 'failed', error: message.slice(0, 500) } })
+        .catch((logError) => console.error('[Invoice Email] Could not save outcome:', logError))
+    }
+    return NextResponse.json({ error: message }, { status: 500 })
   }
 }

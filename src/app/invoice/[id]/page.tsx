@@ -1,6 +1,7 @@
 'use client'
 
 import { billingBalanceLabel } from '@/lib/billing-label'
+import { InvoiceEmailHistory } from '@/components/InvoiceEmailHistory'
 
 import { useState, useEffect } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
@@ -288,6 +289,7 @@ export default function InvoiceViewPage() {
 
   // Email mutation
   const emailMutation = useMutation({
+    onMutate: () => setEmailSent(false),
     mutationFn: async () => {
       if (!pdfBase64 || !invoice?.studentEmail) throw new Error('Missing data')
       const res = await fetch('/api/invoice/send-email', {
@@ -295,6 +297,7 @@ export default function InvoiceViewPage() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           to: invoice.studentEmail,
+          invoiceId,
           studentName: invoice.studentName,
           invoiceNumber: invoice.invoiceNumber,
           pdfBase64,
@@ -307,6 +310,7 @@ export default function InvoiceViewPage() {
       return res.json()
     },
     onSuccess: () => setEmailSent(true),
+    onSettled: () => queryClient.invalidateQueries({ queryKey: ['invoice-email-history', invoiceId] }),
   })
 
   // WhatsApp mutation
@@ -839,7 +843,9 @@ export default function InvoiceViewPage() {
                 {emailMutation.isError && (
                   <p className="text-xs text-destructive ml-1">{emailMutation.error?.message}</p>
                 )}
+                {emailMutation.data?.warning && <p className="text-xs text-amber-700">{emailMutation.data.warning}</p>}
 
+                <InvoiceEmailHistory invoiceId={invoiceId} />
                 {/* WhatsApp */}
                 <div className="flex items-center gap-2">
                   <Button
