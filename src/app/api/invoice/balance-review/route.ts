@@ -4,6 +4,7 @@ import { resolveStaffSession } from '@/lib/admin-auth'
 import { reconciliationPreview, applyReviewedBalance } from '@/lib/invoice-reconciliation'
 import { ledgerSummary } from '@/lib/invoice-ledger'
 import type { BillingReviewAccount } from '@/lib/billing-review-types'
+import { activeInvoiceWhere, omitDeletedInvoices } from '@/lib/invoice-deleted'
 
 export const dynamic = 'force-dynamic'
 
@@ -16,8 +17,8 @@ export async function GET(request: NextRequest) {
   if (await unauthorized(request)) return json({ error: 'Sign in to review balances.' }, 401)
   try {
     const [rows, accounts] = await prisma.$transaction([
-      prisma.invoice.findMany({ orderBy: { createdAt: 'asc' } }),
-      prisma.billingAccount.findMany({ include: { invoices: true } }),
+      prisma.invoice.findMany({ where: activeInvoiceWhere, orderBy: { createdAt: 'asc' } }),
+      prisma.billingAccount.findMany({ include: { invoices: { where: activeInvoiceWhere } } }),
     ])
     const result: BillingReviewAccount[] = reconciliationPreview(rows).map(preview => {
       const own = rows.filter(row => preview.invoiceIds.includes(row.id))
@@ -26,7 +27,7 @@ export async function GET(request: NextRequest) {
       const partial = linkedIds.length === 1 ? accounts.find(a => a.id === linkedIds[0]) : null
       const blocked = preview.identityKey.startsWith('unresolved:') || preview.issues.some(issue =>
         issue === 'Phone belongs to more than one student ID') || linkedIds.length > 1 || !!partial?.reviewedFingerprint
-      const current = account ? ledgerSummary(account.openingChargesCents, account.invoices) : null
+      const current = account ? ledgerSummary(account.openingChargesCents, omitDeletedInvoices(account.invoices)) : null
       return {
         identityKey: preview.identityKey, studentName: preview.studentName,
         phone: own.at(-1)?.studentPhone ?? null, studentId: own.find(row => row.externalStudentId)?.externalStudentId ?? null,
@@ -67,7 +68,7 @@ export async function POST(request: NextRequest) {
     const session = await resolveStaffSession(request)
     if (!session) return json({ error: 'Your staff session is missing or expired. Reload or sign in again before approving.' }, 401)
     const result = await prisma.$transaction(async tx => {
-      const preview = reconciliationPreview(await tx.invoice.findMany()).find(row => row.identityKey === body.identityKey)
+      const preview = reconciliationPreview(await tx.invoice.findMany({ where: activeInvoiceWhere })).find(row => row.identityKey === body.identityKey)
       if (!preview || preview.fingerprint !== body.fingerprint) throw new Error('Invoices changed since preview; reload and review the latest payments.')
       // The server selects every invoice in this account. Caller-supplied IDs,
       // payment totals and suggested balances are never trusted.

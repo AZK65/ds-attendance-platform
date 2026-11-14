@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/db'
 import { searchStudents } from '@/lib/external-db'
+import { activeInvoiceWhere } from '@/lib/invoice-deleted'
 
 export const dynamic = 'force-dynamic'
 
@@ -70,6 +71,7 @@ export async function GET(request: NextRequest) {
     }).catch(() => []),
     prisma.invoice.findMany({
       where: {
+        ...activeInvoiceWhere,
         OR: [
           { invoiceNumber: { contains: q } },
           { studentName: { contains: q } },

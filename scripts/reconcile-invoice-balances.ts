@@ -36,7 +36,7 @@ async function main() {
       },{timeout:60000})
       console.log(JSON.stringify(result,null,2))
     } else {
-      console.log(JSON.stringify({generatedAt:new Date().toISOString(),readOnly:true,accounts:reconciliationPreview(await prisma.invoice.findMany())},null,2))
+      console.log(JSON.stringify({generatedAt:new Date().toISOString(),readOnly:true,accounts:reconciliationPreview(await prisma.invoice.findMany({ where: { deletedAt: null } }))},null,2))
     }
   } finally {await prisma.$disconnect()}
 }

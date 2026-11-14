@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/db'
+import { resolveStaffSession } from '@/lib/admin-auth'
 import { resolveExternalStudentId } from '@/lib/invoice-student-id'
+import { deletedInvoiceBlock, softDeleteInvoice, staffDeletedBy } from '@/lib/invoice-deleted'
 
 // PATCH /api/invoice/[id]
 // Contact corrections only. Account balances require reviewed reconciliation.
@@ -26,9 +28,8 @@ export async function PATCH(
       return NextResponse.json({ error: 'No supported fields' }, { status: 400 })
     }
     const existing = await prisma.invoice.findUnique({ where: { id } })
-    if (!existing) {
-      return NextResponse.json({ error: 'Invoice not found' }, { status: 404 })
-    }
+    const blocked = deletedInvoiceBlock(existing)
+    if (blocked || !existing) return NextResponse.json({ error: blocked?.error ?? 'Invoice not found' }, { status: blocked?.status ?? 404 })
     // Stamp the MySQL student id the first time this invoice is saved, when
     // the phone or exact name identifies one student. A failed lookup leaves
     // a blank id blank.
@@ -61,7 +62,7 @@ export async function GET(
       where: { id },
     })
 
-    if (!invoice) {
+    if (!invoice || invoice.deletedAt) {
       return NextResponse.json({ error: 'Invoice not found' }, { status: 404 })
     }
 
@@ -117,22 +118,11 @@ export async function DELETE(
   try {
     const { id } = await params
 
-    const invoice = await prisma.invoice.findUnique({ where: { id } })
-    if (!invoice) {
+    const session = await resolveStaffSession(request)
+    const result = await softDeleteInvoice(prisma, id, staffDeletedBy(session))
+    if (result === 'missing') {
       return NextResponse.json({ error: 'Invoice not found' }, { status: 404 })
     }
-
-    if (!invoice.billingAccountId) return NextResponse.json({ error: 'Review this student’s historical balance before deleting invoices.' }, { status: 409 })
-    if (invoice.paymentStatus !== 'unpaid' || invoice.cloverOrderId || invoice.creditForInvoiceId) {
-      return NextResponse.json({ error: 'Paid, refunded, or Clover-linked invoices must be retained. Use the refund workflow to preserve the payment record.' }, { status: 409 })
-    }
-    if (invoice.billingMode === 'new-course') {
-      return NextResponse.json({ error: 'A course agreement must be cancelled through a reviewed account adjustment, not by deleting its first invoice.' }, { status: 409 })
-    }
-    // Delete an unpaid draft and its own charge only. Never add its amount to
-    // another receipt. Paid receipts are preserved for audit.
-    const deleted = await prisma.invoice.deleteMany({ where: { id, updatedAt: invoice.updatedAt, paymentStatus: 'unpaid', cloverOrderId: null, billingAccountId: invoice.billingAccountId } })
-    if (!deleted.count) return NextResponse.json({ error: 'Invoice changed; refresh and try again.' }, { status: 409 })
 
     return NextResponse.json({ success: true })
   } catch (error) {

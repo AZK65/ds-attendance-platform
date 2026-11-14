@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/db'
+import { deletedInvoiceBlock } from '@/lib/invoice-deleted'
 
 // POST — Create a credit note (refund) for an invoice
 export async function POST(request: NextRequest) {
@@ -11,12 +12,14 @@ export async function POST(request: NextRequest) {
     }
 
     const original = await prisma.invoice.findUnique({ where: { id: invoiceId } })
-    if (!original) {
-      return NextResponse.json({ error: 'Invoice not found' }, { status: 404 })
-    }
+    const blocked = deletedInvoiceBlock(original)
+    if (blocked || !original) return NextResponse.json({ error: blocked?.error ?? 'Invoice not found' }, { status: blocked?.status ?? 404 })
 
     if (!original.billingAccountId) return NextResponse.json({ error: 'Review this student’s balance before recording a refund.' }, { status: 409 })
     const existing = await prisma.invoice.findUnique({ where: { creditForInvoiceId: original.id } })
+    if (existing?.deletedAt) {
+      return NextResponse.json({ error: 'The credit note for this invoice is deleted. Restore it from Recently deleted.' }, { status: 409 })
+    }
     if (existing) return NextResponse.json({ creditNote: existing })
     if (original.paymentStatus !== 'paid' || original.total <= 0) {
       return NextResponse.json({ error: 'Only a paid receipt can be refunded.' }, { status: 409 })
@@ -36,7 +39,7 @@ export async function POST(request: NextRequest) {
     }))
 
     const creditNote = await prisma.$transaction(async tx => {
-      const changed = await tx.invoice.updateMany({ where: { id: original.id, paymentStatus: 'paid' }, data: { paymentStatus: 'refunded' } })
+      const changed = await tx.invoice.updateMany({ where: { id: original.id, paymentStatus: 'paid', deletedAt: null }, data: { paymentStatus: 'refunded' } })
       if (changed.count !== 1) throw new Error('Invoice changed; refresh before recording the refund.')
       return tx.invoice.create({
       data: {

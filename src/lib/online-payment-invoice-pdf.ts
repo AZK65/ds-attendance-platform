@@ -23,7 +23,7 @@ function parseLineItems(raw: string, fallbackTotal: number): { description: stri
 /** Branded invoice PDF for a saved invoice. Reads school settings; does not write them. */
 export async function renderStoredInvoicePdf(invoiceId: string): Promise<Buffer> {
   const invoice = await prisma.invoice.findUnique({ where: { id: invoiceId } })
-  if (!invoice) throw new Error(`Invoice ${invoiceId} not found`)
+  if (!invoice || invoice.deletedAt) throw new Error(`Invoice ${invoiceId} not found`)
 
   const [invoiceSettings, school] = await Promise.all([
     prisma.invoiceSettings.findUnique({ where: { id: 'default' } }),

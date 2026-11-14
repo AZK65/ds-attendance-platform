@@ -363,6 +363,10 @@ model Invoice {
   // MySQL driving_school_v2.student.student_id. Null on invoices saved
   // before this column existed; those still match by phone or exact name.
   externalStudentId Int?
+  // Soft delete only. Null means the invoice is active. The row, invoice
+  // number, and amounts stay so a restore puts the same invoice back.
+  deletedAt         DateTime?
+  deletedBy         String?
 
   onlinePaymentReceiptEmail OnlinePaymentInvoiceEmail?
 
@@ -370,6 +374,7 @@ model Invoice {
   @@index([invoiceNumber])
   @@index([externalStudentId])
   @@index([billingAccountId])
+  @@index([deletedAt])
 }
 
 // Opening charges are approved independently of payments. An installment invoice

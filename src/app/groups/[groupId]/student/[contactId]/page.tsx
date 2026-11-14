@@ -14,6 +14,7 @@ import { summarizePractical, type UnitSignOff, type UnitSignature } from '@/lib/
 import { useParams, useRouter } from 'next/navigation'
 import { useState, useMemo, type ReactNode } from 'react'
 import { Button } from '@/components/ui/button'
+import { DeleteInvoiceButton } from '@/components/InvoiceDeleteActions'
 import { Badge } from '@/components/ui/badge'
 import { Input } from '@/components/ui/input'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog'
@@ -2570,12 +2571,20 @@ export default function StudentDetailPage() {
                               </tbody>
                             </table>
                             <div className="flex items-center justify-between mt-2 pt-2 border-t border-muted">
-                              <Button variant="outline" size="sm" asChild>
-                                <Link href={`/invoice/${invoice.id}`}>
-                                  <FileText className="h-3 w-3 mr-1" />
-                                  View Invoice
-                                </Link>
-                              </Button>
+                              <div className="flex items-center gap-2">
+                                <Button variant="outline" size="sm" asChild>
+                                  <Link href={`/invoice/${invoice.id}`}>
+                                    <FileText className="h-3 w-3 mr-1" />
+                                    View Invoice
+                                  </Link>
+                                </Button>
+                                <DeleteInvoiceButton
+                                  invoiceId={invoice.id}
+                                  invoiceNumber={invoice.invoiceNumber}
+                                  variant="label"
+                                  onDeleted={() => queryClient.invalidateQueries({ queryKey: ['student-profile'] })}
+                                />
+                              </div>
                               <div className="text-xs text-muted-foreground space-x-4">
                                 <span>Subtotal: ${invoice.subtotal.toFixed(2)}</span>
                                 {invoice.gstAmount > 0 && <span>GST: ${invoice.gstAmount.toFixed(2)}</span>}
