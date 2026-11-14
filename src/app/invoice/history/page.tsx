@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect, useMemo, useRef } from 'react'
+import { Suspense, useState, useEffect, useMemo } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
@@ -24,10 +24,11 @@ import {
 import {
   Search, Loader2, FileText, ArrowLeft, X, Calendar,
   CreditCard, Link2, Eye, Copy, ExternalLink, CheckCircle2,
-  Banknote, Globe, User, Trash2, MoreVertical, Plus, RotateCcw,
+  Banknote, Globe, User, MoreVertical, Plus, RotateCcw,
 } from 'lucide-react'
 import Link from 'next/link'
-import { useRouter } from 'next/navigation'
+import { useRouter, useSearchParams } from 'next/navigation'
+import { DeleteInvoiceButton, RestoreInvoiceButton } from '@/components/InvoiceDeleteActions'
 import { motion } from 'motion/react'
 
 interface Invoice {
@@ -53,6 +54,8 @@ interface Invoice {
   cloverPaymentUrl: string | null
   cloverPaid: boolean
   createdAt: string
+  deletedAt?: string | null
+  deletedBy?: string | null
 }
 
 interface CloverLineItem {
@@ -80,6 +83,12 @@ interface CloverOrder {
 
 function formatCurrency(amount: number): string {
   return new Intl.NumberFormat('en-CA', { style: 'currency', currency: 'CAD' }).format(amount)
+}
+
+function formatDeletedAt(value: string): string {
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) return value
+  return date.toLocaleString('en-CA', { dateStyle: 'medium', timeStyle: 'short' })
 }
 
 function formatDate(dateStr: string): string {
@@ -114,8 +123,10 @@ const scoreColors: Record<string, string> = {
   weak: 'bg-gray-100 text-gray-700 border-gray-200',
 }
 
-export default function InvoiceHistoryPage() {
+function InvoiceHistoryPage() {
   const router = useRouter()
+  const searchParams = useSearchParams()
+  const view = searchParams.get('view') === 'deleted' ? 'deleted' : 'history'
   const queryClient = useQueryClient()
   const [search, setSearch] = useState('')
   const [debouncedSearch, setDebouncedSearch] = useState('')
@@ -126,7 +137,6 @@ export default function InvoiceHistoryPage() {
   const [matchDialogInvoice, setMatchDialogInvoice] = useState<Invoice | null>(null)
   const [viewDialogInvoice, setViewDialogInvoice] = useState<Invoice | null>(null)
   const [copiedLinkId, setCopiedLinkId] = useState<string | null>(null)
-  const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null)
   const [menuOpenId, setMenuOpenId] = useState<string | null>(null)
   // Refund flow: click the 3-dot Refund action to open this dialog. Uses
   // the same /api/invoice/refund endpoint the single-invoice detail page
@@ -152,8 +162,9 @@ export default function InvoiceHistoryPage() {
     if (debouncedSearch) params.set('search', debouncedSearch)
     if (dateFrom) params.set('from', dateFrom)
     if (dateTo) params.set('to', dateTo)
+    if (view === 'deleted') params.set('deleted', '1')
     return params.toString()
-  }, [debouncedSearch, dateFrom, dateTo])
+  }, [debouncedSearch, dateFrom, dateTo, view])
 
   // Check if Clover is configured
   const { data: settings } = useQuery({
@@ -168,7 +179,7 @@ export default function InvoiceHistoryPage() {
 
   // Fetch invoices
   const { data, isLoading } = useQuery({
-    queryKey: ['invoices', debouncedSearch, dateFrom, dateTo],
+    queryKey: ['invoices', view, debouncedSearch, dateFrom, dateTo],
     queryFn: async () => {
       const res = await fetch(`/api/invoice/list${queryParams ? `?${queryParams}` : ''}`)
       if (!res.ok) throw new Error('Failed to fetch invoices')
@@ -241,19 +252,6 @@ export default function InvoiceHistoryPage() {
     },
   })
 
-  // Delete invoice mutation
-  const deleteMutation = useMutation({
-    mutationFn: async (invoiceId: string) => {
-      const res = await fetch(`/api/invoice/${invoiceId}`, { method: 'DELETE' })
-      if (!res.ok) throw new Error('Failed to delete invoice')
-      return res.json()
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['invoices'] })
-      setDeleteConfirmId(null)
-    },
-  })
-
   const refundMutation = useMutation({
     mutationFn: async (args: { invoiceId: string; reason: string }) => {
       const res = await fetch('/api/invoice/refund', {
@@ -319,11 +317,27 @@ export default function InvoiceHistoryPage() {
           <div>
             <h2 className="text-2xl font-bold flex items-center gap-2">
               <FileText className="h-6 w-6" />
-              Invoice History
+              {view === 'deleted' ? 'Recently deleted' : 'Invoice History'}
             </h2>
             <p className="text-muted-foreground mt-1">
-              View and search past invoices
+              {view === 'deleted'
+                ? 'Restore an invoice to put it back with the same number and amounts'
+                : 'View and search past invoices'}
             </p>
+            <div className="mt-3 inline-flex items-center rounded-md bg-muted p-1">
+              <Link
+                href="/invoice/history"
+                className={`rounded-sm px-3 py-1.5 text-sm font-medium ${view === 'history' ? 'bg-background text-foreground shadow-sm' : 'text-muted-foreground'}`}
+              >
+                History
+              </Link>
+              <Link
+                href="/invoice/history?view=deleted"
+                className={`rounded-sm px-3 py-1.5 text-sm font-medium ${view === 'deleted' ? 'bg-background text-foreground shadow-sm' : 'text-muted-foreground'}`}
+              >
+                Recently deleted
+              </Link>
+            </div>
           </div>
           <div className="flex flex-wrap gap-2">
           <Button asChild variant="outline" size="sm"><Link href="/invoice/balances">Balance review</Link></Button>
@@ -403,9 +417,60 @@ export default function InvoiceHistoryPage() {
               </div>
             ) : invoices.length === 0 ? (
               <div className="text-center py-12 text-muted-foreground">
-                {hasFilters
+                {view === 'deleted'
+                  ? (hasFilters ? 'No deleted invoices match your search.' : 'No recently deleted invoices.')
+                  : hasFilters
                   ? 'No invoices match your search.'
                   : 'No invoices yet. Create your first invoice to see it here.'}
+              </div>
+            ) : view === 'deleted' ? (
+              <div className="overflow-x-auto">
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Invoice #</TableHead>
+                      <TableHead>Student</TableHead>
+                      <TableHead className="text-right">Amount</TableHead>
+                      <TableHead>Status</TableHead>
+                      <TableHead>Deleted</TableHead>
+                      <TableHead className="w-[120px]">Restore</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {invoices.map((inv) => (
+                      <TableRow key={inv.id}>
+                        <TableCell className="font-mono font-medium">{inv.invoiceNumber}</TableCell>
+                        <TableCell>
+                          <div className="font-medium">{inv.studentName}</div>
+                          {inv.studentEmail && <div className="text-xs text-muted-foreground">{inv.studentEmail}</div>}
+                        </TableCell>
+                        <TableCell className="text-right font-semibold">{formatCurrency(inv.total)}</TableCell>
+                        <TableCell>
+                          <Badge className={inv.paymentStatus === 'paid'
+                            ? 'bg-green-100 text-green-700 border-green-200 text-xs'
+                            : inv.paymentStatus === 'refunded'
+                              ? 'bg-blue-100 text-blue-700 border-blue-200 text-xs'
+                              : 'text-xs'}
+                            variant={inv.paymentStatus === 'paid' || inv.paymentStatus === 'refunded' ? 'default' : 'outline'}
+                          >
+                            {inv.paymentStatus}
+                          </Badge>
+                        </TableCell>
+                        <TableCell className="text-sm">
+                          <div>{inv.deletedAt ? formatDeletedAt(inv.deletedAt) : '-'}</div>
+                          {inv.deletedBy && <div className="text-xs text-muted-foreground">{inv.deletedBy}</div>}
+                        </TableCell>
+                        <TableCell>
+                          <RestoreInvoiceButton
+                            invoiceId={inv.id}
+                            invoiceNumber={inv.invoiceNumber}
+                            onRestored={() => queryClient.invalidateQueries({ queryKey: ['invoices'] })}
+                          />
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
               </div>
             ) : (
               <div className="overflow-x-auto">
@@ -491,32 +556,11 @@ export default function InvoiceHistoryPage() {
                             >
                               <Eye className="h-3.5 w-3.5" />
                             </Button>
-                            {/* Delete */}
-                            {deleteConfirmId === inv.id ? (
-                              <Button
-                                size="sm"
-                                variant="ghost"
-                                className="h-7 px-2 text-red-600 hover:text-red-700 hover:bg-red-50"
-                                disabled={deleteMutation.isPending}
-                                onClick={() => deleteMutation.mutate(inv.id)}
-                              >
-                                {deleteMutation.isPending ? (
-                                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                                ) : (
-                                  <span className="text-xs font-medium">Confirm</span>
-                                )}
-                              </Button>
-                            ) : (
-                              <Button
-                                size="sm"
-                                variant="ghost"
-                                className="h-7 w-7 p-0 text-muted-foreground hover:text-red-600"
-                                title="Delete invoice"
-                                onClick={() => setDeleteConfirmId(inv.id)}
-                              >
-                                <Trash2 className="h-3.5 w-3.5" />
-                              </Button>
-                            )}
+                            <DeleteInvoiceButton
+                              invoiceId={inv.id}
+                              invoiceNumber={inv.invoiceNumber}
+                              onDeleted={() => queryClient.invalidateQueries({ queryKey: ['invoices'] })}
+                            />
                             {/* 3-dot menu for more actions */}
                             <div className="relative">
                               <Button
@@ -951,5 +995,13 @@ export default function InvoiceHistoryPage() {
         </DialogContent>
       </Dialog>
     </div>
+  )
+}
+
+export default function InvoiceHistoryPageSuspense() {
+  return (
+    <Suspense fallback={<div className="min-h-screen flex items-center justify-center"><Loader2 className="h-6 w-6 animate-spin text-muted-foreground" /></div>}>
+      <InvoiceHistoryPage />
+    </Suspense>
   )
 }

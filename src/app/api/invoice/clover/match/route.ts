@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/db'
+import { deletedInvoiceBlock } from '@/lib/invoice-deleted'
 
 // Use sandbox if CLOVER_SANDBOX=true, otherwise production
 const CLOVER_BASE = process.env.CLOVER_SANDBOX === 'true'
@@ -24,9 +25,8 @@ export async function POST(request: NextRequest) {
 
     // Get the invoice
     const invoice = await prisma.invoice.findUnique({ where: { id: invoiceId } })
-    if (!invoice) {
-      return NextResponse.json({ error: 'Invoice not found' }, { status: 404 })
-    }
+    const blocked = deletedInvoiceBlock(invoice)
+    if (blocked || !invoice) return NextResponse.json({ error: blocked?.error ?? 'Invoice not found' }, { status: blocked?.status ?? 404 })
 
     // If cloverOrderId provided, confirm the match
     if (cloverOrderId) {

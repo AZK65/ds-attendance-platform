@@ -21,7 +21,8 @@ import {
   Plus, Trash2, Save,
 } from 'lucide-react'
 import Link from 'next/link'
-import { useParams } from 'next/navigation'
+import { useParams, useRouter } from 'next/navigation'
+import { DeleteInvoiceButton } from '@/components/InvoiceDeleteActions'
 import { motion } from 'motion/react'
 import { PDFDocument } from 'pdf-lib'
 
@@ -122,6 +123,7 @@ async function invoiceEditErrorMessage(res: Response): Promise<string> {
 
 export default function InvoiceViewPage() {
   const params = useParams()
+  const router = useRouter()
   const invoiceId = params.id as string
   const queryClient = useQueryClient()
   const [pdfUrl, setPdfUrl] = useState<string | null>(null)
@@ -531,6 +533,12 @@ export default function InvoiceViewPage() {
                 <RotateCcw className="h-3 w-3 mr-1" /> Refund
               </Button>
             )}
+            <DeleteInvoiceButton
+              invoiceId={invoice.id}
+              invoiceNumber={invoice.invoiceNumber}
+              variant="label"
+              onDeleted={() => router.push('/invoice/history?view=deleted')}
+            />
           </div>
         </motion.div>
 

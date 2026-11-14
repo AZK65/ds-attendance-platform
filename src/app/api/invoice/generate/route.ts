@@ -8,6 +8,7 @@ import { listPriorPayments, printedRemainingBalance, type PaymentHistory } from 
 import { parseExternalStudentId } from '@/lib/invoice-student-id'
 import { prisma } from '@/lib/db'
 import { studentBillingSummary } from '@/lib/invoice-billing'
+import { activeInvoiceWhere } from '@/lib/invoice-deleted'
 
 interface LineItem {
   description: string
@@ -545,9 +546,10 @@ export async function buildInvoicePdf(body: InvoiceData) {
 /** Read confirmed receipts through this receipt's date. Does not write. */
 export async function loadPaymentHistory(body: Pick<InvoiceData, 'invoiceNumber' | 'invoiceDate' | 'studentName' | 'studentPhone' | 'externalStudentId' | 'paymentStatus'>): Promise<{ history: PaymentHistory | null; paymentStatus: string | null; balance?: number; needsReview?: boolean; balanceNote?: string | null }> {
   try {
-    const saved = await prisma.invoice.findUnique({
+    const savedRow = await prisma.invoice.findUnique({
       where: { invoiceNumber: body.invoiceNumber },
     })
+    const saved = savedRow && !savedRow.deletedAt ? savedRow : null
     const externalStudentId = saved ? saved.externalStudentId : parseExternalStudentId(body.externalStudentId) ?? null
     const phone = saved ? saved.studentPhone || '' : body.studentPhone || ''
     const name = saved ? saved.studentName || '' : body.studentName || ''
@@ -556,7 +558,7 @@ export async function loadPaymentHistory(body: Pick<InvoiceData, 'invoiceNumber'
     // History is evidence of receipts, not approval of an opening balance.
     // Include matching unlinked legacy receipts and stable account-linked
     // receipts; listPriorPayments also checks shared-phone ambiguity.
-    const invoices = await prisma.invoice.findMany()
+    const invoices = await prisma.invoice.findMany({ where: activeInvoiceWhere })
     const billing = await studentBillingSummary({ externalStudentId, phone, name })
     return {
       history: listPriorPayments(invoices, {
@@ -593,6 +595,9 @@ export async function POST(request: NextRequest) {
     // Regeneration must use saved money and student fields, not a stale browser
     // form left open before an edit or a payment confirmation.
     const saved = await prisma.invoice.findUnique({ where: { invoiceNumber: body.invoiceNumber } })
+    if (saved?.deletedAt) {
+      return NextResponse.json({ error: 'Invoice not found' }, { status: 404 })
+    }
     if (saved) body = {
       ...body,
       studentName: saved.studentName, studentPhone: saved.studentPhone || '',

@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/db'
+import { deletedInvoiceBlock } from '@/lib/invoice-deleted'
 
 export async function PUT(request: NextRequest) {
   try {
@@ -11,9 +12,8 @@ export async function PUT(request: NextRequest) {
     }
 
     const invoice = await prisma.invoice.findUnique({ where: { id: invoiceId } })
-    if (!invoice) {
-      return NextResponse.json({ error: 'Invoice not found' }, { status: 404 })
-    }
+    const blocked = deletedInvoiceBlock(invoice)
+    if (blocked || !invoice) return NextResponse.json({ error: blocked?.error ?? 'Invoice not found' }, { status: blocked?.status ?? 404 })
 
     if (paymentStatus !== undefined && !['paid', 'unpaid'].includes(paymentStatus)) {
       return NextResponse.json({ error: 'Use the refund workflow for refunds.' }, { status: 400 })
@@ -39,7 +39,7 @@ export async function PUT(request: NextRequest) {
     }
 
     const changed = await prisma.invoice.updateMany({
-      where: { id: invoiceId, paymentStatus: invoice.paymentStatus, updatedAt: invoice.updatedAt },
+      where: { id: invoiceId, paymentStatus: invoice.paymentStatus, updatedAt: invoice.updatedAt, deletedAt: null },
       data: updateData,
     })
     if (!changed.count) return NextResponse.json({ error: 'Invoice changed; refresh before updating payment.' }, { status: 409 })

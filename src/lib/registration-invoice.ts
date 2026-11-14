@@ -14,6 +14,7 @@
  */
 
 import { prisma } from '@/lib/db'
+import { activeInvoiceWhere } from '@/lib/invoice-deleted'
 import { resolveExternalStudentId } from '@/lib/invoice-student-id'
 import type { StudentRegistration } from '@prisma/client'
 
@@ -48,20 +49,31 @@ export async function createRegistrationInvoice(
 
   // Skip if an auto-invoice for this registration already exists.
   const existing = await prisma.invoice.findFirst({
-    where: { notes: { contains: tag } },
+    where: { ...activeInvoiceWhere, notes: { contains: tag } },
     select: { id: true, invoiceNumber: true },
   })
   if (existing) {
     // A retry after capture must settle the existing pending invoice, not leave
     // it unpaid or issue a second receipt. Never resurrect a refunded invoice.
+    // A soft-deleted invoice is not this row: its number stays reserved and
+    // its stored payment fields are left alone.
     if (paymentStatus === 'paid') {
-      await prisma.invoice.updateMany({ where: { id: existing.id, paymentStatus: 'unpaid' }, data: {
+      await prisma.invoice.updateMany({ where: { id: existing.id, paymentStatus: 'unpaid', deletedAt: null }, data: {
         paymentStatus: 'paid', paymentMethod,
         paidAt: registration.paymentCapturedAt || new Date(),
         cloverPaid: paymentMethod === 'card',
       } })
     }
     return { created: false, invoiceId: existing.id, invoiceNumber: existing.invoiceNumber, reason: 'already-exists' }
+  }
+
+  const deleted = await prisma.invoice.findFirst({
+    where: { notes: { contains: tag }, deletedAt: { not: null } },
+    select: { id: true },
+  })
+  if (deleted) {
+    // Keep the deleted invoice's number and fields. Do not issue a second receipt.
+    return { created: false, reason: 'deleted' }
   }
 
   // Pull tax + numbering config.

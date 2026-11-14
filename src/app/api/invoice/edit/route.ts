@@ -3,6 +3,7 @@ import { prisma } from '@/lib/db'
 import { parseExternalStudentId, resolveExternalStudentId } from '@/lib/invoice-student-id'
 import { phoneLast10 } from '@/lib/student-match'
 import { cents } from '@/lib/invoice-ledger'
+import { deletedInvoiceBlock } from '@/lib/invoice-deleted'
 
 // PUT — Edit invoice details (line items, amounts, student info)
 export async function PUT(request: NextRequest) {
@@ -15,9 +16,8 @@ export async function PUT(request: NextRequest) {
     }
 
     const invoice = await prisma.invoice.findUnique({ where: { id: invoiceId } })
-    if (!invoice) {
-      return NextResponse.json({ error: 'Invoice not found' }, { status: 404 })
-    }
+    const blocked = deletedInvoiceBlock(invoice)
+    if (blocked || !invoice) return NextResponse.json({ error: blocked?.error ?? 'Invoice not found' }, { status: blocked?.status ?? 404 })
 
     const amounts = [subtotal ?? invoice.subtotal, gstAmount ?? invoice.gstAmount, qstAmount ?? invoice.qstAmount, total ?? invoice.total]
     if (amounts.some(value => typeof value !== 'number' || !Number.isFinite(value) || value < 0)
@@ -74,7 +74,7 @@ export async function PUT(request: NextRequest) {
     }
 
     const changed = await prisma.invoice.updateMany({
-      where: { id: invoiceId, paymentStatus: invoice.paymentStatus, updatedAt: invoice.updatedAt },
+      where: { id: invoiceId, paymentStatus: invoice.paymentStatus, updatedAt: invoice.updatedAt, deletedAt: null },
       data: updateData,
     })
     if (!changed.count) return NextResponse.json({ error: 'Invoice changed; refresh before editing.' }, { status: 409 })

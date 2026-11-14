@@ -1,4 +1,5 @@
 import { prisma } from '@/lib/db'
+import { activeInvoiceWhere } from '@/lib/invoice-deleted'
 import { getAllStudents, countStudentsByDateRange } from '@/lib/external-db'
 
 let cachedContext: string | null = null
@@ -87,19 +88,19 @@ ${studentList}`)
   // Invoice stats from SQLite
   try {
     const [totalInvoices, paidInvoices, unpaidInvoices, invoiceRevenue] = await Promise.all([
-      prisma.invoice.count(),
-      prisma.invoice.count({ where: { paymentStatus: 'paid' } }),
-      prisma.invoice.count({ where: { paymentStatus: 'unpaid' } }),
-      prisma.invoice.aggregate({ _sum: { total: true } }),
+      prisma.invoice.count({ where: activeInvoiceWhere }),
+      prisma.invoice.count({ where: { ...activeInvoiceWhere, paymentStatus: 'paid' } }),
+      prisma.invoice.count({ where: { ...activeInvoiceWhere, paymentStatus: 'unpaid' } }),
+      prisma.invoice.aggregate({ where: activeInvoiceWhere, _sum: { total: true } }),
     ])
 
     const paidRevenue = await prisma.invoice.aggregate({
-      where: { paymentStatus: 'paid' },
+      where: { ...activeInvoiceWhere, paymentStatus: 'paid' },
       _sum: { total: true },
     })
 
     const unpaidTotal = await prisma.invoice.aggregate({
-      where: { paymentStatus: 'unpaid' },
+      where: { ...activeInvoiceWhere, paymentStatus: 'unpaid' },
       _sum: { total: true },
     })
 
@@ -107,7 +108,7 @@ ${studentList}`)
     const sixMonthsAgo = new Date(now)
     sixMonthsAgo.setMonth(sixMonthsAgo.getMonth() - 6)
     const recentInvoices = await prisma.invoice.findMany({
-      where: { createdAt: { gte: sixMonthsAgo } },
+      where: { ...activeInvoiceWhere, createdAt: { gte: sixMonthsAgo } },
       select: { total: true, paymentStatus: true, createdAt: true },
     })
 
@@ -119,6 +120,7 @@ ${studentList}`)
 
     // Get recent invoices for detail
     const allInvoices = await prisma.invoice.findMany({
+      where: activeInvoiceWhere,
       orderBy: { createdAt: 'desc' },
       take: 200,
       select: {

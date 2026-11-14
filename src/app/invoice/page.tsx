@@ -954,6 +954,12 @@ function InvoicePage() {
                   History
                 </Button>
               </Link>
+              <Link href="/invoice/history?view=deleted">
+                <Button variant="outline" size="sm">
+                  <Trash2 className="h-4 w-4 mr-1" />
+                  Recently deleted
+                </Button>
+              </Link>
               <Link href="/invoice/packages">
                 <Button variant="outline" size="sm">
                   <Package className="h-4 w-4 mr-1" />

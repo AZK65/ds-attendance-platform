@@ -3,6 +3,7 @@ import type { Prisma } from '@prisma/client'
 import { invoiceBelongsToStudent, openBalanceFromInvoices } from './invoice-match'
 import { phoneLast10 } from './student-match'
 import { cents, ledgerSummary } from './invoice-ledger'
+import { activeInvoiceWhere } from './invoice-deleted'
 
 export interface ReconciliationInvoice {
   id: string; invoiceNumber: string; studentName: string; studentPhone?: string | null
@@ -78,7 +79,7 @@ export async function applyReviewedBalance(tx: Prisma.TransactionClient, plan: R
   if(plan.approved!==true || !plan.reviewNote?.trim() || !plan.invoiceIds.length || !Number.isSafeInteger(plan.openingChargesCents) || plan.openingChargesCents<0) {
     throw new Error('A reviewed total, explanation, and explicit approval are required')
   }
-  const all=await tx.invoice.findMany()
+  const all=await tx.invoice.findMany({ where: activeInvoiceWhere })
   const selected=all.filter(r=>plan.invoiceIds.includes(r.id))
   const preview=reconciliationPreview(all).find(r=>r.identityKey===plan.identityKey)
   if(!preview || preview.fingerprint!==plan.fingerprint || invoiceFingerprint(selected)!==plan.fingerprint || selected.length!==new Set(plan.invoiceIds).size) {
@@ -104,6 +105,6 @@ export async function applyReviewedBalance(tx: Prisma.TransactionClient, plan: R
     previousBalanceCents:cents(preview.currentBalance),
   }
   const account = existing ? await tx.billingAccount.update({where:{id:existing.id},data}) : await tx.billingAccount.create({data:{identityKey:plan.identityKey,...data}})
-  await tx.invoice.updateMany({where:{id:{in:plan.invoiceIds},billingAccountId:null},data:{billingAccountId:account.id,chargeCents:0,billingMode:'legacy-reviewed'}})
+  await tx.invoice.updateMany({where:{id:{in:plan.invoiceIds},billingAccountId:null,deletedAt:null},data:{billingAccountId:account.id,chargeCents:0,billingMode:'legacy-reviewed'}})
   return {accountId:account.id,...ledgerSummary(account.openingChargesCents,selected)}
 }

@@ -85,11 +85,11 @@ async function findInvoice(input: { registrationId: string; invoiceId?: string }
   const tag = registrationInvoiceTag(input.registrationId)
   if (input.invoiceId) {
     const row = await prisma.invoice.findUnique({ where: { id: input.invoiceId } })
-    if (!row?.notes?.includes(tag)) return null
+    if (!row?.notes?.includes(tag) || row.deletedAt) return null
     return toSnapshot(row)
   }
   const row = await prisma.invoice.findFirst({
-    where: { notes: { contains: tag } },
+    where: { notes: { contains: tag }, deletedAt: null },
     orderBy: { createdAt: 'desc' },
   })
   return row ? toSnapshot(row) : null

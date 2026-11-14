@@ -67,6 +67,7 @@ export async function POST(
       where: {
         notes: { contains: `[auto:reg=${id}]` },
         externalStudentId: null,
+        deletedAt: null,
       },
       data: { externalStudentId: result.insertId },
     }).catch((error) => {

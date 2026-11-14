@@ -132,8 +132,8 @@ export async function POST(request: NextRequest) {
       })
       invoiceId = invoice.invoiceId
       if (invoice.invoiceId && paidOrder.id) {
-        await prisma.invoice.update({
-          where: { id: invoice.invoiceId },
+        await prisma.invoice.updateMany({
+          where: { id: invoice.invoiceId, deletedAt: null },
           data: { cloverOrderId: paidOrder.id, cloverPaid: true },
         })
       }

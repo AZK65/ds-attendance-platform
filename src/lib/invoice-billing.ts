@@ -5,6 +5,7 @@ import { phoneLast10 } from '@/lib/student-match'
 import { cents, chargeForInvoice, ledgerSummary, type BillingMode } from '@/lib/invoice-ledger'
 import { reconciliationPreview, applyReviewedBalance } from './invoice-reconciliation'
 import { legacyInvoiceBalance } from './legacy-invoice-balance'
+import { activeInvoiceWhere, omitDeletedInvoices } from './invoice-deleted'
 
 export class BillingReviewRequired extends Error {}
 
@@ -16,33 +17,34 @@ export function billingIdentityKey(identity: StudentIdentity): string {
 }
 
 export async function studentBillingSummary(identity: StudentIdentity) {
-  const all = await prisma.invoice.findMany()
+  const all = await prisma.invoice.findMany({ where: activeInvoiceWhere })
   const own = all.filter(row => invoiceBelongsToStudent(row, identity))
   const accountIds = [...new Set(own.map(row => row.billingAccountId).filter((id): id is string => !!id))]
   let account = accountIds.length === 1
-    ? await prisma.billingAccount.findUnique({ where: { id: accountIds[0] }, include: { invoices: true } })
+    ? await prisma.billingAccount.findUnique({ where: { id: accountIds[0] }, include: { invoices: { where: activeInvoiceWhere } } })
     : null
   if (!own.length) {
-    try { account = await prisma.billingAccount.findUnique({ where: { identityKey: billingIdentityKey(identity) }, include: { invoices: true } }) } catch { /* identity may be incomplete */ }
+    try { account = await prisma.billingAccount.findUnique({ where: { identityKey: billingIdentityKey(identity) }, include: { invoices: { where: activeInvoiceWhere } } }) } catch { /* identity may be incomplete */ }
   }
+  const accountInvoices = account ? omitDeletedInvoices(account.invoices) : []
   if (account && own.every(row => row.billingAccountId === account.id)) {
-    return { ...ledgerSummary(account.openingChargesCents, account.invoices), needsReview: false, hasAccount: true,
+    return { ...ledgerSummary(account.openingChargesCents, accountInvoices), needsReview: false, hasAccount: true,
       balanceSource: 'ledger' as const, balanceNote: null, savedBalance: null,
-      hasCourseAgreement: account.openingChargesCents > 0 || account.invoices.some(row => row.billingMode === 'new-course') }
+      hasCourseAgreement: account.openingChargesCents > 0 || accountInvoices.some(row => row.billingMode === 'new-course') }
   }
   // Preserve unapproved historical balances. Do not migrate on a GET request.
   const paid = own.filter(row => row.paymentStatus === 'paid').reduce((sum, row) => sum + cents(row.total), 0) / 100
   const preview = reconciliationPreview(all).find(row => own.length && own.every(invoice => row.invoiceIds.includes(invoice.id)))
   const identityBlocked = !preview || preview.identityKey.startsWith('unresolved:') || preview.issues.includes('Phone belongs to more than one student ID')
   const legacy = legacyInvoiceBalance(own.filter(row => !row.billingAccountId))
-  const knownActivity = account ? ledgerSummary(account.openingChargesCents, account.invoices) : null
+  const knownActivity = account ? ledgerSummary(account.openingChargesCents, accountInvoices) : null
   const netBalance = Math.round((legacy.netBalance + (knownActivity?.netBalance ?? 0)) * 100) / 100
   return {
     totalCharges: null, totalPaid: paid, ...legacy, openBalance: Math.max(0, netBalance),
     creditBalance: Math.max(0, -netBalance), netBalance,
     unpaidInvoiceTotal: own.filter(row => row.paymentStatus === 'unpaid').reduce((sum, row) => sum + cents(row.total), 0) / 100,
     needsReview: own.length > 0, hasAccount: !!account,
-    hasCourseAgreement: !!account && (account.openingChargesCents > 0 || account.invoices.some(row => row.billingMode === 'new-course')),
+    hasCourseAgreement: !!account && (account.openingChargesCents > 0 || accountInvoices.some(row => row.billingMode === 'new-course')),
     knownActivityBalance: knownActivity?.netBalance ?? 0,
     historyFingerprint: preview?.fingerprint ?? null,
     canConfirmHistory: !identityBlocked && accountIds.length <= 1 && !account?.reviewedFingerprint,
@@ -56,7 +58,7 @@ export async function prepareInvoiceBilling(
   input: { mode: BillingMode; total: number; courseTotal?: number | null;
     history?: { chargesCents: number; fingerprint: string; confirmed: boolean; staffSessionId: string; staffName: string } },
 ) {
-  const all = await tx.invoice.findMany()
+  const all = await tx.invoice.findMany({ where: activeInvoiceWhere })
   let own = all.filter(row => invoiceBelongsToStudent(row, identity))
   if (own.some(row => !row.billingAccountId) && input.history) {
     const preview = reconciliationPreview(all).find(row => own.every(invoice => row.invoiceIds.includes(invoice.id)))
@@ -66,7 +68,7 @@ export async function prepareInvoiceBilling(
       approved: input.history.confirmed, reviewedBy: input.history.staffName, reviewedBySessionId: input.history.staffSessionId,
       reviewNote: 'Full agreed charges confirmed by staff in the invoice flow before recording an installment.' })
     } catch (error) { throw new BillingReviewRequired(error instanceof Error ? error.message : 'Reload the invoice and confirm the latest total.') }
-    own = (await tx.invoice.findMany()).filter(row => invoiceBelongsToStudent(row, identity))
+    own = (await tx.invoice.findMany({ where: activeInvoiceWhere })).filter(row => invoiceBelongsToStudent(row, identity))
   }
   const ids = [...new Set(own.map(row => row.billingAccountId).filter(Boolean))]
   if (ids.length > 1) {

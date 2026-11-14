@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/db'
+import { activeInvoiceWhere, deletedInvoiceWhere } from '@/lib/invoice-deleted'
 
 export async function GET(request: NextRequest) {
   try {
@@ -7,9 +8,10 @@ export async function GET(request: NextRequest) {
     const from = request.nextUrl.searchParams.get('from') || ''
     const to = request.nextUrl.searchParams.get('to') || ''
 
-    // Build where clause
+    const deletedOnly = request.nextUrl.searchParams.get('deleted') === '1'
+    // Build where clause. Deleted invoices stay out of the normal list.
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const where: any = {}
+    const where: any = deletedOnly ? { ...deletedInvoiceWhere } : { ...activeInvoiceWhere }
 
     if (search) {
       where.OR = [
@@ -26,7 +28,7 @@ export async function GET(request: NextRequest) {
 
     const invoices = await prisma.invoice.findMany({
       where,
-      orderBy: { createdAt: 'desc' },
+      orderBy: deletedOnly ? { deletedAt: 'desc' } : { createdAt: 'desc' },
     })
 
     return NextResponse.json({ invoices })

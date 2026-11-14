@@ -214,13 +214,23 @@ test('inline confirmation rejects stale history and rolls back with a failed inv
   assert.equal((await prisma.invoice.findUniqueOrThrow({where:{id:old.id}})).billingAccountId,null)
 })
 
-test('delete a draft does not rewrite older snapshots; paid receipts cannot be erased',async()=>{
+test('soft-delete hides a draft without rewriting older snapshots or erasing the row',async()=>{
   const a=await account(2),first=await receipt(2,a.id,250,'paid'),second=await receipt(2,a.id,250)
-  const params={params:Promise.resolve({id:second.id})}
-  assert.equal((await remove(req({}),params)).status,200)
+  const before=await prisma.invoice.findUniqueOrThrow({where:{id:first.id}})
+  assert.equal((await remove(req({}),{params:Promise.resolve({id:second.id})})).status,200)
+  const kept=await prisma.invoice.findUniqueOrThrow({where:{id:first.id}})
+  assert.equal(kept.total,before.total)
+  assert.equal(kept.paymentStatus,before.paymentStatus)
+  assert.equal(kept.remainingBalance,before.remainingBalance)
+  assert.equal(kept.chargeCents,before.chargeCents)
+  assert.equal(kept.deletedAt,null)
+  assert.equal(kept.updatedAt.getTime(),before.updatedAt.getTime())
+  const draft=await prisma.invoice.findUniqueOrThrow({where:{id:second.id}})
+  assert.ok(draft.deletedAt)
+  assert.equal(draft.invoiceNumber,second.invoiceNumber)
+  assert.equal(draft.total,250)
+  assert.equal(draft.paymentStatus,'unpaid')
   assert.equal((await billing.studentBillingSummary({externalStudentId:2})).openBalance,750)
-  assert.equal((await remove(req({}),{params:Promise.resolve({id:first.id})})).status,409)
-  assert.ok(await prisma.invoice.findUnique({where:{id:first.id}}))
 })
 
 test('refunded installment restores debt once; repeating refund is idempotent',async()=>{

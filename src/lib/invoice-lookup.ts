@@ -1,4 +1,5 @@
 import { prisma } from '@/lib/db'
+import { activeInvoiceWhere } from '@/lib/invoice-deleted'
 import { invoiceBelongsToStudent, type StudentIdentity } from '@/lib/invoice-match'
 
 // Phones are stored with spaces, dashes, and country codes. A SQL `contains`
@@ -7,7 +8,7 @@ import { invoiceBelongsToStudent, type StudentIdentity } from '@/lib/invoice-mat
 // the normalized identity in memory.
 
 export async function findInvoicesForStudent(student: StudentIdentity) {
-  const invoices = await prisma.invoice.findMany()
+  const invoices = await prisma.invoice.findMany({ where: activeInvoiceWhere })
   return invoices
     .filter((invoice) => invoiceBelongsToStudent(invoice, student))
     .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime())
