@@ -15,6 +15,7 @@ import {
   CLASS1_PRACTICAL_HOURS,
   CROSS_BOOKING_UNIT,
   bookingPartLabel,
+  classMarkedPresent,
   classTimingStatus,
   oddBookingMessage,
   practicalClassKey,
@@ -38,6 +39,8 @@ const statusText = {
   scheduled: 'Scheduled',
   unsigned: 'No signature',
 } as const
+
+const NO_PRESENT_EVENTS: string[] = []
 
 function formatSliceDate(isoDate: string): string {
   const [year, month, day] = isoDate.split('-').map(Number)
@@ -100,6 +103,7 @@ export function PracticalTrainingSection({
   studentPhone,
   subcalendars,
   now,
+  presentEventIds = NO_PRESENT_EVENTS,
   initialOpenKey = null,
 }: {
   bookings: PracticalBookingInput[]
@@ -109,6 +113,8 @@ export function PracticalTrainingSection({
   studentPhone: string
   subcalendars?: Array<{ id: number; name: string }>
   now?: Date
+  /** Booking ids marked present in ClassAttendance. */
+  presentEventIds?: Iterable<string>
   initialOpenKey?: string | null
 }) {
   const queryClient = useQueryClient()
@@ -124,9 +130,13 @@ export function PracticalTrainingSection({
   })
   const calendars = subcalendars ?? loadedCalendars
   const clock = now ?? new Date()
+  const presentIds = useMemo(
+    () => new Set(Array.from(presentEventIds, id => String(id))),
+    [presentEventIds],
+  )
   const summary = useMemo(
-    () => summarizePractical(bookings, studentSignatures),
-    [bookings, studentSignatures],
+    () => summarizePractical(bookings, studentSignatures, presentIds),
+    [bookings, studentSignatures, presentIds],
   )
   const [openKey, setOpenKey] = useState<string | null>(initialOpenKey)
   const [studentSigning, setStudentSigning] = useState<{
@@ -148,6 +158,7 @@ export function PracticalTrainingSection({
   const openSignature = openClass ? signatureForClass(openClass, studentSignatures) : null
   const openInstructor = openClass ? signatureForClass(openClass, instructorSignatures) : null
   const openStatus = openClass ? classTimingStatus(openClass, openSignature, clock) : null
+  const openPresent = openClass ? classMarkedPresent(openClass, presentIds) : false
   const showStudentSign = openClass != null && openStatus === 'unsigned' && showStudentSignsNow({
     date: openClass.date,
     startTime: openClass.startTime,
@@ -187,9 +198,9 @@ export function PracticalTrainingSection({
         </div>
         <div className="text-right">
           <p className="font-semibold tabular-nums" data-testid="practical-progress">
-            {summary.signedCount} / {CLASS1_PRACTICAL_CLASS_COUNT} classes
+            {summary.countedCount} / {CLASS1_PRACTICAL_CLASS_COUNT} classes
           </p>
-          <p className="text-xs text-muted-foreground">{summary.signedHours} / {CLASS1_PRACTICAL_HOURS} h</p>
+          <p className="text-xs text-muted-foreground">{summary.countedHours} / {CLASS1_PRACTICAL_HOURS} h</p>
         </div>
       </div>
       {summary.oddBookings.map(booking => (
@@ -208,6 +219,7 @@ export function PracticalTrainingSection({
             const signature = signatureForClass(unit, studentSignatures)
             const instructor = signatureForClass(unit, instructorSignatures)
             const status = classTimingStatus(unit, signature, clock)
+            const present = classMarkedPresent(unit, presentIds)
             const part = unit.spansBookings ? unit.spanLabel : bookingPartLabel(unit)
             const teacher = instructorFirstName(calendars, unit.subcalendarId)
             const differ = instructorDifferenceNote(unit, calendars)
@@ -225,6 +237,11 @@ export function PracticalTrainingSection({
                 <span className="mt-1 block text-xs opacity-80">{unit.spansBookings ? `Finishes ${formatSliceDate(unit.date)}` : `${formatSliceDate(unit.date)} · 2 h`}</span>
                 {part && <span className="mt-1 block text-[11px] opacity-80" data-testid={unit.spansBookings ? 'practical-span' : undefined}>{part}</span>}
                 <span className="mt-2 block text-xs font-medium">{statusText[status]}</span>
+                {present && (
+                  <span className="mt-1 inline-flex w-fit rounded border border-current px-1.5 py-0.5 text-[11px] font-medium" data-testid="practical-present">
+                    Present
+                  </span>
+                )}
                 {teacher && <span className="mt-1 block text-[11px] opacity-80">Instructor: {teacher}</span>}
                 {differ && <span className="mt-1 block text-[11px] opacity-80">{differ}</span>}
                 {status === 'signed' && (
@@ -273,7 +290,10 @@ export function PracticalTrainingSection({
               </div>
               <div>
                 <p className="text-xs text-muted-foreground">Attendance</p>
-                <Badge variant="outline" className={statusClasses[openStatus]}>{statusText[openStatus]}</Badge>
+                <div className="mt-1 flex flex-wrap items-center gap-2">
+                  <Badge variant="outline" className={statusClasses[openStatus]}>{statusText[openStatus]}</Badge>
+                  {openPresent && <Badge variant="outline" data-testid="practical-present">Present</Badge>}
+                </div>
               </div>
               {(openClass.spansBookings ? openClass.spanLabel : bookingPartLabel(openClass)) && (
                 <p className="col-span-2 text-sm text-muted-foreground" data-testid={openClass.spansBookings ? 'practical-span' : undefined}>

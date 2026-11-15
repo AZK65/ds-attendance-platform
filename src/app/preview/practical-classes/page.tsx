@@ -4,11 +4,13 @@ import { useSearchParams } from 'next/navigation'
 import { Suspense } from 'react'
 import { PracticalTrainingSection } from '@/components/PracticalTrainingSection'
 import {
+  SAMPLE_FUTURE_BOOKING,
   SAMPLE_INSTRUCTOR_SIGNOFFS,
   SAMPLE_INSTRUCTOR_SUBCALENDAR,
   SAMPLE_LEGACY_SIGNATURES,
   SAMPLE_NOW,
   SAMPLE_OTHER_SUBCALENDAR,
+  SAMPLE_PRESENT_EVENT_IDS,
   SAMPLE_PROFILE_BOOKINGS,
   SAMPLE_SIGNED_BOOKING_IDS,
   SAMPLE_STUDENT_NAME,
@@ -81,11 +83,12 @@ function PreviewBody() {
         <BeforeSection />
       ) : (
         <PracticalTrainingSection
-          bookings={SAMPLE_PROFILE_BOOKINGS}
+          bookings={[...SAMPLE_PROFILE_BOOKINGS, SAMPLE_FUTURE_BOOKING]}
           studentSignatures={SAMPLE_LEGACY_SIGNATURES}
           instructorSignatures={SAMPLE_INSTRUCTOR_SIGNOFFS}
           studentName={SAMPLE_STUDENT_NAME}
           studentPhone={SAMPLE_STUDENT_PHONE}
+          presentEventIds={SAMPLE_PRESENT_EVENT_IDS}
           subcalendars={[
             { id: SAMPLE_INSTRUCTOR_SUBCALENDAR, name: 'Ahmed Truck' },
             { id: SAMPLE_OTHER_SUBCALENDAR, name: 'Karim Truck' },

@@ -23,10 +23,31 @@
  * (unit 1000). Existing ClassSignature and LessonInstructorSignature rows
  * are never updated or deleted.
  *
- * SAAQ practical attestations are uploaded files (kind "practical").
- * They are not recomputed from bookings. The contracted practical total
- * stays 50 hours, which is these 25 classes. The 125-hour program bar
- * caps practical credit at 50 hours.
+ * Counted total
+ * -------------
+ * "N / 25 classes" and the matching hours count a 2-hour class when that
+ * class is signed, or when its booking is marked present on the existing
+ * per-booking ClassAttendance row. A present booking counts every 2-hour
+ * class that sits wholly inside it. Cancelled bookings are dropped before
+ * classes are built, so a present mark on a cancelled booking adds nothing.
+ *
+ * A class that takes hours from more than one booking counts when it is
+ * signed, or when every booking that contributes hours is marked present.
+ * Two bookings is the usual case: both must be present. One present
+ * booking does not cover the other half. A booking-level signature still
+ * does not sign that class; only its own cross-booking signature does.
+ * The class is one lesson, so half an attendance mark is not the lesson.
+ *
+ * That counted total is what the student profile shows, and what the
+ * 125-hour program bar uses (capped at 50 practical hours). The booklet
+ * uses the same rule for the classes it lists. It lists only classes
+ * whose start has already passed, still numbered in date order.
+ *
+ * Two records stay on a different rule, on purpose:
+ * - SAAQ practical attestations are uploaded files (kind "practical").
+ *   They are not recomputed from bookings or from this count.
+ * - The Class 1 contract prints the contracted program (50 hours,
+ *   25 classes), not this student's completed count.
  */
 
 import { isCancelledClass } from '@/lib/car-class-gap'
@@ -127,6 +148,11 @@ export interface PracticalBookletRow {
   instructorSignature: string | null
   netLabel: string | null
   note: string | null
+  /**
+   * Counted in "N / 25". True when the class is signed or marked present.
+   * Older rows omit it and count only when a signature is attached.
+   */
+  countsTowardTotal?: boolean
 }
 
 export function durationMinutes(start: string, end: string): number {
@@ -384,6 +410,49 @@ export function signatureForClass<T extends UnitSignature>(
   return rows.find(signature => signature.unitIndex == null || signature.unitIndex === 0) || null
 }
 
+/** Bookings that supply this class. A spanned class lists every one of them. */
+export function classBookingIds(unit: Pick<PracticalClassUnit, 'eventId' | 'spansBookings' | 'segments'>): string[] {
+  if (unit.spansBookings && unit.segments.length > 0) {
+    return [...new Set(unit.segments.map(segment => String(segment.eventId)))]
+  }
+  return [String(unit.eventId)]
+}
+
+function presentIdSet(presentEventIds: Iterable<string>): Set<string> {
+  return presentEventIds instanceof Set
+    ? presentEventIds
+    : new Set(Array.from(presentEventIds, id => String(id)))
+}
+
+/**
+ * True when every booking that supplies this class is marked present.
+ * A class inside one booking needs that booking. A class that spans
+ * bookings needs all of them — both, in the usual two-booking case.
+ */
+export function classMarkedPresent(
+  unit: Pick<PracticalClassUnit, 'eventId' | 'spansBookings' | 'segments'>,
+  presentEventIds: Iterable<string>,
+): boolean {
+  const present = presentIdSet(presentEventIds)
+  const ids = classBookingIds(unit)
+  return ids.length > 0 && ids.every(id => present.has(id))
+}
+
+/** Signed, or marked present under classMarkedPresent. Counted once either way. */
+export function classCountsTowardTotal(
+  unit: Pick<PracticalClassUnit, 'eventId' | 'unitIndex' | 'spansBookings' | 'segments'>,
+  signatures: UnitSignature[],
+  presentEventIds: Iterable<string> = [],
+): boolean {
+  return Boolean(signatureForClass(unit, signatures)) || classMarkedPresent(unit, presentEventIds)
+}
+
+/** A class has started. Upcoming bookings stay off the booklet. */
+export function isPastPracticalClass(unit: Pick<PracticalClassUnit, 'start'>, now: Date = new Date()): boolean {
+  const start = new Date(unit.start).getTime()
+  return Number.isFinite(start) && start <= now.getTime()
+}
+
 export function affectedLongSignedBookings(
   bookings: PracticalBookingInput[],
   legacySignedEventIds: Iterable<string>,
@@ -402,28 +471,38 @@ export interface PracticalSummary {
   oddBookings: OddPracticalBooking[]
   trailingMinutes: number
   signedCount: number
+  /** Signed or marked present. This is the N in "N / 25 classes". */
+  countedCount: number
   scheduledCount: number
   /** Signed classes × 2. Not capped. */
   signedHours: number
-  /** Signed hours used in the 125-hour program bar. Never above 50. */
+  /** Counted classes × 2. Not capped. */
+  countedHours: number
+  /** Counted hours used in the 125-hour program bar. Never above 50. */
   programHours: number
 }
 
 export function summarizePractical(
   bookings: PracticalBookingInput[],
   signatures: UnitSignature[],
+  presentEventIds: Iterable<string> = [],
 ): PracticalSummary {
   const { classes, oddBookings, trailingMinutes } = expandPracticalClasses(bookings)
+  const present = presentIdSet(presentEventIds)
   const signedCount = classes.filter(unit => signatureForClass(unit, signatures)).length
+  const countedCount = classes.filter(unit => classCountsTowardTotal(unit, signatures, present)).length
   const signedHours = signedCount * CLASS1_PRACTICAL_CLASS_HOURS
+  const countedHours = countedCount * CLASS1_PRACTICAL_CLASS_HOURS
   return {
     classes,
     oddBookings,
     trailingMinutes,
     signedCount,
+    countedCount,
     scheduledCount: classes.length,
     signedHours,
-    programHours: Math.min(CLASS1_PRACTICAL_HOURS, signedHours),
+    countedHours,
+    programHours: Math.min(CLASS1_PRACTICAL_HOURS, countedHours),
   }
 }
 
@@ -437,52 +516,36 @@ export function classTimingStatus(
   return 'unsigned'
 }
 
-function emptyBookletRow(classNumber: number): PracticalBookletRow {
-  return {
-    classNumber,
-    label: `Practical class ${classNumber}`,
-    when: '',
-    studentSignature: null,
-    instructorName: null,
-    instructorNo: null,
-    instructorSignature: null,
-    netLabel: '2h00',
-    note: null,
-  }
-}
-
 export function bookletRowsFromClasses(input: {
   classes: PracticalClassUnit[]
   studentSignatures: UnitSignature[]
   instructorSignatures?: UnitSignOff[]
-  target?: number
+  /** Classes that start after this instant are upcoming and are omitted. */
+  now?: Date
+  presentEventIds?: Iterable<string>
 }): PracticalBookletRow[] {
-  const target = input.target ?? CLASS1_PRACTICAL_CLASS_COUNT
-  const byNumber = new Map(input.classes.map(unit => [unit.classNumber, unit]))
-  const highest = input.classes.reduce((max, unit) => Math.max(max, unit.classNumber), 0)
-  const count = Math.max(target, highest)
-  const rows: PracticalBookletRow[] = []
-  for (let classNumber = 1; classNumber <= count; classNumber += 1) {
-    const unit = byNumber.get(classNumber)
-    if (!unit) {
-      rows.push(emptyBookletRow(classNumber))
-      continue
-    }
-    const student = signatureForClass(unit, input.studentSignatures)
-    const instructor = signatureForClass(unit, input.instructorSignatures || [])
-    rows.push({
-      classNumber,
-      label: `Practical class ${classNumber}`,
-      when: formatBookletDateTime(unit.date, unit.startTime),
-      studentSignature: student?.signatureDataUrl || null,
-      instructorName: instructor?.name || null,
-      instructorNo: instructor?.number ?? null,
-      instructorSignature: instructor?.signatureDataUrl || null,
-      netLabel: '2h00',
-      note: classCoverageNote(unit),
+  const now = input.now ?? new Date()
+  const present = input.presentEventIds || []
+  return input.classes
+    .filter(unit => isPastPracticalClass(unit, now))
+    .slice()
+    .sort((a, b) => a.classNumber - b.classNumber)
+    .map(unit => {
+      const student = signatureForClass(unit, input.studentSignatures)
+      const instructor = signatureForClass(unit, input.instructorSignatures || [])
+      return {
+        classNumber: unit.classNumber,
+        label: `Practical class ${unit.classNumber}`,
+        when: formatBookletDateTime(unit.date, unit.startTime),
+        studentSignature: student?.signatureDataUrl || null,
+        instructorName: instructor?.name || null,
+        instructorNo: instructor?.number ?? null,
+        instructorSignature: instructor?.signatureDataUrl || null,
+        netLabel: '2h00',
+        note: classCoverageNote(unit),
+        countsTowardTotal: classCountsTowardTotal(unit, input.studentSignatures, present),
+      }
     })
-  }
-  return rows
 }
 
 export interface SignedLabelRow {
@@ -507,10 +570,11 @@ function isPracticalLabel(row: SignedLabelRow): boolean {
 
 /**
  * Booklet rows when the booking list is not available. Each saved practical
- * signature is one 2-hour class, in time order. Empty rows fill the grid
- * out to 25. A signature is still never copied onto a second row.
+ * signature is one 2-hour class, in time order. Blank rows are not added
+ * for classes that have not happened. A signature is still never copied
+ * onto a second row.
  */
-export function bookletRowsFromSignedLabels(rows: SignedLabelRow[], target = CLASS1_PRACTICAL_CLASS_COUNT): PracticalBookletRow[] {
+export function bookletRowsFromSignedLabels(rows: SignedLabelRow[]): PracticalBookletRow[] {
   const practical = rows.filter(isPracticalLabel).slice().sort((a, b) => {
     const aKey = a.scheduledStart || (a.signedAt instanceof Date ? a.signedAt.toISOString() : String(a.signedAt))
     const bKey = b.scheduledStart || (b.signedAt instanceof Date ? b.signedAt.toISOString() : String(b.signedAt))
@@ -518,8 +582,7 @@ export function bookletRowsFromSignedLabels(rows: SignedLabelRow[], target = CLA
     if (byTime !== 0) return byTime
     return (a.practicalUnitIndex ?? 0) - (b.practicalUnitIndex ?? 0)
   })
-  const placed = new Map<number, PracticalBookletRow>()
-  practical.forEach((row, index) => {
+  return practical.map((row, index) => {
     const classNumber = index + 1
     const when = row.scheduledStart?.trim()
       ? formatBookletDateTime(
@@ -527,7 +590,7 @@ export function bookletRowsFromSignedLabels(rows: SignedLabelRow[], target = CLA
         (row.scheduledStart.trim().match(/(\d{2}:\d{2})/) || [])[1] || '00:00',
       )
       : ''
-    placed.set(classNumber, {
+    return {
       classNumber,
       label: `Practical class ${classNumber}`,
       when,
@@ -537,14 +600,9 @@ export function bookletRowsFromSignedLabels(rows: SignedLabelRow[], target = CLA
       instructorSignature: row.instructorSignatureDataUrl || null,
       netLabel: '2h00',
       note: null,
-    })
+      countsTowardTotal: true,
+    }
   })
-  const count = Math.max(target, placed.size)
-  const out: PracticalBookletRow[] = []
-  for (let classNumber = 1; classNumber <= count; classNumber += 1) {
-    out.push(placed.get(classNumber) || emptyBookletRow(classNumber))
-  }
-  return out
 }
 
 /** Contract sentence. 50 hours stays 50 hours, and states the 25 classes of 2 hours. */
