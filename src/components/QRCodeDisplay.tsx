@@ -28,8 +28,8 @@ export function QRCodeDisplay() {
 
   const { data: qrData, error: qrError, dataUpdatedAt } = useQuery({
     queryKey: ['whatsapp-qr'],
-    queryFn: async () => {
-      const res = await fetch('/api/whatsapp/qr', { cache: 'no-store' })
+    queryFn: async ({ signal }) => {
+      const res = await fetch('/api/whatsapp/qr', { cache: 'no-store', signal })
       if (!res.ok) throw new Error(res.status === 401 ? 'Sign in again to view a fresh QR code.' : 'Could not load the QR code. Retry the connection.')
       return res.json()
     },
