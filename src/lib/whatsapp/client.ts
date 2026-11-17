@@ -1,6 +1,8 @@
 import path from 'path'
 import { createHash } from 'crypto'
 import { lookupWhatsAppNumber } from './number-check'
+import { WhatsAppSessionBackup } from './session-backup'
+import { isValidWhatsAppQr } from './qr-payload'
 import { prisma } from '@/lib/db'
 import { handleInboundMessage, pauseForAdminReply, logAdminMessage, logBotSendSuccess, logBotSendFailure } from '@/lib/bot/handle-message'
 import { capturePaperExamMedia, findActivePaperExamGroupForSender, hasActivePaperExamSession } from '@/lib/paper-exam'
@@ -94,6 +96,13 @@ interface WhatsAppState {
   zombieStrikes?: number
   intentionalDisconnect?: boolean
   reconnecting?: boolean
+  generation?: number
+  authenticatedAt?: number
+  lastError?: string | null
+  command?: Promise<void> | null
+  lastCommandAt?: number
+  lastBackupAt?: number
+  backupAccount?: string
 }
 
 // Errors that mean the Chromium frame is dead OR WhatsApp Web self-updated
@@ -169,12 +178,92 @@ const state: WhatsAppState = globalForWhatsApp.whatsappState ?? {
   events: []
 }
 
-// Persist state globally so multiple Next.js workers share the same WhatsApp client
-// Without this, each worker creates its own client and they fight over Chromium
+// Shared within this Node process, including Next.js module reloads.
+// This is NOT shared across processes: run one app replica for this profile.
 globalForWhatsApp.whatsappState = state
 
 const AUTH_FOLDER = path.join(process.cwd(), '.wwebjs-auth')
 const WEB_CACHE_FOLDER = path.join(process.cwd(), '.wwebjs_cache')
+const sessionBackups = new WhatsAppSessionBackup(AUTH_FOLDER, path.join(process.cwd(), 'data', 'whatsapp-session-backups'))
+let backupInProgress = false
+
+async function saveSessionBackup(consistency: 'live' | 'closed') {
+  if (backupInProgress || !state.backupAccount) return
+  backupInProgress = true
+  try {
+    const saved = await sessionBackups.capture(state.backupAccount, consistency)
+    if (saved) { state.lastBackupAt = Date.parse(saved); logWaEvent('session_backup_saved', consistency) }
+  } catch (error) { logWaEvent('session_backup_failed', error instanceof Error ? error.message : 'Backup failed') }
+  finally { backupInProgress = false }
+}
+
+export async function getSessionBackupStatus() { return sessionBackups.status() }
+
+export async function getWhatsAppQrCode(): Promise<string | null> {
+  if (state.isConnected || state.authenticatedAt) return null
+  const client = state.client as { pupPage?: { evaluate: <T>(code: string) => Promise<T> } } | null
+  if (!client?.pupPage) return null
+  try {
+    // WhatsApp changed RegistrationUtils.DEVICE_PLATFORM. The installed fork
+    // constructs a QR ending in `undefined`; the real web page has the correct
+    // full payload. Use that authoritative payload, not guessed platform values.
+    const qr = await Promise.race([
+      client.pupPage.evaluate<unknown>(`document.querySelector('[data-ref]')?.getAttribute('data-ref') || null`),
+      new Promise<null>(resolve => setTimeout(() => resolve(null), 3000)),
+    ])
+    if (state.client !== client || state.isConnected || state.authenticatedAt) return null
+    if (!isValidWhatsAppQr(qr)) { state.qr = null; return null }
+    if (state.qr !== qr) { state.qr = qr; state.lastQrAt = Date.now() }
+    return qr
+  } catch { return null }
+}
+
+/** Accept one recovery action at a time; QR polling must not wait for initialize(). */
+export function requestWhatsAppConnection(action: 'connect' | 'refresh' | 'reconnect' | 'restore') {
+  if (state.command || state.reconnecting || Date.now() - (state.lastCommandAt || 0) < 5000) return
+  if (state.isConnected && action !== 'reconnect') return
+  // Don't interrupt a scan that is already syncing the linked device.
+  if (state.authenticatedAt && Date.now() - state.authenticatedAt < 120000 && action === 'refresh') return
+  state.lastCommandAt = Date.now()
+  state.lastError = null
+  state.command = (async () => {
+    if (action === 'refresh' && state.qr && state.client) {
+      const client = state.client as { pupPage?: { evaluate: <T>(code: string) => Promise<T> } }
+      const previousQrAt = state.lastQrAt
+      state.qr = null
+      // Use the existing WhatsApp ref-change listener: don't log out or wipe
+      // credentials just to ask for the next QR challenge.
+      const refreshed = await Promise.race([
+        client.pupPage?.evaluate<boolean>(`(() => {
+          const cmd = window.AuthStore?.Cmd || window.Store?.Cmd;
+          if (typeof cmd?.refreshQR !== 'function') return false;
+          cmd.refreshQR(); return true;
+        })()`) ?? Promise.resolve(false),
+        new Promise<boolean>(resolve => setTimeout(() => resolve(false), 10000)),
+      ]).catch(() => false)
+      if (refreshed) {
+        for (let attempt = 0; attempt < 20; attempt++) {
+          if (state.isConnected || state.authenticatedAt || state.lastQrAt !== previousQrAt) return
+          await new Promise(resolve => setTimeout(resolve, 250))
+        }
+      }
+      if (state.isConnected || state.authenticatedAt) return
+      // Broken refresh hook: reopen the browser with the SAME saved profile.
+      await resetWhatsAppState()
+    } else if (action === 'reconnect' || action === 'restore' || action === 'refresh') {
+      await resetWhatsAppState()
+    }
+    if (action === 'restore') {
+      const restored = await sessionBackups.restore()
+      logWaEvent('session_backup_restored', restored)
+    }
+    void connectWhatsApp().catch(() => { /* connect stores a visible failure state */ })
+  })().catch((error) => {
+    state.lastError = error instanceof Error ? error.message : 'Could not reconnect WhatsApp.'
+    state.isConnecting = false
+    logWaEvent('recovery_failed', state.lastError)
+  }).finally(() => { state.command = null })
+}
 const CACHE_TTL = 60000 // 1 minute cache
 const CHAT_CACHE_TTL = 30000 // 30 second cache for inbox chats
 
@@ -276,19 +365,28 @@ export function getWhatsAppState() {
   return {
     qr: state.qr,
     isConnected: state.isConnected,
-    isConnecting: state.isConnecting
+    isConnecting: state.isConnecting || !!state.command,
+    authenticatedAt: state.authenticatedAt || null,
+    qrGeneratedAt: state.lastQrAt || null,
+    lastError: state.lastError || null,
+    lastBackupAt: state.lastBackupAt || null,
   }
 }
 
 export async function resetWhatsAppState(): Promise<void> {
+  state.generation = (state.generation || 0) + 1
+  state.intentionalDisconnect = true
+  const wasConnected = state.isConnected
   // Never launch a replacement Chromium while the previous one is still
   // closing over the same LocalAuth profile.
   await destroyClientHard()
+  if (wasConnected) await saveSessionBackup('closed')
   state.qr = null
   state.isConnected = false
   state.isConnecting = false
   state.groupsCache = []
   state.lastGroupSync = 0
+  state.authenticatedAt = undefined
 }
 
 // Delete the cached WhatsApp Web bundle (.wwebjs_cache). Safe — it holds no
@@ -347,11 +445,15 @@ async function destroyClientHard(): Promise<void> {
 // flushes WhatsApp's IndexedDB/Local Storage to the persistent auth volume so
 // the next container can restore the linked device without another QR scan.
 export async function shutdownWhatsApp(): Promise<void> {
+  const wasConnected = state.isConnected
+  state.generation = (state.generation || 0) + 1
   state.intentionalDisconnect = true
   state.isConnected = false
   state.isConnecting = false
   state.qr = null
   await destroyClientHard()
+  await sessionBackups.settled()
+  if (wasConnected) await saveSessionBackup('closed')
 }
 
 // Full factory reset: kill the client, wipe the saved session + web cache.
@@ -359,7 +461,8 @@ export async function shutdownWhatsApp(): Promise<void> {
 // profile written by a different Chromium build (profiles don't downgrade)
 // or by corrupted session data. Requires re-scanning the QR afterwards.
 export async function hardResetWhatsApp(): Promise<void> {
-  logWaEvent('hard_reset', 'wiping session + web cache — QR re-scan required')
+  logWaEvent('hard_reset', 'archiving session — QR re-scan required')
+  state.generation = (state.generation || 0) + 1
   state.intentionalDisconnect = true // hold the watchdog off while we wipe
   await destroyClientHard()
   state.qr = null
@@ -369,7 +472,8 @@ export async function hardResetWhatsApp(): Promise<void> {
   state.lastGroupSync = 0
   try {
     const fs = await import('fs')
-    fs.rmSync(AUTH_FOLDER, { recursive: true, force: true })
+    const active = path.join(AUTH_FOLDER, 'session')
+    if (fs.existsSync(active)) fs.renameSync(active, path.join(AUTH_FOLDER, `previous-reset-${Date.now()}`))
   } catch (e) {
     console.log('[hardReset] Failed to remove auth folder:', e)
   }
@@ -422,7 +526,7 @@ function startWatchdog() {
   if (globalForWatchdog.waWatchdog) return
   globalForWatchdog.waWatchdog = setInterval(async () => {
     try {
-      if (state.intentionalDisconnect) return
+      if (state.intentionalDisconnect || state.command || state.reconnecting) return
 
       if (state.isConnected && state.client) {
         const health = await probeConnectionHealth()
@@ -452,7 +556,10 @@ function startWatchdog() {
         }
 
         // Healthy (or couldn't probe this tick) — clear any accumulated strikes
-        if (health === 'ok') state.zombieStrikes = 0
+        if (health === 'ok') {
+          state.zombieStrikes = 0
+          if (Date.now() - (state.lastReadyAt || 0) > 120_000 && Date.now() - (state.lastBackupAt || 0) > 15 * 60_000) void saveSessionBackup('live')
+        }
         return
       }
 
@@ -487,11 +594,12 @@ function startWatchdog() {
 // OOMs and keeps WhatsApp down.
 async function fullReconnect(): Promise<void> {
   const s = state as WhatsAppState & { reconnecting?: boolean }
-  if (s.reconnecting) {
+  if (s.reconnecting || state.intentionalDisconnect || state.command) {
     console.log('[fullReconnect] already in progress — skipping duplicate')
     return
   }
   s.reconnecting = true
+  state.generation = (state.generation || 0) + 1
   try {
   console.log('[fullReconnect] Starting full reconnect...')
   logWaEvent('full_reconnect', 'destroying + recreating Chromium client')
@@ -516,7 +624,7 @@ async function fullReconnect(): Promise<void> {
   if (!state.isConnected && !state.isConnecting) {
     console.log('[fullReconnect] Initiating new connection...')
     try {
-      await connectWhatsApp()
+      void connectWhatsApp().catch(err => console.error('[fullReconnect] Reconnection failed:', err))
     } catch (err) {
       console.error('[fullReconnect] Reconnection failed:', err)
     }
@@ -531,6 +639,19 @@ export async function connectWhatsApp(): Promise<void> {
     return
   }
 
+  // Claim ownership before the first await; concurrent requests must not launch
+  // two Chromium instances using the same saved session.
+  state.isConnecting = true
+  state.intentionalDisconnect = false
+  state.lastError = null
+  state.authenticatedAt = undefined
+  const generation = (state.generation || 0) + 1
+  state.generation = generation
+  state.connectStartedAt = Date.now()
+  state.lastConnectAttempt = Date.now()
+  startWatchdog()
+
+  try {
   // Never overwrite a client merely because one of its event handlers
   // temporarily flipped the connection flags. Doing so loses our only
   // reference to that Chromium process, leaving it alive on the same
@@ -541,6 +662,19 @@ export async function connectWhatsApp(): Promise<void> {
     logWaEvent('stale_client_before_connect', 'destroying existing Chromium before replacement')
     await destroyClientHard()
   }
+  if (state.generation !== generation) return
+
+  // A lost/empty profile can recover from the latest intact snapshot. A revoked
+  // device is intentionally excluded and needs a fresh phone scan.
+  const fsPromises = await import('node:fs/promises')
+  const hasProfile = await fsPromises.access(path.join(AUTH_FOLDER, 'session', 'Default', 'IndexedDB')).then(() => true, () => false)
+  if (!hasProfile) {
+    const backup = await sessionBackups.status().catch(() => ({ count: 0, revoked: false }))
+    if (backup.count && !backup.revoked) {
+      await sessionBackups.restore().then(at => logWaEvent('session_backup_restored', at)).catch(error => logWaEvent('session_restore_failed', String(error)))
+    }
+  }
+  if (state.generation !== generation) return
 
   state.isConnecting = true
   state.qr = null
@@ -552,6 +686,15 @@ export async function connectWhatsApp(): Promise<void> {
   // Clean up stale Chromium lock files that prevent restart
   try {
     const fs = await import('fs')
+    const owner = await fs.promises.readlink(path.join(AUTH_FOLDER, 'session', 'SingletonLock')).catch(() => '')
+    const ownerPid = Number(owner.match(/-(\d+)$/)?.[1])
+    if (ownerPid) {
+      let alive = false
+      try { process.kill(ownerPid, 0); alive = true } catch (error) {
+        if ((error as NodeJS.ErrnoException).code !== 'ESRCH') alive = true
+      }
+      if (alive) throw new Error('Another browser still owns the WhatsApp session. Refusing to remove its lock.')
+    }
     const lockFiles = [
       path.join(AUTH_FOLDER, 'session', 'Default', 'SingletonLock'),
       path.join(AUTH_FOLDER, 'session', 'Default', 'SingletonCookie'),
@@ -568,18 +711,27 @@ export async function connectWhatsApp(): Promise<void> {
         // File doesn't exist, that's fine
       }
     }
-  } catch {
-    // Ignore cleanup errors
+  } catch (error) {
+    throw error
   }
 
-  try {
     // Dynamic import of whatsapp-web.js
     const { Client, LocalAuth } = await import('whatsapp-web.js')
+    if (state.generation !== generation) return
+
+    // Preserve backups when WhatsApp revokes credentials, but never reuse them
+    // after a confirmed logout. LocalAuth itself may delete the active profile.
+    const authStrategy = new LocalAuth({ dataPath: AUTH_FOLDER })
+    const logout = authStrategy.logout.bind(authStrategy)
+    authStrategy.logout = async () => {
+      if (state.generation !== generation) return
+      await sessionBackups.revoke()
+      if (state.generation !== generation) return
+      await logout()
+    }
 
     const client = new Client({
-      authStrategy: new LocalAuth({
-        dataPath: AUTH_FOLDER
-      }),
+      authStrategy,
       // Pin WhatsApp Web HTML to a version this fork of whatsapp-web.js is
       // known to work with. WhatsApp Web auto-updates and breaks fork
       // compatibility roughly every couple of months — symptom is errors
@@ -641,9 +793,11 @@ export async function connectWhatsApp(): Promise<void> {
     client.on('qr', (qr: string) => {
       if (!isCurrentClient()) return
       console.log('QR code received')
-      state.qr = qr
+      state.qr = isValidWhatsAppQr(qr) ? qr : null
+      state.authenticatedAt = undefined
       state.lastQrAt = Date.now()
-      logWaEvent('qr_shown', 'session not authenticated — needs scan')
+      logWaEvent('qr_available', isValidWhatsAppQr(qr) ? 'needs scan' : 'using the native WhatsApp page QR')
+      void getWhatsAppQrCode()
     })
 
     // whatsapp-web.js can emit 'ready'/'authenticated' many times for one
@@ -662,6 +816,9 @@ export async function connectWhatsApp(): Promise<void> {
       state.qr = null
       state.lastReadyAt = Date.now()
       state.zombieStrikes = 0
+      state.lastError = null
+      state.backupAccount = client.info?.wid?._serialized
+      await sessionBackups.linked().catch(error => logWaEvent('session_backup_failed', String(error)))
       if (readyWorkStarted) return
       readyWorkStarted = true
       logWaEvent('ready', 'connected')
@@ -1046,6 +1203,8 @@ export async function connectWhatsApp(): Promise<void> {
     client.on('authenticated', async () => {
       if (!isCurrentClient()) return
       console.log('WhatsApp authenticated')
+      state.qr = null
+      state.authenticatedAt = Date.now()
       if (authWorkaroundStarted) return
       authWorkaroundStarted = true
       logWaEvent('authenticated')
@@ -1090,6 +1249,8 @@ export async function connectWhatsApp(): Promise<void> {
       if (!isCurrentClient()) return
       console.error('WhatsApp authentication failed:', msg)
       logWaEvent('auth_failure', msg)
+      state.qr = null
+      state.lastError = 'WhatsApp authentication failed. Try reconnecting; a fresh scan may be required.'
       state.isConnected = false
       // A transient Target-closed auth event can be followed by `ready`
       // seconds later while WhatsApp reloads. Keep this client as the sole
@@ -1113,12 +1274,19 @@ export async function connectWhatsApp(): Promise<void> {
       }
       console.log('WhatsApp disconnected:', reason)
       logWaEvent('disconnected', reason)
+      state.qr = null
+      state.authenticatedAt = undefined
+      if (reason === 'LOGOUT') {
+        void sessionBackups.revoke().catch(error => logWaEvent('session_backup_failed', String(error)))
+        state.lastError = 'WhatsApp logged this device out. Please scan a new code.'
+      }
       state.isConnected = false
       state.isConnecting = true
       state.groupsCache = []
 
       void (async () => {
         await destroyClientHard()
+        if (state.generation !== generation) return
         state.isConnecting = false
         if (state.intentionalDisconnect) return
         console.log('[WhatsApp] Will attempt to reconnect in 10 seconds...')
@@ -1133,7 +1301,11 @@ export async function connectWhatsApp(): Promise<void> {
       })()
     })
 
-    // Handle page crashes and frame detachment (Jan 2026 WhatsApp Web issues)
+    await client.initialize()
+    if (!isCurrentClient()) return
+
+    // Attach only after initialize has created pupPage. Previously this block
+    // ran before launch, so the crash/close handlers were never installed.
     const typedClientForCrash = client as { pupPage?: { on: (event: string, handler: (error: Error) => void) => void } }
     if (typedClientForCrash.pupPage) {
       typedClientForCrash.pupPage.on('error', (error: Error) => {
@@ -1158,7 +1330,6 @@ export async function connectWhatsApp(): Promise<void> {
         logWaEvent('page_closed', 'Chromium page closed (often an OOM kill / crash)')
         state.isConnected = false
         state.isConnecting = false
-        state.client = null
         // Previously this just went dark until someone noticed — reconnect instead
         if (!state.intentionalDisconnect) {
           setTimeout(() => {
@@ -1170,11 +1341,14 @@ export async function connectWhatsApp(): Promise<void> {
       })
     }
 
-    await client.initialize()
   } catch (error) {
+    // A retired initialize() may reject after its replacement is already up.
+    // It must never destroy or change that newer client.
+    if (state.generation !== generation) return
     const errMsg = error instanceof Error ? error.message : String(error)
     console.error('WhatsApp connection error:', error)
     logWaEvent('connect_error', errMsg)
+    state.lastError = 'WhatsApp could not start. Reconnect to retry without deleting the saved session.'
     state.isConnecting = false
     // A failed initialize can leave a live Chromium behind — make sure it's dead,
     // or it'll eat memory and hold the profile lock against the next attempt.
@@ -1190,6 +1364,8 @@ export async function connectWhatsApp(): Promise<void> {
 }
 
 export async function disconnectWhatsApp(): Promise<void> {
+  state.generation = (state.generation || 0) + 1
+  await sessionBackups.revoke()
   state.intentionalDisconnect = true // user asked for this — watchdog must not undo it
   if (state.client) {
     const client = state.client as DestroyableWhatsAppClient & { logout: () => Promise<void> }
