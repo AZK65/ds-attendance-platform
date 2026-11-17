@@ -11,20 +11,29 @@ export function ConnectionStatus() {
   const [showPanel, setShowPanel] = useState(false)
   const panelRef = useRef<HTMLDivElement>(null)
   const queryClient = useQueryClient()
+  const [now, setNow] = useState(() => Date.now())
+  const [refreshRequest, setRefreshRequest] = useState<{ image: string | null; startedAt: number } | null>(null)
+  useEffect(() => {
+    if (!showPanel) return
+    const timer = setInterval(() => setNow(Date.now()), 1000)
+    return () => clearInterval(timer)
+  }, [showPanel])
 
-  const { data, isLoading } = useQuery({
+  const { data, isLoading, error: statusError } = useQuery({
     queryKey: ['whatsapp-status'],
     queryFn: async () => {
-      const res = await fetch('/api/whatsapp/status')
+      const res = await fetch('/api/whatsapp/status', { cache: 'no-store' })
+      if (!res.ok) throw new Error(res.status === 401 ? 'Your staff login expired. Sign in again to connect WhatsApp.' : 'Could not check the WhatsApp connection.')
       return res.json()
     },
     refetchInterval: 3000
   })
 
-  const { data: qrData } = useQuery({
+  const { data: qrData, error: qrError, dataUpdatedAt } = useQuery({
     queryKey: ['whatsapp-qr'],
-    queryFn: async () => {
-      const res = await fetch('/api/whatsapp/qr')
+    queryFn: async ({ signal }) => {
+      const res = await fetch('/api/whatsapp/qr', { cache: 'no-store', signal })
+      if (!res.ok) throw new Error(res.status === 401 ? 'Sign in again to view a fresh QR code.' : 'Could not load the QR code. Try again.')
       return res.json()
     },
     refetchInterval: 2000,
@@ -32,17 +41,24 @@ export function ConnectionStatus() {
   })
 
   const connectMutation = useMutation({
-    mutationFn: async (force?: boolean) => {
+    mutationFn: async (action: 'connect' | 'refresh' | 'reconnect') => {
       const res = await fetch('/api/whatsapp/connect', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ force: force || false })
+        body: JSON.stringify({ action })
       })
       const result = await res.json()
       if (!res.ok) throw new Error(result.error || 'Connection failed')
       return result
     },
-    onSuccess: () => {
+    onMutate: async (action) => {
+      const previous = queryClient.getQueryData<{ qrImage?: string }>(['whatsapp-qr'])
+      setRefreshRequest(action === 'refresh' || action === 'reconnect' ? { image: previous?.qrImage || null, startedAt: Date.now() } : null)
+      // Cancel in-flight polling so an old response cannot put the old code back.
+      await queryClient.cancelQueries({ queryKey: ['whatsapp-qr'] })
+      queryClient.setQueryData(['whatsapp-qr'], { qrImage: null })
+    },
+    onSettled: () => {
       queryClient.invalidateQueries({ queryKey: ['whatsapp-status'] })
       queryClient.invalidateQueries({ queryKey: ['whatsapp-qr'] })
     }
@@ -87,6 +103,16 @@ export function ConnectionStatus() {
 
   const isConnected = data?.isConnected
   const isConnecting = data?.isConnecting
+  const awaitingNewQr = !!refreshRequest && !isConnected && !data?.authenticatedAt &&
+    (!qrData?.qrImage || qrData.qrImage === refreshRequest.image)
+  const refreshTimedOut = awaitingNewQr && now - refreshRequest.startedAt >= 45000
+  const error = statusError?.message || qrError?.message || connectMutation.error?.message ||
+    disconnectMutation.error?.message || data?.lastError ||
+    (refreshTimedOut ? 'A new QR code did not arrive. Try Refresh QR again. Your saved session has not been deleted.' : null)
+  const refreshing = awaitingNewQr && !refreshTimedOut && !error
+  const busy = connectMutation.isPending || refreshing
+  const qrFresh = !!qrData?.qrImage && !error && !awaitingNewQr && !data?.authenticatedAt &&
+    dataUpdatedAt > now - 15000 && qrData.generatedAt > now - 65000
 
   const dotColor = isConnected
     ? 'bg-green-500 shadow-[0_0_6px_rgba(34,197,94,0.5)]'
@@ -115,6 +141,8 @@ export function ConnectionStatus() {
       <AnimatePresence>
         {showPanel && (
           <motion.div
+            role="dialog"
+            aria-label="WhatsApp connection"
             initial={{ opacity: 0, y: -5, scale: 0.95 }}
             animate={{ opacity: 1, y: 0, scale: 1 }}
             exit={{ opacity: 0, y: -5, scale: 0.95 }}
@@ -137,6 +165,8 @@ export function ConnectionStatus() {
                 <X className="h-3.5 w-3.5" />
               </button>
             </div>
+
+            {error && <div role="alert" className="mb-3 p-2 rounded bg-red-50 border border-red-200 text-xs text-red-700">{error}</div>}
 
             {/* Connected State */}
             {isConnected && (
@@ -164,19 +194,13 @@ export function ConnectionStatus() {
             {/* Disconnected — show connect button or QR */}
             {!isConnected && (
               <div className="space-y-3">
-                {connectMutation.isError && (
-                  <div className="p-2 rounded bg-red-50 border border-red-200 text-xs text-red-700 text-center">
-                    {connectMutation.error?.message || 'Connection failed'}
-                  </div>
-                )}
-
                 {/* No QR yet, not connecting — show Start button */}
-                {!qrData?.qrImage && !isConnecting && (
+                {!qrFresh && !isConnecting && !busy && (
                   <Button
                     size="sm"
                     className="w-full"
-                    onClick={() => connectMutation.mutate(false)}
-                    disabled={connectMutation.isPending}
+                    onClick={() => connectMutation.mutate('connect')}
+                    disabled={busy}
                   >
                     {connectMutation.isPending ? (
                       <><Loader2 className="h-3.5 w-3.5 animate-spin mr-1.5" />Connecting...</>
@@ -187,24 +211,24 @@ export function ConnectionStatus() {
                 )}
 
                 {/* Connecting but no QR yet */}
-                {isConnecting && !qrData?.qrImage && (
+                {(isConnecting || busy) && !qrFresh && (
                   <div className="flex flex-col items-center gap-2 py-4">
                     <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
-                    <p className="text-xs text-muted-foreground">Generating QR code...</p>
+                    <p role="status" className="text-xs text-muted-foreground">{data?.authenticatedAt ? 'Phone linked. Syncing WhatsApp…' : 'Generating a new QR code…'}</p>
                     <Button
                       variant="ghost"
                       size="sm"
-                      onClick={() => connectMutation.mutate(true)}
-                      disabled={connectMutation.isPending}
+                      onClick={() => connectMutation.mutate('reconnect')}
+                      disabled={busy || !!data?.authenticatedAt}
                     >
                       <RefreshCw className="h-3.5 w-3.5 mr-1.5" />
-                      Force Reconnect
+                      Reconnect safely
                     </Button>
                   </div>
                 )}
 
                 {/* QR Code */}
-                {qrData?.qrImage && (
+                {qrFresh && (
                   <div className="flex flex-col items-center gap-2">
                     <div className="bg-white p-2 rounded-lg">
                       <Image
@@ -212,25 +236,25 @@ export function ConnectionStatus() {
                         alt="WhatsApp QR Code"
                         width={220}
                         height={220}
+                        unoptimized
                         className="rounded"
                       />
                     </div>
                     <p className="text-xs text-muted-foreground text-center">
                       Open WhatsApp → Settings → Linked Devices → Link a Device
                     </p>
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={() => queryClient.invalidateQueries({ queryKey: ['whatsapp-qr'] })}
-                    >
-                      <RefreshCw className="h-3.5 w-3.5 mr-1.5" />
-                      Refresh QR
-                    </Button>
                   </div>
                 )}
 
+                {!data?.authenticatedAt && (qrFresh || isConnecting || !!refreshRequest) && (
+                  <Button variant="outline" size="sm" className="w-full" disabled={busy} onClick={() => connectMutation.mutate('refresh')}>
+                    <RefreshCw className={`h-3.5 w-3.5 mr-1.5${busy ? ' animate-spin' : ''}`} />
+                    {busy ? 'Refreshing QR…' : 'Refresh QR'}
+                  </Button>
+                )}
+
                 {/* Help text when disconnected and no QR shown */}
-                {!isConnecting && !qrData?.qrImage && (
+                {!isConnecting && !qrFresh && !busy && (
                   <div className="text-xs text-muted-foreground space-y-1">
                     <p className="font-medium text-foreground">Possible causes:</p>
                     <ul className="list-disc list-inside space-y-0.5">
