@@ -12,6 +12,7 @@
     "test:rsep1": "tsx --test src/lib/rsep1/rsep1.test.ts",
     "test:saaq": "tsx --test src/lib/saaq-attestations/saaq-attestations.test.ts",
     "test:phone-change": "tsx --test src/lib/phone-change.test.ts src/lib/whatsapp/number-check.test.ts",
+    "test:whatsapp-recovery": "tsx --test src/lib/whatsapp/session-backup.test.ts src/lib/whatsapp/connection-controls.test.ts",
     "test:student-profile": "tsx --test src/lib/student-calendar-history.test.ts src/lib/student-profile-edit.test.ts",
     "test:zoom-resilience": "tsx --test src/lib/attendance-connection.test.ts src/lib/zoom/live-store.test.ts",
     "test:booklet": "tsx --test src/lib/instructor-booklet.test.ts",

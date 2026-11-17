@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server'
-import { getWhatsAppState, getWaEvents } from '@/lib/whatsapp/client'
+import { getWhatsAppState, getWaEvents, getSessionBackupStatus } from '@/lib/whatsapp/client'
 
 // GET /api/whatsapp/diagnostics
 // Recent WhatsApp lifecycle events (disconnect reasons, crashes, reconnects)
@@ -10,6 +10,8 @@ export async function GET() {
     isConnected: s.isConnected,
     isConnecting: s.isConnecting,
     hasQr: !!s.qr,
+    backup: await getSessionBackupStatus(),
+    lastError: s.lastError,
     events: getWaEvents(),
-  })
+  }, { headers: { 'Cache-Control': 'no-store, private' } })
 }
