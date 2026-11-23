@@ -1,15 +1,9 @@
 import { NextResponse } from 'next/server'
 import { prisma } from '@/lib/db'
 import { scheduleReminderFromEvent } from '@/lib/in-car-reminders'
+import { planTruckReminder, truckSessionFromEvent } from '@/lib/truck-reminders'
 
 const BASE_URL = 'https://api.teamup.com'
-
-function formatTime12h(t: string) {
-  const [h, m] = t.split(':').map(Number)
-  const ampm = h >= 12 ? 'PM' : 'AM'
-  const hour12 = h === 0 ? 12 : h > 12 ? h - 12 : h
-  return `${hour12}:${m.toString().padStart(2, '0')} ${ampm}`
-}
 
 export async function POST() {
   try {
@@ -66,34 +60,36 @@ export async function POST() {
       if (!phoneMatch) continue // No phone = can't send reminder
 
       const phone = phoneMatch[1]
-      const startDt = new Date(event.start_dt)
-      const startTime = event.start_dt.slice(11, 16) // "HH:MM"
       const teacherId = event.subcalendar_ids[0]
 
       if (isTruck) {
-        // Truck: 6 hours before
-        const reminderTime = new Date(startDt.getTime() - 6 * 60 * 60 * 1000)
-        if (reminderTime <= now) continue
-
-        const classNumMatch = notes.match(/ClassNumber:\s*(\d+)/)
-        const classNum = classNumMatch ? classNumMatch[1] : ''
-        const isExam = /Exam:/i.test(notes)
-        const examLocationMatch = notes.match(/Exam:\s*(.+)/)
-
-        let reminderMessage: string
-        if (isExam) {
-          const location = examLocationMatch ? examLocationMatch[1].trim() : ''
-          reminderMessage = `Reminder: You have your Truck Exam today at ${formatTime12h(startTime)}${location ? ` in ${location}` : ''}. Good luck! 🍀`
-        } else {
-          reminderMessage = `Reminder: You have Truck Class ${classNum} today at ${formatTime12h(startTime)}. See you there!`
-        }
+        const session = truckSessionFromEvent({
+          notes: event.notes,
+          title: event.title,
+          startDt: event.start_dt,
+          endDt: event.end_dt,
+        })
+        if (!session) continue
+        const plan = planTruckReminder({
+          kind: session.kind,
+          date: session.date,
+          startTime: session.startTime,
+          endTime: session.endTime,
+          classNumber: session.classNumber,
+          examLocation: session.examLocation,
+          now,
+        })
+        if (!plan.scheduledAt) continue
 
         await prisma.scheduledMessage.create({
           data: {
             groupId: 'truck-classes',
-            message: reminderMessage,
-            scheduledAt: reminderTime,
+            teamupEventId: String(event.id),
+            message: plan.message,
+            scheduledAt: plan.scheduledAt,
             memberPhones: JSON.stringify([phone]),
+            classDateISO: plan.classDateISO,
+            classTime: plan.classTime,
             status: 'pending',
           },
         })

@@ -166,6 +166,25 @@ export async function register() {
     const CLASS5_REMINDER_INTERVAL = 3 * 60 * 1000 // 3 minutes
 
     setTimeout(async () => {
+      // Move pending truck class and exam reminders from the old 6-hour lead
+      // to 24 hours before start. Runs before the sender so a deploy does not
+      // deliver the previous wording. Idempotent; safe on every boot.
+      try {
+        const { migratePendingTruckReminders } = await import('@/lib/truck-reminders')
+        for (let attempt = 1; attempt <= 5; attempt++) {
+          try {
+            await migratePendingTruckReminders()
+            break
+          } catch (err) {
+            console.error(`[truck-reminders] queue migration attempt ${attempt} failed:`, err)
+            if (attempt === 5) break
+            await new Promise(resolve => setTimeout(resolve, 3000))
+          }
+        }
+      } catch (err) {
+        console.error('[truck-reminders] queue migration failed to load:', err)
+      }
+
       // Rehydrate live Zoom store from the persisted snapshot so a server
       // restart mid-class doesn't blank the attendance UI.
       try {

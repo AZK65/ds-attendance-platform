@@ -15,6 +15,7 @@ import {
   findActiveScheduleSuppression,
 } from '@/lib/schedule-notify-suppression'
 import { recordTheorySessionTimeChange } from '@/lib/theory-session-sync'
+import { planTruckReminder, truckReminderMatchesSession, truckSessionFromEvent } from '@/lib/truck-reminders'
 
 const BASE_URL = 'https://api.teamup.com'
 
@@ -49,18 +50,6 @@ function isTruckClass(notes: string): boolean {
   return /TruckClass:\s*yes/i.test(stripHtml(notes))
 }
 
-function extractModule(notes: string, title: string): number | null {
-  const clean = stripHtml(notes)
-  for (const text of [clean, title]) {
-    const m = text.match(/Module\s*(\d+)/i) || text.match(/\bM(\d+)\b/) || text.match(/ClassNumber:\s*(\d+)/i)
-    if (m) {
-      const n = parseInt(m[1], 10)
-      if (n >= 1 && n <= 24) return n
-    }
-  }
-  return null
-}
-
 /**
  * Cancel any pending ScheduledMessage that's tied to a particular event
  * (truck class by phone+date+time, or theory class by group+date).
@@ -69,6 +58,7 @@ async function cancelRemindersForEvent(args: {
   startDt: string
   phone: string | null
   groupId?: string | null
+  eventId?: string | null
 }): Promise<number> {
   const { startDt, phone, groupId } = args
   const classDate = startDt.split('T')[0]
@@ -89,12 +79,18 @@ async function cancelRemindersForEvent(args: {
   const toCancel = pending.filter(r => {
     // Theory: group reminder keyed by groupId + classDateISO
     if (groupId && r.groupId === groupId && r.classDateISO === classDate && r.isGroupMessage) return true
-    // Truck: phone-targeted reminder, scheduledAt = classTime - 6h
+    // Truck class or exam. Match the stored start, the 24-hour lead, or a
+    // legacy 6-hour lead that startup migration has not rewritten yet.
     if (phone && r.groupId === 'truck-classes' && classTimePart) {
       if (!phoneMatches(r.memberPhones)) return false
-      const classTime = new Date(`${classDate}T${classTimePart}:00`)
-      const expectedReminder = new Date(classTime.getTime() - 6 * 60 * 60 * 1000)
-      return Math.abs(r.scheduledAt.getTime() - expectedReminder.getTime()) < 2 * 60 * 1000
+      return truckReminderMatchesSession({
+        scheduledAt: r.scheduledAt,
+        classDateISO: r.classDateISO,
+        classTime: r.classTime,
+        teamupEventId: r.teamupEventId,
+        eventId: args.eventId,
+        startDt,
+      })
     }
     // In-car (road) class reminder. Created by /api/scheduling/notify with
     // groupId='in-car-reminders' and scheduledAt = classTime - 3h. We
@@ -219,6 +215,7 @@ export async function POST() {
               startDt: snapshot.startDt,
               phone,
               groupId: null,
+              eventId: snapshot.eventId,
             })
           }
           if (cancelled > 0) {
@@ -312,6 +309,7 @@ export async function POST() {
                   startDt: existing.startDt,
                   phone,
                   groupId: null,
+                  eventId,
                 })
                 if (cancelled > 0) {
                   console.log(`[poll-changes] Cancelled ${cancelled} old reminder(s) for moved event ${eventId}`)
@@ -323,7 +321,8 @@ export async function POST() {
           }
 
           // ── Schedule a fresh reminder for the new date/time ────────
-          //    Truck classes: 6 hours before start, addressed to the student.
+          //    Truck classes and exams: 24 hours before start, to the student.
+          //    A session inside that window is reminded immediately.
           //    Theory classes: 12 PM same-day group message (no phone in notes).
           //    A suppressed theory move keeps the reminder that is already stored.
           if (timeChanged) {
@@ -344,26 +343,39 @@ export async function POST() {
                   consumeSuppression: () => consumeScheduleSuppression(suppression.id),
                   log: message => console.log(`[poll-changes] ${message} (event ${eventId})`),
                 })
-              } else if (newStart > now) {
-                const moduleNumber = extractModule(event.notes || '', event.title || '')
-                if (groupTheory) {
-                  const synced = await syncGroupTheoryReminder(event, existing.startDt)
-                  if (synced.matched) {
-                    console.log(`[poll-changes] Synced group reminder for moved event ${eventId}`)
-                  }
-                } else if (truck && phone) {
-                  const reminderTime = new Date(newStart.getTime() - 6 * 60 * 60 * 1000)
-                  if (reminderTime > now) {
-                    const timeDisplay = formatTime12h(event.start_dt)
-                    const cls = moduleNumber ?? '?'
-                    const message = `Reminder: You have Truck Class ${cls} today at ${timeDisplay}. See you there!`
+              } else if (newStart > now && groupTheory) {
+                const synced = await syncGroupTheoryReminder(event, existing.startDt)
+                if (synced.matched) {
+                  console.log(`[poll-changes] Synced group reminder for moved event ${eventId}`)
+                }
+              } else if (truck && phone) {
+                const session = truckSessionFromEvent({
+                  notes: event.notes,
+                  title: event.title,
+                  startDt: event.start_dt,
+                  endDt: event.end_dt,
+                })
+                if (session) {
+                  const plan = planTruckReminder({
+                    kind: session.kind,
+                    date: session.date,
+                    startTime: session.startTime,
+                    endTime: session.endTime,
+                    classNumber: session.classNumber,
+                    examLocation: session.examLocation,
+                    now,
+                  })
+                  if (plan.scheduledAt) {
                     await prisma.scheduledMessage.create({
                       data: {
                         groupId: 'truck-classes',
-                        message,
-                        scheduledAt: reminderTime,
+                        teamupEventId: eventId,
+                        message: plan.message,
+                        scheduledAt: plan.scheduledAt,
                         memberPhones: JSON.stringify([phone]),
-                        moduleNumber,
+                        moduleNumber: session.classNumber ? Number(session.classNumber) : null,
+                        classDateISO: plan.classDateISO,
+                        classTime: plan.classTime,
                         status: 'pending',
                       },
                     })

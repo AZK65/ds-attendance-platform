@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { getNasarSubcalendarId } from '@/lib/teamup'
 import { sendPrivateMessage, getWhatsAppState } from '@/lib/whatsapp/client'
 import { prisma } from '@/lib/db'
+import { planTruckReminder, truckTrainingScheduleReminderLine } from '@/lib/truck-reminders'
 
 const BASE_URL = 'https://api.teamup.com'
 
@@ -231,27 +232,28 @@ export async function POST(request: NextRequest) {
           const createdEvent = eventData.event || eventData
           const teamupEventId = createdEvent?.id != null ? String(createdEvent.id) : null
 
-          // Schedule a reminder 6 hours before the class only after Teamup
-          // confirms that the calendar event exists.
+          // Schedule the reminder only after Teamup confirms the event.
+          // Practical classes and exams are both 24 hours before start.
+          // A session booked inside that window is queued immediately.
           try {
-            const classDateTime = new Date(`${cls.date}T${cls.startTime}:00`)
-            const reminderTime = new Date(classDateTime.getTime() - 6 * 60 * 60 * 1000)
-
-            if (reminderTime > new Date()) {
-              const timeDisplay = formatTimeDisplay(cls.startTime)
-              const reminderMessage = cls.isExam
-                ? `Reminder: You have your Truck Exam today at ${timeDisplay}${cls.examLocation ? ` in ${cls.examLocation}` : ''}. Good luck! 🍀`
-                : `Reminder: You have Truck Class ${classNumber ?? ''} today at ${timeDisplay}. See you there!`
-
+            const plan = planTruckReminder({
+              kind: cls.isExam ? 'exam' : 'class',
+              date: cls.date,
+              startTime: cls.startTime,
+              endTime: cls.endTime,
+              classNumber,
+              examLocation: cls.examLocation,
+            })
+            if (plan.scheduledAt) {
               await prisma.scheduledMessage.create({
                 data: {
                   groupId: 'truck-classes',
                   teamupEventId,
-                  message: reminderMessage,
-                  scheduledAt: reminderTime,
+                  message: plan.message,
+                  scheduledAt: plan.scheduledAt,
                   memberPhones: JSON.stringify([studentPhone]),
-                  classDateISO: cls.date,
-                  classTime: `${cls.startTime}-${cls.endTime}`,
+                  classDateISO: plan.classDateISO,
+                  classTime: plan.classTime,
                   status: 'pending',
                 },
               })
@@ -302,7 +304,10 @@ export async function POST(request: NextRequest) {
           }
         }
 
-        message += `\nYou'll receive a reminder 6 hours before each class. Good luck! 🚛`
+        message += truckTrainingScheduleReminderLine({
+          classes: regularClasses.length,
+          exams: exams.length,
+        })
 
         await sendPrivateMessage(studentPhone, message)
         studentMessageSent = true
