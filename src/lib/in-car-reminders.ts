@@ -111,7 +111,7 @@ export async function cancelInCarReminderFor(args: {
  * Bails out quietly when:
  *   - the notes don't carry a phone (admin didn't pick a student)
  *   - the class is a truck class (truck reminders run on a different
- *     6-hour-before path attached to /api/scheduling/truck-classes)
+ *     24-hour-before path attached to /api/scheduling/truck-classes)
  *   - the 3-h-before time is already in the past
  */
 export async function scheduleReminderFromEvent(args: {
