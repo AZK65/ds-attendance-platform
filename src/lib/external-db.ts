@@ -1,5 +1,6 @@
 import mysql from 'mysql2/promise'
 import net from 'net'
+import { normalizeCertificateNumber } from '@/lib/certificate-numbers'
 
 // External MySQL database connection (driving_school_v2)
 // In production (Docker on DO server): connects directly via host network
@@ -235,6 +236,43 @@ export async function findStudentsByPhone(phone: string): Promise<Array<Pick<Stu
     const rowDigits = String(row.phone_number || '').replace(/\D/g, '')
     return rowDigits.endsWith(last10)
   })
+}
+
+/**
+ * Roster rows that already use this contract or attestation.
+ * driving_school_v2.student.contract_number is the attestation/barcode.
+ * user_defined_contract_number is the contract number. Zero and blank are ignored.
+ */
+export async function findStudentsByCertificateNumbers(numbers: {
+  contractNumber?: string | null
+  attestationNumber?: string | null
+}): Promise<StudentRecord[]> {
+  const contract = normalizeCertificateNumber(numbers.contractNumber)
+  const attestation = normalizeCertificateNumber(numbers.attestationNumber)
+  if (!contract && !attestation) return []
+
+  const clauses: string[] = []
+  const params: string[] = []
+  // Numeric comparison so stored 753 matches a request of 00753. Zero means "no number".
+  if (attestation) {
+    clauses.push('(contract_number IS NOT NULL AND contract_number <> 0 AND contract_number = ?)')
+    params.push(attestation)
+  }
+  if (contract) {
+    clauses.push('(user_defined_contract_number IS NOT NULL AND user_defined_contract_number <> 0 AND user_defined_contract_number = ?)')
+    params.push(contract)
+  }
+
+  const db = await getPool()
+  const [rows] = await db.execute<mysql.RowDataPacket[]>(
+    `SELECT student_id, full_name, permit_number, full_address, city, postal_code,
+            phone_number, email, contract_number, dob, status, user_defined_contract_number
+     FROM student
+     WHERE ${clauses.join(' OR ')}
+     LIMIT 50`,
+    params,
+  )
+  return rows as StudentRecord[]
 }
 
 export async function getStudentById(id: number): Promise<StudentRecord | null> {

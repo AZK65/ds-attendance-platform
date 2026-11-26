@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { PDFDocument, rgb, PDFName, StandardFonts } from 'pdf-lib'
 import bwipjs from 'bwip-js'
+import { rejectIfCertificateNumbersConflict } from '@/lib/certificate-assignment'
 
 interface CertificateFormData {
   name: string
@@ -69,6 +70,22 @@ export async function POST(request: NextRequest) {
         { error: 'No template PDF provided' },
         { status: 400 }
       )
+    }
+
+    // Printing runs after the save in the certificate screen. This is a second
+    // check so a direct call cannot draw another student's barcode or contract.
+    const ownership = await rejectIfCertificateNumbersConflict({
+      subject: {
+        name: formData.name,
+        phone: formData.phone,
+        phoneAlt: formData.phoneAlt,
+        licenceNumber: formData.licenceNumber,
+      },
+      contractNumber: formData.contractNumber,
+      attestationNumber: formData.attestationNumber,
+    })
+    if (!ownership.ok) {
+      return NextResponse.json({ error: ownership.error }, { status: ownership.status })
     }
 
     // Load the user-uploaded PDF template

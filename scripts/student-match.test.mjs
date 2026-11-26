@@ -28,6 +28,8 @@ const {
   canOverwriteStudent,
   shouldAdoptLocalStudent,
   phoneLast10,
+  planPhoneDedupes,
+  studentIdentityKind,
 } = load('../src/lib/student-match.ts')
 
 const SHAHEER_PHONE = '5145551001'
@@ -208,6 +210,18 @@ test('certificate save and adopt refuse a different non-empty phone', () => {
   assert.equal(canOverwriteStudent({ phone: null, licenceNumber: null }, laraib), true)
   assert.equal(shouldAdoptLocalStudent(shaheer, laraib, 'shaheer'), true)
   assert.equal(shouldAdoptLocalStudent(shaheer, { ...laraib, licenceNumber: 'L-SHAHEER' }, null), true)
+  assert.equal(
+    shouldAdoptLocalStudent(shaheer, { name: 'Laraib Shah', phone: SHAHEER_PHONE, licenceNumber: '' }, null),
+    false,
+  )
+  assert.equal(
+    shouldAdoptLocalStudent(
+      shaheer,
+      { name: 'Iqbal, Shaheer', phone: `(514) ${SHAHEER_PHONE.slice(0, 3)}-${SHAHEER_PHONE.slice(3, 6)}-${SHAHEER_PHONE.slice(6)}`, licenceNumber: '' },
+      null,
+    ),
+    true,
+  )
 
   const pairs = [
     [{ phone: SHAHEER_PHONE, licenceNumber: 'L-SHAHEER' }, { phone: LARAIB_PHONE, licenceNumber: 'L-LARAIB' }],
@@ -219,4 +233,39 @@ test('certificate save and adopt refuse a different non-empty phone', () => {
     assert.equal(canOverwriteStudent(stranger, student), false)
     assert.equal(shouldAdoptLocalStudent({ id: 'stranger', ...stranger }, student, null), false)
   }
+})
+
+test('siblings who share a phone are not selected for each other', () => {
+  const shared = '5145557777'
+  const ahmed = row({
+    id: 'ahmed',
+    name: 'Ahmed Khan',
+    phone: shared,
+    certificates: [{ id: 'cert-ahmed' }, { id: 'cert-ahmed-2' }],
+    address: '1 Ahmed Street',
+  })
+  const sara = row({ id: 'sara', name: 'Sara Khan', phone: `(514) 555-7777` })
+  const picked = selectLocalStudentMatch([ahmed, sara], { phone: shared, name: 'Khan, Sara' })
+  assert.equal(picked?.id, 'sara')
+  // The only row on this phone is still found for profile screens. The
+  // certificate form must not adopt it once the name says it is someone else.
+  assert.equal(selectLocalStudentMatch([ahmed], { phone: `+1 ${shared}`, name: 'Sara Khan' })?.id, 'ahmed')
+  assert.equal(shouldAdoptLocalStudent(ahmed, { name: 'Sara Khan', phone: shared }, null), false)
+  assert.equal(selectLocalStudentMatch([ahmed], { phone: shared })?.id, 'ahmed')
+  assert.equal(studentIdentityKind(ahmed, { name: 'Sara Khan', phone: shared }), 'different')
+  assert.equal(studentIdentityKind(ahmed, { name: 'Khan, Ahmed', phone: shared }), 'phone')
+})
+
+test('phone dedupe merges the same name and leaves siblings', () => {
+  const shared = '4385558888'
+  const { merges, skippedDifferentNames } = planPhoneDedupes([
+    { id: 'ahmed-a', name: 'Ahmed Khan', phone: shared },
+    { id: 'ahmed-b', name: 'Khan, Ahmed', phone: `1-${shared}` },
+    { id: 'sara', name: 'Sara Khan', phone: `(438) 555-8888` },
+    { id: 'other', name: 'Other Person', phone: '5145550000' },
+  ])
+  assert.equal(merges.length, 1)
+  assert.deepEqual(merges[0].members.map((row) => row.id).sort(), ['ahmed-a', 'ahmed-b'])
+  assert.equal(skippedDifferentNames.length, 1)
+  assert.deepEqual(skippedDifferentNames[0].members.map((row) => row.id), ['sara'])
 })
