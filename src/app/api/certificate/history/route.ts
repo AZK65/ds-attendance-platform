@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/db'
+import { updateCertificateNumbers } from '@/lib/certificate-assignment'
 import { getAllStudents } from '@/lib/external-db'
 
 // GET - list all certificates with student info (SQLite + MySQL)
@@ -81,50 +82,11 @@ export async function GET() {
 export async function PUT(request: NextRequest) {
   try {
     const { certificateId, contractNumber, attestationNumber } = await request.json()
-
-    if (!certificateId) {
-      return NextResponse.json({ error: 'certificateId is required' }, { status: 400 })
+    const result = await updateCertificateNumbers({ certificateId, contractNumber, attestationNumber })
+    if (!result.ok) {
+      return NextResponse.json({ error: result.error }, { status: result.status })
     }
-
-    const current = await prisma.certificate.findUnique({
-      where: { id: certificateId },
-      select: { studentId: true },
-    })
-    if (!current) {
-      return NextResponse.json({ error: 'Certificate not found' }, { status: 404 })
-    }
-
-    const cleanContract = contractNumber === undefined ? undefined : String(contractNumber || '').trim() || null
-    const cleanAttestation = attestationNumber === undefined
-      ? undefined
-      : attestationNumber?.replace(/\s+/g, '') || null
-    const requestedNumbers = [
-      cleanContract ? { contractNumber: cleanContract } : null,
-      cleanAttestation ? { attestationNumber: cleanAttestation } : null,
-    ].filter((value): value is { contractNumber: string } | { attestationNumber: string } => value !== null)
-
-    if (requestedNumbers.length > 0) {
-      const conflict = await prisma.certificate.findFirst({
-        where: { studentId: { not: current.studentId }, OR: requestedNumbers },
-        include: { student: { select: { name: true } } },
-      })
-      if (conflict) {
-        return NextResponse.json(
-          { error: `Certificate numbers are already assigned to ${conflict.student.name}.` },
-          { status: 409 }
-        )
-      }
-    }
-
-    const updated = await prisma.certificate.update({
-      where: { id: certificateId },
-      data: {
-        ...(cleanContract !== undefined ? { contractNumber: cleanContract } : {}),
-        ...(cleanAttestation !== undefined ? { attestationNumber: cleanAttestation } : {}),
-      },
-    })
-
-    return NextResponse.json({ certificate: updated })
+    return NextResponse.json({ certificate: result.certificate })
   } catch (error) {
     console.error('Error updating certificate:', error)
     return NextResponse.json({ error: 'Failed to update certificate' }, { status: 500 })

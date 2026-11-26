@@ -17,6 +17,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { PhoneCameraUpload } from '@/components/PhoneCameraUpload'
 import { StudentSearchAutocomplete, DBStudent } from '@/components/StudentSearchAutocomplete'
 import { AddressAutocomplete } from '@/components/AddressAutocomplete'
+import { certificateFailureMessage } from '@/lib/certificate-numbers'
 import { phonesConflict, shouldAdoptLocalStudent } from '@/lib/student-match'
 
 // ─── Shared Types ────────────────────────────────────────────────────────────
@@ -183,7 +184,7 @@ function compressImage(file: File, maxWidth: number = 2000, quality: number = 0.
 
 function adoptLocalStudent<T extends { id?: string; name?: string; phone?: string | null; phoneAlt?: string | null; licenceNumber?: string | null }>(
   local: T | null | undefined,
-  form: { phone?: string | null; phoneAlt?: string | null; licenceNumber?: string | null },
+  form: { name?: string | null; phone?: string | null; phoneAlt?: string | null; licenceNumber?: string | null },
   explicitStudentId?: string | null,
 ): T | null {
   if (!local || !shouldAdoptLocalStudent(local, form, explicitStudentId)) {
@@ -673,7 +674,10 @@ function CertificatePageInner() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(data)
       })
-      if (!res.ok) throw new Error('PDF generation failed')
+      if (!res.ok) {
+        const pdfError = await res.json().catch(() => ({ error: 'PDF generation failed' }))
+        throw new Error(certificateFailureMessage(pdfError.error || pdfError))
+      }
       return { blob: await res.blob(), saved }
     },
     onSuccess: ({ blob, saved }) => {
@@ -828,7 +832,7 @@ function CertificatePageInner() {
         const profile = await profileRes.json()
         const s = adoptLocalStudent(
           profile.localStudent,
-          { phone, phoneAlt: baseData.phoneAlt, licenceNumber: baseData.licenceNumber },
+          { name: baseData.name, phone, phoneAlt: baseData.phoneAlt, licenceNumber: baseData.licenceNumber },
           searchParams.get('studentId'),
         )
         if (s) {
@@ -1145,7 +1149,7 @@ function CertificatePageInner() {
         const profile = await profileRes.json()
         const ls = adoptLocalStudent(
           profile.localStudent,
-          { phone, phoneAlt: baseData.phoneAlt, licenceNumber: baseData.licenceNumber },
+          { name: baseData.name, phone, phoneAlt: baseData.phoneAlt, licenceNumber: baseData.licenceNumber },
           searchParams.get('studentId'),
         )
         if (ls) {
@@ -1525,43 +1529,45 @@ function CertificatePageInner() {
       try {
         if (needsConsume) {
           const numRes = await fetch('/api/certificate/next-number', { method: 'POST' })
-          if (numRes.ok) {
-            const numbers = await numRes.json()
-            const attestationStr = String(numbers.attestationNumber)
-            finalFormData = {
-              ...finalFormData,
-              contractNumber: usingPreviewedContract
-                ? String(numbers.contractNumber)
-                : finalFormData.contractNumber,
-              attestationNumber: usingPreviewedAttestation
-                ? attestationStr.split('').join('  ')
-                : finalFormData.attestationNumber,
-              schoolName: numbers.schoolName || '',
-              schoolAddress: numbers.schoolAddress || '',
-              schoolCity: numbers.schoolCity || '',
-              schoolProvince: numbers.schoolProvince || '',
-              schoolPostalCode: numbers.schoolPostalCode || '',
-              schoolNumber: numbers.schoolNumber || '',
-            }
+          if (!numRes.ok) {
+            const numError = await numRes.json().catch(() => ({ error: 'Failed to reserve certificate numbers' }))
+            throw new Error(numError.error || 'Failed to reserve certificate numbers')
+          }
+          const numbers = await numRes.json()
+          const attestationStr = String(numbers.attestationNumber)
+          finalFormData = {
+            ...finalFormData,
+            contractNumber: usingPreviewedContract
+              ? String(numbers.contractNumber)
+              : finalFormData.contractNumber,
+            attestationNumber: usingPreviewedAttestation
+              ? attestationStr.split('').join('  ')
+              : finalFormData.attestationNumber,
+            schoolName: numbers.schoolName || '',
+            schoolAddress: numbers.schoolAddress || '',
+            schoolCity: numbers.schoolCity || '',
+            schoolProvince: numbers.schoolProvince || '',
+            schoolPostalCode: numbers.schoolPostalCode || '',
+            schoolNumber: numbers.schoolNumber || '',
           }
         } else {
-          const settingsRes = await fetch('/api/certificate/settings')
-          if (settingsRes.ok) {
-            const settings = await settingsRes.json()
-            finalFormData = {
-              ...finalFormData,
-              schoolName: settings.schoolName || '',
-              schoolAddress: settings.schoolAddress || '',
-              schoolCity: settings.schoolCity || '',
-              schoolProvince: settings.schoolProvince || '',
-              schoolPostalCode: settings.schoolPostalCode || '',
-              schoolNumber: settings.schoolNumber || '',
+          try {
+            const settingsRes = await fetch('/api/certificate/settings')
+            if (settingsRes.ok) {
+              const settings = await settingsRes.json()
+              finalFormData = {
+                ...finalFormData,
+                schoolName: settings.schoolName || '',
+                schoolAddress: settings.schoolAddress || '',
+                schoolCity: settings.schoolCity || '',
+                schoolProvince: settings.schoolProvince || '',
+                schoolPostalCode: settings.schoolPostalCode || '',
+                schoolNumber: settings.schoolNumber || '',
+              }
             }
-          }
+          } catch { /* school info is optional when this student already has numbers */ }
         }
-      } catch { /* continue */ }
 
-      try {
         // Persist first so dates and assigned numbers survive even if PDF
         // rendering or a subsequent download is interrupted.
         const saveRes = await fetch('/api/students', {
@@ -1581,10 +1587,13 @@ function CertificatePageInner() {
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ ...finalFormData, templatePdf: templateStatus.template })
         })
-        if (!res.ok) throw new Error('PDF generation failed')
-        updatedStudents[i] = { ...updatedStudents[i], pdfBlob: await res.blob(), formData: finalFormData }
-      } catch {
-        updatedStudents[i] = { ...updatedStudents[i], ocrError: 'PDF generation failed' }
+        if (!res.ok) {
+          const pdfError = await res.json().catch(() => ({ error: 'PDF generation failed' }))
+          throw new Error(certificateFailureMessage(pdfError.error || pdfError))
+        }
+        updatedStudents[i] = { ...updatedStudents[i], pdfBlob: await res.blob(), formData: finalFormData, ocrError: undefined }
+      } catch (err) {
+        updatedStudents[i] = { ...updatedStudents[i], ocrError: certificateFailureMessage(err) }
       }
     }
 
@@ -1746,7 +1755,7 @@ function CertificatePageInner() {
         const profile = await profileRes.json()
         const s = adoptLocalStudent(
           profile.localStudent,
-          { phone, phoneAlt: baseData.phoneAlt, licenceNumber: baseData.licenceNumber },
+          { name: baseData.name, phone, phoneAlt: baseData.phoneAlt, licenceNumber: baseData.licenceNumber },
           editStudentId,
         )
         if (s) {
@@ -2056,6 +2065,7 @@ function CertificatePageInner() {
 
   const isStudentDataComplete = (fd: CertificateFormData) => !!(fd.name && fd.licenceNumber && fd.module1Date)
   const successCount = bulkStudents.filter(bs => bs.pdfBlob).length
+  const failedCount = bulkStudents.length - successCount
   const ocrEntriesCount = bulkStudents.filter(bs => bs.source === 'ocr' && !bs.datesFetched).length
 
   // ─── Render ────────────────────────────────────────────────────────────
@@ -2293,7 +2303,7 @@ function CertificatePageInner() {
               )}
               </AnimatePresence>
 
-              {pdfMutation.isError && <p className="text-destructive text-sm text-center mt-4">Failed to generate PDF. Please try again.</p>}
+              {pdfMutation.isError && <p className="text-destructive text-sm text-center mt-4">{certificateFailureMessage(pdfMutation.error)}</p>}
             </>
           )}
 
@@ -2558,7 +2568,7 @@ function CertificatePageInner() {
                 </div>
               )}
 
-              {pdfMutation.isError && <p className="text-destructive text-sm text-center mt-4">Failed to generate PDF. Please try again.</p>}
+              {pdfMutation.isError && <p className="text-destructive text-sm text-center mt-4">{certificateFailureMessage(pdfMutation.error)}</p>}
             </>
           )}
 
@@ -3058,9 +3068,13 @@ function CertificatePageInner() {
               {bulkStep === 'download' && (
                 <div className="space-y-6">
                   <div className="text-center">
-                    <div className="flex items-center justify-center w-20 h-20 rounded-full bg-green-100 mx-auto mb-4"><CheckCircle2 className="h-10 w-10 text-green-600" /></div>
-                    <h2 className="text-2xl font-bold mb-2">{successCount} Certificate{successCount !== 1 ? 's' : ''} Generated!</h2>
-                    <p className="text-muted-foreground mb-6">Download all certificates as a single ZIP file, or download individually.</p>
+                    <div className={`flex items-center justify-center w-20 h-20 rounded-full mx-auto mb-4 ${failedCount ? 'bg-amber-100' : 'bg-green-100'}`}>
+                      {failedCount && successCount === 0
+                        ? <AlertCircle className="h-10 w-10 text-amber-600" />
+                        : <CheckCircle2 className="h-10 w-10 text-green-600" />}
+                    </div>
+                    <h2 className="text-2xl font-bold mb-2">{successCount} Certificate{successCount !== 1 ? 's' : ''} Generated{failedCount ? `, ${failedCount} failed` : ''}</h2>
+                    <p className="text-muted-foreground mb-6">{failedCount ? 'The students below say why their certificate was not issued.' : 'Download all certificates as a single ZIP file, or download individually.'}</p>
                     <Button size="lg" onClick={handleDownloadZip} className="gap-2"><Archive className="h-5 w-5" /> Download All as ZIP</Button>
                   </div>
 
@@ -3080,7 +3094,10 @@ function CertificatePageInner() {
                             {bs.pdfBlob ? (
                               <Button variant="outline" size="sm" onClick={() => handleDownloadSingle(idx)}><Download className="h-3.5 w-3.5 mr-1.5" /> Download</Button>
                             ) : (
-                              <Badge variant="destructive">Failed</Badge>
+                              <div className="max-w-xs text-right">
+                                <Badge variant="destructive">Failed</Badge>
+                                <p className="text-xs text-red-600 mt-1">{certificateFailureMessage(bs.ocrError)}</p>
+                              </div>
                             )}
                           </div>
                         ))}

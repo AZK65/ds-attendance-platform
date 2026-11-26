@@ -1,10 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/db'
+import { planPhoneDedupes } from '@/lib/student-match'
 
 // POST /api/students/dedupe-local?dryRun=1
-// Finds local Student rows that share the same last-10-digit phone and
-// merges them. Certificates from the duplicates are re-pointed at the
-// surviving row, then the duplicates are deleted.
+// Finds local Student rows that share the same last-10-digit phone AND the
+// same full name, and merges those duplicates. Siblings who only share a
+// phone are left in place. Certificates from the duplicates are re-pointed
+// at the surviving row, then the duplicates are deleted.
 //
 // Survivor selection: the row with the most recent updatedAt wins, with a
 // tiebreaker on most certificates linked.
@@ -19,15 +21,9 @@ export async function POST(request: NextRequest) {
     orderBy: { updatedAt: 'desc' },
   })
 
-  // Bucket by last-10 phone digits
-  const buckets = new Map<string, typeof students>()
-  for (const s of students) {
-    const digits = (s.phone || '').replace(/\D/g, '')
-    if (digits.length < 7) continue
-    const key = digits.length >= 10 ? digits.slice(-10) : digits
-    if (!buckets.has(key)) buckets.set(key, [])
-    buckets.get(key)!.push(s)
-  }
+  // Same phone is not enough: siblings share a number and must stay separate.
+  // Only rows with the same full name are merged.
+  const { merges, skippedDifferentNames } = planPhoneDedupes(students)
 
   const plans: Array<{
     phoneSuffix: string
@@ -36,13 +32,12 @@ export async function POST(request: NextRequest) {
     certsMoved: number
   }> = []
 
-  for (const [phoneSuffix, group] of buckets) {
-    if (group.length < 2) continue
-
+  for (const group of merges) {
+    const phoneSuffix = group.phoneSuffix
     // Count certificates per row to pick the best survivor (favour the row
     // already linked to certs)
     const withCounts = await Promise.all(
-      group.map(async (s) => ({
+      group.members.map(async (s) => ({
         ...s,
         certCount: await prisma.certificate.count({ where: { studentId: s.id } }),
       })),
@@ -85,5 +80,9 @@ export async function POST(request: NextRequest) {
     rowsRemoved: dryRun ? 0 : plans.reduce((sum, p) => sum + p.duplicates.length, 0),
     certsMoved: plans.reduce((sum, p) => sum + p.certsMoved, 0),
     plans,
+    skippedDifferentNames: skippedDifferentNames.map((group) => ({
+      phoneSuffix: group.phoneSuffix,
+      students: group.members.map((student) => ({ id: student.id, name: student.name })),
+    })),
   })
 }

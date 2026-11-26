@@ -1,5 +1,7 @@
 import { NextResponse } from 'next/server'
 import { prisma } from '@/lib/db'
+import { numberAlreadyIssued } from '@/lib/certificate-numbers'
+import { findStudentsByCertificateNumbers } from '@/lib/external-db'
 
 // Atomically claim the next unused certificate numbers. updateMany acts as
 // an optimistic compare-and-swap, so two browser tabs cannot claim the same
@@ -28,10 +30,20 @@ export async function POST() {
 
       const contractNumber = String(settings.nextContractNumber)
       const attestationNumber = String(settings.nextAttestationNumber)
-      const alreadyUsed = await prisma.certificate.findFirst({
-        where: { OR: [{ contractNumber }, { attestationNumber }] },
-        select: { id: true },
+      const certificates = await prisma.certificate.findMany({
+        select: { contractNumber: true, attestationNumber: true },
       })
+      let roster: Awaited<ReturnType<typeof findStudentsByCertificateNumbers>>
+      try {
+        roster = await findStudentsByCertificateNumbers({ contractNumber, attestationNumber })
+      } catch (error) {
+        console.error('[next-number] roster lookup failed', error)
+        return NextResponse.json(
+          { error: 'Could not check these certificate numbers against the school roster. Try again.' },
+          { status: 503 },
+        )
+      }
+      const alreadyUsed = numberAlreadyIssued({ contractNumber, attestationNumber, certificates, roster })
 
       const claimed = await prisma.certificateSettings.updateMany({
         where: {
