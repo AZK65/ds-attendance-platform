@@ -166,11 +166,19 @@ export async function GET(request: NextRequest) {
     for (const signature of bookletSignatures) {
       if (signature.scheduledStart) fallbackStartByEvent[signature.eventId] = signature.scheduledStart
     }
+    const attendanceIds = [...new Set(bookings.map(booking => String(booking.id)))]
+    const presentAttendance = attendanceIds.length
+      ? await prisma.classAttendance.findMany({
+        where: { eventId: { in: attendanceIds }, present: true },
+        select: { eventId: true },
+      })
+      : []
     practicalRows = practicalRowsForBooklet({
       bookings,
       studentSignatures: studentUnits,
       instructorSignatures: instructorUnits,
       fallbackStartByEvent,
+      presentEventIds: presentAttendance.map(row => row.eventId),
     })
     for (const membership of memberships) {
       const progress = await getTheoryProgress(membership.groupId, phone).catch(() => null)
